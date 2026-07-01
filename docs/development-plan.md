@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | Phase 0 - 本地数据闭环骨架 | 已完成 | 代码骨架、核心模型、crawler 基础、AI 边界、评分、聚类、日报、CLI、测试、Docker 配置均已落地 | 进入真实源抓取验证 |
 | Phase 1 - 真实采集与质量闭环 | 进行中 | 已联网检查，当前 7/11 个 source 可抓取；真实 raw 可进入 fake AI 日报闭环 | 修正 Anthropic/DeepMind/Reddit ML/机器之心失败源，并继续人工检查日报质量 |
-| Phase 2 - OpenAI 接入与真实 AI 评分 | 未开始 | 需要 `.env` 中配置 `OPENAI_API_KEY` | 小批量运行真实 AI pipeline |
+| Phase 2 - OpenAI 接入、AI 总结与真实评分 | 未开始 | 需要 `.env` 中配置 `OPENAI_API_KEY`；Phase 0 已打通 fake AI 总结字段链路 | 小批量运行真实 AI pipeline，验证中文总结质量 |
 | Phase 3 - PostgreSQL + pgvector 持久化 | 受阻 | 当前机器没有 Docker，无法验证 Postgres/Redis/pgvector | 安装 Docker Desktop 后验证 compose |
 | Phase 4 - API 与日报服务化 | 部分完成 | API payload helper 和最小 route 已完成，依赖安装后可启动 FastAPI | 安装依赖并启动 API |
 | Phase 5 - 任务调度与稳定性 | 未开始 | Celery/Redis/scheduler 尚未接入 | 等数据库持久化完成后启动 |
@@ -30,6 +30,7 @@
 - [x] 已完成：URL/title 标准化和 hash 去重基础。
 - [x] 已完成：RSS、HN、GitHub crawler 基础。
 - [x] 已完成：AI provider 边界、fake provider、OpenAI 调用边界。
+- [x] 已完成：fake AI 总结字段链路，覆盖中文标题、一句话摘要、核心摘要、推荐理由和下一步动作。
 - [x] 已完成：评分公式、阈值和精选判断。
 - [x] 已完成：事件聚类基础和主条选择。
 - [x] 已完成：Markdown/JSON 日报生成。
@@ -46,7 +47,7 @@
 - [x] 已完成：GitHub Trending parser 不再误抓 `/trending/...` 伪 repo。
 - [x] 已完成：HN 关键词边界过滤，不再把 `Aims` 这类子串误当作 `AI`。
 - [x] 已完成：真实抓取结果跑通 fake AI pipeline。
-- [x] 已完成：22 个单元测试全部通过。
+- [x] 已完成：23 个单元测试全部通过。
 
 ## 1. 项目目标
 
@@ -54,7 +55,7 @@ Suversal AI Radar 第一版不是资讯站外壳，而是一个可持续运行�
 
 - 从官方源、社区源、论文源、GitHub、Reddit 和中文媒体采集 AI 相关内容。
 - 统一成 `RawArticle`，做 URL/title 去重和来源分级。
-- 用 AI 做预筛、六维评分、中文摘要和推荐理由。
+- 用 AI 做预筛、中文总结、六维评分、推荐理由和下一步行动建议。
 - 用代码公式决定精选，避免完全依赖模型判断。
 - 用 embedding/pgvector 聚合同一事件，减少重复报道。
 - 每天生成少而精的 Markdown 日报和 JSON 数据，后续供 API、前端、RSS 和 MCP 使用。
@@ -77,7 +78,7 @@ python3 scripts/run_crawl_once.py --limit 30 --output data/crawl_checks/2026-07-
 python3 scripts/run_pipeline_once.py --raw data/crawl_checks/2026-07-01-hn-quality-crawl.json --output-dir data/crawl_checks/hn-quality-pipeline --limit 100 --top-n 12 --fake-ai --date 2026-07-01
 ```
 
-当前测试结果：22 个测试通过。
+当前测试结果：23 个测试通过。
 
 ## 3. 当前已完成范围
 
@@ -117,7 +118,8 @@ python3 scripts/run_pipeline_once.py --raw data/crawl_checks/2026-07-01-hn-quali
 
 - [x] 实现 AI provider 边界。
   - 文件：`apps/api/app/services/ai_service.py`。
-  - 已完成：`FakeAIProvider`、OpenAI embeddings/chat 调用边界、预筛 JSON 解析、评分 JSON 解析、分数 clamp。
+  - 已完成：`FakeAIProvider`、OpenAI embeddings/chat 调用边界、预筛 JSON 解析、评分/总结 JSON 解析、分数 clamp。
+  - AI 总结字段：`title_zh`、`one_line_summary`、`summary_zh`、`reason_zh`、`action_zh`。
   - 验收：fake provider 与 JSON 解析测试通过。
 
 - [x] 实现评分公式。
@@ -271,9 +273,15 @@ python3 scripts/run_pipeline_once.py --limit 100 --fake-ai --date 2026-07-01
     - 来源是否可信。
     - 是否有重复事件未聚合。
 
-## 6. Phase 2 - OpenAI 接入与真实 AI 评分
+## 6. Phase 2 - OpenAI 接入、AI 总结与真实评分
 
-目标：使用真实 OpenAI API 替换 fake provider，验证预筛、评分、摘要和 embedding 的真实质量。
+目标：使用真实 OpenAI API 替换 fake provider，验证预筛、AI 中文总结、推荐理由、六维评分和 embedding 的真实质量。
+
+当前说明：
+
+- Phase 0 已经打通 AI 总结字段的端到端链路，但使用的是 `FakeAIProvider`，只适合本地干跑和测试。
+- 真实的“AI 总结功能”从 Phase 2 开始验收：每条精选事件由 OpenAI 生成中文标题、一句话摘要、核心摘要、推荐理由和下一步动作。
+- 日报 Markdown 当前展示中文标题、一句话摘要、核心总结、推荐理由和下一步动作；JSON 同时保留 `summary` 核心摘要，供后续 API/前端复用。
 
 - [ ] 配置 `.env`。
   - 文件：从 `.env.example` 复制为 `.env`。
@@ -292,6 +300,19 @@ OPENAI_API_KEY=<key> python3 scripts/run_pipeline_once.py --limit 20 --date 2026
     - 评分 JSON 能稳定解析。
     - embedding 返回向量。
     - 日报中文内容明显优于 fake provider。
+
+- [ ] 验收 AI 总结质量。
+  - 涉及文件：`apps/api/app/services/ai_service.py`、`apps/api/app/pipeline/runner.py`、`apps/api/app/services/daily_report_service.py`。
+  - 每条精选事件必须包含：
+    - `title_zh`：中文标题，不机械翻译。
+    - `one_line_summary`：一句话摘要，说明发生了什么。
+    - `summary_zh`：核心摘要，保留关键事实和上下文。
+    - `reason_zh`：为什么值得看，必须是判断型理由。
+    - `action_zh`：下一步可行动作。
+  - 验收：
+    - Markdown 日报展示标题、一句话摘要、核心总结、推荐理由和下一步动作。
+    - JSON 日报保留完整 `summary/reason/action` 字段。
+    - 抽查 Top 8-12 条没有明显机器翻译腔、空泛套话或事实缺失。
 
 - [ ] 增加 AI 调用成本统计。
   - 建议文件：`apps/api/app/services/ai_service.py`、`apps/api/app/pipeline/runner.py`。

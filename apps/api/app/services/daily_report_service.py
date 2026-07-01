@@ -108,6 +108,7 @@ def render_daily_markdown(
                     f"### {index}. {item['title']} ({item['final_score']:.1f})",
                     "",
                     f"- 摘要：{item['one_line_summary']}",
+                    f"- 核心总结：{item['summary']}",
                     f"- 为什么重要：{item['reason']}",
                     f"- 下一步：{item['action']}",
                     (
@@ -120,4 +121,3 @@ def render_daily_markdown(
                 ]
             )
     return "\n".join(lines).strip() + "\n"
-

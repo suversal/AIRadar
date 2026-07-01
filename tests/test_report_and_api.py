@@ -85,6 +85,19 @@ class ReportAndAPITests(unittest.TestCase):
         self.assertIn("下一步", markdown)
         self.assertIn("OpenAI Blog", markdown)
 
+    def test_render_daily_markdown_includes_ai_core_summary(self):
+        self.processed.summary_zh = "核心总结保留模型能力、适用对象和关键上下文。"
+
+        markdown = render_daily_markdown(
+            report_date=date(2026, 7, 1),
+            clusters=[self.cluster],
+            processed_by_article={"a1": self.processed},
+            articles_by_id={"a1": self.article},
+            sources_by_id={"openai_blog": self.source},
+        )
+
+        self.assertIn("- 核心总结：核心总结保留模型能力、适用对象和关键上下文。", markdown)
+
     def test_daily_json_and_public_payloads_match_contract(self):
         daily_json = build_daily_json(
             report_date=date(2026, 7, 1),
@@ -103,4 +116,3 @@ class ReportAndAPITests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
