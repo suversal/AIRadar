@@ -7,6 +7,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
 from app.crawlers.base import normalize_article
 from app.crawlers.github import parse_github_trending
+from app.crawlers.hn import parse_hn_hits
 from app.crawlers.rss import parse_rss
 from app.models.domain import Source
 
@@ -188,6 +189,53 @@ class CrawlerTests(unittest.TestCase):
             "huggingface/llm-course",
         ])
         self.assertNotIn("GitHub Trending: trending / developers", [article.title for article in articles])
+
+    def test_parse_hn_hits_filters_ai_as_word_and_limits_after_filtering(self):
+        source = Source(
+            id="hacker_news",
+            name="Hacker News",
+            source_role="signal",
+            tier="T2",
+            type="hn",
+            category="community",
+            url="https://hn.algolia.com/api/v1/search_by_date?query=AI&tags=story",
+            homepage="https://news.ycombinator.com",
+            allowed_domains=["news.ycombinator.com", "hn.algolia.com"],
+            affects_heat_score=True,
+            can_be_main_source=True,
+            config={"query_terms": ["ai", "llm", "openai"]},
+        )
+        hits = [
+            {
+                "objectID": "1",
+                "title": "Taiwan Aims To Go Bilingual by 2030",
+                "url": "https://example.com/aims",
+                "author": "user1",
+                "created_at": "2026-07-01T10:00:00Z",
+            },
+            {
+                "objectID": "2",
+                "title": "Modern AI foundations videos",
+                "url": "https://example.com/modern-ai",
+                "author": "user2",
+                "created_at": "2026-07-01T11:00:00Z",
+            },
+            {
+                "objectID": "3",
+                "title": "OpenAI releases an agent benchmark",
+                "url": "https://example.com/openai-agent",
+                "author": "user3",
+                "created_at": "2026-07-01T12:00:00Z",
+            },
+        ]
+
+        articles = parse_hn_hits(hits, source, limit=2)
+
+        self.assertEqual(
+            [article.title for article in articles],
+            ["Modern AI foundations videos", "OpenAI releases an agent benchmark"],
+        )
+        self.assertEqual([article.metadata["hn_object_id"] for article in articles], ["2", "3"])
 
 
 if __name__ == "__main__":

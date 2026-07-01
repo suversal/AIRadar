@@ -9,7 +9,7 @@
 | 阶段 | 状态 | 当前结论 | 下一步 |
 | --- | --- | --- | --- |
 | Phase 0 - 本地数据闭环骨架 | 已完成 | 代码骨架、核心模型、crawler 基础、AI 边界、评分、聚类、日报、CLI、测试、Docker 配置均已落地 | 进入真实源抓取验证 |
-| Phase 1 - 真实采集与质量闭环 | 进行中 | 已联网检查，当前 6/11 个 source 可抓取；真实 raw 可进入 fake AI 日报闭环 | 修正 Anthropic/DeepMind/HF/Reddit ML/机器之心失败源，并提升 HN 相关性 |
+| Phase 1 - 真实采集与质量闭环 | 进行中 | 已联网检查，当前 7/11 个 source 可抓取；真实 raw 可进入 fake AI 日报闭环 | 修正 Anthropic/DeepMind/Reddit ML/机器之心失败源，并继续人工检查日报质量 |
 | Phase 2 - OpenAI 接入与真实 AI 评分 | 未开始 | 需要 `.env` 中配置 `OPENAI_API_KEY` | 小批量运行真实 AI pipeline |
 | Phase 3 - PostgreSQL + pgvector 持久化 | 受阻 | 当前机器没有 Docker，无法验证 Postgres/Redis/pgvector | 安装 Docker Desktop 后验证 compose |
 | Phase 4 - API 与日报服务化 | 部分完成 | API payload helper 和最小 route 已完成，依赖安装后可启动 FastAPI | 安装依赖并启动 API |
@@ -44,8 +44,9 @@
 - [x] 已完成：真实 crawl pass 逐源报告。
 - [x] 已完成：arXiv/Reddit Atom 日期、作者、链接解析兼容。
 - [x] 已完成：GitHub Trending parser 不再误抓 `/trending/...` 伪 repo。
+- [x] 已完成：HN 关键词边界过滤，不再把 `Aims` 这类子串误当作 `AI`。
 - [x] 已完成：真实抓取结果跑通 fake AI pipeline。
-- [x] 已完成：21 个单元测试全部通过。
+- [x] 已完成：22 个单元测试全部通过。
 
 ## 1. 项目目标
 
@@ -72,11 +73,11 @@ python3 -m unittest discover -s tests -v
 PYTHONPYCACHEPREFIX=/private/tmp/hotai_pycache python3 -m compileall apps scripts
 python3 scripts/seed_sources.py --output data/sources.json
 python3 scripts/run_pipeline_once.py --limit 100 --fake-ai --date 2026-07-01
-python3 scripts/run_crawl_once.py --limit 30 --output data/crawl_checks/2026-07-01-phase1-crawl.json --report data/crawl_checks/2026-07-01-phase1-crawl-report.json
-python3 scripts/run_pipeline_once.py --raw data/crawl_checks/2026-07-01-phase1-crawl.json --output-dir data/crawl_checks/phase1-pipeline --limit 100 --top-n 12 --fake-ai --date 2026-07-01
+python3 scripts/run_crawl_once.py --limit 30 --output data/crawl_checks/2026-07-01-hn-quality-crawl.json --report data/crawl_checks/2026-07-01-hn-quality-crawl-report.json
+python3 scripts/run_pipeline_once.py --raw data/crawl_checks/2026-07-01-hn-quality-crawl.json --output-dir data/crawl_checks/hn-quality-pipeline --limit 100 --top-n 12 --fake-ai --date 2026-07-01
 ```
 
-当前测试结果：21 个测试通过。
+当前测试结果：22 个测试通过。
 
 ## 3. 当前已完成范围
 
@@ -186,17 +187,18 @@ python3 scripts/build_daily_report.py --date 2026-07-01 --format markdown
 检查命令：
 
 ```bash
-python3 scripts/run_crawl_once.py --limit 30 --output data/crawl_checks/2026-07-01-real-crawl-check.json
+python3 scripts/run_crawl_once.py --limit 30 --output data/crawl_checks/2026-07-01-hn-quality-crawl.json --report data/crawl_checks/2026-07-01-hn-quality-crawl-report.json
 ```
 
-输出文件：`data/crawl_checks/2026-07-01-real-crawl-check.json`。
+输出文件：`data/crawl_checks/2026-07-01-hn-quality-crawl.json`。
 
-结论：当前数据源获取不是全部正常，但比第一轮有明显改善。联网环境下抓到 12 条真实文章，来自 6 个 source；5 个 source 失败。
+结论：当前数据源获取不是全部正常，但比第一轮有明显改善。联网环境下抓到 14 条真实文章，来自 7 个 source；4 个 source 失败。
 
 成功 source：
 
 - [x] `openai_blog`：成功抓取 2 条。
-- [x] `hacker_news`：成功抓取 2 条。
+- [x] `huggingface_blog`：成功抓取 2 条。
+- [x] `hacker_news`：成功抓取 2 条，已增加关键词边界过滤，本轮未再出现 `Aims/Taiwan` 误匹配。
 - [x] `arxiv_ai`：成功抓取 2 条，已修复 Atom ISO 日期和作者解析。
 - [x] `github_trending_ai`：成功抓取 2 条，已修复 `/trending/...` 伪 repo 误识别。
 - [x] `reddit_localllama`：成功抓取 2 条，已修复 Atom alternate link 和作者解析。
@@ -206,7 +208,6 @@ python3 scripts/run_crawl_once.py --limit 30 --output data/crawl_checks/2026-07-
 
 - [!] `anthropic_news`：HTTP 404，当前候选 RSS URL 未找到可用版本，可能需要改 HTML/站点地图采集。
 - [!] `deepmind_blog`：HTTP 404，当前 URL 失效，需要修正。
-- [!] `huggingface_blog`：本轮出现 SSL EOF，前一轮可抓，暂按网络/服务端波动记录。
 - [!] `reddit_machinelearning`：HTTP 429，被 Reddit 限流，需要降频、加 User-Agent 或改用 RSS/API 策略。
 - [!] `jiqizhixin`：XML `mismatched tag`，该 feed 不是标准 XML 或内容不干净，需要容错解析或替换源。
 
@@ -216,7 +217,7 @@ python3 scripts/run_crawl_once.py --limit 30 --output data/crawl_checks/2026-07-
 2. 为 Anthropic 增加 HTML/站点地图采集降级。
 3. 对 Reddit MachineLearning 增加限流退避或降频策略。
 4. 对机器之心增加 XML 容错或替换成可用 RSS/HTML 源。
-5. 提升 HN 查询相关性，避免 `AI` 子串误收如 `Aims` 这类非 AI 内容。
+5. 人工检查真实日报质量，继续压低 Reddit/HN 低价值内容比例。
 
 ## 5. Phase 1 - 真实采集与质量闭环
 
@@ -234,13 +235,13 @@ python3 scripts/run_crawl_once.py --limit 100
   - 验收：
     - `data/raw_articles.json` 或指定 `--output` 文件生成真实文章。
     - 单个 source 失败只输出 `SKIPPED <source_id>`，不阻塞其他 source。
-    - 至少 5 个 source 有有效输出。本轮验证：6 个 source 有有效输出。
+    - 至少 5 个 source 有有效输出。本轮验证：7 个 source 有有效输出。
 
 - [!] 调整真实源可用性。
   - 重点检查：OpenAI RSS、Anthropic RSS、DeepMind RSS、Hugging Face RSS、Reddit RSS、机器之心 RSS、量子位 RSS。
   - 验收：
-    - 已完成：OpenAI、arXiv、GitHub Trending、Reddit LocalLLaMA、QbitAI、HN 可抓。
-    - 未完成：Anthropic、DeepMind、Hugging Face 本轮失败、Reddit MachineLearning 限流、机器之心 XML 异常。
+    - 已完成：OpenAI、Hugging Face、arXiv、GitHub Trending、Reddit LocalLLaMA、QbitAI、HN 可抓。
+    - 未完成：Anthropic、DeepMind、Reddit MachineLearning 限流、机器之心 XML 异常。
     - 反爬或不可用源保留但标记为 skipped/degraded。
 
 - [x] 增强 crawler 失败记录。
@@ -258,9 +259,9 @@ python3 scripts/run_pipeline_once.py --limit 100 --fake-ai --date 2026-07-01
 ```
 
   - 验收：
-    - 日报生成成功。本轮验证：12 条真实 raw，10 条 selected，10 个 clusters。
+    - 日报生成成功。本轮验证：14 条真实 raw，12 条 selected，12 个 clusters。
     - 非 AI 内容能被过滤。本轮 fake provider 过滤 2 条。
-    - 结果中没有大量重复标题或明显非 AI 内容。本轮发现 HN 仍有误收，需要后续调参。
+    - 结果中没有大量重复标题或明显非 AI 内容。HN `Aims/Taiwan` 误收已通过关键词边界过滤修复；Reddit/HN 低价值内容仍需人工检查和后续调参。
 
 - [!] 人工检查首批真实日报质量。
   - 检查点：
