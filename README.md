@@ -20,12 +20,13 @@ Not in this milestone: full frontend, admin UI, Telegram push, MCP server.
 ```bash
 python3 -m unittest discover -s tests -v
 python3 scripts/seed_sources.py
-python3 scripts/run_crawl_once.py --limit 100
+python3 scripts/run_crawl_once.py --limit 100 --report data/crawl_report.json
 python3 scripts/run_pipeline_once.py --limit 100 --fake-ai
 python3 scripts/build_daily_report.py --date 2026-07-01 --format markdown
 ```
 
-Generated files are written under `data/`, which is ignored by git.
+Generated articles, reports, and crawl diagnostics are written under `data/`,
+which is ignored by git.
 
 ## Docker Runtime
 
@@ -54,4 +55,3 @@ Optional:
 
 The scripts automatically use `FakeAIProvider` when no OpenAI key is present or
 when `--fake-ai` is passed.
-

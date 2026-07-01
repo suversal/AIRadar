@@ -5,6 +5,7 @@ import re
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+from urllib.request import Request
 
 from app.crawlers.base import BaseCrawler, clean_text, normalize_article
 from app.models.domain import RawArticle, Source
@@ -19,23 +20,38 @@ def strip_html(value: str | None) -> str:
 def parse_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
-    parsed = email.utils.parsedate_to_datetime(value)
+    raw_value = value.strip()
+    try:
+        parsed = email.utils.parsedate_to_datetime(raw_value)
+    except (TypeError, ValueError, IndexError):
+        parsed = None
+    if parsed is None:
+        try:
+            parsed = datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
     if parsed is None:
         return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed
+    return parsed.astimezone(timezone.utc)
 
 
 def _child_text(element: ET.Element, names: list[str]) -> str:
     for name in names:
         child = element.find(name)
-        if child is not None and child.text:
-            return child.text
-    for child in list(element):
-        local_name = child.tag.split("}")[-1]
-        if local_name in names and child.text:
-            return child.text
+        if child is not None:
+            text = clean_text(" ".join(child.itertext()))
+            if text:
+                return text
+    for name in names:
+        for child in list(element):
+            local_name = child.tag.split("}")[-1]
+            if local_name != name:
+                continue
+            text = clean_text(" ".join(child.itertext()))
+            if text:
+                return text
     return ""
 
 
@@ -43,12 +59,32 @@ def _entry_link(element: ET.Element) -> str:
     direct = _child_text(element, ["link"])
     if direct:
         return direct
+    first_href = ""
     for child in list(element):
         local_name = child.tag.split("}")[-1]
         if local_name == "link":
             href = child.attrib.get("href")
-            if href:
+            rel = child.attrib.get("rel", "alternate")
+            if href and rel == "alternate":
                 return href
+            if href:
+                first_href = first_href or href
+    return first_href
+
+
+def _entry_author(element: ET.Element) -> str:
+    creator = _child_text(element, ["creator"])
+    if creator:
+        return creator
+    for child in list(element):
+        if child.tag.split("}")[-1] != "author":
+            continue
+        name = _child_text(child, ["name"])
+        if name:
+            return name
+        text = clean_text(" ".join(child.itertext()))
+        if text:
+            return text
     return ""
 
 
@@ -66,7 +102,7 @@ def parse_rss(xml_text: str, source: Source, limit: int | None = None) -> list[R
             _child_text(entry, ["description", "summary", "content"])
             or _child_text(entry, ["encoded"])
         )
-        author = _child_text(entry, ["author", "creator"])
+        author = _entry_author(entry)
         published = _child_text(entry, ["pubDate", "published", "updated"])
         if not title or not link:
             continue
@@ -88,7 +124,13 @@ def parse_rss(xml_text: str, source: Source, limit: int | None = None) -> list[R
 
 class RSSCrawler(BaseCrawler):
     def fetch(self, limit: int | None = None) -> list[RawArticle]:
-        with urllib.request.urlopen(self.source.url, timeout=20) as response:
+        request = Request(
+            self.source.url,
+            headers={
+                "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+                "User-Agent": "SuversalAIRadar/0.1 (+https://github.com/suversal/HotAI)",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=20) as response:
             xml_text = response.read().decode("utf-8", errors="replace")
         return parse_rss(xml_text, self.source, limit=limit)
-

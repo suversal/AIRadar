@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
 from app.crawlers.base import normalize_article
+from app.crawlers.github import parse_github_trending
 from app.crawlers.rss import parse_rss
 from app.models.domain import Source
 
@@ -76,7 +77,118 @@ class CrawlerTests(unittest.TestCase):
         self.assertEqual(articles[0].title, "AI system ships")
         self.assertEqual(articles[0].source_url, "https://example.com/ai-system")
 
+    def test_parse_atom_handles_iso_dates_nested_author_and_href_links(self):
+        source = Source(
+            id="arxiv_ai",
+            name="arXiv AI",
+            source_role="authority",
+            tier="T1_5",
+            type="arxiv",
+            category="research",
+            url="https://export.arxiv.org/api/query",
+            homepage="https://arxiv.org",
+            allowed_domains=["arxiv.org"],
+            can_be_main_source=True,
+        )
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+        <feed xmlns="http://www.w3.org/2005/Atom">
+          <entry>
+            <id>http://arxiv.org/abs/2607.00001v1</id>
+            <updated>2026-07-01T08:00:00Z</updated>
+            <published>2026-07-01T07:30:00Z</published>
+            <title>Agentic AI Benchmark</title>
+            <summary>We introduce a benchmark for AI agents.</summary>
+            <author><name>Researcher One</name></author>
+            <link href="http://arxiv.org/abs/2607.00001v1" rel="alternate" type="text/html"/>
+          </entry>
+        </feed>
+        """
+
+        articles = parse_rss(xml, source)
+
+        self.assertEqual(len(articles), 1)
+        self.assertEqual(articles[0].source_url, "http://arxiv.org/abs/2607.00001v1")
+        self.assertEqual(articles[0].author, "Researcher One")
+        self.assertEqual(
+            articles[0].published_at,
+            datetime(2026, 7, 1, 7, 30, tzinfo=timezone.utc),
+        )
+
+    def test_parse_atom_prefers_alternate_reddit_link(self):
+        source = Source(
+            id="reddit_localllama",
+            name="Reddit r/LocalLLaMA",
+            source_role="signal",
+            tier="T2",
+            type="rss",
+            category="community",
+            url="https://www.reddit.com/r/LocalLLaMA/.rss",
+            homepage="https://www.reddit.com/r/LocalLLaMA/",
+            allowed_domains=["reddit.com"],
+            can_be_main_source=True,
+        )
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+        <feed xmlns="http://www.w3.org/2005/Atom">
+          <entry>
+            <title>New local LLM release</title>
+            <updated>2026-07-01T09:00:00+00:00</updated>
+            <author><name>/u/modelbuilder</name></author>
+            <link rel="replies" href="https://www.reddit.com/r/LocalLLaMA/comments/x/.rss"/>
+            <link rel="alternate" href="https://www.reddit.com/r/LocalLLaMA/comments/x/new_local_llm_release/"/>
+            <content type="html">&lt;p&gt;Release notes&lt;/p&gt;</content>
+          </entry>
+        </feed>
+        """
+
+        articles = parse_rss(xml, source)
+
+        self.assertEqual(len(articles), 1)
+        self.assertEqual(
+            articles[0].source_url,
+            "https://www.reddit.com/r/LocalLLaMA/comments/x/new_local_llm_release",
+        )
+        self.assertEqual(articles[0].author, "/u/modelbuilder")
+
+    def test_parse_github_trending_ignores_navigation_paths(self):
+        source = Source(
+            id="github_trending_ai",
+            name="GitHub Trending AI",
+            source_role="signal",
+            tier="T2",
+            type="github",
+            category="community",
+            url="https://github.com/trending?since=daily",
+            homepage="https://github.com/trending",
+            allowed_domains=["github.com"],
+            affects_heat_score=True,
+            can_be_main_source=True,
+            config={"query_terms": ["ai", "llm", "agent", "machine-learning"]},
+        )
+        html = """
+        <a href="/trending/developers">Developers</a>
+        <a href="/topics/ai">AI topic</a>
+        <article class="Box-row">
+          <h2><a href="/openai/agent-kit">openai / agent-kit</a></h2>
+          <p>Tools for AI agents.</p>
+        </article>
+        <article class="Box-row">
+          <h2><a href="/encode/httpx">encode / httpx</a></h2>
+          <p>HTTP client.</p>
+        </article>
+        <article class="Box-row">
+          <h2><a href="/huggingface/llm-course">huggingface / llm-course</a></h2>
+          <p>LLM learning materials.</p>
+        </article>
+        """
+
+        articles = parse_github_trending(html, source, limit=10)
+
+        self.assertEqual([article.metadata["repo"] for article in articles], [
+            "openai/agent-kit",
+            "huggingface/llm-course",
+        ])
+        self.assertNotIn("GitHub Trending: trending / developers", [article.title for article in articles])
+
 
 if __name__ == "__main__":
     unittest.main()
-

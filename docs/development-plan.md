@@ -2,14 +2,14 @@
 
 最后更新：2026-07-01  
 当前分支：`codex/ai-radar-data-loop`  
-当前阶段：Phase 0 已完成，Phase 1 准备启动
+当前阶段：Phase 0 已完成，Phase 1 真实采集闭环进行中
 
 ## 0. 总进度看板
 
 | 阶段 | 状态 | 当前结论 | 下一步 |
 | --- | --- | --- | --- |
 | Phase 0 - 本地数据闭环骨架 | 已完成 | 代码骨架、核心模型、crawler 基础、AI 边界、评分、聚类、日报、CLI、测试、Docker 配置均已落地 | 进入真实源抓取验证 |
-| Phase 1 - 真实采集与质量闭环 | 进行中 | 已联网检查，当前 4/11 个 source 可抓取，7/11 个 source 失败或需修复 | 修正无效 URL、反爬限流和 parser 问题 |
+| Phase 1 - 真实采集与质量闭环 | 进行中 | 已联网检查，当前 6/11 个 source 可抓取；真实 raw 可进入 fake AI 日报闭环 | 修正 Anthropic/DeepMind/HF/Reddit ML/机器之心失败源，并提升 HN 相关性 |
 | Phase 2 - OpenAI 接入与真实 AI 评分 | 未开始 | 需要 `.env` 中配置 `OPENAI_API_KEY` | 小批量运行真实 AI pipeline |
 | Phase 3 - PostgreSQL + pgvector 持久化 | 受阻 | 当前机器没有 Docker，无法验证 Postgres/Redis/pgvector | 安装 Docker Desktop 后验证 compose |
 | Phase 4 - API 与日报服务化 | 部分完成 | API payload helper 和最小 route 已完成，依赖安装后可启动 FastAPI | 安装依赖并启动 API |
@@ -41,7 +41,11 @@
 - [x] 已完成：README、实施说明和本开发计划书。
 - [x] 已完成：本地 fake raw fixture。
 - [x] 已完成：本地样例日报生成，当前样例为 12 条精选。
-- [x] 已完成：17 个单元测试全部通过。
+- [x] 已完成：真实 crawl pass 逐源报告。
+- [x] 已完成：arXiv/Reddit Atom 日期、作者、链接解析兼容。
+- [x] 已完成：GitHub Trending parser 不再误抓 `/trending/...` 伪 repo。
+- [x] 已完成：真实抓取结果跑通 fake AI pipeline。
+- [x] 已完成：21 个单元测试全部通过。
 
 ## 1. 项目目标
 
@@ -68,9 +72,11 @@ python3 -m unittest discover -s tests -v
 PYTHONPYCACHEPREFIX=/private/tmp/hotai_pycache python3 -m compileall apps scripts
 python3 scripts/seed_sources.py --output data/sources.json
 python3 scripts/run_pipeline_once.py --limit 100 --fake-ai --date 2026-07-01
+python3 scripts/run_crawl_once.py --limit 30 --output data/crawl_checks/2026-07-01-phase1-crawl.json --report data/crawl_checks/2026-07-01-phase1-crawl-report.json
+python3 scripts/run_pipeline_once.py --raw data/crawl_checks/2026-07-01-phase1-crawl.json --output-dir data/crawl_checks/phase1-pipeline --limit 100 --top-n 12 --fake-ai --date 2026-07-01
 ```
 
-当前测试结果：17 个测试通过。
+当前测试结果：21 个测试通过。
 
 ## 3. 当前已完成范围
 
@@ -185,38 +191,38 @@ python3 scripts/run_crawl_once.py --limit 30 --output data/crawl_checks/2026-07-
 
 输出文件：`data/crawl_checks/2026-07-01-real-crawl-check.json`。
 
-结论：当前数据源获取不是全部正常。联网环境下抓到 8 条真实文章，来自 4 个 source；7 个 source 失败。
+结论：当前数据源获取不是全部正常，但比第一轮有明显改善。联网环境下抓到 12 条真实文章，来自 6 个 source；5 个 source 失败。
 
 成功 source：
 
-- [x] `huggingface_blog`：成功抓取 2 条。
+- [x] `openai_blog`：成功抓取 2 条。
 - [x] `hacker_news`：成功抓取 2 条。
-- [x] `github_trending_ai`：成功抓取 2 条，但结果质量异常，当前 parser 把 `/trending/...` 路径误识别成 repo，需要修。
+- [x] `arxiv_ai`：成功抓取 2 条，已修复 Atom ISO 日期和作者解析。
+- [x] `github_trending_ai`：成功抓取 2 条，已修复 `/trending/...` 伪 repo 误识别。
+- [x] `reddit_localllama`：成功抓取 2 条，已修复 Atom alternate link 和作者解析。
 - [x] `qbitai`：成功抓取 2 条。
 
 失败 source：
 
-- [!] `openai_blog`：HTTP 403，可能需要更新 RSS URL、User-Agent 或改用官网页面/API。
-- [!] `anthropic_news`：HTTP 403，可能需要更新 RSS URL、User-Agent 或改用官网页面/API。
+- [!] `anthropic_news`：HTTP 404，当前候选 RSS URL 未找到可用版本，可能需要改 HTML/站点地图采集。
 - [!] `deepmind_blog`：HTTP 404，当前 URL 失效，需要修正。
-- [!] `arxiv_ai`：parser 报 `cannot unpack non-iterable NoneType object`，需要实现 arXiv Atom 专用解析。
-- [!] `reddit_localllama`：parser 报 `cannot unpack non-iterable NoneType object`，需要修 RSS/Atom 解析兼容。
+- [!] `huggingface_blog`：本轮出现 SSL EOF，前一轮可抓，暂按网络/服务端波动记录。
 - [!] `reddit_machinelearning`：HTTP 429，被 Reddit 限流，需要降频、加 User-Agent 或改用 RSS/API 策略。
 - [!] `jiqizhixin`：XML `mismatched tag`，该 feed 不是标准 XML 或内容不干净，需要容错解析或替换源。
 
 下一步修复顺序：
 
-1. 修 `github_trending_ai` parser，避免误抓 `/trending/...` 伪 repo。
-2. 为 arXiv 和 Reddit Atom 增加专用解析测试和实现。
-3. 修正 DeepMind URL。
-4. 给 OpenAI/Anthropic 增加 User-Agent 或替换为可用官方源。
-5. 对机器之心增加 XML 容错或替换成可用 RSS/HTML 源。
+1. 修正 DeepMind URL 或改 HTML 采集。
+2. 为 Anthropic 增加 HTML/站点地图采集降级。
+3. 对 Reddit MachineLearning 增加限流退避或降频策略。
+4. 对机器之心增加 XML 容错或替换成可用 RSS/HTML 源。
+5. 提升 HN 查询相关性，避免 `AI` 子串误收如 `Aims` 这类非 AI 内容。
 
 ## 5. Phase 1 - 真实采集与质量闭环
 
 目标：从 fake fixture 过渡到真实公开信源，仍然使用 JSON 文件作为本地持久化，先验证采集稳定性和日报质量。
 
-- [ ] 真实运行 RSS/公开 API 抓取。
+- [x] 真实运行 RSS/公开 API 抓取。
   - 涉及文件：`scripts/run_crawl_once.py`、`apps/api/app/crawlers/*`。
   - 命令：
 
@@ -226,23 +232,25 @@ python3 scripts/run_crawl_once.py --limit 100
 ```
 
   - 验收：
-    - `data/raw_articles.json` 生成真实文章。
+    - `data/raw_articles.json` 或指定 `--output` 文件生成真实文章。
     - 单个 source 失败只输出 `SKIPPED <source_id>`，不阻塞其他 source。
-    - 至少 5 个 source 有有效输出。
+    - 至少 5 个 source 有有效输出。本轮验证：6 个 source 有有效输出。
 
-- [ ] 调整真实源可用性。
+- [!] 调整真实源可用性。
   - 重点检查：OpenAI RSS、Anthropic RSS、DeepMind RSS、Hugging Face RSS、Reddit RSS、机器之心 RSS、量子位 RSS。
   - 验收：
-    - 无效 URL 要替换为真实可用 URL。
+    - 已完成：OpenAI、arXiv、GitHub Trending、Reddit LocalLLaMA、QbitAI、HN 可抓。
+    - 未完成：Anthropic、DeepMind、Hugging Face 本轮失败、Reddit MachineLearning 限流、机器之心 XML 异常。
     - 反爬或不可用源保留但标记为 skipped/degraded。
 
-- [ ] 增强 crawler 失败记录。
+- [x] 增强 crawler 失败记录。
   - 建议文件：`apps/api/app/crawlers/registry.py`、`scripts/run_crawl_once.py`。
   - 验收：
     - 输出每个 source 的成功数、失败原因和耗时。
     - 失败原因可进入 `data/crawl_report.json`。
+    - 本轮已新增 `--report`，报告包含 `per_source`、`duration_ms`、`error`、`skipped_reasons`。
 
-- [ ] 真实数据跑 fake AI pipeline。
+- [x] 真实数据跑 fake AI pipeline。
   - 命令：
 
 ```bash
@@ -250,11 +258,11 @@ python3 scripts/run_pipeline_once.py --limit 100 --fake-ai --date 2026-07-01
 ```
 
   - 验收：
-    - 日报生成成功。
-    - 非 AI 内容能被过滤。
-    - 结果中没有大量重复标题或明显非 AI 内容。
+    - 日报生成成功。本轮验证：12 条真实 raw，10 条 selected，10 个 clusters。
+    - 非 AI 内容能被过滤。本轮 fake provider 过滤 2 条。
+    - 结果中没有大量重复标题或明显非 AI 内容。本轮发现 HN 仍有误收，需要后续调参。
 
-- [ ] 人工检查首批真实日报质量。
+- [!] 人工检查首批真实日报质量。
   - 检查点：
     - 精选是否值得看。
     - 中文标题/摘要是否可读。

@@ -3,50 +3,43 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
-from app.crawlers.registry import crawler_for_source
+from app.crawlers.run import crawl_sources
 from app.data.default_sources import default_sources
-from app.storage.json_store import load_sources, save_articles, save_sources
+from app.storage.json_store import load_sources, save_articles, save_sources, write_json
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run one crawl pass and save raw articles.")
     parser.add_argument("--sources", default="data/sources.json")
     parser.add_argument("--output", default="data/raw_articles.json")
+    parser.add_argument("--report", default="data/crawl_report.json")
     parser.add_argument("--limit", type=int, default=100)
     args = parser.parse_args()
 
     sources_path = ROOT / args.sources
     if not sources_path.exists():
         save_sources(sources_path, default_sources())
-    sources = [source for source in load_sources(sources_path) if source.is_active]
-
-    articles = []
-    skipped = Counter()
-    per_source_limit = max(1, args.limit // max(1, len(sources)))
-    for source in sources:
-        try:
-            fetched = crawler_for_source(source).fetch(limit=per_source_limit)
-        except Exception as exc:  # keep one source failure from blocking the full pass
-            skipped[f"{source.id}:fetch_failed"] += 1
-            print(f"SKIPPED {source.id}: {exc}")
-            continue
-        articles.extend(fetched)
-        if len(articles) >= args.limit:
-            articles = articles[: args.limit]
-            break
+    sources = load_sources(sources_path)
+    articles, report = crawl_sources(sources, limit=args.limit)
 
     output = ROOT / args.output
     save_articles(output, articles)
-    print(f"Crawled {len(articles)} articles to {output}; skipped={dict(skipped)}")
+    report_path = ROOT / args.report
+    write_json(report_path, report)
+    for source_id, source_report in report["per_source"].items():
+        if source_report["status"] == "skipped":
+            print(f"SKIPPED {source_id}: {source_report['error']}")
+    print(
+        f"Crawled {len(articles)} articles to {output}; "
+        f"report={report_path}; skipped={report['skipped_reasons']}"
+    )
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
