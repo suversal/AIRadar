@@ -2,7 +2,7 @@
 
 最后更新：2026-07-02  
 当前分支：`codex/ai-radar-data-loop`  
-当前阶段：Phase 0 已完成，Phase 1 真实采集闭环进行中，Phase 3 数据库运行环境已启动验证
+当前阶段：Phase 0 已完成，Phase 1 真实采集闭环进行中，Phase 3 持久化基础进行中
 
 ## 0. 总进度看板
 
@@ -11,7 +11,7 @@
 | Phase 0 - 本地数据闭环骨架 | 已完成 | 代码骨架、核心模型、crawler 基础、AI 边界、评分、聚类、日报、CLI、测试、Docker 配置均已落地 | 进入真实源抓取验证 |
 | Phase 1 - 真实采集与质量闭环 | 进行中 | 已联网检查，当前 7/11 个 source 可抓取；真实 raw 可进入 fake AI 日报闭环 | 修正 Anthropic/DeepMind/Reddit ML/机器之心失败源，并继续人工检查日报质量 |
 | Phase 2 - OpenAI 接入、AI 总结与真实评分 | 未开始 | 需要 `.env` 中配置 `OPENAI_API_KEY`；Phase 0 已打通 fake AI 总结字段链路 | 小批量运行真实 AI pipeline，验证中文总结质量 |
-| Phase 3 - PostgreSQL + pgvector 持久化 | 进行中 | Docker 已安装；Postgres/Redis healthy；pgvector 和 8 张初始化表已验证 | 实现 SQLAlchemy session/repository，并把 pipeline 写入数据库 |
+| Phase 3 - PostgreSQL + pgvector 持久化 | 进行中 | Docker 已安装；Postgres/Redis healthy；SQLAlchemy session/repository 初版已完成 | 把 pipeline 结果写入数据库，并接入 API 查询 |
 | Phase 4 - API 与日报服务化 | 部分完成 | API payload helper 和最小 route 已完成，依赖安装后可启动 FastAPI | 安装依赖并启动 API |
 | Phase 5 - 任务调度与稳定性 | 未开始 | Celery/Redis/scheduler 尚未接入 | 等数据库持久化完成后启动 |
 | Phase 6 - 前端 MVP | 未开始 | 数据质量稳定前暂缓 | 等 7 天日报质量观察后启动 |
@@ -42,6 +42,7 @@
 - [x] 已完成：Docker Desktop/Compose 本机验证。
 - [x] 已完成：Postgres + pgvector + Redis 基础服务启动验证。
 - [x] 已完成：数据库健康检查脚本 `scripts/check_db_once.py`。
+- [x] 已完成：SQLAlchemy session helper 和 repository 初版。
 - [x] 已完成：README、实施说明和本开发计划书。
 - [x] 已完成：本地 fake raw fixture。
 - [x] 已完成：本地样例日报生成，当前样例为 12 条精选。
@@ -50,7 +51,7 @@
 - [x] 已完成：GitHub Trending parser 不再误抓 `/trending/...` 伪 repo。
 - [x] 已完成：HN 关键词边界过滤，不再把 `Aims` 这类子串误当作 `AI`。
 - [x] 已完成：真实抓取结果跑通 fake AI pipeline。
-- [x] 已完成：26 个单元测试全部通过。
+- [x] 已完成：29 个单元测试全部通过。
 
 ## 1. 项目目标
 
@@ -83,9 +84,10 @@ docker --version
 docker compose version
 docker compose -f infra/docker-compose.yml up -d postgres redis
 python3 scripts/check_db_once.py
+.venv/bin/python -m unittest discover -s tests -v
 ```
 
-当前测试结果：26 个测试通过。
+当前测试结果：29 个测试通过。
 
 ## 3. 当前已完成范围
 
@@ -393,12 +395,32 @@ docker compose -f infra/docker-compose.yml up --build api
     - `GET /health` 返回 `{"status":"ok"}`。
   - 说明：基础数据库层已验证，API 容器构建会拉取 Python 依赖，作为 Phase 4 服务化启动项单独验收。
 
-- [ ] 实现 SQLAlchemy session 和 repository。
-  - 建议文件：`apps/api/app/db/session.py`、`apps/api/app/repositories/*`。
+- [x] 实现 SQLAlchemy session 和 repository 初版。
+  - 文件：`apps/api/app/db/session.py`、`apps/api/app/repositories/radar_repository.py`。
   - 验收：
     - sources 可写入数据库。
     - raw_articles 可写入数据库并按 url_hash 去重。
     - daily_reports 可写入数据库并被 API 读取。
+  - 本轮结果：
+    - `upsert_sources` 支持按 source id 新增/更新。
+    - `upsert_raw_articles` 支持按 `url_hash` 去重写入。
+    - `upsert_daily_report` 支持按 `report_date` 新增/更新。
+    - `get_daily_report_payload` 和 `get_latest_daily_report_payload` 可返回 Public API 需要的 JSON payload。
+    - ORM 模型已补 `DailyReportModel`，并修正 Python 3.9 下 SQLAlchemy 注解兼容性。
+  - 验证：
+
+```bash
+.venv/bin/python -m unittest tests.test_repositories -v
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+- [ ] 将 pipeline 结果写入数据库 repository。
+  - 建议文件：`apps/api/app/pipeline/runner.py`、`scripts/run_pipeline_once.py`。
+  - 验收：
+    - `PipelineResult.raw_articles` 可写入 `raw_articles`。
+    - `PipelineResult.daily_report` 可写入 `daily_reports`。
+    - CLI 支持选择 JSON 输出或 DB 输出。
+    - 单次 pipeline 重跑不会重复插入相同 URL。
 
 - [ ] 完成数据库迁移策略。
   - 当前已有：`infra/postgres/init.sql`。
@@ -584,9 +606,11 @@ PYTHONPATH=apps/api uvicorn app.main:app --reload
 
 ### 中优先级
 
-- [ ] 安装 Docker Desktop。
-- [ ] 验证 Postgres + pgvector + Redis + API compose。
-- [ ] 把 JSON 存储切到数据库 repository。
+- [x] 安装 Docker Desktop。
+- [x] 验证 Postgres + pgvector + Redis 基础服务。
+- [x] 建立 SQLAlchemy session/repository 初版。
+- [ ] 验证 API compose。
+- [ ] 把 pipeline 写入切到数据库 repository。
 
 ### 暂缓
 
@@ -595,41 +619,35 @@ PYTHONPATH=apps/api uvicorn app.main:app --reload
 - [ ] Telegram 推送。
 - [ ] MCP Server。
 
-## 14. Docker 安装时机
+## 14. Docker 当前状态
 
-现在不安装 Docker 也可以继续开发：
+Docker Desktop 已安装，当前已经用于：
 
-- 领域模型。
-- crawler。
-- fake/OpenAI provider。
-- 评分。
-- 聚类。
-- 日报生成。
-- CLI。
-- 单元测试。
+- 验证 `infra/docker-compose.yml` 的 `postgres` 和 `redis` 服务。
+- 运行 PostgreSQL + pgvector。
+- 运行 Redis。
+- 验证 `scripts/check_db_once.py`。
 
-需要安装 Docker 的时间点：
+仍待完成：
 
-- 要验证 `infra/docker-compose.yml`。
-- 要运行 PostgreSQL + pgvector。
-- 要运行 Redis/Celery。
-- 要验证 API 容器。
-- 要做数据库持久化和 pgvector 相似查询。
+- API 容器构建与 `/health` 验证。
+- Celery worker。
+- pgvector 相似查询。
 
-建议：完成 Phase 1 真实采集和 Phase 2 小批量 OpenAI 验证后，再安装 Docker 进入 Phase 3。
+当前限制：`docker compose -f infra/docker-compose.yml build api` 两次失败在 Docker Hub `python:3.12-slim` 元数据认证请求，错误为 connection reset；这属于外部网络问题，非代码编译失败。本轮已改用项目 `.venv` 安装 `requirements.txt` 完成 SQLAlchemy 测试。
 
 ## 15. 每次开发后的固定验收命令
 
 基础测试：
 
 ```bash
-python3 -m unittest discover -s tests -v
+.venv/bin/python -m unittest discover -s tests -v
 ```
 
 语法编译：
 
 ```bash
-PYTHONPYCACHEPREFIX=/private/tmp/hotai_pycache python3 -m compileall apps scripts
+PYTHONPYCACHEPREFIX=/private/tmp/hotai_pycache .venv/bin/python -m compileall apps scripts
 ```
 
 本地 fake pipeline：

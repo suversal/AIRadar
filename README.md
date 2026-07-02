@@ -17,8 +17,16 @@ Not in this milestone: full frontend, admin UI, Telegram push, MCP server.
 
 ## Local Commands
 
+Create a local virtualenv when you want to run dependency-backed tests such as
+SQLAlchemy repository tests:
+
 ```bash
-python3 -m unittest discover -s tests -v
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+```
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
 python3 scripts/seed_sources.py
 python3 scripts/run_crawl_once.py --limit 100 --report data/crawl_report.json
 python3 scripts/run_pipeline_once.py --limit 100 --fake-ai

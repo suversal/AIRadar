@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from datetime import date, datetime
+from typing import Optional
+
 try:
     from sqlalchemy import (
         JSON,
         Boolean,
+        Date,
         DateTime,
         Float,
         ForeignKey,
@@ -41,8 +45,8 @@ class SourceModel(Base):
     affects_heat_score: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     config_json: Mapped[dict] = mapped_column(JSON, default=dict)
-    last_crawled_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True))
-    last_success_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True))
+    last_crawled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_success_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     success_rate: Mapped[float] = mapped_column(Float, default=0.0)
     error_count: Mapped[int] = mapped_column(Integer, default=0)
 
@@ -55,15 +59,31 @@ class RawArticleModel(Base):
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     content: Mapped[str] = mapped_column(Text, default="")
-    author: Mapped[str | None] = mapped_column(String)
+    author: Mapped[Optional[str]] = mapped_column(String)
     language: Mapped[str] = mapped_column(String, default="en")
-    published_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False)
-    crawled_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    crawled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     title_hash: Mapped[str] = mapped_column(String, nullable=False, index=True)
     url_hash: Mapped[str] = mapped_column(String, nullable=False, index=True)
     raw_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String, default="raw")
-    skipped_reason: Mapped[str | None] = mapped_column(String)
-    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    skipped_reason: Mapped[Optional[str]] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+
+class DailyReportModel(Base):
+    __tablename__ = "daily_reports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    report_date: Mapped[date] = mapped_column(Date, unique=True, nullable=False, index=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    sections: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    article_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    markdown: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String, nullable=False, default="generated")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
