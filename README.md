@@ -32,6 +32,7 @@ python3 scripts/run_crawl_once.py --limit 100 --report data/crawl_report.json
 python3 scripts/run_pipeline_once.py --limit 100 --fake-ai
 python3 scripts/build_daily_report.py --date 2026-07-01 --format markdown
 python3 scripts/check_db_once.py
+.venv/bin/python scripts/check_api_once.py --base-url http://127.0.0.1:8000 --date 2026-07-02
 ```
 
 Generated articles, reports, and crawl diagnostics are written under `data/`,
@@ -63,6 +64,8 @@ For host-side API smoke checks against Docker Postgres, set:
 
 ```bash
 DATABASE_URL=postgresql+psycopg://radar:radar@localhost:5432/radar
+PYTHONPATH=apps/api .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+.venv/bin/python scripts/check_api_once.py --base-url http://127.0.0.1:8000 --date 2026-07-02
 ```
 
 The API exposes:

@@ -2,7 +2,7 @@
 
 最后更新：2026-07-02  
 当前分支：`codex/ai-radar-data-loop`  
-当前阶段：Phase 0 已完成，Phase 1 真实采集闭环进行中，Phase 3 持久化基础进行中
+当前阶段：Phase 0 已完成，Phase 1 真实采集闭环进行中，Phase 4 API 服务化进行中
 
 ## 0. 总进度看板
 
@@ -12,7 +12,7 @@
 | Phase 1 - 真实采集与质量闭环 | 进行中 | 已联网检查，当前 7/11 个 source 可抓取；真实 raw 可进入 fake AI 日报闭环 | 修正 Anthropic/DeepMind/Reddit ML/机器之心失败源，并继续人工检查日报质量 |
 | Phase 2 - OpenAI 接入、AI 总结与真实评分 | 未开始 | 需要 `.env` 中配置 `OPENAI_API_KEY`；Phase 0 已打通 fake AI 总结字段链路 | 小批量运行真实 AI pipeline，验证中文总结质量 |
 | Phase 3 - PostgreSQL + pgvector 持久化 | 进行中 | Docker 已安装；Postgres/Redis healthy；pipeline CLI 已写库；FastAPI public endpoints 已可读数据库 | 补 Alembic 迁移和 pgvector 相似查询 |
-| Phase 4 - API 与日报服务化 | 进行中 | `/api/public/latest` 和 `/api/public/daily/{date}` 已支持 repository/DB 读取 | 启动 API 服务并做 HTTP smoke 验证 |
+| Phase 4 - API 与日报服务化 | 进行中 | 本地 FastAPI 服务已启动并通过 HTTP smoke；latest/daily 从 DB 读到 12 条日报 | 进入 Phase6 前端 MVP 骨架 |
 | Phase 5 - 任务调度与稳定性 | 未开始 | Celery/Redis/scheduler 尚未接入 | 等数据库持久化完成后启动 |
 | Phase 6 - 前端 MVP | 未开始 | 数据质量稳定前暂缓 | 等 7 天日报质量观察后启动 |
 | Phase 7 - RSS/Public API/MCP | 未开始 | RSS/Public API 完整版和 MCP 暂缓 | 等 API 和数据质量稳定后启动 |
@@ -47,6 +47,7 @@
 - [x] 已完成：`run_pipeline_once.py --persist-db` 写入 PostgreSQL。
 - [x] 已完成：Public API repository payload helper。
 - [x] 已完成：FastAPI public endpoints 接入 repository/DB 查询。
+- [x] 已完成：API HTTP smoke 检查脚本和本地服务验证。
 - [x] 已完成：README、实施说明和本开发计划书。
 - [x] 已完成：本地 fake raw fixture。
 - [x] 已完成：本地样例日报生成，当前样例为 12 条精选。
@@ -55,7 +56,7 @@
 - [x] 已完成：GitHub Trending parser 不再误抓 `/trending/...` 伪 repo。
 - [x] 已完成：HN 关键词边界过滤，不再把 `Aims` 这类子串误当作 `AI`。
 - [x] 已完成：真实抓取结果跑通 fake AI pipeline。
-- [x] 已完成：37 个单元测试全部通过。
+- [x] 已完成：39 个单元测试全部通过。
 
 ## 1. 项目目标
 
@@ -90,9 +91,10 @@ docker compose -f infra/docker-compose.yml up -d postgres redis
 python3 scripts/check_db_once.py
 .venv/bin/python -m unittest discover -s tests -v
 .venv/bin/python scripts/run_pipeline_once.py --limit 20 --top-n 12 --fake-ai --persist-db --database-url postgresql+psycopg://radar:radar@localhost:5432/radar --date 2026-07-02
+.venv/bin/python scripts/check_api_once.py --base-url http://127.0.0.1:8000 --date 2026-07-02
 ```
 
-当前测试结果：37 个测试通过。
+当前测试结果：39 个测试通过。
 
 ## 3. 当前已完成范围
 
@@ -510,7 +512,7 @@ env DATABASE_URL=postgresql+psycopg://radar:radar@localhost:5432/radar PYTHONPAT
   - 文件：`apps/api/app/main.py`。
   - 路由：`/health`、`/api/public/latest`、`/api/public/daily/{date}`。
 
-- [ ] 安装依赖并本地启动 API。
+- [x] 安装依赖并本地启动 API。
   - 命令：
 
 ```bash
@@ -523,10 +525,26 @@ PYTHONPATH=apps/api uvicorn app.main:app --reload
   - 验收：
     - `http://127.0.0.1:8000/health` 返回 ok。
     - `http://127.0.0.1:8000/api/public/latest` 返回日报 items。
+  - 本轮结果：
+    - 使用 `DATABASE_URL=postgresql+psycopg://radar:radar@localhost:5432/radar` 启动 host 侧 FastAPI。
+    - `scripts/check_api_once.py` 验证 `/health`、`/api/public/latest`、`/api/public/daily/2026-07-02`。
+    - HTTP smoke 输出：`health: status ok`，`latest: 12 latest items`，`daily: 12 daily items`。
 
-- [ ] API 改为读数据库。
-  - 当前：读取 `data/reports/*.json`。
-  - 下一步：从 `daily_reports`、`event_clusters`、`processed_articles`、`raw_articles` 查询。
+- [x] 增加 API HTTP smoke 检查脚本。
+  - 文件：`apps/api/app/api/smoke.py`、`scripts/check_api_once.py`。
+  - 验收：
+    - 检查 `/health`。
+    - 检查 `/api/public/latest` 至少返回一条 item。
+    - 检查 `/api/public/daily/{date}` 返回目标日期。
+  - 验证：
+
+```bash
+.venv/bin/python -m unittest tests.test_api_smoke -v
+.venv/bin/python scripts/check_api_once.py --base-url http://127.0.0.1:8000 --date 2026-07-02
+```
+
+- [x] API 改为优先读数据库。
+  - 当前：存在 `DATABASE_URL` 时从 `daily_reports` 查询；无 `DATABASE_URL` 时保留 `data/reports/*.json` fallback。
   - 验收：
     - API 返回结构与当前测试契约一致。
 
@@ -673,8 +691,9 @@ PYTHONPATH=apps/api uvicorn app.main:app --reload
 - [x] 把 pipeline CLI 写入接到数据库 repository。
 - [x] 建立 Public API repository payload helper。
 - [x] 把 FastAPI endpoint 查询接到数据库 repository。
+- [x] 启动 API 服务并做 HTTP smoke 验证。
 - [ ] 验证 API compose。
-- [ ] 启动 API 服务并做 HTTP smoke 验证。
+- [ ] 创建 `apps/web` 前端 MVP 骨架。
 
 ### 暂缓
 
