@@ -23,6 +23,7 @@ python3 scripts/seed_sources.py
 python3 scripts/run_crawl_once.py --limit 100 --report data/crawl_report.json
 python3 scripts/run_pipeline_once.py --limit 100 --fake-ai
 python3 scripts/build_daily_report.py --date 2026-07-01 --format markdown
+python3 scripts/check_db_once.py
 ```
 
 Generated articles, reports, and crawl diagnostics are written under `data/`,
@@ -34,7 +35,14 @@ Install Docker Desktop first, then:
 
 ```bash
 cp .env.example .env
-docker compose -f infra/docker-compose.yml up --build
+docker compose -f infra/docker-compose.yml up -d postgres redis
+python3 scripts/check_db_once.py
+```
+
+To build and run the API container after the base database stack is healthy:
+
+```bash
+docker compose -f infra/docker-compose.yml up --build api
 ```
 
 The API exposes:

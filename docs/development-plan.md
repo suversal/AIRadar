@@ -1,8 +1,8 @@
 # Suversal AI Radar 完整开发计划书
 
-最后更新：2026-07-01  
+最后更新：2026-07-02  
 当前分支：`codex/ai-radar-data-loop`  
-当前阶段：Phase 0 已完成，Phase 1 真实采集闭环进行中
+当前阶段：Phase 0 已完成，Phase 1 真实采集闭环进行中，Phase 3 数据库运行环境已启动验证
 
 ## 0. 总进度看板
 
@@ -11,7 +11,7 @@
 | Phase 0 - 本地数据闭环骨架 | 已完成 | 代码骨架、核心模型、crawler 基础、AI 边界、评分、聚类、日报、CLI、测试、Docker 配置均已落地 | 进入真实源抓取验证 |
 | Phase 1 - 真实采集与质量闭环 | 进行中 | 已联网检查，当前 7/11 个 source 可抓取；真实 raw 可进入 fake AI 日报闭环 | 修正 Anthropic/DeepMind/Reddit ML/机器之心失败源，并继续人工检查日报质量 |
 | Phase 2 - OpenAI 接入、AI 总结与真实评分 | 未开始 | 需要 `.env` 中配置 `OPENAI_API_KEY`；Phase 0 已打通 fake AI 总结字段链路 | 小批量运行真实 AI pipeline，验证中文总结质量 |
-| Phase 3 - PostgreSQL + pgvector 持久化 | 受阻 | 当前机器没有 Docker，无法验证 Postgres/Redis/pgvector | 安装 Docker Desktop 后验证 compose |
+| Phase 3 - PostgreSQL + pgvector 持久化 | 进行中 | Docker 已安装；Postgres/Redis healthy；pgvector 和 8 张初始化表已验证 | 实现 SQLAlchemy session/repository，并把 pipeline 写入数据库 |
 | Phase 4 - API 与日报服务化 | 部分完成 | API payload helper 和最小 route 已完成，依赖安装后可启动 FastAPI | 安装依赖并启动 API |
 | Phase 5 - 任务调度与稳定性 | 未开始 | Celery/Redis/scheduler 尚未接入 | 等数据库持久化完成后启动 |
 | Phase 6 - 前端 MVP | 未开始 | 数据质量稳定前暂缓 | 等 7 天日报质量观察后启动 |
@@ -39,6 +39,9 @@
 - [x] 已完成：CLI 脚本。
 - [x] 已完成：最小 public API helper 和 route。
 - [x] 已完成：Docker/Postgres/Redis/pgvector 配置文件。
+- [x] 已完成：Docker Desktop/Compose 本机验证。
+- [x] 已完成：Postgres + pgvector + Redis 基础服务启动验证。
+- [x] 已完成：数据库健康检查脚本 `scripts/check_db_once.py`。
 - [x] 已完成：README、实施说明和本开发计划书。
 - [x] 已完成：本地 fake raw fixture。
 - [x] 已完成：本地样例日报生成，当前样例为 12 条精选。
@@ -47,7 +50,7 @@
 - [x] 已完成：GitHub Trending parser 不再误抓 `/trending/...` 伪 repo。
 - [x] 已完成：HN 关键词边界过滤，不再把 `Aims` 这类子串误当作 `AI`。
 - [x] 已完成：真实抓取结果跑通 fake AI pipeline。
-- [x] 已完成：23 个单元测试全部通过。
+- [x] 已完成：26 个单元测试全部通过。
 
 ## 1. 项目目标
 
@@ -76,9 +79,13 @@ python3 scripts/seed_sources.py --output data/sources.json
 python3 scripts/run_pipeline_once.py --limit 100 --fake-ai --date 2026-07-01
 python3 scripts/run_crawl_once.py --limit 30 --output data/crawl_checks/2026-07-01-hn-quality-crawl.json --report data/crawl_checks/2026-07-01-hn-quality-crawl-report.json
 python3 scripts/run_pipeline_once.py --raw data/crawl_checks/2026-07-01-hn-quality-crawl.json --output-dir data/crawl_checks/hn-quality-pipeline --limit 100 --top-n 12 --fake-ai --date 2026-07-01
+docker --version
+docker compose version
+docker compose -f infra/docker-compose.yml up -d postgres redis
+python3 scripts/check_db_once.py
 ```
 
-当前测试结果：23 个测试通过。
+当前测试结果：26 个测试通过。
 
 ## 3. 当前已完成范围
 
@@ -339,28 +346,52 @@ OPENAI_API_KEY=<key> python3 scripts/run_pipeline_once.py --limit 20 --date 2026
 
 目标：从 JSON 文件过渡到数据库，支持长期运行、去重、聚类、API 查询和后续后台管理。
 
-- [!] 安装 Docker Desktop。
-  - 当前状态：本机 `docker` 命令不存在。
-  - 什么时候需要：
+- [x] 安装并验证 Docker Desktop。
+  - 当前状态：本机 `docker` 和 `docker compose` 已可用。
+  - 已验证命令：
+
+```bash
+docker --version
+docker compose version
+```
+
+  - 为什么重要：
     - 验证 `infra/docker-compose.yml`。
     - 启动 PostgreSQL + pgvector。
     - 启动 Redis。
-    - 验证 FastAPI 容器。
-    - 后续接 Celery worker。
+    - 后续验证 FastAPI 容器和 Celery worker。
 
-- [ ] 验证 Docker Compose。
+- [x] 验证 Docker Compose 基础服务。
   - 命令：
 
 ```bash
 cp .env.example .env
-docker compose -f infra/docker-compose.yml up --build
+docker compose -f infra/docker-compose.yml up -d postgres redis
+python3 scripts/check_db_once.py
 ```
 
   - 验收：
     - Postgres healthcheck 通过。
     - Redis healthcheck 通过。
+    - `pg_extension` 中存在 `vector`。
+    - public schema 当前初始化表数为 8。
+    - Redis `PING` 返回 `PONG`。
+  - 本轮结果：
+    - `[OK] pgvector: vector extension available`
+    - `[OK] tables: 8 public tables available`
+    - `[OK] redis: PONG received`
+
+- [ ] 验证 API Docker service。
+  - 命令：
+
+```bash
+docker compose -f infra/docker-compose.yml up --build api
+```
+
+  - 验收：
     - API service 启动。
     - `GET /health` 返回 `{"status":"ok"}`。
+  - 说明：基础数据库层已验证，API 容器构建会拉取 Python 依赖，作为 Phase 4 服务化启动项单独验收。
 
 - [ ] 实现 SQLAlchemy session 和 repository。
   - 建议文件：`apps/api/app/db/session.py`、`apps/api/app/repositories/*`。
@@ -613,7 +644,14 @@ Docker 验证命令，需先安装 Docker：
 
 ```bash
 cp .env.example .env
-docker compose -f infra/docker-compose.yml up --build
+docker compose -f infra/docker-compose.yml up -d postgres redis
+python3 scripts/check_db_once.py
+```
+
+API 容器验证命令，数据库基础服务通过后执行：
+
+```bash
+docker compose -f infra/docker-compose.yml up --build api
 ```
 
 ## 16. 完成定义
