@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
 from app.data.default_sources import default_sources
+from app.pipeline.persistence import persist_pipeline_result_to_database
 from app.pipeline.runner import run_pipeline
 from app.services.ai_service import FakeAIProvider, OpenAIProvider
 from app.storage.json_store import (
@@ -23,6 +24,21 @@ from app.storage.json_store import (
     save_sources,
     write_json,
 )
+
+
+def persist_result_if_requested(
+    args: argparse.Namespace,
+    *,
+    sources,
+    result,
+    persister=persist_pipeline_result_to_database,
+):
+    if not args.persist_db:
+        return None
+    database_url = args.database_url or os.getenv("DATABASE_URL")
+    if not database_url:
+        raise ValueError("database url is required when --persist-db is enabled")
+    return persister(database_url, sources, result)
 
 
 def provider_from_env(fake_ai: bool):
@@ -45,6 +61,8 @@ def main() -> int:
     parser.add_argument("--top-n", type=int, default=12)
     parser.add_argument("--date", default=date.today().isoformat())
     parser.add_argument("--fake-ai", action="store_true")
+    parser.add_argument("--persist-db", action="store_true")
+    parser.add_argument("--database-url", default=os.getenv("DATABASE_URL"))
     args = parser.parse_args()
 
     sources_path = ROOT / args.sources
@@ -92,14 +110,23 @@ def main() -> int:
     reports_dir.mkdir(parents=True, exist_ok=True)
     (reports_dir / f"{args.date}.md").write_text(result.daily_report.markdown, encoding="utf-8")
     write_json(reports_dir / f"{args.date}.json", result.daily_report.json_data)
+    persistence_summary = persist_result_if_requested(args, sources=sources, result=result)
     print(
         "Processed "
         f"{len(result.raw_articles)} raw, {len(result.processed_articles)} selected, "
         f"{len(result.event_clusters)} clusters; skipped={result.skipped_reasons}"
     )
+    if persistence_summary is not None:
+        print(
+            "Persisted DB "
+            f"sources={persistence_summary.sources.inserted}+{persistence_summary.sources.updated}, "
+            f"raw_inserted={persistence_summary.raw_articles.inserted}, "
+            f"raw_skipped={persistence_summary.raw_articles.skipped}, "
+            f"daily_inserted={persistence_summary.daily_report.inserted}, "
+            f"daily_updated={persistence_summary.daily_report.updated}"
+        )
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

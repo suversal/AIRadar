@@ -47,6 +47,12 @@ docker compose -f infra/docker-compose.yml up -d postgres redis
 python3 scripts/check_db_once.py
 ```
 
+To persist one fake-AI pipeline run into the local Docker Postgres from the host:
+
+```bash
+.venv/bin/python scripts/run_pipeline_once.py --limit 20 --top-n 12 --fake-ai --persist-db --database-url postgresql+psycopg://radar:radar@localhost:5432/radar --date 2026-07-02
+```
+
 To build and run the API container after the base database stack is healthy:
 
 ```bash

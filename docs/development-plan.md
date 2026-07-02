@@ -11,7 +11,7 @@
 | Phase 0 - 本地数据闭环骨架 | 已完成 | 代码骨架、核心模型、crawler 基础、AI 边界、评分、聚类、日报、CLI、测试、Docker 配置均已落地 | 进入真实源抓取验证 |
 | Phase 1 - 真实采集与质量闭环 | 进行中 | 已联网检查，当前 7/11 个 source 可抓取；真实 raw 可进入 fake AI 日报闭环 | 修正 Anthropic/DeepMind/Reddit ML/机器之心失败源，并继续人工检查日报质量 |
 | Phase 2 - OpenAI 接入、AI 总结与真实评分 | 未开始 | 需要 `.env` 中配置 `OPENAI_API_KEY`；Phase 0 已打通 fake AI 总结字段链路 | 小批量运行真实 AI pipeline，验证中文总结质量 |
-| Phase 3 - PostgreSQL + pgvector 持久化 | 进行中 | Docker 已安装；Postgres/Redis healthy；SQLAlchemy repository 和 pipeline persistence helper 已完成 | 将 CLI 接入数据库输出，并接入 API 查询 |
+| Phase 3 - PostgreSQL + pgvector 持久化 | 进行中 | Docker 已安装；Postgres/Redis healthy；pipeline CLI 已可写入数据库并验证重跑去重 | 将 Public API 接入数据库查询 |
 | Phase 4 - API 与日报服务化 | 部分完成 | API payload helper 和最小 route 已完成，依赖安装后可启动 FastAPI | 安装依赖并启动 API |
 | Phase 5 - 任务调度与稳定性 | 未开始 | Celery/Redis/scheduler 尚未接入 | 等数据库持久化完成后启动 |
 | Phase 6 - 前端 MVP | 未开始 | 数据质量稳定前暂缓 | 等 7 天日报质量观察后启动 |
@@ -44,6 +44,7 @@
 - [x] 已完成：数据库健康检查脚本 `scripts/check_db_once.py`。
 - [x] 已完成：SQLAlchemy session helper 和 repository 初版。
 - [x] 已完成：pipeline persistence helper，可将 `PipelineResult` 写入 repository。
+- [x] 已完成：`run_pipeline_once.py --persist-db` 写入 PostgreSQL。
 - [x] 已完成：README、实施说明和本开发计划书。
 - [x] 已完成：本地 fake raw fixture。
 - [x] 已完成：本地样例日报生成，当前样例为 12 条精选。
@@ -52,7 +53,7 @@
 - [x] 已完成：GitHub Trending parser 不再误抓 `/trending/...` 伪 repo。
 - [x] 已完成：HN 关键词边界过滤，不再把 `Aims` 这类子串误当作 `AI`。
 - [x] 已完成：真实抓取结果跑通 fake AI pipeline。
-- [x] 已完成：30 个单元测试全部通过。
+- [x] 已完成：33 个单元测试全部通过。
 
 ## 1. 项目目标
 
@@ -86,9 +87,10 @@ docker compose version
 docker compose -f infra/docker-compose.yml up -d postgres redis
 python3 scripts/check_db_once.py
 .venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python scripts/run_pipeline_once.py --limit 20 --top-n 12 --fake-ai --persist-db --database-url postgresql+psycopg://radar:radar@localhost:5432/radar --date 2026-07-02
 ```
 
-当前测试结果：30 个测试通过。
+当前测试结果：33 个测试通过。
 
 ## 3. 当前已完成范围
 
@@ -170,7 +172,7 @@ python3 scripts/check_db_once.py
 - [x] 建立 Docker/Postgres/Redis 骨架。
   - 文件：`infra/docker-compose.yml`、`infra/Dockerfile.api`、`infra/postgres/init.sql`。
   - 包含：PostgreSQL + pgvector、Redis、API service、核心表结构。
-  - 验收：文件已生成；由于本机未安装 Docker，尚未做容器运行验证。
+  - 验收：Postgres + pgvector + Redis 已通过容器运行验证；API service 构建仍待 Docker Hub 网络恢复后验证。
 
 - [x] 建立基础文档。
   - 文件：`README.md`、`docs/implementation-notes.md`、本文件。
@@ -428,13 +430,33 @@ docker compose -f infra/docker-compose.yml up --build api
 .venv/bin/python -m unittest tests.test_pipeline_persistence -v
 ```
 
-- [ ] 将 pipeline CLI 接入数据库 repository。
-  - 建议文件：`scripts/run_pipeline_once.py`。
+- [x] 将 pipeline CLI 接入数据库 repository。
+  - 文件：`scripts/run_pipeline_once.py`。
   - 验收：
     - CLI 支持选择 JSON 输出或 DB 输出。
     - `PipelineResult.raw_articles` 可写入 `raw_articles`。
     - `PipelineResult.daily_report` 可写入 `daily_reports`。
     - 单次 pipeline 重跑不会重复插入相同 URL。
+  - 本轮结果：
+    - 新增 `--persist-db`。
+    - 新增 `--database-url`。
+    - host 侧写入 Docker Postgres 使用 `postgresql+psycopg://radar:radar@localhost:5432/radar`。
+    - 第一次运行：`sources=11+0`，`raw_inserted=13`，`daily_inserted=1`。
+    - 第二次同命令重跑：`sources=0+11`，`raw_inserted=0`，`raw_skipped=13`，`daily_updated=1`。
+    - 数据库确认：`sources=11`，`raw_articles=13`，最新 `daily_reports=2026-07-02|12|generated`。
+  - 验证：
+
+```bash
+.venv/bin/python -m unittest tests.test_run_pipeline_cli -v
+.venv/bin/python scripts/run_pipeline_once.py --limit 20 --top-n 12 --fake-ai --persist-db --database-url postgresql+psycopg://radar:radar@localhost:5432/radar --date 2026-07-02
+```
+
+- [ ] 将 Public API 接入数据库 repository。
+  - 建议文件：`apps/api/app/main.py`、`apps/api/app/api/public.py`。
+  - 验收：
+    - `/api/public/latest` 可从 `daily_reports` 读取最新日报。
+    - `/api/public/daily/{date}` 可按日期读取日报。
+    - 无数据时返回清晰的 empty/not found 响应。
 
 - [ ] 完成数据库迁移策略。
   - 当前已有：`infra/postgres/init.sql`。
@@ -623,8 +645,9 @@ PYTHONPATH=apps/api uvicorn app.main:app --reload
 - [x] 安装 Docker Desktop。
 - [x] 验证 Postgres + pgvector + Redis 基础服务。
 - [x] 建立 SQLAlchemy session/repository 初版。
+- [x] 把 pipeline CLI 写入接到数据库 repository。
 - [ ] 验证 API compose。
-- [ ] 把 pipeline 写入切到数据库 repository。
+- [ ] 把 Public API 查询接到数据库 repository。
 
 ### 暂缓
 
