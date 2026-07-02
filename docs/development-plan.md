@@ -11,8 +11,8 @@
 | Phase 0 - 本地数据闭环骨架 | 已完成 | 代码骨架、核心模型、crawler 基础、AI 边界、评分、聚类、日报、CLI、测试、Docker 配置均已落地 | 进入真实源抓取验证 |
 | Phase 1 - 真实采集与质量闭环 | 进行中 | 已联网检查，当前 7/11 个 source 可抓取；真实 raw 可进入 fake AI 日报闭环 | 修正 Anthropic/DeepMind/Reddit ML/机器之心失败源，并继续人工检查日报质量 |
 | Phase 2 - OpenAI 接入、AI 总结与真实评分 | 未开始 | 需要 `.env` 中配置 `OPENAI_API_KEY`；Phase 0 已打通 fake AI 总结字段链路 | 小批量运行真实 AI pipeline，验证中文总结质量 |
-| Phase 3 - PostgreSQL + pgvector 持久化 | 进行中 | Docker 已安装；Postgres/Redis healthy；pipeline CLI 已写库；Public API repository payload helper 已完成 | 将 FastAPI endpoint 接入数据库查询 |
-| Phase 4 - API 与日报服务化 | 部分完成 | API payload helper 和最小 route 已完成，依赖安装后可启动 FastAPI | 安装依赖并启动 API |
+| Phase 3 - PostgreSQL + pgvector 持久化 | 进行中 | Docker 已安装；Postgres/Redis healthy；pipeline CLI 已写库；FastAPI public endpoints 已可读数据库 | 补 Alembic 迁移和 pgvector 相似查询 |
+| Phase 4 - API 与日报服务化 | 进行中 | `/api/public/latest` 和 `/api/public/daily/{date}` 已支持 repository/DB 读取 | 启动 API 服务并做 HTTP smoke 验证 |
 | Phase 5 - 任务调度与稳定性 | 未开始 | Celery/Redis/scheduler 尚未接入 | 等数据库持久化完成后启动 |
 | Phase 6 - 前端 MVP | 未开始 | 数据质量稳定前暂缓 | 等 7 天日报质量观察后启动 |
 | Phase 7 - RSS/Public API/MCP | 未开始 | RSS/Public API 完整版和 MCP 暂缓 | 等 API 和数据质量稳定后启动 |
@@ -46,6 +46,7 @@
 - [x] 已完成：pipeline persistence helper，可将 `PipelineResult` 写入 repository。
 - [x] 已完成：`run_pipeline_once.py --persist-db` 写入 PostgreSQL。
 - [x] 已完成：Public API repository payload helper。
+- [x] 已完成：FastAPI public endpoints 接入 repository/DB 查询。
 - [x] 已完成：README、实施说明和本开发计划书。
 - [x] 已完成：本地 fake raw fixture。
 - [x] 已完成：本地样例日报生成，当前样例为 12 条精选。
@@ -54,7 +55,7 @@
 - [x] 已完成：GitHub Trending parser 不再误抓 `/trending/...` 伪 repo。
 - [x] 已完成：HN 关键词边界过滤，不再把 `Aims` 这类子串误当作 `AI`。
 - [x] 已完成：真实抓取结果跑通 fake AI pipeline。
-- [x] 已完成：35 个单元测试全部通过。
+- [x] 已完成：37 个单元测试全部通过。
 
 ## 1. 项目目标
 
@@ -91,7 +92,7 @@ python3 scripts/check_db_once.py
 .venv/bin/python scripts/run_pipeline_once.py --limit 20 --top-n 12 --fake-ai --persist-db --database-url postgresql+psycopg://radar:radar@localhost:5432/radar --date 2026-07-02
 ```
 
-当前测试结果：35 个测试通过。
+当前测试结果：37 个测试通过。
 
 ## 3. 当前已完成范围
 
@@ -464,12 +465,23 @@ docker compose -f infra/docker-compose.yml up --build api
 .venv/bin/python -m unittest tests.test_report_and_api -v
 ```
 
-- [ ] 将 FastAPI endpoint 接入数据库 repository。
-  - 建议文件：`apps/api/app/main.py`。
+- [x] 将 FastAPI endpoint 接入数据库 repository。
+  - 文件：`apps/api/app/main.py`。
   - 验收：
     - `/api/public/latest` 可从 `daily_reports` 读取最新日报。
     - `/api/public/daily/{date}` 可按日期读取日报。
     - 无数据时返回清晰 empty/not found 响应。
+  - 本轮结果：
+    - `create_app(report_repository_factory=...)` 支持测试注入 repository。
+    - 默认运行时若存在 `DATABASE_URL`，endpoint 会按请求打开 `RadarRepository` 读取数据库。
+    - 无 `DATABASE_URL` 时保留 JSON 文件 fallback。
+    - 真实 Docker Postgres 验证：`latest_items=12`，`daily_date=2026-07-02`，`daily_count=12`。
+  - 验证：
+
+```bash
+.venv/bin/python -m unittest tests.test_api_main -v
+env DATABASE_URL=postgresql+psycopg://radar:radar@localhost:5432/radar PYTHONPATH=apps/api .venv/bin/python -c "from app.main import create_app; from fastapi.testclient import TestClient; c=TestClient(create_app()); latest=c.get('/api/public/latest').json(); daily=c.get('/api/public/daily/2026-07-02').json(); print({'latest_items': len(latest['items']), 'daily_date': daily['report_date'], 'daily_count': daily['article_count']})"
+```
 
 - [ ] 完成数据库迁移策略。
   - 当前已有：`infra/postgres/init.sql`。
@@ -660,8 +672,9 @@ PYTHONPATH=apps/api uvicorn app.main:app --reload
 - [x] 建立 SQLAlchemy session/repository 初版。
 - [x] 把 pipeline CLI 写入接到数据库 repository。
 - [x] 建立 Public API repository payload helper。
+- [x] 把 FastAPI endpoint 查询接到数据库 repository。
 - [ ] 验证 API compose。
-- [ ] 把 FastAPI endpoint 查询接到数据库 repository。
+- [ ] 启动 API 服务并做 HTTP smoke 验证。
 
 ### 暂缓
 

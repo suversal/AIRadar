@@ -59,6 +59,12 @@ To build and run the API container after the base database stack is healthy:
 docker compose -f infra/docker-compose.yml up --build api
 ```
 
+For host-side API smoke checks against Docker Postgres, set:
+
+```bash
+DATABASE_URL=postgresql+psycopg://radar:radar@localhost:5432/radar
+```
+
 The API exposes:
 
 - `GET /health`
