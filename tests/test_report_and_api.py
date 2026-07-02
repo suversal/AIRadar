@@ -5,7 +5,12 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
-from app.api.public import build_daily_payload, build_latest_payload
+from app.api.public import (
+    build_daily_payload,
+    build_daily_payload_from_repository,
+    build_latest_payload,
+    build_latest_payload_from_repository,
+)
 from app.models.domain import EventCluster, ProcessedArticle, RawArticle, ScoreDimensions, Source
 from app.services.daily_report_service import build_daily_json, render_daily_markdown
 
@@ -112,6 +117,57 @@ class ReportAndAPITests(unittest.TestCase):
         self.assertEqual(latest["items"][0]["event_id"], "c1")
         self.assertEqual(latest["items"][0]["main_source"]["name"], "OpenAI Blog")
         self.assertEqual(daily["report_date"], "2026-07-01")
+
+    def test_public_payloads_can_be_loaded_from_repository(self):
+        repository = FakeDailyReportRepository(
+            {
+                date(2026, 7, 1): {
+                    "report_date": "2026-07-01",
+                    "title": "Suversal AI Radar 日报 - 2026-07-01",
+                    "summary": "精选 1 条 AI 情报。",
+                    "updated_at": "2026-07-01T09:00:00+00:00",
+                    "sections": {"model_release": []},
+                    "items": [{"event_id": "c1"}],
+                    "article_count": 1,
+                }
+            }
+        )
+
+        latest = build_latest_payload_from_repository(repository)
+        daily = build_daily_payload_from_repository(repository, date(2026, 7, 1))
+
+        self.assertEqual(latest["items"][0]["event_id"], "c1")
+        self.assertEqual(daily["report_date"], "2026-07-01")
+        self.assertEqual(repository.calls, ["latest", "daily:2026-07-01"])
+
+    def test_public_repository_payloads_return_empty_shape_when_missing(self):
+        repository = FakeDailyReportRepository({})
+
+        latest = build_latest_payload_from_repository(repository)
+        daily = build_daily_payload_from_repository(repository, date(2026, 7, 3))
+
+        self.assertEqual(latest["items"], [])
+        self.assertIsNone(latest["updated_at"])
+        self.assertEqual(daily["report_date"], "2026-07-03")
+        self.assertEqual(daily["article_count"], 0)
+        self.assertEqual(daily["items"], [])
+
+
+class FakeDailyReportRepository:
+    def __init__(self, payloads):
+        self.payloads = payloads
+        self.calls = []
+
+    def get_latest_daily_report_payload(self):
+        self.calls.append("latest")
+        if not self.payloads:
+            return None
+        latest_date = sorted(self.payloads)[-1]
+        return self.payloads[latest_date]
+
+    def get_daily_report_payload(self, report_date):
+        self.calls.append(f"daily:{report_date.isoformat()}")
+        return self.payloads.get(report_date)
 
 
 if __name__ == "__main__":
