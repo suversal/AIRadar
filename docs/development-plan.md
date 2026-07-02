@@ -11,7 +11,7 @@
 | Phase 0 - 本地数据闭环骨架 | 已完成 | 代码骨架、核心模型、crawler 基础、AI 边界、评分、聚类、日报、CLI、测试、Docker 配置均已落地 | 进入真实源抓取验证 |
 | Phase 1 - 真实采集与质量闭环 | 进行中 | 已联网检查，当前 7/11 个 source 可抓取；真实 raw 可进入 fake AI 日报闭环 | 修正 Anthropic/DeepMind/Reddit ML/机器之心失败源，并继续人工检查日报质量 |
 | Phase 2 - OpenAI 接入、AI 总结与真实评分 | 未开始 | 需要 `.env` 中配置 `OPENAI_API_KEY`；Phase 0 已打通 fake AI 总结字段链路 | 小批量运行真实 AI pipeline，验证中文总结质量 |
-| Phase 3 - PostgreSQL + pgvector 持久化 | 进行中 | Docker 已安装；Postgres/Redis healthy；SQLAlchemy session/repository 初版已完成 | 把 pipeline 结果写入数据库，并接入 API 查询 |
+| Phase 3 - PostgreSQL + pgvector 持久化 | 进行中 | Docker 已安装；Postgres/Redis healthy；SQLAlchemy repository 和 pipeline persistence helper 已完成 | 将 CLI 接入数据库输出，并接入 API 查询 |
 | Phase 4 - API 与日报服务化 | 部分完成 | API payload helper 和最小 route 已完成，依赖安装后可启动 FastAPI | 安装依赖并启动 API |
 | Phase 5 - 任务调度与稳定性 | 未开始 | Celery/Redis/scheduler 尚未接入 | 等数据库持久化完成后启动 |
 | Phase 6 - 前端 MVP | 未开始 | 数据质量稳定前暂缓 | 等 7 天日报质量观察后启动 |
@@ -43,6 +43,7 @@
 - [x] 已完成：Postgres + pgvector + Redis 基础服务启动验证。
 - [x] 已完成：数据库健康检查脚本 `scripts/check_db_once.py`。
 - [x] 已完成：SQLAlchemy session helper 和 repository 初版。
+- [x] 已完成：pipeline persistence helper，可将 `PipelineResult` 写入 repository。
 - [x] 已完成：README、实施说明和本开发计划书。
 - [x] 已完成：本地 fake raw fixture。
 - [x] 已完成：本地样例日报生成，当前样例为 12 条精选。
@@ -51,7 +52,7 @@
 - [x] 已完成：GitHub Trending parser 不再误抓 `/trending/...` 伪 repo。
 - [x] 已完成：HN 关键词边界过滤，不再把 `Aims` 这类子串误当作 `AI`。
 - [x] 已完成：真实抓取结果跑通 fake AI pipeline。
-- [x] 已完成：29 个单元测试全部通过。
+- [x] 已完成：30 个单元测试全部通过。
 
 ## 1. 项目目标
 
@@ -87,7 +88,7 @@ python3 scripts/check_db_once.py
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-当前测试结果：29 个测试通过。
+当前测试结果：30 个测试通过。
 
 ## 3. 当前已完成范围
 
@@ -414,12 +415,25 @@ docker compose -f infra/docker-compose.yml up --build api
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-- [ ] 将 pipeline 结果写入数据库 repository。
-  - 建议文件：`apps/api/app/pipeline/runner.py`、`scripts/run_pipeline_once.py`。
+- [x] 建立 pipeline 结果写入 repository 的 helper。
+  - 文件：`apps/api/app/pipeline/persistence.py`。
   - 验收：
+    - 先写 sources。
+    - 再写 `PipelineResult.raw_articles`。
+    - 最后写 `PipelineResult.daily_report`。
+    - 返回每一步 repository 写入统计。
+  - 验证：
+
+```bash
+.venv/bin/python -m unittest tests.test_pipeline_persistence -v
+```
+
+- [ ] 将 pipeline CLI 接入数据库 repository。
+  - 建议文件：`scripts/run_pipeline_once.py`。
+  - 验收：
+    - CLI 支持选择 JSON 输出或 DB 输出。
     - `PipelineResult.raw_articles` 可写入 `raw_articles`。
     - `PipelineResult.daily_report` 可写入 `daily_reports`。
-    - CLI 支持选择 JSON 输出或 DB 输出。
     - 单次 pipeline 重跑不会重复插入相同 URL。
 
 - [ ] 完成数据库迁移策略。
