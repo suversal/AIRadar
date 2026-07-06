@@ -46,6 +46,16 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("推荐理由", latest_page)
         self.assertIn("下一步", latest_page)
 
+    def test_latest_page_supports_category_filter_links(self):
+        latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("searchParams", latest_page)
+        self.assertIn("selectedCategory", latest_page)
+        self.assertIn("categoryOptions", latest_page)
+        self.assertIn("filteredItems", latest_page)
+        self.assertIn("?category=", latest_page)
+        self.assertIn("全部分类", latest_page)
+
     def test_global_css_uses_tailwind_v4_import(self):
         globals_css = (WEB / "app" / "globals.css").read_text(encoding="utf-8")
 

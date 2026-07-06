@@ -1,6 +1,6 @@
 # Suversal AI Radar 完整开发计划书
 
-最后更新：2026-07-02  
+最后更新：2026-07-06
 当前分支：`codex/ai-radar-data-loop`  
 当前阶段：Phase 0 已完成，Phase 1 真实采集闭环进行中，Phase 6 前端 MVP 骨架进行中
 
@@ -14,7 +14,7 @@
 | Phase 3 - PostgreSQL + pgvector 持久化 | 进行中 | Docker 已安装；Postgres/Redis healthy；pipeline CLI 已写库；FastAPI public endpoints 已可读数据库 | 补 Alembic 迁移和 pgvector 相似查询 |
 | Phase 4 - API 与日报服务化 | 进行中 | 本地 FastAPI 服务已启动并通过 HTTP smoke；latest/daily 从 DB 读到 12 条日报 | 等 API compose 网络问题恢复后补容器验证 |
 | Phase 5 - 任务调度与稳定性 | 未开始 | Celery/Redis/scheduler 尚未接入 | 等数据库持久化完成后启动 |
-| Phase 6 - 前端 MVP | 进行中 | `apps/web` Next.js + Tailwind 骨架和 `/latest` 页面已创建，build/dev HTTP 验证通过 | 为 `/latest` 增加分类筛选 |
+| Phase 6 - 前端 MVP | 进行中 | `apps/web` Next.js + Tailwind 骨架、`/latest` 页面和分类筛选已完成并通过 build/dev HTTP 验证 | 做浏览器截图级视觉验收并补日报页 |
 | Phase 7 - RSS/Public API/MCP | 未开始 | RSS/Public API 完整版和 MCP 暂缓 | 等 API 和数据质量稳定后启动 |
 | Phase 8 - 后台管理 | 未开始 | 后台暂缓，避免早期范围膨胀 | 等数据闭环稳定后启动 |
 
@@ -49,6 +49,7 @@
 - [x] 已完成：FastAPI public endpoints 接入 repository/DB 查询。
 - [x] 已完成：API HTTP smoke 检查脚本和本地服务验证。
 - [x] 已完成：Phase6 `apps/web` Next.js/Tailwind 骨架。
+- [x] 已完成：`/latest` 分类筛选。
 - [x] 已完成：README、实施说明和本开发计划书。
 - [x] 已完成：本地 fake raw fixture。
 - [x] 已完成：本地样例日报生成，当前样例为 12 条精选。
@@ -57,7 +58,7 @@
 - [x] 已完成：GitHub Trending parser 不再误抓 `/trending/...` 伪 repo。
 - [x] 已完成：HN 关键词边界过滤，不再把 `Aims` 这类子串误当作 `AI`。
 - [x] 已完成：真实抓取结果跑通 fake AI pipeline。
-- [x] 已完成：43 个单元测试全部通过。
+- [x] 已完成：44 个单元测试全部通过。
 
 ## 1. 项目目标
 
@@ -80,8 +81,8 @@ Suversal AI Radar 第一版不是资讯站外壳，而是一个可持续运行�
 当前已通过验证：
 
 ```bash
-python3 -m unittest discover -s tests -v
-PYTHONPYCACHEPREFIX=/private/tmp/hotai_pycache python3 -m compileall apps scripts
+.venv/bin/python -m unittest discover -s tests -v
+PYTHONPYCACHEPREFIX=/private/tmp/hotai_pycache .venv/bin/python -m compileall apps/api scripts
 python3 scripts/seed_sources.py --output data/sources.json
 python3 scripts/run_pipeline_once.py --limit 100 --fake-ai --date 2026-07-01
 python3 scripts/run_crawl_once.py --limit 30 --output data/crawl_checks/2026-07-01-hn-quality-crawl.json --report data/crawl_checks/2026-07-01-hn-quality-crawl-report.json
@@ -95,7 +96,7 @@ python3 scripts/check_db_once.py
 .venv/bin/python scripts/check_api_once.py --base-url http://127.0.0.1:8000 --date 2026-07-02
 ```
 
-当前测试结果：43 个测试通过。
+当前测试结果：44 个测试通过。
 
 ## 3. 当前已完成范围
 
@@ -602,7 +603,7 @@ PYTHONPATH=apps/api uvicorn app.main:app --reload
     - 使用 Tailwind v4 `@tailwindcss/postcss` 和 `@import "tailwindcss"`。
     - `/` 直接跳转 `/latest`，避免落地页外壳。
     - `lib/api.ts` 通过 `AI_RADAR_API_BASE_URL` 读取 `/api/public/latest`。
-    - `/latest` 已展示 Top 3、全部精选、摘要、推荐理由、下一步、来源和评分。
+    - `/latest` 已展示 Top 3、全部精选、分类筛选、摘要、推荐理由、下一步、来源和评分。
   - 验证：
 
 ```bash
@@ -617,9 +618,9 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
     - 桌面和手机都可读。
     - 首页不拥挤。
     - 推荐理由明显可见。
-  - 当前完成：Top 3、全部精选、推荐理由和下一步已完成。
-  - dev 验证：`/latest` 返回 200，HTML 包含“最新 AI 情报”“推荐理由”“下一步”，并渲染 12 个 `<article>`。
-  - 待补：分类筛选和浏览器截图级视觉验收。
+  - 当前完成：Top 3、全部精选、分类筛选、推荐理由和下一步已完成。
+  - dev 验证：`/latest` 返回 200，HTML 包含“最新 AI 情报”“推荐理由”“下一步”；`/latest?category=model_release` 返回 200，HTML 包含“全部分类”，并按分类渲染 1 个 `<article>`。
+  - 待补：浏览器截图级视觉验收。
 
 - [ ] 实现日报页。
   - 内容：按日期归档、分类展示、一键复制 Markdown。
@@ -711,8 +712,9 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
 - [x] 启动 API 服务并做 HTTP smoke 验证。
 - [ ] 验证 API compose。
 - [x] 创建 `apps/web` 前端 MVP 骨架。
-- [ ] 启动前后端 dev server，做 `/latest` 浏览器级验收。
-- [ ] 为 `/latest` 增加分类筛选。
+- [x] 为 `/latest` 增加分类筛选。
+- [ ] 启动前后端 dev server，做 `/latest` 浏览器截图级视觉验收。
+- [ ] 实现 `/daily` 日报页。
 
 ### 暂缓
 
