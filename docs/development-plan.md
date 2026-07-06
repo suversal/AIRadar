@@ -2,7 +2,7 @@
 
 最后更新：2026-07-06
 当前分支：`codex/ai-radar-data-loop`  
-当前阶段：Phase 0 已完成，Phase 1 真实采集闭环进行中，Phase 6 前端 MVP 骨架进行中
+当前阶段：Phase 0 已完成，Phase 1 真实采集闭环进行中，Phase 6 前端 MVP 首版已完成
 
 ## 0. 总进度看板
 
@@ -14,7 +14,7 @@
 | Phase 3 - PostgreSQL + pgvector 持久化 | 进行中 | Docker 已安装；Postgres/Redis healthy；pipeline CLI 已写库；FastAPI public endpoints 已可读数据库 | 补 Alembic 迁移和 pgvector 相似查询 |
 | Phase 4 - API 与日报服务化 | 进行中 | 本地 FastAPI 服务已启动并通过 HTTP smoke；latest/daily 从 DB 读到 12 条日报 | 等 API compose 网络问题恢复后补容器验证 |
 | Phase 5 - 任务调度与稳定性 | 未开始 | Celery/Redis/scheduler 尚未接入 | 等数据库持久化完成后启动 |
-| Phase 6 - 前端 MVP | 进行中 | `apps/web` Next.js + Tailwind 骨架、`/latest`、`/daily`、`/event/:id` 和 `/all` 已完成并通过 build/dev HTTP 验证 | 补 `/search` |
+| Phase 6 - 前端 MVP | 已完成 | `apps/web` Next.js + Tailwind 首版已完成：`/latest`、`/daily`、`/daily/:date`、`/event/:id`、`/all`、`/search` 均通过 build/dev HTTP/浏览器验证 | 后续等完整 Public API 后增强历史全量和服务端搜索 |
 | Phase 7 - RSS/Public API/MCP | 未开始 | RSS/Public API 完整版和 MCP 暂缓 | 等 API 和数据质量稳定后启动 |
 | Phase 8 - 后台管理 | 未开始 | 后台暂缓，避免早期范围膨胀 | 等数据闭环稳定后启动 |
 
@@ -54,6 +54,7 @@
 - [x] 已完成：`/daily` 和 `/daily/:date` 日报页。
 - [x] 已完成：`/event/:id` 事件详情页。
 - [x] 已完成：`/all` 全量列表页。
+- [x] 已完成：`/search` 搜索页。
 - [x] 已完成：README、实施说明和本开发计划书。
 - [x] 已完成：本地 fake raw fixture。
 - [x] 已完成：本地样例日报生成，当前样例为 12 条精选。
@@ -62,7 +63,7 @@
 - [x] 已完成：GitHub Trending parser 不再误抓 `/trending/...` 伪 repo。
 - [x] 已完成：HN 关键词边界过滤，不再把 `Aims` 这类子串误当作 `AI`。
 - [x] 已完成：真实抓取结果跑通 fake AI pipeline。
-- [x] 已完成：47 个单元测试全部通过。
+- [x] 已完成：48 个单元测试全部通过。
 
 ## 1. 项目目标
 
@@ -100,7 +101,7 @@ python3 scripts/check_db_once.py
 .venv/bin/python scripts/check_api_once.py --base-url http://127.0.0.1:8000 --date 2026-07-02
 ```
 
-当前测试结果：47 个测试通过。
+当前测试结果：48 个测试通过。
 
 ## 3. 当前已完成范围
 
@@ -611,6 +612,7 @@ PYTHONPATH=apps/api uvicorn app.main:app --reload
     - `/daily` 可跳转最新日报日期；`/daily/:date` 展示分类日报并支持复制 Markdown。
     - `/event/:id` 可从 latest payload 查找事件并展示摘要、推荐理由、主来源、相关来源、时间线和标签。
     - `/all` 可展示 latest payload 中当前可读的全部事件，并链接到事件详情页。
+    - `/search` 可按关键词过滤 latest payload 中的标题、标签、来源、摘要和推荐字段。
   - 验证：
 
 ```bash
@@ -651,6 +653,14 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
     - 可快速扫描全部已发布事件。
   - 当前完成：`/all` 基于 latest payload 渲染当前 12 条事件。
   - dev 验证：`/all` 返回 200，HTML 包含“全部事件”“评分”“来源”，并渲染 12 个 `<article>`。
+  - 截图验证：桌面 `1440x900` 和手机 `390x844` 均无横向溢出，Playwright console error 为 0。
+
+- [x] 实现搜索页。
+  - 内容：关键词输入、搜索结果、评分、来源、标签、详情链接。
+  - 验收：
+    - 能按标题、标签、来源、摘要和推荐字段搜索当前可读事件。
+  - 当前完成：`/search?q=OpenAI` 基于 latest payload 返回 1 条匹配事件。
+  - dev 验证：`/search?q=OpenAI` 返回 200，HTML 包含“搜索结果”和事件详情链接。
   - 截图验证：桌面 `1440x900` 和手机 `390x844` 均无横向溢出，Playwright console error 为 0。
 
 ## 11. Phase 7 - RSS/Public API/MCP
@@ -738,11 +748,11 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
 - [x] 实现 `/daily` 日报页。
 - [x] 实现 `/event/:id` 事件详情页。
 - [x] 实现 `/all` 全量列表页。
-- [ ] 实现 `/search` 搜索页。
+- [x] 实现 `/search` 搜索页。
 
 ### 暂缓
 
-- [ ] 前端 MVP。
+- [x] 前端 MVP 首版。
 - [ ] 后台管理。
 - [ ] Telegram 推送。
 - [ ] MCP Server。

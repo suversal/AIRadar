@@ -20,6 +20,7 @@ class WebAppStructureTests(unittest.TestCase):
             "app/page.tsx",
             "app/latest/page.tsx",
             "app/all/page.tsx",
+            "app/search/page.tsx",
             "app/daily/page.tsx",
             "app/daily/[date]/page.tsx",
             "app/daily/report-view.tsx",
@@ -113,6 +114,19 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("分类", all_page)
         self.assertIn("评分", all_page)
         self.assertIn("来源", all_page)
+
+    def test_search_page_filters_latest_events(self):
+        search_page = (WEB / "app" / "search" / "page.tsx").read_text(encoding="utf-8")
+        event_helpers = (WEB / "lib" / "events.ts").read_text(encoding="utf-8")
+
+        self.assertIn("searchParams", search_page)
+        self.assertIn("getLatestReport", search_page)
+        self.assertIn("searchEvents", search_page)
+        self.assertIn("eventHref", search_page)
+        self.assertIn('name="q"', search_page)
+        self.assertIn("搜索", search_page)
+        self.assertIn("搜索结果", search_page)
+        self.assertIn("searchEvents", event_helpers)
 
     def test_global_css_uses_tailwind_v4_import(self):
         globals_css = (WEB / "app" / "globals.css").read_text(encoding="utf-8")
