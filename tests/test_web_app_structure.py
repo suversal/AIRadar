@@ -19,6 +19,7 @@ class WebAppStructureTests(unittest.TestCase):
             "app/icon.svg",
             "app/page.tsx",
             "app/latest/page.tsx",
+            "app/all/page.tsx",
             "app/daily/page.tsx",
             "app/daily/[date]/page.tsx",
             "app/daily/report-view.tsx",
@@ -102,6 +103,16 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("时间线", event_page)
         self.assertIn("推荐理由", event_page)
         self.assertIn("下一步", event_page)
+
+    def test_all_page_renders_all_latest_events(self):
+        all_page = (WEB / "app" / "all" / "page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("getLatestReport", all_page)
+        self.assertIn("eventHref", all_page)
+        self.assertIn("全部事件", all_page)
+        self.assertIn("分类", all_page)
+        self.assertIn("评分", all_page)
+        self.assertIn("来源", all_page)
 
     def test_global_css_uses_tailwind_v4_import(self):
         globals_css = (WEB / "app" / "globals.css").read_text(encoding="utf-8")

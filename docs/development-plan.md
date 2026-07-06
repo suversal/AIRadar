@@ -14,7 +14,7 @@
 | Phase 3 - PostgreSQL + pgvector 持久化 | 进行中 | Docker 已安装；Postgres/Redis healthy；pipeline CLI 已写库；FastAPI public endpoints 已可读数据库 | 补 Alembic 迁移和 pgvector 相似查询 |
 | Phase 4 - API 与日报服务化 | 进行中 | 本地 FastAPI 服务已启动并通过 HTTP smoke；latest/daily 从 DB 读到 12 条日报 | 等 API compose 网络问题恢复后补容器验证 |
 | Phase 5 - 任务调度与稳定性 | 未开始 | Celery/Redis/scheduler 尚未接入 | 等数据库持久化完成后启动 |
-| Phase 6 - 前端 MVP | 进行中 | `apps/web` Next.js + Tailwind 骨架、`/latest`、`/daily` 和 `/event/:id` 已完成并通过 build/dev HTTP 验证 | 补 `/all` 和 `/search` |
+| Phase 6 - 前端 MVP | 进行中 | `apps/web` Next.js + Tailwind 骨架、`/latest`、`/daily`、`/event/:id` 和 `/all` 已完成并通过 build/dev HTTP 验证 | 补 `/search` |
 | Phase 7 - RSS/Public API/MCP | 未开始 | RSS/Public API 完整版和 MCP 暂缓 | 等 API 和数据质量稳定后启动 |
 | Phase 8 - 后台管理 | 未开始 | 后台暂缓，避免早期范围膨胀 | 等数据闭环稳定后启动 |
 
@@ -53,6 +53,7 @@
 - [x] 已完成：`/latest` 浏览器截图级视觉验收。
 - [x] 已完成：`/daily` 和 `/daily/:date` 日报页。
 - [x] 已完成：`/event/:id` 事件详情页。
+- [x] 已完成：`/all` 全量列表页。
 - [x] 已完成：README、实施说明和本开发计划书。
 - [x] 已完成：本地 fake raw fixture。
 - [x] 已完成：本地样例日报生成，当前样例为 12 条精选。
@@ -61,7 +62,7 @@
 - [x] 已完成：GitHub Trending parser 不再误抓 `/trending/...` 伪 repo。
 - [x] 已完成：HN 关键词边界过滤，不再把 `Aims` 这类子串误当作 `AI`。
 - [x] 已完成：真实抓取结果跑通 fake AI pipeline。
-- [x] 已完成：46 个单元测试全部通过。
+- [x] 已完成：47 个单元测试全部通过。
 
 ## 1. 项目目标
 
@@ -99,7 +100,7 @@ python3 scripts/check_db_once.py
 .venv/bin/python scripts/check_api_once.py --base-url http://127.0.0.1:8000 --date 2026-07-02
 ```
 
-当前测试结果：46 个测试通过。
+当前测试结果：47 个测试通过。
 
 ## 3. 当前已完成范围
 
@@ -609,6 +610,7 @@ PYTHONPATH=apps/api uvicorn app.main:app --reload
     - `/latest` 已展示 Top 3、全部精选、分类筛选、摘要、推荐理由、下一步、来源和评分。
     - `/daily` 可跳转最新日报日期；`/daily/:date` 展示分类日报并支持复制 Markdown。
     - `/event/:id` 可从 latest payload 查找事件并展示摘要、推荐理由、主来源、相关来源、时间线和标签。
+    - `/all` 可展示 latest payload 中当前可读的全部事件，并链接到事件详情页。
   - 验证：
 
 ```bash
@@ -641,6 +643,14 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
     - 同一事件多来源关系清晰。
   - 当前完成：`/latest` 和 `/daily/:date` 事件标题链接到 `/event/:id`；详情页从 latest payload 查找事件。
   - dev 验证：`/event/c1` 返回 200，HTML 包含标题、主来源、相关来源、时间线、推荐理由和下一步。
+  - 截图验证：桌面 `1440x900` 和手机 `390x844` 均无横向溢出，Playwright console error 为 0。
+
+- [x] 实现全量列表页。
+  - 内容：当前可读事件、分类、标签、更新时间、评分、来源、详情链接。
+  - 验收：
+    - 可快速扫描全部已发布事件。
+  - 当前完成：`/all` 基于 latest payload 渲染当前 12 条事件。
+  - dev 验证：`/all` 返回 200，HTML 包含“全部事件”“评分”“来源”，并渲染 12 个 `<article>`。
   - 截图验证：桌面 `1440x900` 和手机 `390x844` 均无横向溢出，Playwright console error 为 0。
 
 ## 11. Phase 7 - RSS/Public API/MCP
@@ -727,7 +737,7 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
 - [x] 启动前后端 dev server，做 `/latest` 浏览器截图级视觉验收。
 - [x] 实现 `/daily` 日报页。
 - [x] 实现 `/event/:id` 事件详情页。
-- [ ] 实现 `/all` 全量列表页。
+- [x] 实现 `/all` 全量列表页。
 - [ ] 实现 `/search` 搜索页。
 
 ### 暂缓
