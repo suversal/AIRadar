@@ -35,6 +35,16 @@ python3 scripts/check_db_once.py
 .venv/bin/python scripts/check_api_once.py --base-url http://127.0.0.1:8000 --date 2026-07-02
 ```
 
+For the Phase 6 web app:
+
+```bash
+cd apps/web
+npm install
+npm run typecheck
+npm run build
+AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev
+```
+
 Generated articles, reports, and crawl diagnostics are written under `data/`,
 which is ignored by git.
 

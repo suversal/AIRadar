@@ -7,6 +7,9 @@ __pycache__/
 venv/
 .env
 .idea/
+node_modules/
+.next/
+*.tsbuildinfo
 data/
 output/
 .worktrees/
