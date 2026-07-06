@@ -23,7 +23,9 @@ class WebAppStructureTests(unittest.TestCase):
             "app/daily/[date]/page.tsx",
             "app/daily/report-view.tsx",
             "app/daily/copy-markdown-button.tsx",
+            "app/event/[id]/page.tsx",
             "lib/api.ts",
+            "lib/events.ts",
             "lib/markdown.ts",
         ]
 
@@ -83,6 +85,23 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("按日期归档", report_view)
         self.assertIn("为什么重要", report_view)
         self.assertIn("下一步", report_view)
+
+    def test_event_detail_page_links_from_latest_and_daily_views(self):
+        latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
+        report_view = (WEB / "app" / "daily" / "report-view.tsx").read_text(encoding="utf-8")
+        event_page = (WEB / "app" / "event" / "[id]" / "page.tsx").read_text(encoding="utf-8")
+        event_helpers = (WEB / "lib" / "events.ts").read_text(encoding="utf-8")
+
+        self.assertIn("eventHref", latest_page)
+        self.assertIn("eventHref", report_view)
+        self.assertIn("findEventById", event_helpers)
+        self.assertIn("getLatestReport", event_page)
+        self.assertIn("notFound", event_page)
+        self.assertIn("主来源", event_page)
+        self.assertIn("相关来源", event_page)
+        self.assertIn("时间线", event_page)
+        self.assertIn("推荐理由", event_page)
+        self.assertIn("下一步", event_page)
 
     def test_global_css_uses_tailwind_v4_import(self):
         globals_css = (WEB / "app" / "globals.css").read_text(encoding="utf-8")

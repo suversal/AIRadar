@@ -1,4 +1,5 @@
 import type { DailyReport, LatestEvent } from "@/lib/api";
+import { eventHref } from "@/lib/events";
 import { buildDailyMarkdown, getDailySections } from "@/lib/markdown";
 import { CopyMarkdownButton } from "./copy-markdown-button";
 
@@ -109,7 +110,9 @@ export function DailyReportView({ report }: { report: DailyReport }) {
                         <div className="text-sm text-[var(--accent-strong)]">
                           {section.label} · {formatScore(item.final_score)}
                         </div>
-                        <h3 className="mt-2 text-xl font-semibold">{item.title}</h3>
+                        <h3 className="mt-2 text-xl font-semibold">
+                          <a href={eventHref(item)}>{item.title}</a>
+                        </h3>
                         <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
                           {item.summary ?? item.one_line_summary ?? "暂无摘要。"}
                         </p>

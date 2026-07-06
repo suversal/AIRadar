@@ -1,4 +1,5 @@
 import { getLatestReport } from "@/lib/api";
+import { eventHref } from "@/lib/events";
 
 type LatestSearchParams = Promise<{
   category?: string | string[];
@@ -112,7 +113,9 @@ export default async function LatestPage({
                   <div className="text-sm text-[var(--accent)]">
                     {item.category_label ?? item.category ?? "未分类"} · {formatScore(item.final_score)}
                   </div>
-                  <h3 className="mt-3 text-base font-semibold leading-6">{item.title}</h3>
+                  <h3 className="mt-3 text-base font-semibold leading-6">
+                    <a href={eventHref(item)}>{item.title}</a>
+                  </h3>
                   <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
                     {item.one_line_summary ?? item.summary}
                   </p>
@@ -134,7 +137,9 @@ export default async function LatestPage({
                       <div className="text-sm text-[var(--accent-strong)]">
                         {item.category_label ?? item.category ?? "未分类"}
                       </div>
-                      <h3 className="mt-2 text-xl font-semibold">{item.title}</h3>
+                      <h3 className="mt-2 text-xl font-semibold">
+                        <a href={eventHref(item)}>{item.title}</a>
+                      </h3>
                       <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
                         {item.summary ?? item.one_line_summary}
                       </p>
