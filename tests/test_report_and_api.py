@@ -114,6 +114,7 @@ class ReportAndAPITests(unittest.TestCase):
         latest = build_latest_payload(daily_json)
         daily = build_daily_payload(daily_json)
 
+        self.assertEqual(latest["report_date"], "2026-07-01")
         self.assertEqual(latest["items"][0]["event_id"], "c1")
         self.assertEqual(latest["items"][0]["main_source"]["name"], "OpenAI Blog")
         self.assertEqual(daily["report_date"], "2026-07-01")
@@ -136,6 +137,7 @@ class ReportAndAPITests(unittest.TestCase):
         latest = build_latest_payload_from_repository(repository)
         daily = build_daily_payload_from_repository(repository, date(2026, 7, 1))
 
+        self.assertEqual(latest["report_date"], "2026-07-01")
         self.assertEqual(latest["items"][0]["event_id"], "c1")
         self.assertEqual(daily["report_date"], "2026-07-01")
         self.assertEqual(repository.calls, ["latest", "daily:2026-07-01"])
@@ -146,6 +148,7 @@ class ReportAndAPITests(unittest.TestCase):
         latest = build_latest_payload_from_repository(repository)
         daily = build_daily_payload_from_repository(repository, date(2026, 7, 3))
 
+        self.assertIsNone(latest["report_date"])
         self.assertEqual(latest["items"], [])
         self.assertIsNone(latest["updated_at"])
         self.assertEqual(daily["report_date"], "2026-07-03")

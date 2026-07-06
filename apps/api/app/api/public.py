@@ -5,9 +5,8 @@ from typing import Any
 
 
 def build_empty_daily_payload(report_date: date | None = None) -> dict[str, Any]:
-    resolved_date = report_date or date.today()
     return {
-        "report_date": resolved_date.isoformat(),
+        "report_date": report_date.isoformat() if report_date else None,
         "title": "Suversal AI Radar 日报",
         "summary": "No report generated yet.",
         "updated_at": None,
@@ -19,6 +18,7 @@ def build_empty_daily_payload(report_date: date | None = None) -> dict[str, Any]
 
 def build_latest_payload(daily_report_json: dict[str, Any]) -> dict[str, Any]:
     return {
+        "report_date": daily_report_json.get("report_date"),
         "updated_at": daily_report_json.get("updated_at"),
         "items": daily_report_json.get("items", []),
     }
