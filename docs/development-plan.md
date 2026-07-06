@@ -618,9 +618,9 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
     - 桌面和手机都可读。
     - 首页不拥挤。
     - 推荐理由明显可见。
-  - 当前完成：Top 3、全部精选、分类筛选、推荐理由和下一步已完成。
+  - 当前完成：Top 3、全部精选、分类筛选、推荐理由、下一步和浏览器截图级验收已完成。
   - dev 验证：`/latest` 返回 200，HTML 包含“最新 AI 情报”“推荐理由”“下一步”；`/latest?category=model_release` 返回 200，HTML 包含“全部分类”，并按分类渲染 1 个 `<article>`。
-  - 待补：浏览器截图级视觉验收。
+  - 截图验证：桌面 `1440x1100` 全部分类页渲染 12 个 `<article>`，手机 `390x844` 分类页渲染 1 个 `<article>`，两者均无横向溢出。
 
 - [ ] 实现日报页。
   - 内容：按日期归档、分类展示、一键复制 Markdown。
@@ -713,7 +713,7 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
 - [ ] 验证 API compose。
 - [x] 创建 `apps/web` 前端 MVP 骨架。
 - [x] 为 `/latest` 增加分类筛选。
-- [ ] 启动前后端 dev server，做 `/latest` 浏览器截图级视觉验收。
+- [x] 启动前后端 dev server，做 `/latest` 浏览器截图级视觉验收。
 - [ ] 实现 `/daily` 日报页。
 
 ### 暂缓

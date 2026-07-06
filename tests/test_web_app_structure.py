@@ -16,6 +16,7 @@ class WebAppStructureTests(unittest.TestCase):
             "tsconfig.json",
             "app/globals.css",
             "app/layout.tsx",
+            "app/icon.svg",
             "app/page.tsx",
             "app/latest/page.tsx",
             "lib/api.ts",
