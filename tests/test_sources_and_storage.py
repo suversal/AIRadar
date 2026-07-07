@@ -20,8 +20,14 @@ class SourcesAndStorageTests(unittest.TestCase):
         self.assertIn("github_trending_ai", source_ids)
         self.assertIn("reddit_localllama", source_ids)
         self.assertIn("jiqizhixin", source_ids)
+        self.assertIn("ithome", source_ids)
         self.assertTrue(any(source.source_role == "authority" for source in sources))
         self.assertTrue(any(source.source_role == "signal" for source in sources))
+
+        ithome = next(source for source in sources if source.id == "ithome")
+        self.assertEqual(ithome.url, "https://www.ithome.com/rss/")
+        self.assertEqual(ithome.language, "zh")
+        self.assertTrue(ithome.config["extract_original_content"])
 
     def test_sources_round_trip_to_json(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -36,4 +42,3 @@ class SourcesAndStorageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

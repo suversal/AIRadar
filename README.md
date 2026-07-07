@@ -9,12 +9,14 @@ Data-first AI intelligence radar. The first milestone is a reliable local loop:
 
 ## Current Scope
 
-This repository intentionally starts backend-first. It includes a pure-Python
+This repository intentionally starts data-first. It includes a pure-Python
 pipeline that can run with `FakeAIProvider` when no AI key is configured,
-or use OpenAI/Kimi-compatible chat providers for real summaries and scoring.
+or use OpenAI/Kimi/DeepSeek-compatible chat providers for real summaries and scoring.
 Docker/PostgreSQL/Redis scaffolding is included for the production-shaped runtime.
+The current web MVP includes latest, daily, event detail, all-events, and search
+pages.
 
-Not in this milestone: full frontend, admin UI, Telegram push, MCP server.
+Not in this milestone: admin UI, Telegram push, MCP server.
 
 ## Local Commands
 
@@ -99,23 +101,36 @@ time; `latest_published_at` records the newest source article time. When real
 model scoring is stricter than the threshold, the report fills remaining slots
 from the highest-scoring candidates while keeping `selected_count` separate.
 
+Event detail pages read structured original article fields from the daily JSON
+payload. RSS feeds that include article HTML, such as IT之家 RSS, are parsed into
+`original_paragraphs`, `original_images`, and ordered `original_blocks`, so the
+detail page can render the source article text and images before linking out to
+the original URL.
+
 ## Environment
 
 Required for real AI processing, choose one provider:
 
 - `OPENAI_API_KEY`
 - `KIMI_API_KEY` or `MOONSHOT_API_KEY`
+- `DEEPSEEK_API_KEY`
 
 Optional:
 
-- `AI_PROVIDER=openai|kimi|fake`
+- `AI_PROVIDER=openai|kimi|deepseek|fake`
 - `KIMI_MODEL`
 - `KIMI_BASE_URL`, default `https://api.moonshot.cn/v1`
+- `DEEPSEEK_MODEL`, default `deepseek-v4-flash`
+- `DEEPSEEK_BASE_URL`, default `https://api.deepseek.com`
+- `DEEPSEEK_USER_ID`, optional isolation id for DeepSeek requests
+- `DEEPSEEK_MAX_TOKENS`, default `2048`
 - `GITHUB_TOKEN`
 
 The scripts and refresh endpoint automatically use `FakeAIProvider` when no AI
-key is present or when `--fake-ai` is passed. Kimi uses Moonshot's
-OpenAI-compatible chat API for prefiltering and scoring; embeddings currently
+key is present or when `--fake-ai` is passed. Kimi and DeepSeek use
+OpenAI-compatible chat APIs for prefiltering and scoring; embeddings currently
 fall back to deterministic local vectors so the clustering pipeline still runs.
-Host-side API and pipeline runs load missing values from the local ignored
-`.env` file, while already-exported environment variables take precedence.
+DeepSeek `deepseek-v4-flash` has a high server-side concurrency quota, but the
+current pipeline still calls AI scoring serially. Host-side API and pipeline
+runs load missing values from the local ignored `.env` file, while
+already-exported environment variables take precedence.

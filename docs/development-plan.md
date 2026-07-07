@@ -9,12 +9,12 @@
 | 阶段 | 状态 | 当前结论 | 下一步 |
 | --- | --- | --- | --- |
 | Phase 0 - 本地数据闭环骨架 | 已完成 | 代码骨架、核心模型、crawler 基础、AI 边界、评分、聚类、日报、CLI、测试、Docker 配置均已落地 | 进入真实源抓取验证 |
-| Phase 1 - 真实采集与质量闭环 | 进行中 | 已联网检查，当前 7/11 个 source 可抓取；真实 raw 可进入 fake AI 日报闭环 | 修正 Anthropic/DeepMind/Reddit ML/机器之心失败源，并继续人工检查日报质量 |
-| Phase 2 - OpenAI/Kimi 接入、AI 总结与真实评分 | 进行中 | Kimi/Moonshot chat provider 已接入环境变量；OpenAI 边界保留；真实 key 不写入仓库 | 本地配置 `KIMI_API_KEY` 或 `MOONSHOT_API_KEY` 后跑小批量真实总结 |
+| Phase 1 - 真实采集与质量闭环 | 进行中 | 已联网检查，当前 8/12 个 source 可抓取；IT之家 RSS 已接入，并可解析原文段落和图片 URL | 修正 Anthropic/DeepMind/Reddit ML/机器之心失败源，并继续人工检查日报质量 |
+| Phase 2 - OpenAI/Kimi/DeepSeek 接入、AI 总结与真实评分 | 进行中 | Kimi/Moonshot 和 DeepSeek chat provider 已接入环境变量；DeepSeek 小批量 pipeline 已跑通；OpenAI 边界保留；真实 key 不写入仓库 | 评估是否把 AI scoring 改成并发执行，并继续观察真实日报质量 |
 | Phase 3 - PostgreSQL + pgvector 持久化 | 进行中 | Docker 已安装；Postgres/Redis healthy；pipeline CLI 已写库；FastAPI public endpoints 已可读数据库 | 补 Alembic 迁移和 pgvector 相似查询 |
 | Phase 4 - API 与日报服务化 | 进行中 | 本地 FastAPI 服务已启动并通过 HTTP smoke；latest/daily 从 DB 读到 12 条日报 | 等 API compose 网络问题恢复后补容器验证 |
 | Phase 5 - 任务调度与稳定性 | 未开始 | Celery/Redis/scheduler 尚未接入 | 等数据库持久化完成后启动 |
-| Phase 6 - 前端 MVP | 已完成 | `apps/web` Next.js + Tailwind 首版已完成：`/latest`、`/daily`、`/daily/:date`、`/event/:id`、`/all`、`/search`、点击刷新日报/完整成果均通过验证 | 后续等完整 Public API 后增强历史全量和服务端搜索 |
+| Phase 6 - 前端 MVP | 已完成 | `apps/web` Next.js + Tailwind 首版已完成：`/latest`、`/daily`、`/daily/:date`、`/event/:id`、`/all`、`/search`、点击刷新日报/完整成果、详情页原文阅读体验均通过验证 | 后续等完整 Public API 后增强历史全量和服务端搜索 |
 | Phase 7 - RSS/Public API/MCP | 未开始 | RSS/Public API 完整版和 MCP 暂缓 | 等 API 和数据质量稳定后启动 |
 | Phase 8 - 后台管理 | 未开始 | 后台暂缓，避免早期范围膨胀 | 等数据闭环稳定后启动 |
 
@@ -27,14 +27,18 @@
 - [x] 已完成：`.env.example` 环境变量模板。
 - [x] 已完成：核心领域模型。
 - [x] 已完成：默认信源清单。
+- [x] 已完成：IT之家 RSS 信源接入。
 - [x] 已完成：URL/title 标准化和 hash 去重基础。
 - [x] 已完成：RSS、HN、GitHub crawler 基础。
+- [x] 已完成：RSS HTML 原文段落、图片 URL 和图文块解析。
 - [x] 已完成：AI provider 边界、fake provider、OpenAI 调用边界。
 - [x] 已完成：Kimi/Moonshot chat provider 环境变量接入，支持真实中文总结和评分。
+- [x] 已完成：DeepSeek chat provider 环境变量接入，默认模型 `deepseek-v4-flash`。
 - [x] 已完成：fake AI 总结字段链路，覆盖中文标题、一句话摘要、核心摘要、推荐理由和下一步动作。
 - [x] 已完成：评分公式、阈值和精选判断。
 - [x] 已完成：事件聚类基础和主条选择。
 - [x] 已完成：Markdown/JSON 日报生成。
+- [x] 已完成：日报 JSON 暴露主文章原文段落、图片和阅读原文 URL。
 - [x] 已完成：本地 JSON 存储。
 - [x] 已完成：本地 pipeline runner。
 - [x] 已完成：CLI 脚本。
@@ -54,6 +58,7 @@
 - [x] 已完成：`/latest` 浏览器截图级视觉验收。
 - [x] 已完成：`/daily` 和 `/daily/:date` 日报页。
 - [x] 已完成：`/event/:id` 事件详情页。
+- [x] 已完成：`/event/:id` 详情页改为文章阅读布局，仅保留推荐理由、AI 摘要、原文、标签和阅读原文按钮。
 - [x] 已完成：`/all` 全量列表页。
 - [x] 已完成：`/search` 搜索页。
 - [x] 已完成：`/latest` 点击刷新最新日报和完整成果按钮。
@@ -65,7 +70,7 @@
 - [x] 已完成：GitHub Trending parser 不再误抓 `/trending/...` 伪 repo。
 - [x] 已完成：HN 关键词边界过滤，不再把 `Aims` 这类子串误当作 `AI`。
 - [x] 已完成：真实抓取结果跑通 fake AI pipeline。
-- [x] 已完成：57 个单元测试全部通过。
+- [x] 已完成：64 个单元测试全部通过。
 
 ## 1. 项目目标
 
@@ -103,7 +108,7 @@ python3 scripts/check_db_once.py
 .venv/bin/python scripts/check_api_once.py --base-url http://127.0.0.1:8000 --date 2026-07-02
 ```
 
-当前测试结果：57 个测试通过。
+当前测试结果：64 个测试通过。
 
 ## 3. 当前已完成范围
 
@@ -119,7 +124,7 @@ python3 scripts/check_db_once.py
 
 - [x] 建立环境变量模板。
   - 文件：`.env.example`。
-  - 验收：包含 `DATABASE_URL`、`REDIS_URL`、`OPENAI_API_KEY`、`GITHUB_TOKEN`、模型和成本保护配置。
+  - 验收：包含 `DATABASE_URL`、`REDIS_URL`、`OPENAI_API_KEY`、`KIMI_API_KEY`、`DEEPSEEK_API_KEY`、`GITHUB_TOKEN`、模型和成本保护配置。
 
 - [x] 建立核心领域模型。
   - 文件：`apps/api/app/models/domain.py`。
@@ -128,7 +133,7 @@ python3 scripts/check_db_once.py
 
 - [x] 实现默认信源清单。
   - 文件：`apps/api/app/data/default_sources.py`。
-  - 已覆盖：OpenAI、Anthropic、DeepMind、Hugging Face、HN、arXiv、GitHub Trending、Reddit LocalLLaMA、Reddit MachineLearning、机器之心、量子位。
+  - 已覆盖：OpenAI、Anthropic、DeepMind、Hugging Face、HN、arXiv、GitHub Trending、Reddit LocalLLaMA、Reddit MachineLearning、机器之心、量子位、IT之家。
   - 验收：`test_default_sources_cover_required_first_batch` 通过。
 
 - [x] 实现 URL/title 标准化和去重基础。
@@ -137,13 +142,13 @@ python3 scripts/check_db_once.py
   - 验收：`test_normalize_article_removes_tracking_and_hashes_url_and_title` 通过。
 
 - [x] 实现基础 crawler。
-  - 文件：`apps/api/app/crawlers/rss.py`、`hn.py`、`github.py`、`registry.py`。
-  - 当前能力：RSS/Atom 解析、HN Algolia API 解析、GitHub Trending HTML 轻量解析、按 source type 选择 crawler。
+  - 文件：`apps/api/app/crawlers/rss.py`、`article_content.py`、`hn.py`、`github.py`、`registry.py`。
+  - 当前能力：RSS/Atom 解析、RSS HTML 原文段落和图片 URL 解析、HN Algolia API 解析、GitHub Trending HTML 轻量解析、按 source type 选择 crawler。
   - 验收：RSS fixture 测试通过；真实网络抓取尚未作为自动测试启用。
 
 - [x] 实现 AI provider 边界。
   - 文件：`apps/api/app/services/ai_service.py`。
-  - 已完成：`FakeAIProvider`、OpenAI embeddings/chat 调用边界、预筛 JSON 解析、评分/总结 JSON 解析、分数 clamp。
+  - 已完成：`FakeAIProvider`、OpenAI embeddings/chat 调用边界、Kimi/Moonshot chat provider、DeepSeek chat provider、预筛 JSON 解析、评分/总结 JSON 解析、分数 clamp。
   - AI 总结字段：`title_zh`、`one_line_summary`、`summary_zh`、`reason_zh`、`action_zh`。
   - 验收：fake provider 与 JSON 解析测试通过。
 
@@ -160,7 +165,7 @@ python3 scripts/check_db_once.py
 
 - [x] 实现 Markdown/JSON 日报生成。
   - 文件：`apps/api/app/services/daily_report_service.py`。
-  - 已完成：按分类输出日报，每条包含标题、摘要、为什么重要、下一步、来源、标签。
+  - 已完成：按分类输出日报，每条包含标题、摘要、为什么重要、下一步、来源、标签；JSON payload 额外携带主文章 `original_url`、`original_paragraphs`、`original_images`、`original_blocks`，供详情页显示原文。
   - 验收：日报模板测试通过。
 
 - [x] 实现本地 JSON 存储。
@@ -210,26 +215,29 @@ python3 scripts/build_daily_report.py --date 2026-07-01 --format markdown
 
 ## 4.1 最近一次真实数据源检查
 
-检查时间：2026-07-01  
+检查时间：2026-07-07
 检查命令：
 
 ```bash
-python3 scripts/run_crawl_once.py --limit 30 --output data/crawl_checks/2026-07-01-hn-quality-crawl.json --report data/crawl_checks/2026-07-01-hn-quality-crawl-report.json
+.venv/bin/python scripts/seed_sources.py --output data/sources.json
+.venv/bin/python scripts/run_crawl_once.py --limit 36 --output data/crawl_checks/2026-07-07-ithome-raw.json --report data/crawl_checks/2026-07-07-ithome-crawl-report.json
+.venv/bin/python scripts/run_pipeline_once.py --sources data/sources.json --raw data/crawl_checks/2026-07-07-ithome-raw.json --output-dir data/crawl_checks/2026-07-07-ithome-pipeline --limit 36 --top-n 30 --fake-ai --date 2026-07-07
 ```
 
-输出文件：`data/crawl_checks/2026-07-01-hn-quality-crawl.json`。
+输出文件：`data/crawl_checks/2026-07-07-ithome-raw.json`。
 
-结论：当前数据源获取不是全部正常，但比第一轮有明显改善。联网环境下抓到 14 条真实文章，来自 7 个 source；4 个 source 失败。
+结论：当前数据源获取不是全部正常，但 IT之家 RSS 已接入并验证可用。联网环境下抓到 24 条真实文章，来自 8 个 source；4 个 source 失败。IT之家本轮抓到 3 条，其中样例文章包含 4-11 个原文段落、1-3 张图片和有序图文块；fake AI pipeline 生成的日报 JSON 已验证可携带 `original_url`、`original_paragraphs`、`original_images`、`original_blocks`。
 
 成功 source：
 
-- [x] `openai_blog`：成功抓取 2 条。
-- [x] `huggingface_blog`：成功抓取 2 条。
-- [x] `hacker_news`：成功抓取 2 条，已增加关键词边界过滤，本轮未再出现 `Aims/Taiwan` 误匹配。
-- [x] `arxiv_ai`：成功抓取 2 条，已修复 Atom ISO 日期和作者解析。
-- [x] `github_trending_ai`：成功抓取 2 条，已修复 `/trending/...` 伪 repo 误识别。
-- [x] `reddit_localllama`：成功抓取 2 条，已修复 Atom alternate link 和作者解析。
-- [x] `qbitai`：成功抓取 2 条。
+- [x] `openai_blog`：成功抓取 3 条。
+- [x] `huggingface_blog`：成功抓取 3 条。
+- [x] `hacker_news`：成功抓取 3 条，已增加关键词边界过滤，本轮未再出现 `Aims/Taiwan` 误匹配。
+- [x] `arxiv_ai`：成功抓取 3 条，已修复 Atom ISO 日期和作者解析。
+- [x] `github_trending_ai`：成功抓取 3 条，已修复 `/trending/...` 伪 repo 误识别。
+- [x] `reddit_localllama`：成功抓取 3 条，已修复 Atom alternate link 和作者解析。
+- [x] `qbitai`：成功抓取 3 条。
+- [x] `ithome`：成功抓取 3 条，RSS description 内原文段落、图片 URL 和图文顺序可解析。
 
 失败 source：
 
@@ -244,7 +252,7 @@ python3 scripts/run_crawl_once.py --limit 30 --output data/crawl_checks/2026-07-
 2. 为 Anthropic 增加 HTML/站点地图采集降级。
 3. 对 Reddit MachineLearning 增加限流退避或降频策略。
 4. 对机器之心增加 XML 容错或替换成可用 RSS/HTML 源。
-5. 人工检查真实日报质量，继续压低 Reddit/HN 低价值内容比例。
+5. 人工检查真实日报质量，继续压低 Reddit/HN/泛科技内容比例，并决定 IT之家是否需要只保留 AI 频道或继续全站 RSS。
 
 ## 5. Phase 1 - 真实采集与质量闭环
 
@@ -298,15 +306,15 @@ python3 scripts/run_pipeline_once.py --limit 100 --fake-ai --date 2026-07-01
     - 来源是否可信。
     - 是否有重复事件未聚合。
 
-## 6. Phase 2 - OpenAI/Kimi 接入、AI 总结与真实评分
+## 6. Phase 2 - OpenAI/Kimi/DeepSeek 接入、AI 总结与真实评分
 
-目标：使用真实 OpenAI 或 Kimi/Moonshot API 替换 fake provider，验证预筛、AI 中文总结、推荐理由、六维评分和 embedding/聚类链路的真实质量。
+目标：使用真实 OpenAI、Kimi/Moonshot 或 DeepSeek API 替换 fake provider，验证预筛、AI 中文总结、推荐理由、六维评分和 embedding/聚类链路的真实质量。
 
 当前说明：
 
 - Phase 0 已经打通 AI 总结字段的端到端链路，但使用的是 `FakeAIProvider`，只适合本地干跑和测试。
 - 真实的“AI 总结功能”从 Phase 2 开始验收：每条精选事件由真实模型生成中文标题、一句话摘要、核心摘要、推荐理由和下一步动作。
-- 当前已接入 Kimi/Moonshot OpenAI-compatible chat endpoint，用于预筛、中文总结和六维评分；Kimi embedding 暂时使用本地 deterministic fallback，保证没有 embedding API 时聚类链路不阻塞。
+- 当前已接入 Kimi/Moonshot 和 DeepSeek OpenAI-compatible chat endpoint，用于预筛、中文总结和六维评分；Kimi/DeepSeek embedding 暂时使用本地 deterministic fallback，保证没有 embedding API 时聚类链路不阻塞。
 - 日报 Markdown 当前展示中文标题、一句话摘要、核心总结、推荐理由和下一步动作；JSON 同时保留 `summary` 核心摘要，供后续 API/前端复用。
 
 - [x] 接入 Kimi/Moonshot provider。
@@ -319,11 +327,22 @@ python3 scripts/run_pipeline_once.py --limit 100 --fake-ai --date 2026-07-01
     - 主机侧 API/CLI 会读取本地 `.env` 中缺失的环境变量，已导出的变量优先级更高。
   - 注意：真实 API key 只放本地 `.env`，不得写入仓库、文档或提交。
 
-- [ ] 配置本地 `.env`。
+- [x] 接入 DeepSeek provider。
+  - 涉及文件：`apps/api/app/services/ai_service.py`、`.env.example`。
+  - 当前完成：
+    - 支持 `AI_PROVIDER=deepseek`。
+    - 支持 `DEEPSEEK_API_KEY`。
+    - 支持 `DEEPSEEK_MODEL` 和 `DEEPSEEK_BASE_URL`；默认模型 `deepseek-v4-flash`，默认 endpoint `https://api.deepseek.com`。
+    - 支持 `DEEPSEEK_USER_ID` 做请求隔离，支持 `DEEPSEEK_MAX_TOKENS` 降低 JSON 截断风险。
+    - DeepSeek `deepseek-v4-flash` 官方并发限制为账号级 2500；当前 pipeline 仍串行调用，后续如需提速再做 AI scoring 并发化。
+  - 注意：真实 API key 只放本地 `.env`，不得写入仓库、文档或提交。
+
+- [x] 配置本地 `.env`。
   - 文件：从 `.env.example` 复制为 `.env`。
-  - 真实 AI 二选一：
+  - 真实 AI 三选一：
     - OpenAI：`AI_PROVIDER=openai` + `OPENAI_API_KEY`。
     - Kimi：`AI_PROVIDER=kimi` + `KIMI_API_KEY` 或 `MOONSHOT_API_KEY`。
+    - DeepSeek：`AI_PROVIDER=deepseek` + `DEEPSEEK_API_KEY`。
   - 可选：`GITHUB_TOKEN`。
 
 - [ ] 使用 Kimi 跑小批量 pipeline。
@@ -338,6 +357,20 @@ AI_PROVIDER=kimi KIMI_API_KEY=<local-only> python3 scripts/run_pipeline_once.py 
     - 评分 JSON 能稳定解析。
     - 日报中文内容明显优于 fake provider。
     - Kimi embedding fallback 不影响聚类流程产出。
+
+- [x] 使用 DeepSeek 跑小批量 pipeline。
+  - 命令：
+
+```bash
+AI_PROVIDER=deepseek DEEPSEEK_API_KEY=<local-only> python3 scripts/run_pipeline_once.py --limit 20 --date 2026-07-07
+```
+
+  - 验收：
+    - 预筛 JSON 能稳定解析。
+    - 评分 JSON 能稳定解析。
+    - 日报中文内容明显优于 fake provider。
+    - DeepSeek embedding fallback 不影响聚类流程产出。
+  - 当前完成：`--limit 2 --top-n 2` 小批量真实 pipeline 已通过，产出 1 条中文日报事件。
 
 - [ ] 使用 OpenAI 跑小批量 pipeline。
   - 命令：
@@ -638,7 +671,7 @@ PYTHONPATH=apps/api uvicorn app.main:app --reload
     - `lib/api.ts` 通过 `AI_RADAR_API_BASE_URL` 读取 `/api/public/latest`。
     - `/latest` 已展示 Top 3、全部精选、分类筛选、摘要、推荐理由、下一步、来源和评分。
     - `/daily` 可跳转最新日报日期；`/daily/:date` 展示分类日报并支持复制 Markdown。
-    - `/event/:id` 可从 latest payload 查找事件并展示摘要、推荐理由、主来源、相关来源、时间线和标签。
+    - `/event/:id` 可从 latest payload 查找事件并展示推荐理由、AI 摘要、原文正文、原文图片、标签和阅读原文按钮。
     - `/all` 可展示 latest payload 中当前可读的全部事件，并链接到事件详情页。
     - `/search` 可按关键词过滤 latest payload 中的标题、标签、来源、摘要和推荐字段。
     - `/latest` 侧栏提供“刷新最新日报”和“刷新完整成果”按钮，点击后通过 Next route 启动 FastAPI 后台刷新任务，执行 crawl + AI pipeline + DB 写入，并通过轮询刷新当前页面。
@@ -669,12 +702,13 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
   - 截图验证：桌面 `1440x1100` 和手机 `390x844` 日期页均无横向溢出，Playwright console error 为 0。
 
 - [x] 实现事件详情页。
-  - 内容：摘要、推荐理由、主来源、相关来源、时间线、标签、原文链接。
+  - 内容：推荐理由、AI 摘要、原文正文、原文图片、标签、阅读原文按钮。
   - 验收：
-    - 同一事件多来源关系清晰。
-  - 当前完成：`/latest` 和 `/daily/:date` 事件标题链接到 `/event/:id`；详情页从 latest payload 查找事件。
-  - dev 验证：`/event/c1` 返回 200，HTML 包含标题、主来源、相关来源、时间线、推荐理由和下一步。
-  - 截图验证：桌面 `1440x900` 和手机 `390x844` 均无横向溢出，Playwright console error 为 0。
+    - 详情页不再重复拼接摘要/推荐理由/动作建议。
+    - 有结构化原文时按原文图文块展示，没有原文时降级显示摘要。
+  - 当前完成：`/latest` 和 `/daily/:date` 事件标题链接到 `/event/:id`；详情页从 latest payload 查找事件，并消费 `original_blocks`、`original_paragraphs`、`original_images`。
+  - dev 验证：`/event/:id` 结构测试通过，HTML 源码不再包含“报告正文”“时间线”“下一步”，包含“推荐理由”“AI 摘要”“原文”“阅读原文”。
+  - 截图验证：待下一轮浏览器视觉复核。
 
 - [x] 实现全量列表页。
   - 内容：当前可读事件、分类、标签、更新时间、评分、来源、详情链接。
@@ -695,7 +729,7 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
 - [x] 实现点击刷新最新日报和完整成果。
   - 内容：`/latest` 侧栏按钮、Next 转发 route、FastAPI 本地刷新 endpoint。
   - 验收：
-    - 点击后抓取最新内容，按环境变量选择 fake/Kimi/OpenAI provider 运行 pipeline，写入 `daily_reports`，并刷新页面。
+    - 点击后抓取最新内容，按环境变量选择 fake/Kimi/DeepSeek/OpenAI provider 运行 pipeline，写入 `daily_reports`，并刷新页面。
   - 当前完成：
     - `POST /api/admin/refresh-latest` 执行同步本地刷新，支持 `limit` 和 `top_n` query 参数。
     - `POST /api/admin/refresh-latest-async` 启动后台刷新任务；`GET /api/admin/refresh-jobs/:job_id` 查询任务状态。
@@ -703,7 +737,7 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
     - 普通刷新请求 `top_n=12`，完整成果请求 `top_n=30`。
     - `updated_at` 已改为报告生成时间；`latest_published_at` 保留最新来源发布时间，避免同一天刷新时看起来时间不变。
     - 真实模型评分过严时，日报会用最高分候选补足剩余展示位，同时保留 `selected_count` 表示真正过阈值数量。
-  - 注意：没有真实 AI key 时自动使用 `FakeAIProvider`；配置 `AI_PROVIDER=kimi` 和本地 key 后，点击刷新会用 Kimi 生成预筛、中文摘要、推荐理由和评分。API key 不写入仓库。
+  - 注意：没有真实 AI key 时自动使用 `FakeAIProvider`；配置 `AI_PROVIDER=deepseek`/`kimi` 和本地 key 后，点击刷新会用对应 provider 生成预筛、中文摘要、推荐理由和评分。API key 不写入仓库。
 
 ## 11. Phase 7 - RSS/Public API/MCP
 
@@ -769,10 +803,10 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
 
 ### 最高优先级
 
-- [ ] 用真实公开源跑一次 `run_crawl_once.py`。
+- [x] 用真实公开源跑一次 `run_crawl_once.py`。
 - [ ] 修正无效或不可抓取的 source URL。
-- [ ] 用真实 raw 数据跑 fake pipeline，检查日报质量。
-- [ ] 配置 Kimi 或 OpenAI key 后跑小批量真实 AI pipeline。
+- [x] 用真实 raw 数据跑 fake pipeline，检查日报质量。
+- [x] 配置 DeepSeek key 后跑小批量真实 AI pipeline。
 
 ### 中优先级
 
@@ -789,6 +823,7 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
 - [x] 启动前后端 dev server，做 `/latest` 浏览器截图级视觉验收。
 - [x] 实现 `/daily` 日报页。
 - [x] 实现 `/event/:id` 事件详情页。
+- [x] 优化 `/event/:id` 为原文阅读布局并显示原文图片。
 - [x] 实现 `/all` 全量列表页。
 - [x] 实现 `/search` 搜索页。
 - [x] 实现 `/latest` 点击刷新最新日报和完整成果。
@@ -860,7 +895,7 @@ docker compose -f infra/docker-compose.yml up --build api
 - [x] 本地 fake pipeline 可生成日报。
 - [x] 评分、聚类、日报核心逻辑有测试。
 - [ ] 真实源可稳定抓取。
-- [ ] OpenAI 小批量真实评分通过。
+- [x] DeepSeek 小批量真实评分通过。
 - [ ] 连续 7 天日报质量可接受。
 
 ### V1 产品完成

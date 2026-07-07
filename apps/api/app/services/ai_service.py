@@ -39,12 +39,20 @@ def _clamp_dimension(value: Any) -> float:
     return max(0.0, min(10.0, numeric))
 
 
+def _clamp_confidence(value: Any) -> float:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        numeric = 0.0
+    return max(0.0, min(1.0, numeric))
+
+
 def parse_prefilter_payload(payload: dict[str, Any]) -> PrefilterResult:
     required = {"is_ai_related", "confidence", "reason"}
     missing = required - set(payload)
     if missing:
         raise ValueError(f"prefilter payload missing fields: {sorted(missing)}")
-    confidence = max(0.0, min(1.0, float(payload["confidence"])))
+    confidence = _clamp_confidence(payload["confidence"])
     return PrefilterResult(
         is_ai_related=bool(payload["is_ai_related"]),
         confidence=confidence,
@@ -323,15 +331,112 @@ class KimiProvider:
         return parse_scoring_payload(json.loads(content))
 
 
+class DeepSeekProvider:
+    """DeepSeek OpenAI-compatible chat provider with local deterministic embeddings."""
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        model: str = "deepseek-v4-flash",
+        base_url: str = "https://api.deepseek.com",
+        user_id: str | None = None,
+        max_tokens: int = 2048,
+    ):
+        self.api_key = api_key
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        self.user_id = user_id
+        self.max_tokens = max_tokens
+        self._embedding_provider = FakeAIProvider()
+
+    def _post_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"DeepSeek request failed: {exc.code} {body}") from exc
+
+    def _chat_payload(self, messages: list[dict[str, str]]) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "response_format": {"type": "json_object"},
+            "messages": messages,
+            "max_tokens": self.max_tokens,
+        }
+        if self.user_id:
+            payload["user_id"] = self.user_id
+        return payload
+
+    def embed_text(self, text: str, dimensions: int = 64) -> list[float]:
+        return self._embedding_provider.embed_text(text, dimensions=dimensions)
+
+    def prefilter(self, text: str) -> PrefilterResult:
+        payload = self._chat_payload(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "Return JSON with is_ai_related, confidence, reason. "
+                        "Only mark true for AI technology, products, research, industry, tooling."
+                    ),
+                },
+                {"role": "user", "content": text[:2000]},
+            ]
+        )
+        response = self._post_json(f"{self.base_url}/chat/completions", payload)
+        content = response["choices"][0]["message"]["content"]
+        return parse_prefilter_payload(json.loads(content))
+
+    def score_article(self, title: str, content: str) -> ScoringResult:
+        schema_hint = _scoring_schema_hint()
+        payload = self._chat_payload(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "Score the AI news item for a Chinese AI intelligence daily report. "
+                        "Return strict JSON matching this example: "
+                        f"{json.dumps(schema_hint, ensure_ascii=False)}"
+                    ),
+                },
+                {"role": "user", "content": f"Title: {title}\n\nContent: {content[:4000]}"},
+            ]
+        )
+        response = self._post_json(f"{self.base_url}/chat/completions", payload)
+        content = response["choices"][0]["message"]["content"]
+        return parse_scoring_payload(json.loads(content))
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
 def provider_from_env(*, fake_ai: bool = False):
     if fake_ai:
         return FakeAIProvider()
 
+    deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
     kimi_api_key = os.getenv("KIMI_API_KEY") or os.getenv("MOONSHOT_API_KEY")
     openai_api_key = os.getenv("OPENAI_API_KEY")
     provider_name = os.getenv("AI_PROVIDER", "").strip().lower()
     if not provider_name:
-        if kimi_api_key:
+        if deepseek_api_key:
+            provider_name = "deepseek"
+        elif kimi_api_key:
             provider_name = "kimi"
         elif openai_api_key:
             provider_name = "openai"
@@ -347,6 +452,16 @@ def provider_from_env(*, fake_ai: bool = False):
             kimi_api_key,
             model=os.getenv("KIMI_MODEL", "kimi-k2.7-code"),
             base_url=os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1"),
+        )
+    if provider_name in {"deepseek", "deekseek"}:
+        if not deepseek_api_key:
+            raise ValueError("DEEPSEEK_API_KEY is required when AI_PROVIDER=deepseek")
+        return DeepSeekProvider(
+            deepseek_api_key,
+            model=os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
+            base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+            user_id=os.getenv("DEEPSEEK_USER_ID") or None,
+            max_tokens=_env_int("DEEPSEEK_MAX_TOKENS", 2048),
         )
     if provider_name == "openai":
         if not openai_api_key:

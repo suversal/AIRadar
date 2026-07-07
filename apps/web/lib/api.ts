@@ -4,6 +4,24 @@ export type RadarSource = {
   tier: string;
 };
 
+export type OriginalImage = {
+  url: string;
+  alt?: string;
+  caption?: string;
+};
+
+export type OriginalBlock =
+  | {
+      type: "paragraph";
+      text: string;
+    }
+  | {
+      type: "image";
+      url: string;
+      alt?: string;
+      caption?: string;
+    };
+
 export type LatestEvent = {
   event_id: string;
   title: string;
@@ -18,6 +36,11 @@ export type LatestEvent = {
   reason?: string;
   action?: string;
   published_at?: string;
+  original_url?: string;
+  original_content?: string;
+  original_paragraphs?: string[];
+  original_images?: OriginalImage[];
+  original_blocks?: OriginalBlock[];
 };
 
 export type LatestReport = {

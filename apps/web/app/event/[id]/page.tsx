@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import type { LatestEvent, OriginalBlock } from "@/lib/api";
 import { getLatestReport } from "@/lib/api";
 import { findEventById } from "@/lib/events";
 
@@ -10,7 +11,87 @@ function formatScore(score?: number) {
   if (typeof score !== "number") {
     return "未评分";
   }
-  return score.toFixed(1);
+  return Math.round(score).toString();
+}
+
+function formatDateTime(value?: string) {
+  if (!value) {
+    return "暂无时间";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function hostFromUrl(value?: string) {
+  if (!value) {
+    return "";
+  }
+  try {
+    return new URL(value).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function originalBlocksFor(event: LatestEvent): OriginalBlock[] {
+  if (event.original_blocks?.length) {
+    return event.original_blocks;
+  }
+  if (event.original_paragraphs?.length) {
+    return event.original_paragraphs.map((paragraph) => ({
+      type: "paragraph",
+      text: paragraph,
+    }));
+  }
+  if (event.original_content) {
+    return [{ type: "paragraph", text: event.original_content }];
+  }
+  if (event.original_images?.length) {
+    return event.original_images.map((image) => ({
+      type: "image",
+      url: image.url,
+      alt: image.alt,
+      caption: image.caption,
+    }));
+  }
+  return [
+    {
+      type: "paragraph",
+      text: event.summary ?? event.one_line_summary ?? "暂无可展示的原文正文。",
+    },
+  ];
+}
+
+function renderOriginalBlock(block: OriginalBlock, index: number) {
+  if (block.type === "image") {
+    return (
+      <figure key={`${block.url}-${index}`} className="my-8">
+        <img
+          src={block.url}
+          alt={block.alt ?? ""}
+          className="max-h-[520px] w-full rounded-md border border-slate-800 object-contain"
+        />
+        {block.caption ? (
+          <figcaption className="mt-2 text-center text-sm text-slate-500">{block.caption}</figcaption>
+        ) : null}
+      </figure>
+    );
+  }
+  return (
+    <p key={`${block.text.slice(0, 24)}-${index}`} className="text-[17px] leading-8 text-slate-200">
+      {block.text}
+    </p>
+  );
 }
 
 export default async function EventDetailPage({ params }: { params: EventParams }) {
@@ -22,127 +103,96 @@ export default async function EventDetailPage({ params }: { params: EventParams 
     notFound();
   }
 
+  const originalUrl = event.original_url ?? event.main_source?.url;
+  const originalHost = hostFromUrl(originalUrl);
+  const originalBlocks = originalBlocksFor(event);
+
   return (
-    <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
-      <header className="border-b border-[var(--line)] bg-[var(--panel)]">
-        <div className="mx-auto flex max-w-5xl flex-col gap-4 px-5 py-6 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-sm text-[var(--muted)]">Suversal AI Radar</p>
-            <h1 className="mt-2 text-3xl font-semibold">{event.title}</h1>
-          </div>
-          <a className="text-sm text-[var(--accent)] underline" href="/latest">
-            返回最新情报
-          </a>
-        </div>
-      </header>
-
-      <section className="mx-auto grid max-w-5xl gap-6 px-5 py-6 lg:grid-cols-[280px_1fr]">
-        <aside className="border-b border-[var(--line)] pb-5 lg:border-b-0 lg:border-r lg:pr-5">
-          <div className="text-sm text-[var(--accent-strong)]">
-            {event.category_label ?? event.category ?? "未分类"}
-          </div>
-          <div className="mt-3 text-3xl font-semibold">{formatScore(event.final_score)}</div>
-          <div className="text-sm text-[var(--muted)]">综合评分</div>
-
-          <div className="mt-6 space-y-4 text-sm">
-            <div>
-              <div className="font-semibold">主来源</div>
-              {event.main_source ? (
-                <a className="mt-2 inline-block text-[var(--accent)] underline" href={event.main_source.url}>
-                  {event.main_source.name}
-                </a>
-              ) : (
-                <p className="mt-2 text-[var(--muted)]">暂无主来源。</p>
-              )}
+    <main className="min-h-screen bg-[#070d1a] text-slate-100">
+      <div className="mx-auto max-w-4xl px-5 py-8 md:py-12">
+        <header>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <a className="text-sm font-medium text-cyan-300 hover:text-cyan-200" href="/latest">
+              返回最新情报
+            </a>
+            <div className="flex items-center gap-3">
+              <span className="rounded-full border border-amber-500/40 px-3 py-1 text-sm font-semibold text-amber-300">
+                精选
+              </span>
+              <span className="rounded-full border border-cyan-400/40 px-3 py-1 text-sm font-semibold text-cyan-300">
+                {formatScore(event.final_score)}
+              </span>
             </div>
-            <div>
-              <div className="font-semibold">原文链接</div>
-              {event.main_source ? (
+          </div>
+
+          <div className="mt-10 flex items-start gap-4">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-sm font-semibold text-cyan-200">
+              {(event.main_source?.name ?? "AI").slice(0, 2)}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500">
+                <span className="font-semibold text-slate-200">{event.main_source?.name ?? "未知来源"}</span>
+                <span>{formatDateTime(event.published_at)}</span>
+                <span>{event.category_label ?? event.category ?? "未分类"}</span>
+              </div>
+              <h1 className="mt-4 text-3xl font-semibold leading-tight tracking-normal text-slate-50 md:text-4xl">
+                {event.title}
+              </h1>
+              {originalUrl ? (
                 <a
-                  className="mt-2 inline-block rounded-md border border-[var(--accent)] px-3 py-2 text-[var(--accent)]"
-                  href={event.main_source.url}
+                  className="mt-6 inline-flex items-center gap-2 text-base font-medium text-cyan-300 hover:text-cyan-200"
+                  href={originalUrl}
+                  rel="noreferrer"
+                  target="_blank"
                 >
-                  打开原文
+                  阅读原文{originalHost ? ` · ${originalHost}` : ""}
                 </a>
-              ) : (
-                <p className="mt-2 text-[var(--muted)]">暂无原文链接。</p>
-              )}
-            </div>
-            <div>
-              <div className="font-semibold">相关来源</div>
-              <p className="mt-2 text-[var(--muted)]">{event.source_count ?? 1} 个来源参与该事件聚合。</p>
-            </div>
-            <div>
-              <div className="font-semibold">标签</div>
-              <p className="mt-2 text-[var(--muted)]">{(event.tags ?? []).join(" / ") || "暂无标签"}</p>
+              ) : null}
             </div>
           </div>
-        </aside>
+        </header>
 
-        <div className="space-y-8">
-          <section className="border-b border-[var(--line)] pb-5">
-            <h2 className="text-xl font-semibold">摘要</h2>
-            <p className="mt-3 text-base leading-7 text-[var(--muted)]">
-              {event.summary ?? event.one_line_summary ?? "暂无摘要。"}
-            </p>
-          </section>
+        <section className="mt-8 rounded-md border border-amber-500/30 bg-amber-500/5 p-5">
+          <h2 className="text-sm font-semibold text-amber-300">推荐理由</h2>
+          <p className="mt-3 text-base leading-7 text-slate-300">{event.reason ?? "暂无推荐理由。"}</p>
+        </section>
 
-          <section className="border-b border-[var(--line)] pb-5">
-            <h2 className="text-xl font-semibold">报告正文</h2>
-            <div className="mt-4 space-y-3 text-sm leading-6">
-              <p>
-                <span className="font-semibold">摘要：</span>
-                {event.one_line_summary ?? event.summary ?? "暂无摘要。"}
-              </p>
-              <p>
-                <span className="font-semibold">核心总结：</span>
-                {event.summary ?? event.one_line_summary ?? "暂无核心总结。"}
-              </p>
-              <p>
-                <span className="font-semibold">为什么重要：</span>
-                {event.reason ?? "暂无推荐理由。"}
-              </p>
-              <p>
-                <span className="font-semibold">下一步：</span>
-                {event.action ?? "阅读原文并评估是否跟进。"}
-              </p>
-              <p>
-                <span className="font-semibold">来源：</span>
-                {event.main_source ? event.main_source.name : "暂无主来源"}，相关来源 {event.source_count ?? 1} 个
-              </p>
-            </div>
-          </section>
+        <section className="mt-6 rounded-md border border-slate-700 bg-slate-900/60 p-5">
+          <h2 className="text-sm font-semibold text-cyan-300">AI 摘要</h2>
+          <p className="mt-3 text-base leading-7 text-slate-300">
+            {event.summary ?? event.one_line_summary ?? "暂无摘要。"}
+          </p>
+        </section>
 
-          <section className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-lg border border-[var(--line)] bg-[var(--panel)] p-4">
-              <h2 className="text-lg font-semibold">推荐理由</h2>
-              <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
-                {event.reason ?? "暂无推荐理由。"}
-              </p>
-            </div>
-            <div className="rounded-lg border border-[var(--line)] bg-[var(--panel)] p-4">
-              <h2 className="text-lg font-semibold">下一步</h2>
-              <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
-                {event.action ?? "阅读原文并评估是否跟进。"}
-              </p>
-            </div>
-          </section>
+        <article className="mt-10 border-t border-slate-800 pt-8">
+          <h2 className="text-sm font-semibold text-slate-500">原文</h2>
+          <div className="mt-6 space-y-6">{originalBlocks.map(renderOriginalBlock)}</div>
+        </article>
 
-          <section>
-            <h2 className="text-xl font-semibold">时间线</h2>
-            <div className="mt-4 divide-y divide-[var(--line)] border-y border-[var(--line)]">
-              <div className="grid gap-2 py-4 md:grid-cols-[160px_1fr]">
-                <div className="text-sm font-semibold">发布时间</div>
-                <div className="text-sm text-[var(--muted)]">{event.published_at ?? "暂无发布时间"}</div>
-              </div>
-              <div className="grid gap-2 py-4 md:grid-cols-[160px_1fr]">
-                <div className="text-sm font-semibold">收录日报</div>
-                <div className="text-sm text-[var(--muted)]">{report.report_date ?? report.updated_at ?? "暂无日报"}</div>
-              </div>
-            </div>
+        {event.tags?.length ? (
+          <section className="mt-10 flex flex-wrap gap-3" aria-label="标签">
+            {event.tags.map((tag) => (
+              <span
+                key={tag}
+                className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-400"
+              >
+                {tag}
+              </span>
+            ))}
           </section>
-        </div>
-      </section>
+        ) : null}
+
+        {originalUrl ? (
+          <a
+            className="mt-10 inline-flex rounded-md border border-slate-700 bg-slate-900 px-5 py-3 text-base font-semibold text-slate-300 hover:border-cyan-400/50 hover:text-cyan-200"
+            href={originalUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
+            阅读原文{originalHost ? ` · ${originalHost}` : ""}
+          </a>
+        ) : null}
+      </div>
     </main>
   );
 }

@@ -8,6 +8,7 @@ from unittest.mock import patch
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
 from app.services.ai_service import (
+    DeepSeekProvider,
     FakeAIProvider,
     KimiProvider,
     parse_prefilter_payload,
@@ -20,6 +21,18 @@ class AIProviderTests(unittest.TestCase):
     def test_parse_prefilter_payload_rejects_missing_required_fields(self):
         with self.assertRaises(ValueError):
             parse_prefilter_payload({"is_ai_related": True})
+
+    def test_parse_prefilter_payload_handles_non_numeric_confidence(self):
+        parsed = parse_prefilter_payload(
+            {
+                "is_ai_related": True,
+                "confidence": "high",
+                "reason": "明显是 AI 相关内容。",
+            }
+        )
+
+        self.assertTrue(parsed.is_ai_related)
+        self.assertEqual(parsed.confidence, 0.0)
 
     def test_parse_scoring_payload_clamps_dimension_scores(self):
         parsed = parse_scoring_payload(
@@ -104,6 +117,58 @@ class AIProviderTests(unittest.TestCase):
         self.assertEqual(provider.embed_text("same text"), provider.embed_text("same text"))
         self.assertEqual(len(provider.embed_text("same text", dimensions=16)), 16)
 
+    def test_deepseek_provider_scores_article_via_openai_compatible_chat_completion(self):
+        provider = DeepSeekProvider("test-key", user_id="ai-radar-test", max_tokens=1234)
+        calls = []
+
+        def fake_post_json(url, payload):
+            calls.append((url, payload))
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "dimensions": {
+                                        "ai_relevance": 9,
+                                        "novelty": 8,
+                                        "impact": 7,
+                                        "information_density": 8,
+                                        "actionability": 7,
+                                        "creator_value": 6,
+                                    },
+                                    "category": "agent_tooling",
+                                    "tags": ["Agent", "DeepSeek"],
+                                    "title_zh": "DeepSeek 生成 AI 摘要",
+                                    "one_line_summary": "DeepSeek 为 AI Radar 生成中文摘要。",
+                                    "summary_zh": "DeepSeek 根据原文输出结构化中文摘要。",
+                                    "reason_zh": "这能验证真实 AI 总结链路。",
+                                    "action_zh": "用小批量数据检查摘要质量。",
+                                },
+                                ensure_ascii=False,
+                            )
+                        }
+                    }
+                ]
+            }
+
+        provider._post_json = fake_post_json
+
+        result = provider.score_article("DeepSeek summary test", "DeepSeek summarizes one AI article.")
+
+        self.assertEqual(result.title_zh, "DeepSeek 生成 AI 摘要")
+        self.assertEqual(calls[0][0], "https://api.deepseek.com/chat/completions")
+        self.assertEqual(calls[0][1]["model"], "deepseek-v4-flash")
+        self.assertEqual(calls[0][1]["response_format"], {"type": "json_object"})
+        self.assertEqual(calls[0][1]["user_id"], "ai-radar-test")
+        self.assertEqual(calls[0][1]["max_tokens"], 1234)
+
+    def test_deepseek_provider_uses_local_deterministic_embedding_fallback(self):
+        provider = DeepSeekProvider("test-key")
+
+        self.assertEqual(provider.embed_text("same text"), provider.embed_text("same text"))
+        self.assertEqual(len(provider.embed_text("same text", dimensions=16)), 16)
+
     def test_provider_from_env_selects_kimi_without_committing_secrets(self):
         with patch.dict(
             os.environ,
@@ -121,6 +186,27 @@ class AIProviderTests(unittest.TestCase):
         self.assertEqual(provider.model, "kimi-test")
         self.assertEqual(provider.base_url, "https://example.test/v1")
 
+    def test_provider_from_env_selects_deepseek_without_committing_secrets(self):
+        with patch.dict(
+            os.environ,
+            {
+                "AI_PROVIDER": "deepseek",
+                "DEEPSEEK_API_KEY": "test-key",
+                "DEEPSEEK_MODEL": "deepseek-test",
+                "DEEPSEEK_BASE_URL": "https://example.test",
+                "DEEPSEEK_USER_ID": "ai-radar-test",
+                "DEEPSEEK_MAX_TOKENS": "1024",
+            },
+            clear=True,
+        ):
+            provider = provider_from_env()
+
+        self.assertIsInstance(provider, DeepSeekProvider)
+        self.assertEqual(provider.model, "deepseek-test")
+        self.assertEqual(provider.base_url, "https://example.test")
+        self.assertEqual(provider.user_id, "ai-radar-test")
+        self.assertEqual(provider.max_tokens, 1024)
+
     def test_provider_from_env_uses_official_moonshot_base_url_by_default(self):
         with patch.dict(
             os.environ,
@@ -134,6 +220,21 @@ class AIProviderTests(unittest.TestCase):
 
         self.assertIsInstance(provider, KimiProvider)
         self.assertEqual(provider.base_url, "https://api.moonshot.cn/v1")
+
+    def test_provider_from_env_uses_official_deepseek_defaults(self):
+        with patch.dict(
+            os.environ,
+            {
+                "AI_PROVIDER": "deepseek",
+                "DEEPSEEK_API_KEY": "test-key",
+            },
+            clear=True,
+        ):
+            provider = provider_from_env()
+
+        self.assertIsInstance(provider, DeepSeekProvider)
+        self.assertEqual(provider.model, "deepseek-v4-flash")
+        self.assertEqual(provider.base_url, "https://api.deepseek.com")
 
 
 if __name__ == "__main__":

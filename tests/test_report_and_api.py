@@ -30,7 +30,30 @@ class ReportAndAPITests(unittest.TestCase):
             published_at=datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
             language="en",
             raw_score={},
-            metadata={},
+            metadata={
+                "original_text": "OpenAI 发布新的 Agent 模型。\n\n开发者可以用它构建自动化工作流。",
+                "original_paragraphs": [
+                    "OpenAI 发布新的 Agent 模型。",
+                    "开发者可以用它构建自动化工作流。",
+                ],
+                "original_images": [
+                    {
+                        "url": "https://openai.com/agent.png",
+                        "alt": "Agent model diagram",
+                        "caption": "",
+                    }
+                ],
+                "original_blocks": [
+                    {"type": "paragraph", "text": "OpenAI 发布新的 Agent 模型。"},
+                    {
+                        "type": "image",
+                        "url": "https://openai.com/agent.png",
+                        "alt": "Agent model diagram",
+                        "caption": "",
+                    },
+                    {"type": "paragraph", "text": "开发者可以用它构建自动化工作流。"},
+                ],
+            },
             title_hash="t",
             url_hash="u",
         )
@@ -121,6 +144,12 @@ class ReportAndAPITests(unittest.TestCase):
         self.assertEqual(daily["latest_published_at"], "2026-07-01T09:00:00+00:00")
         self.assertEqual(latest["items"][0]["event_id"], "c1")
         self.assertEqual(latest["items"][0]["main_source"]["name"], "OpenAI Blog")
+        self.assertEqual(
+            latest["items"][0]["original_paragraphs"],
+            ["OpenAI 发布新的 Agent 模型。", "开发者可以用它构建自动化工作流。"],
+        )
+        self.assertEqual(latest["items"][0]["original_images"][0]["url"], "https://openai.com/agent.png")
+        self.assertEqual(latest["items"][0]["original_blocks"][1]["type"], "image")
         self.assertEqual(daily["report_date"], "2026-07-01")
 
     def test_public_payloads_can_be_loaded_from_repository(self):

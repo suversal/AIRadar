@@ -7,6 +7,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from urllib.request import Request
 
+from app.crawlers.article_content import extract_article_content
 from app.crawlers.base import BaseCrawler, clean_text, normalize_article
 from app.models.domain import RawArticle, Source
 
@@ -55,6 +56,24 @@ def _child_text(element: ET.Element, names: list[str]) -> str:
     return ""
 
 
+def _child_raw_text(element: ET.Element, names: list[str]) -> str:
+    for name in names:
+        child = element.find(name)
+        if child is not None:
+            text = "".join(child.itertext()).strip()
+            if text:
+                return text
+    for name in names:
+        for child in list(element):
+            local_name = child.tag.split("}")[-1]
+            if local_name != name:
+                continue
+            text = "".join(child.itertext()).strip()
+            if text:
+                return text
+    return ""
+
+
 def _entry_link(element: ET.Element) -> str:
     direct = _child_text(element, ["link"])
     if direct:
@@ -98,14 +117,23 @@ def parse_rss(xml_text: str, source: Source, limit: int | None = None) -> list[R
     for entry in entries[:limit]:
         title = _child_text(entry, ["title"])
         link = _entry_link(entry)
-        content = (
-            _child_text(entry, ["description", "summary", "content"])
-            or _child_text(entry, ["encoded"])
+        content_html = (
+            _child_raw_text(entry, ["description", "summary", "content"])
+            or _child_raw_text(entry, ["encoded"])
         )
+        original_content = extract_article_content(content_html, base_url=link)
+        content = original_content["original_text"] or strip_html(content_html)
         author = _entry_author(entry)
         published = _child_text(entry, ["pubDate", "published", "updated"])
         if not title or not link:
             continue
+        metadata = {
+            "source_type": "rss",
+            "original_text": original_content["original_text"],
+            "original_paragraphs": original_content["original_paragraphs"],
+            "original_images": original_content["original_images"],
+            "original_blocks": original_content["original_blocks"],
+        }
         articles.append(
             normalize_article(
                 source=source,
@@ -116,7 +144,7 @@ def parse_rss(xml_text: str, source: Source, limit: int | None = None) -> list[R
                 published_at=parse_datetime(published),
                 language=source.language,
                 raw_score={},
-                metadata={"source_type": "rss"},
+                metadata=metadata,
             )
         )
     return articles

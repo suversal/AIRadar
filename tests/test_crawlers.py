@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
 from app.crawlers.base import normalize_article
+from app.crawlers.article_content import extract_article_content
 from app.crawlers.github import parse_github_trending
 from app.crawlers.hn import parse_hn_hits
 from app.crawlers.rss import parse_rss
@@ -77,6 +78,80 @@ class CrawlerTests(unittest.TestCase):
         self.assertEqual(len(articles), 1)
         self.assertEqual(articles[0].title, "AI system ships")
         self.assertEqual(articles[0].source_url, "https://example.com/ai-system")
+
+    def test_extract_article_content_preserves_blocks_and_image_urls(self):
+        html = """
+        <article>
+          <p>第一段 AI 正文。</p>
+          <p><img src="/images/demo.jpg" alt="模型界面截图"></p>
+          <p>第二段继续说明。</p>
+        </article>
+        """
+
+        content = extract_article_content(html, base_url="https://www.ithome.com/0/973/803.htm")
+
+        self.assertEqual(content["original_paragraphs"], ["第一段 AI 正文。", "第二段继续说明。"])
+        self.assertEqual(
+            content["original_blocks"],
+            [
+                {"type": "paragraph", "text": "第一段 AI 正文。"},
+                {
+                    "type": "image",
+                    "url": "https://www.ithome.com/images/demo.jpg",
+                    "alt": "模型界面截图",
+                    "caption": "",
+                },
+                {"type": "paragraph", "text": "第二段继续说明。"},
+            ],
+        )
+        self.assertEqual(content["original_images"][0]["url"], "https://www.ithome.com/images/demo.jpg")
+
+    def test_parse_rss_preserves_original_text_blocks_and_images(self):
+        source = Source(
+            id="ithome",
+            name="IT之家（RSS）",
+            source_role="context",
+            tier="T2",
+            type="rss",
+            category="media",
+            url="https://www.ithome.com/rss/",
+            homepage="https://www.ithome.com",
+            allowed_domains=["ithome.com", "www.ithome.com"],
+            language="zh",
+            can_be_main_source=True,
+            config={"extract_original_content": True},
+        )
+        xml = """<?xml version="1.0"?>
+        <rss version="2.0">
+          <channel>
+            <item>
+              <title>AI 应用更新</title>
+              <link>https://www.ithome.com/0/973/803.htm</link>
+              <description>&lt;p&gt;IT之家 7 月 7 日消息，AI 应用发布更新。&lt;/p&gt;&lt;p&gt;&lt;img src="https://img.ithome.com/news/demo.jpg" alt="更新截图"&gt;&lt;/p&gt;&lt;p&gt;新版本增加本地模型能力。&lt;/p&gt;</description>
+              <pubDate>Tue, 07 Jul 2026 15:01:52 GMT</pubDate>
+            </item>
+          </channel>
+        </rss>
+        """
+
+        articles = parse_rss(xml, source)
+
+        self.assertEqual(len(articles), 1)
+        self.assertEqual(
+            articles[0].metadata["original_paragraphs"],
+            ["IT之家 7 月 7 日消息，AI 应用发布更新。", "新版本增加本地模型能力。"],
+        )
+        self.assertEqual(
+            articles[0].metadata["original_images"],
+            [
+                {
+                    "url": "https://img.ithome.com/news/demo.jpg",
+                    "alt": "更新截图",
+                    "caption": "",
+                }
+            ],
+        )
+        self.assertEqual(articles[0].metadata["original_blocks"][1]["type"], "image")
 
     def test_parse_atom_handles_iso_dates_nested_author_and_href_links(self):
         source = Source(

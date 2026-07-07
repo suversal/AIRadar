@@ -32,6 +32,81 @@ def _iso_utc(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat()
 
 
+def _clean_original_images(images: Any) -> list[dict[str, str]]:
+    if not isinstance(images, list):
+        return []
+    cleaned = []
+    for image in images:
+        if not isinstance(image, dict):
+            continue
+        url = str(image.get("url") or "").strip()
+        if not url:
+            continue
+        cleaned.append(
+            {
+                "url": url,
+                "alt": str(image.get("alt") or "").strip(),
+                "caption": str(image.get("caption") or "").strip(),
+            }
+        )
+    return cleaned
+
+
+def _clean_original_blocks(blocks: Any) -> list[dict[str, Any]]:
+    if not isinstance(blocks, list):
+        return []
+    cleaned = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        block_type = block.get("type")
+        if block_type == "paragraph":
+            text = str(block.get("text") or "").strip()
+            if text:
+                cleaned.append({"type": "paragraph", "text": text})
+        elif block_type == "image":
+            url = str(block.get("url") or "").strip()
+            if url:
+                cleaned.append(
+                    {
+                        "type": "image",
+                        "url": url,
+                        "alt": str(block.get("alt") or "").strip(),
+                        "caption": str(block.get("caption") or "").strip(),
+                    }
+                )
+    return cleaned
+
+
+def _original_article_payload(article: RawArticle) -> dict[str, Any]:
+    metadata = article.metadata or {}
+    raw_paragraphs = metadata.get("original_paragraphs")
+    if not isinstance(raw_paragraphs, list):
+        raw_paragraphs = []
+    paragraphs = [
+        str(paragraph).strip()
+        for paragraph in raw_paragraphs
+        if str(paragraph).strip()
+    ]
+    if not paragraphs and article.content:
+        paragraphs = [article.content]
+    images = _clean_original_images(metadata.get("original_images"))
+    blocks = _clean_original_blocks(metadata.get("original_blocks"))
+    if not blocks:
+        blocks = [{"type": "paragraph", "text": paragraph} for paragraph in paragraphs]
+        blocks.extend({"type": "image", **image} for image in images)
+    original_text = str(metadata.get("original_text") or "").strip()
+    if not original_text:
+        original_text = "\n\n".join(paragraphs)
+    return {
+        "original_url": article.source_url,
+        "original_content": original_text,
+        "original_paragraphs": paragraphs,
+        "original_images": images,
+        "original_blocks": blocks,
+    }
+
+
 def build_daily_json(
     *,
     report_date: date,
@@ -47,6 +122,7 @@ def build_daily_json(
         article = articles_by_id[cluster.main_article_id]
         processed = processed_by_article[cluster.main_article_id]
         source = sources_by_id[article.source_id]
+        original_payload = _original_article_payload(article)
         items.append(
             {
                 "event_id": cluster.id,
@@ -66,6 +142,7 @@ def build_daily_json(
                 "reason": processed.reason_zh,
                 "action": processed.action_zh,
                 "published_at": article.published_at.astimezone(timezone.utc).isoformat(),
+                **original_payload,
             }
         )
     latest_published_at = max((item["published_at"] for item in items), default=None)
