@@ -102,6 +102,8 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("主来源", event_page)
         self.assertIn("相关来源", event_page)
         self.assertIn("时间线", event_page)
+        self.assertIn("报告正文", event_page)
+        self.assertIn("原文链接", event_page)
         self.assertIn("推荐理由", event_page)
         self.assertIn("下一步", event_page)
 

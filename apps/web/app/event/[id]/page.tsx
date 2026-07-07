@@ -56,6 +56,19 @@ export default async function EventDetailPage({ params }: { params: EventParams 
               )}
             </div>
             <div>
+              <div className="font-semibold">原文链接</div>
+              {event.main_source ? (
+                <a
+                  className="mt-2 inline-block rounded-md border border-[var(--accent)] px-3 py-2 text-[var(--accent)]"
+                  href={event.main_source.url}
+                >
+                  打开原文
+                </a>
+              ) : (
+                <p className="mt-2 text-[var(--muted)]">暂无原文链接。</p>
+              )}
+            </div>
+            <div>
               <div className="font-semibold">相关来源</div>
               <p className="mt-2 text-[var(--muted)]">{event.source_count ?? 1} 个来源参与该事件聚合。</p>
             </div>
@@ -72,6 +85,32 @@ export default async function EventDetailPage({ params }: { params: EventParams 
             <p className="mt-3 text-base leading-7 text-[var(--muted)]">
               {event.summary ?? event.one_line_summary ?? "暂无摘要。"}
             </p>
+          </section>
+
+          <section className="border-b border-[var(--line)] pb-5">
+            <h2 className="text-xl font-semibold">报告正文</h2>
+            <div className="mt-4 space-y-3 text-sm leading-6">
+              <p>
+                <span className="font-semibold">摘要：</span>
+                {event.one_line_summary ?? event.summary ?? "暂无摘要。"}
+              </p>
+              <p>
+                <span className="font-semibold">核心总结：</span>
+                {event.summary ?? event.one_line_summary ?? "暂无核心总结。"}
+              </p>
+              <p>
+                <span className="font-semibold">为什么重要：</span>
+                {event.reason ?? "暂无推荐理由。"}
+              </p>
+              <p>
+                <span className="font-semibold">下一步：</span>
+                {event.action ?? "阅读原文并评估是否跟进。"}
+              </p>
+              <p>
+                <span className="font-semibold">来源：</span>
+                {event.main_source ? event.main_source.name : "暂无主来源"}，相关来源 {event.source_count ?? 1} 个
+              </p>
+            </div>
           </section>
 
           <section className="grid gap-4 md:grid-cols-2">
