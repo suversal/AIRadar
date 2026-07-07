@@ -19,6 +19,8 @@ class WebAppStructureTests(unittest.TestCase):
             "app/icon.svg",
             "app/page.tsx",
             "app/latest/page.tsx",
+            "app/latest/refresh-report-button.tsx",
+            "app/api/refresh-latest/route.ts",
             "app/all/page.tsx",
             "app/search/page.tsx",
             "app/daily/page.tsx",
@@ -53,8 +55,18 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("/api/public/latest", api_source)
         self.assertIn("AI_RADAR_API_BASE_URL", api_source)
         self.assertIn("getLatestReport", latest_page)
+        self.assertIn("RefreshReportButton", latest_page)
         self.assertIn("推荐理由", latest_page)
         self.assertIn("下一步", latest_page)
+
+    def test_latest_page_exposes_refresh_report_button(self):
+        button_source = (WEB / "app" / "latest" / "refresh-report-button.tsx").read_text(encoding="utf-8")
+        route_source = (WEB / "app" / "api" / "refresh-latest" / "route.ts").read_text(encoding="utf-8")
+
+        self.assertIn("刷新最新日报", button_source)
+        self.assertIn("fetch(\"/api/refresh-latest\"", button_source)
+        self.assertIn("router.refresh", button_source)
+        self.assertIn("/api/admin/refresh-latest", route_source)
 
     def test_latest_page_supports_category_filter_links(self):
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")

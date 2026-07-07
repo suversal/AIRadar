@@ -55,6 +55,23 @@ class APIMainTests(unittest.TestCase):
         self.assertEqual(daily["items"], [])
         self.assertEqual(daily["article_count"], 0)
 
+    @unittest.skipIf(TestClient is None, "FastAPI is not installed in this environment")
+    def test_refresh_latest_route_calls_refresh_runner(self):
+        module = importlib.import_module("app.main")
+        calls = []
+
+        def refresh_runner():
+            calls.append("refresh")
+            return {"status": "ok", "report_date": "2026-07-07", "article_count": 12}
+
+        client = TestClient(module.create_app(refresh_runner=refresh_runner))
+
+        response = client.post("/api/admin/refresh-latest")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["report_date"], "2026-07-07")
+        self.assertEqual(calls, ["refresh"])
+
 
 class FakeRepository:
     def __init__(self, payloads):

@@ -59,6 +59,7 @@ def open_database_report_repository(database_url: str) -> Iterator[Any]:
 def create_app(
     *,
     report_repository_factory: Callable[[], Any] | None = None,
+    refresh_runner: Callable[[], dict[str, Any]] | None = None,
     data_dir: Path = DATA_DIR,
 ):
     try:
@@ -103,6 +104,22 @@ def create_app(
         if report_path.exists():
             return build_daily_payload(read_json(report_path))
         return build_daily_payload(load_latest_daily_json(data_dir))
+
+    @app.post("/api/admin/refresh-latest")
+    def refresh_latest() -> dict:
+        if refresh_runner is not None:
+            return refresh_runner()
+        try:
+            from app.services.refresh_service import refresh_latest_report
+
+            return refresh_latest_report(
+                data_dir=data_dir,
+                database_url=os.getenv("DATABASE_URL"),
+                limit=100,
+                top_n=12,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return app
 

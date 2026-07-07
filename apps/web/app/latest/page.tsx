@@ -1,5 +1,6 @@
 import { getLatestReport } from "@/lib/api";
 import { eventHref } from "@/lib/events";
+import { RefreshReportButton } from "./refresh-report-button";
 
 type LatestSearchParams = Promise<{
   category?: string | string[];
@@ -99,6 +100,10 @@ export default async function LatestPage({
               </a>
             ))}
           </nav>
+
+          <div className="mt-6">
+            <RefreshReportButton />
+          </div>
         </aside>
 
         <div className="space-y-8">
