@@ -92,9 +92,12 @@ The API exposes:
 - `top_n`: report item count, default `DAILY_SELECTED_LIMIT` or `12`.
 
 The `/latest` web page exposes two refresh actions: the normal digest generates
-12 items, while "刷新完整成果" requests `top_n=30`. The report `updated_at`
-field is the report generation time; `latest_published_at` records the newest
-source article time.
+12 items, while "刷新完整成果" requests `top_n=30`. Web refreshes start a
+background API job and poll it, so slow Kimi runs no longer hit the Next.js
+single-request timeout. The report `updated_at` field is the report generation
+time; `latest_published_at` records the newest source article time. When real
+model scoring is stricter than the threshold, the report fills remaining slots
+from the highest-scoring candidates while keeping `selected_count` separate.
 
 ## Environment
 

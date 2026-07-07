@@ -1,5 +1,6 @@
 import importlib
 import sys
+import time
 import unittest
 from datetime import date
 from pathlib import Path
@@ -72,6 +73,37 @@ class APIMainTests(unittest.TestCase):
         self.assertEqual(response.json()["report_date"], "2026-07-07")
         self.assertEqual(response.json()["article_count"], 30)
         self.assertEqual(calls, [{"limit": 80, "top_n": 30}])
+
+    @unittest.skipIf(TestClient is None, "FastAPI is not installed in this environment")
+    def test_refresh_latest_async_route_tracks_job_result(self):
+        module = importlib.import_module("app.main")
+
+        def refresh_runner(*, limit, top_n):
+            return {
+                "status": "ok",
+                "report_date": "2026-07-07",
+                "limit": limit,
+                "top_n": top_n,
+                "article_count": top_n,
+            }
+
+        client = TestClient(module.create_app(refresh_runner=refresh_runner))
+
+        response = client.post("/api/admin/refresh-latest-async?limit=20&top_n=9")
+
+        self.assertEqual(response.status_code, 200)
+        job_id = response.json()["job_id"]
+        job_payload = None
+        for _ in range(20):
+            job_response = client.get(f"/api/admin/refresh-jobs/{job_id}")
+            job_payload = job_response.json()
+            if job_payload["status"] != "running":
+                break
+            time.sleep(0.01)
+
+        self.assertEqual(job_payload["status"], "succeeded")
+        self.assertEqual(job_payload["result"]["article_count"], 9)
+        self.assertEqual(job_payload["result"]["limit"], 20)
 
 
 class FakeRepository:

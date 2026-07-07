@@ -77,14 +77,20 @@ def run_pipeline(
             now=now,
             source_count=1,
         )
-        if processed.selected:
-            processed_articles.append(processed)
-            embeddings[article.id] = ai_provider.embed_text(f"{article.title}\n{article.content}")
-        else:
+        processed_articles.append(processed)
+        embeddings[article.id] = ai_provider.embed_text(f"{article.title}\n{article.content}")
+        if not processed.selected:
             skipped["below_threshold"] += 1
 
-    selected_article_ids = {processed.raw_article_id for processed in processed_articles}
-    selected_articles = [article for article in raw_articles if article.id in selected_article_ids]
+    report_article_ids = {
+        processed.raw_article_id
+        for processed in sorted(
+            processed_articles,
+            key=lambda item: (item.selected, item.final_score),
+            reverse=True,
+        )[:top_n]
+    }
+    selected_articles = [article for article in raw_articles if article.id in report_article_ids]
     final_scores = {
         processed.raw_article_id: processed.final_score for processed in processed_articles
     }

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+import threading
+import uuid
 from contextlib import contextmanager, nullcontext
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
@@ -65,6 +67,10 @@ def _resolve_refresh_int(
     return resolved
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 @contextmanager
 def open_database_report_repository(database_url: str) -> Iterator[Any]:
     from app.db.session import build_session_factory
@@ -91,6 +97,8 @@ def create_app(
         raise RuntimeError("FastAPI is not installed. Install requirements.txt first.") from exc
 
     app = FastAPI(title="Suversal AI Radar API", version="0.1.0")
+    refresh_jobs: dict[str, dict[str, Any]] = {}
+    refresh_jobs_lock = threading.Lock()
 
     def report_repository_context():
         if report_repository_factory is not None:
@@ -99,6 +107,36 @@ def create_app(
         if database_url:
             return open_database_report_repository(database_url)
         return None
+
+    def resolve_refresh_params(limit: Optional[int], top_n: Optional[int]) -> tuple[int, int]:
+        return (
+            _resolve_refresh_int(
+                name="limit",
+                value=limit,
+                default=_env_int("DAILY_CANDIDATE_LIMIT", 100),
+                minimum=1,
+                maximum=200,
+            ),
+            _resolve_refresh_int(
+                name="top_n",
+                value=top_n,
+                default=_env_int("DAILY_SELECTED_LIMIT", 12),
+                minimum=1,
+                maximum=50,
+            ),
+        )
+
+    def run_refresh(resolved_limit: int, resolved_top_n: int) -> dict[str, Any]:
+        if refresh_runner is not None:
+            return refresh_runner(limit=resolved_limit, top_n=resolved_top_n)
+        from app.services.refresh_service import refresh_latest_report
+
+        return refresh_latest_report(
+            data_dir=data_dir,
+            database_url=os.getenv("DATABASE_URL"),
+            limit=resolved_limit,
+            top_n=resolved_top_n,
+        )
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -131,36 +169,68 @@ def create_app(
     @app.post("/api/admin/refresh-latest")
     def refresh_latest(limit: Optional[int] = None, top_n: Optional[int] = None) -> dict:
         try:
-            resolved_limit = _resolve_refresh_int(
-                name="limit",
-                value=limit,
-                default=_env_int("DAILY_CANDIDATE_LIMIT", 100),
-                minimum=1,
-                maximum=200,
-            )
-            resolved_top_n = _resolve_refresh_int(
-                name="top_n",
-                value=top_n,
-                default=_env_int("DAILY_SELECTED_LIMIT", 12),
-                minimum=1,
-                maximum=50,
-            )
+            resolved_limit, resolved_top_n = resolve_refresh_params(limit, top_n)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        if refresh_runner is not None:
-            return refresh_runner(limit=resolved_limit, top_n=resolved_top_n)
         try:
-            from app.services.refresh_service import refresh_latest_report
-
-            return refresh_latest_report(
-                data_dir=data_dir,
-                database_url=os.getenv("DATABASE_URL"),
-                limit=resolved_limit,
-                top_n=resolved_top_n,
-            )
+            return run_refresh(resolved_limit, resolved_top_n)
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.post("/api/admin/refresh-latest-async")
+    def refresh_latest_async(limit: Optional[int] = None, top_n: Optional[int] = None) -> dict:
+        try:
+            resolved_limit, resolved_top_n = resolve_refresh_params(limit, top_n)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        job_id = uuid.uuid4().hex
+        with refresh_jobs_lock:
+            refresh_jobs[job_id] = {
+                "job_id": job_id,
+                "status": "running",
+                "created_at": _utc_now_iso(),
+                "started_at": _utc_now_iso(),
+                "finished_at": None,
+                "limit": resolved_limit,
+                "top_n": resolved_top_n,
+                "result": None,
+                "error": None,
+            }
+
+        def worker() -> None:
+            try:
+                result = run_refresh(resolved_limit, resolved_top_n)
+                with refresh_jobs_lock:
+                    refresh_jobs[job_id].update(
+                        {
+                            "status": "succeeded",
+                            "finished_at": _utc_now_iso(),
+                            "result": result,
+                        }
+                    )
+            except Exception as exc:  # pragma: no cover - exercised through integration
+                with refresh_jobs_lock:
+                    refresh_jobs[job_id].update(
+                        {
+                            "status": "failed",
+                            "finished_at": _utc_now_iso(),
+                            "error": str(exc),
+                        }
+                    )
+
+        threading.Thread(target=worker, daemon=True).start()
+        with refresh_jobs_lock:
+            return dict(refresh_jobs[job_id])
+
+    @app.get("/api/admin/refresh-jobs/{job_id}")
+    def refresh_job(job_id: str) -> dict:
+        with refresh_jobs_lock:
+            job = refresh_jobs.get(job_id)
+            if job is None:
+                raise HTTPException(status_code=404, detail="Refresh job not found")
+            return dict(job)
 
     return app
 

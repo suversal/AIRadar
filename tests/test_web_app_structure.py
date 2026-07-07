@@ -68,8 +68,12 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("完整成果", button_source)
         self.assertIn("top_n=30", button_source)
         self.assertIn("fetch(url", button_source)
+        self.assertIn("pollRefreshJob", button_source)
+        self.assertIn("Unexpected end of JSON input", button_source)
         self.assertIn("router.refresh", button_source)
         self.assertIn("/api/admin/refresh-latest", route_source)
+        self.assertIn("/api/admin/refresh-latest-async", route_source)
+        self.assertIn("export async function GET", route_source)
         self.assertIn("searchParams", route_source)
 
     def test_latest_page_supports_category_filter_links(self):

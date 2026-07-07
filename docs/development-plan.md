@@ -65,7 +65,7 @@
 - [x] 已完成：GitHub Trending parser 不再误抓 `/trending/...` 伪 repo。
 - [x] 已完成：HN 关键词边界过滤，不再把 `Aims` 这类子串误当作 `AI`。
 - [x] 已完成：真实抓取结果跑通 fake AI pipeline。
-- [x] 已完成：55 个单元测试全部通过。
+- [x] 已完成：57 个单元测试全部通过。
 
 ## 1. 项目目标
 
@@ -103,7 +103,7 @@ python3 scripts/check_db_once.py
 .venv/bin/python scripts/check_api_once.py --base-url http://127.0.0.1:8000 --date 2026-07-02
 ```
 
-当前测试结果：55 个测试通过。
+当前测试结果：57 个测试通过。
 
 ## 3. 当前已完成范围
 
@@ -641,7 +641,7 @@ PYTHONPATH=apps/api uvicorn app.main:app --reload
     - `/event/:id` 可从 latest payload 查找事件并展示摘要、推荐理由、主来源、相关来源、时间线和标签。
     - `/all` 可展示 latest payload 中当前可读的全部事件，并链接到事件详情页。
     - `/search` 可按关键词过滤 latest payload 中的标题、标签、来源、摘要和推荐字段。
-    - `/latest` 侧栏提供“刷新最新日报”和“刷新完整成果”按钮，点击后通过 Next route 调用 FastAPI 本地刷新接口，执行 crawl + AI pipeline + DB 写入，并刷新当前页面。
+    - `/latest` 侧栏提供“刷新最新日报”和“刷新完整成果”按钮，点击后通过 Next route 启动 FastAPI 后台刷新任务，执行 crawl + AI pipeline + DB 写入，并通过轮询刷新当前页面。
   - 验证：
 
 ```bash
@@ -697,10 +697,12 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
   - 验收：
     - 点击后抓取最新内容，按环境变量选择 fake/Kimi/OpenAI provider 运行 pipeline，写入 `daily_reports`，并刷新页面。
   - 当前完成：
-    - `POST /api/admin/refresh-latest` 执行本地刷新，支持 `limit` 和 `top_n` query 参数。
-    - `POST /api/refresh-latest` 供前端按钮调用并转发 query 参数。
+    - `POST /api/admin/refresh-latest` 执行同步本地刷新，支持 `limit` 和 `top_n` query 参数。
+    - `POST /api/admin/refresh-latest-async` 启动后台刷新任务；`GET /api/admin/refresh-jobs/:job_id` 查询任务状态。
+    - `POST /api/refresh-latest` 供前端按钮调用并转发 query 参数；前端轮询 job 状态，避免 Kimi 慢请求触发 Next.js 单请求超时。
     - 普通刷新请求 `top_n=12`，完整成果请求 `top_n=30`。
     - `updated_at` 已改为报告生成时间；`latest_published_at` 保留最新来源发布时间，避免同一天刷新时看起来时间不变。
+    - 真实模型评分过严时，日报会用最高分候选补足剩余展示位，同时保留 `selected_count` 表示真正过阈值数量。
   - 注意：没有真实 AI key 时自动使用 `FakeAIProvider`；配置 `AI_PROVIDER=kimi` 和本地 key 后，点击刷新会用 Kimi 生成预筛、中文摘要、推荐理由和评分。API key 不写入仓库。
 
 ## 11. Phase 7 - RSS/Public API/MCP
