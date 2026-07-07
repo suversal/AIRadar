@@ -94,7 +94,7 @@ class AIProviderTests(unittest.TestCase):
         result = provider.score_article("Kimi summary test", "Kimi summarizes one AI article.")
 
         self.assertEqual(result.title_zh, "Kimi 生成 AI 摘要")
-        self.assertEqual(calls[0][0], "https://api.moonshot.ai/v1/chat/completions")
+        self.assertEqual(calls[0][0], "https://api.moonshot.cn/v1/chat/completions")
         self.assertEqual(calls[0][1]["model"], "kimi-k2.7-code")
         self.assertEqual(calls[0][1]["response_format"], {"type": "json_object"})
 
@@ -109,7 +109,7 @@ class AIProviderTests(unittest.TestCase):
             os.environ,
             {
                 "AI_PROVIDER": "kimi",
-                "KIMI_API_KEY": "test-key",
+                "MOONSHOT_API_KEY": "test-key",
                 "KIMI_MODEL": "kimi-test",
                 "KIMI_BASE_URL": "https://example.test/v1",
             },
@@ -120,6 +120,20 @@ class AIProviderTests(unittest.TestCase):
         self.assertIsInstance(provider, KimiProvider)
         self.assertEqual(provider.model, "kimi-test")
         self.assertEqual(provider.base_url, "https://example.test/v1")
+
+    def test_provider_from_env_uses_official_moonshot_base_url_by_default(self):
+        with patch.dict(
+            os.environ,
+            {
+                "AI_PROVIDER": "kimi",
+                "MOONSHOT_API_KEY": "test-key",
+            },
+            clear=True,
+        ):
+            provider = provider_from_env()
+
+        self.assertIsInstance(provider, KimiProvider)
+        self.assertEqual(provider.base_url, "https://api.moonshot.cn/v1")
 
 
 if __name__ == "__main__":

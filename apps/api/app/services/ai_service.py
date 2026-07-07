@@ -255,7 +255,7 @@ class KimiProvider:
         api_key: str,
         *,
         model: str = "kimi-k2.7-code",
-        base_url: str = "https://api.moonshot.ai/v1",
+        base_url: str = "https://api.moonshot.cn/v1",
     ):
         self.api_key = api_key
         self.model = model
@@ -346,7 +346,7 @@ def provider_from_env(*, fake_ai: bool = False):
         return KimiProvider(
             kimi_api_key,
             model=os.getenv("KIMI_MODEL", "kimi-k2.7-code"),
-            base_url=os.getenv("KIMI_BASE_URL", "https://api.moonshot.ai/v1"),
+            base_url=os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1"),
         )
     if provider_name == "openai":
         if not openai_api_key:

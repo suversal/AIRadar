@@ -65,7 +65,7 @@
 - [x] 已完成：GitHub Trending parser 不再误抓 `/trending/...` 伪 repo。
 - [x] 已完成：HN 关键词边界过滤，不再把 `Aims` 这类子串误当作 `AI`。
 - [x] 已完成：真实抓取结果跑通 fake AI pipeline。
-- [x] 已完成：54 个单元测试全部通过。
+- [x] 已完成：55 个单元测试全部通过。
 
 ## 1. 项目目标
 
@@ -103,7 +103,7 @@ python3 scripts/check_db_once.py
 .venv/bin/python scripts/check_api_once.py --base-url http://127.0.0.1:8000 --date 2026-07-02
 ```
 
-当前测试结果：54 个测试通过。
+当前测试结果：55 个测试通过。
 
 ## 3. 当前已完成范围
 
@@ -314,7 +314,7 @@ python3 scripts/run_pipeline_once.py --limit 100 --fake-ai --date 2026-07-01
   - 当前完成：
     - 支持 `AI_PROVIDER=kimi`。
     - 支持 `KIMI_API_KEY` 或 `MOONSHOT_API_KEY`。
-    - 支持 `KIMI_MODEL` 和 `KIMI_BASE_URL`。
+    - 支持 `KIMI_MODEL` 和 `KIMI_BASE_URL`；默认 endpoint 为官方文档的 `https://api.moonshot.cn/v1`。
     - `/latest` 点击刷新和 CLI 共用同一个 provider 工厂。
     - 主机侧 API/CLI 会读取本地 `.env` 中缺失的环境变量，已导出的变量优先级更高。
   - 注意：真实 API key 只放本地 `.env`，不得写入仓库、文档或提交。

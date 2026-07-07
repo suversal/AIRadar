@@ -107,7 +107,7 @@ Optional:
 
 - `AI_PROVIDER=openai|kimi|fake`
 - `KIMI_MODEL`
-- `KIMI_BASE_URL`
+- `KIMI_BASE_URL`, default `https://api.moonshot.cn/v1`
 - `GITHUB_TOKEN`
 
 The scripts and refresh endpoint automatically use `FakeAIProvider` when no AI
