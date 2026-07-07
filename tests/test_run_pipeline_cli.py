@@ -4,6 +4,7 @@ import sys
 import unittest
 from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
@@ -34,7 +35,7 @@ class RunPipelineCLITests(unittest.TestCase):
     def test_persist_result_if_requested_requires_database_url(self):
         args = argparse.Namespace(persist_db=True, database_url=None)
 
-        with self.assertRaisesRegex(ValueError, "database url"):
+        with patch.dict("os.environ", {}, clear=True), self.assertRaisesRegex(ValueError, "database url"):
             run_pipeline_once.persist_result_if_requested(
                 args,
                 sources=[self._source()],

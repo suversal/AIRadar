@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
 from app.data.default_sources import default_sources
+from app.core.config import load_env_file
 from app.pipeline.persistence import persist_pipeline_result_to_database
 from app.pipeline.runner import run_pipeline
 from app.services.ai_service import provider_from_env as build_provider_from_env
@@ -46,6 +47,7 @@ def provider_from_env(fake_ai: bool):
 
 
 def main() -> int:
+    load_env_file(ROOT / ".env")
     parser = argparse.ArgumentParser(description="Run one processing pass from raw articles.")
     parser.add_argument("--sources", default="data/sources.json")
     parser.add_argument("--raw", default="data/raw_articles.json")

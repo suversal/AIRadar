@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from app.models.domain import EventCluster, RawArticle, Source
@@ -26,6 +26,12 @@ def selected_clusters(
     return sorted(clusters, key=lambda item: item.final_score, reverse=True)[:top_n]
 
 
+def _iso_utc(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat()
+
+
 def build_daily_json(
     *,
     report_date: date,
@@ -34,6 +40,7 @@ def build_daily_json(
     articles_by_id: dict[str, RawArticle],
     sources_by_id: dict[str, Source],
     top_n: int = 12,
+    generated_at: datetime | None = None,
 ) -> dict[str, Any]:
     items = []
     for cluster in selected_clusters(clusters, top_n=top_n):
@@ -61,6 +68,8 @@ def build_daily_json(
                 "published_at": article.published_at.astimezone(timezone.utc).isoformat(),
             }
         )
+    latest_published_at = max((item["published_at"] for item in items), default=None)
+    updated_at = _iso_utc(generated_at) if generated_at else latest_published_at
     sections: dict[str, list[dict[str, Any]]] = {}
     for item in items:
         sections.setdefault(item["category"], []).append(item)
@@ -68,7 +77,9 @@ def build_daily_json(
         "report_date": report_date.isoformat(),
         "title": f"Suversal AI Radar 日报 - {report_date.isoformat()}",
         "summary": f"精选 {len(items)} 条 AI 情报。",
-        "updated_at": items[0]["published_at"] if items else None,
+        "updated_at": updated_at,
+        "generated_at": updated_at,
+        "latest_published_at": latest_published_at,
         "items": items,
         "sections": sections,
         "article_count": len(items),
@@ -83,6 +94,7 @@ def render_daily_markdown(
     articles_by_id: dict[str, RawArticle],
     sources_by_id: dict[str, Source],
     top_n: int = 12,
+    generated_at: datetime | None = None,
 ) -> str:
     daily = build_daily_json(
         report_date=report_date,
@@ -91,6 +103,7 @@ def render_daily_markdown(
         articles_by_id=articles_by_id,
         sources_by_id=sources_by_id,
         top_n=top_n,
+        generated_at=generated_at,
     )
     lines = [
         f"# {daily['title']}",

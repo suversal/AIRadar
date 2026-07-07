@@ -14,7 +14,7 @@
 | Phase 3 - PostgreSQL + pgvector 持久化 | 进行中 | Docker 已安装；Postgres/Redis healthy；pipeline CLI 已写库；FastAPI public endpoints 已可读数据库 | 补 Alembic 迁移和 pgvector 相似查询 |
 | Phase 4 - API 与日报服务化 | 进行中 | 本地 FastAPI 服务已启动并通过 HTTP smoke；latest/daily 从 DB 读到 12 条日报 | 等 API compose 网络问题恢复后补容器验证 |
 | Phase 5 - 任务调度与稳定性 | 未开始 | Celery/Redis/scheduler 尚未接入 | 等数据库持久化完成后启动 |
-| Phase 6 - 前端 MVP | 已完成 | `apps/web` Next.js + Tailwind 首版已完成：`/latest`、`/daily`、`/daily/:date`、`/event/:id`、`/all`、`/search`、点击刷新日报均通过验证 | 后续等完整 Public API 后增强历史全量和服务端搜索 |
+| Phase 6 - 前端 MVP | 已完成 | `apps/web` Next.js + Tailwind 首版已完成：`/latest`、`/daily`、`/daily/:date`、`/event/:id`、`/all`、`/search`、点击刷新日报/完整成果均通过验证 | 后续等完整 Public API 后增强历史全量和服务端搜索 |
 | Phase 7 - RSS/Public API/MCP | 未开始 | RSS/Public API 完整版和 MCP 暂缓 | 等 API 和数据质量稳定后启动 |
 | Phase 8 - 后台管理 | 未开始 | 后台暂缓，避免早期范围膨胀 | 等数据闭环稳定后启动 |
 
@@ -56,7 +56,7 @@
 - [x] 已完成：`/event/:id` 事件详情页。
 - [x] 已完成：`/all` 全量列表页。
 - [x] 已完成：`/search` 搜索页。
-- [x] 已完成：`/latest` 点击刷新最新日报按钮。
+- [x] 已完成：`/latest` 点击刷新最新日报和完整成果按钮。
 - [x] 已完成：README、实施说明和本开发计划书。
 - [x] 已完成：本地 fake raw fixture。
 - [x] 已完成：本地样例日报生成，当前样例为 12 条精选。
@@ -65,7 +65,7 @@
 - [x] 已完成：GitHub Trending parser 不再误抓 `/trending/...` 伪 repo。
 - [x] 已完成：HN 关键词边界过滤，不再把 `Aims` 这类子串误当作 `AI`。
 - [x] 已完成：真实抓取结果跑通 fake AI pipeline。
-- [x] 已完成：53 个单元测试全部通过。
+- [x] 已完成：54 个单元测试全部通过。
 
 ## 1. 项目目标
 
@@ -103,7 +103,7 @@ python3 scripts/check_db_once.py
 .venv/bin/python scripts/check_api_once.py --base-url http://127.0.0.1:8000 --date 2026-07-02
 ```
 
-当前测试结果：53 个测试通过。
+当前测试结果：54 个测试通过。
 
 ## 3. 当前已完成范围
 
@@ -316,6 +316,7 @@ python3 scripts/run_pipeline_once.py --limit 100 --fake-ai --date 2026-07-01
     - 支持 `KIMI_API_KEY` 或 `MOONSHOT_API_KEY`。
     - 支持 `KIMI_MODEL` 和 `KIMI_BASE_URL`。
     - `/latest` 点击刷新和 CLI 共用同一个 provider 工厂。
+    - 主机侧 API/CLI 会读取本地 `.env` 中缺失的环境变量，已导出的变量优先级更高。
   - 注意：真实 API key 只放本地 `.env`，不得写入仓库、文档或提交。
 
 - [ ] 配置本地 `.env`。
@@ -640,7 +641,7 @@ PYTHONPATH=apps/api uvicorn app.main:app --reload
     - `/event/:id` 可从 latest payload 查找事件并展示摘要、推荐理由、主来源、相关来源、时间线和标签。
     - `/all` 可展示 latest payload 中当前可读的全部事件，并链接到事件详情页。
     - `/search` 可按关键词过滤 latest payload 中的标题、标签、来源、摘要和推荐字段。
-    - `/latest` 侧栏提供“刷新最新日报”按钮，点击后通过 Next route 调用 FastAPI 本地刷新接口，执行 crawl + fake AI pipeline + DB 写入，并刷新当前页面。
+    - `/latest` 侧栏提供“刷新最新日报”和“刷新完整成果”按钮，点击后通过 Next route 调用 FastAPI 本地刷新接口，执行 crawl + AI pipeline + DB 写入，并刷新当前页面。
   - 验证：
 
 ```bash
@@ -691,11 +692,15 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
   - dev 验证：`/search?q=OpenAI` 返回 200，HTML 包含“搜索结果”和事件详情链接。
   - 截图验证：桌面 `1440x900` 和手机 `390x844` 均无横向溢出，Playwright console error 为 0。
 
-- [x] 实现点击刷新最新日报。
+- [x] 实现点击刷新最新日报和完整成果。
   - 内容：`/latest` 侧栏按钮、Next 转发 route、FastAPI 本地刷新 endpoint。
   - 验收：
     - 点击后抓取最新内容，按环境变量选择 fake/Kimi/OpenAI provider 运行 pipeline，写入 `daily_reports`，并刷新页面。
-  - 当前完成：`POST /api/admin/refresh-latest` 执行本地刷新；`POST /api/refresh-latest` 供前端按钮调用。
+  - 当前完成：
+    - `POST /api/admin/refresh-latest` 执行本地刷新，支持 `limit` 和 `top_n` query 参数。
+    - `POST /api/refresh-latest` 供前端按钮调用并转发 query 参数。
+    - 普通刷新请求 `top_n=12`，完整成果请求 `top_n=30`。
+    - `updated_at` 已改为报告生成时间；`latest_published_at` 保留最新来源发布时间，避免同一天刷新时看起来时间不变。
   - 注意：没有真实 AI key 时自动使用 `FakeAIProvider`；配置 `AI_PROVIDER=kimi` 和本地 key 后，点击刷新会用 Kimi 生成预筛、中文摘要、推荐理由和评分。API key 不写入仓库。
 
 ## 11. Phase 7 - RSS/Public API/MCP
@@ -784,7 +789,7 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
 - [x] 实现 `/event/:id` 事件详情页。
 - [x] 实现 `/all` 全量列表页。
 - [x] 实现 `/search` 搜索页。
-- [x] 实现 `/latest` 点击刷新最新日报。
+- [x] 实现 `/latest` 点击刷新最新日报和完整成果。
 
 ### 暂缓
 

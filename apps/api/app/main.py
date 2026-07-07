@@ -4,7 +4,7 @@ import os
 from contextlib import contextmanager, nullcontext
 from datetime import date
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, Optional
 
 from app.api.public import (
     build_daily_payload,
@@ -12,6 +12,7 @@ from app.api.public import (
     build_latest_payload,
     build_latest_payload_from_repository,
 )
+from app.core.config import load_env_file
 from app.storage.json_store import read_json
 
 DATA_DIR = Path("data")
@@ -43,6 +44,27 @@ def load_latest_daily_json(data_dir: Path = DATA_DIR) -> dict:
     return read_json(candidates[-1])
 
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+def _resolve_refresh_int(
+    *,
+    name: str,
+    value: int | None,
+    default: int,
+    minimum: int,
+    maximum: int,
+) -> int:
+    resolved = default if value is None else value
+    if resolved < minimum or resolved > maximum:
+        raise ValueError(f"{name} must be between {minimum} and {maximum}")
+    return resolved
+
+
 @contextmanager
 def open_database_report_repository(database_url: str) -> Iterator[Any]:
     from app.db.session import build_session_factory
@@ -62,6 +84,7 @@ def create_app(
     refresh_runner: Callable[[], dict[str, Any]] | None = None,
     data_dir: Path = DATA_DIR,
 ):
+    load_env_file()
     try:
         from fastapi import FastAPI, HTTPException
     except ModuleNotFoundError as exc:
@@ -106,17 +129,35 @@ def create_app(
         return build_daily_payload(load_latest_daily_json(data_dir))
 
     @app.post("/api/admin/refresh-latest")
-    def refresh_latest() -> dict:
+    def refresh_latest(limit: Optional[int] = None, top_n: Optional[int] = None) -> dict:
+        try:
+            resolved_limit = _resolve_refresh_int(
+                name="limit",
+                value=limit,
+                default=_env_int("DAILY_CANDIDATE_LIMIT", 100),
+                minimum=1,
+                maximum=200,
+            )
+            resolved_top_n = _resolve_refresh_int(
+                name="top_n",
+                value=top_n,
+                default=_env_int("DAILY_SELECTED_LIMIT", 12),
+                minimum=1,
+                maximum=50,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
         if refresh_runner is not None:
-            return refresh_runner()
+            return refresh_runner(limit=resolved_limit, top_n=resolved_top_n)
         try:
             from app.services.refresh_service import refresh_latest_report
 
             return refresh_latest_report(
                 data_dir=data_dir,
                 database_url=os.getenv("DATABASE_URL"),
-                limit=100,
-                top_n=12,
+                limit=resolved_limit,
+                top_n=resolved_top_n,
             )
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc

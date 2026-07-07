@@ -55,6 +55,7 @@ def refresh_latest_report(
     report_date: date | None = None,
 ) -> dict[str, Any]:
     resolved_date = report_date or date.today()
+    generated_at = datetime.now(timezone.utc)
     sources_path = data_dir / "sources.json"
     sources = _load_or_seed_sources(sources_path)
 
@@ -65,11 +66,12 @@ def refresh_latest_report(
     save_articles(raw_path, raw_articles)
     write_json(crawl_report_path, crawl_report)
 
+    ai_provider = provider_from_env()
     result = run_pipeline(
         sources=sources,
         raw_items_by_source=_raw_items_by_source(raw_articles),
-        ai_provider=provider_from_env(),
-        now=datetime.now(timezone.utc),
+        ai_provider=ai_provider,
+        now=generated_at,
         report_date=resolved_date,
         candidate_limit=limit,
         top_n=top_n,
@@ -99,6 +101,10 @@ def refresh_latest_report(
     return {
         "status": "ok",
         "report_date": resolved_date.isoformat(),
+        "generated_at": generated_at.isoformat(),
+        "ai_provider": ai_provider.__class__.__name__,
+        "limit": limit,
+        "top_n": top_n,
         "crawled_count": len(raw_articles),
         "selected_count": len(result.processed_articles),
         "cluster_count": len(result.event_clusters),

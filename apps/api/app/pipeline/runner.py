@@ -119,6 +119,7 @@ def run_pipeline(
         articles_by_id=articles_by_id,
         sources_by_id=source_by_id,
         top_n=top_n,
+        generated_at=now,
     )
     json_data = build_daily_json(
         report_date=report_date,
@@ -127,6 +128,7 @@ def run_pipeline(
         articles_by_id=articles_by_id,
         sources_by_id=source_by_id,
         top_n=top_n,
+        generated_at=now,
     )
     report = DailyReport(
         report_date=report_date,
@@ -141,4 +143,3 @@ def run_pipeline(
         daily_report=report,
         skipped_reasons=dict(skipped),
     )
-

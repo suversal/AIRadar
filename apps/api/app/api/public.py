@@ -10,6 +10,8 @@ def build_empty_daily_payload(report_date: date | None = None) -> dict[str, Any]
         "title": "Suversal AI Radar 日报",
         "summary": "No report generated yet.",
         "updated_at": None,
+        "generated_at": None,
+        "latest_published_at": None,
         "sections": {},
         "items": [],
         "article_count": 0,
@@ -20,6 +22,7 @@ def build_latest_payload(daily_report_json: dict[str, Any]) -> dict[str, Any]:
     return {
         "report_date": daily_report_json.get("report_date"),
         "updated_at": daily_report_json.get("updated_at"),
+        "article_count": daily_report_json.get("article_count", len(daily_report_json.get("items", []))),
         "items": daily_report_json.get("items", []),
     }
 
@@ -29,6 +32,9 @@ def build_daily_payload(daily_report_json: dict[str, Any]) -> dict[str, Any]:
         "report_date": daily_report_json["report_date"],
         "title": daily_report_json["title"],
         "summary": daily_report_json["summary"],
+        "updated_at": daily_report_json.get("updated_at"),
+        "generated_at": daily_report_json.get("generated_at"),
+        "latest_published_at": daily_report_json.get("latest_published_at"),
         "sections": daily_report_json["sections"],
         "items": daily_report_json["items"],
         "article_count": daily_report_json["article_count"],

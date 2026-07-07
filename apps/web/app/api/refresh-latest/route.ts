@@ -1,7 +1,16 @@
 import { getApiBaseUrl } from "@/lib/api";
 
-export async function POST() {
-  const response = await fetch(`${getApiBaseUrl()}/api/admin/refresh-latest`, {
+export async function POST(request: Request) {
+  const requestUrl = new URL(request.url);
+  const refreshUrl = new URL(`${getApiBaseUrl()}/api/admin/refresh-latest`);
+  for (const name of ["limit", "top_n"]) {
+    const value = requestUrl.searchParams.get(name);
+    if (value) {
+      refreshUrl.searchParams.set(name, value);
+    }
+  }
+
+  const response = await fetch(refreshUrl.toString(), {
     method: "POST",
     cache: "no-store",
   });

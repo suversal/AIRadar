@@ -64,9 +64,13 @@ class WebAppStructureTests(unittest.TestCase):
         route_source = (WEB / "app" / "api" / "refresh-latest" / "route.ts").read_text(encoding="utf-8")
 
         self.assertIn("刷新最新日报", button_source)
-        self.assertIn("fetch(\"/api/refresh-latest\"", button_source)
+        self.assertIn("/api/refresh-latest?limit=100&top_n=12", button_source)
+        self.assertIn("完整成果", button_source)
+        self.assertIn("top_n=30", button_source)
+        self.assertIn("fetch(url", button_source)
         self.assertIn("router.refresh", button_source)
         self.assertIn("/api/admin/refresh-latest", route_source)
+        self.assertIn("searchParams", route_source)
 
     def test_latest_page_supports_category_filter_links(self):
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")

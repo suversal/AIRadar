@@ -60,17 +60,18 @@ class APIMainTests(unittest.TestCase):
         module = importlib.import_module("app.main")
         calls = []
 
-        def refresh_runner():
-            calls.append("refresh")
-            return {"status": "ok", "report_date": "2026-07-07", "article_count": 12}
+        def refresh_runner(*, limit, top_n):
+            calls.append({"limit": limit, "top_n": top_n})
+            return {"status": "ok", "report_date": "2026-07-07", "article_count": top_n}
 
         client = TestClient(module.create_app(refresh_runner=refresh_runner))
 
-        response = client.post("/api/admin/refresh-latest")
+        response = client.post("/api/admin/refresh-latest?limit=80&top_n=30")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["report_date"], "2026-07-07")
-        self.assertEqual(calls, ["refresh"])
+        self.assertEqual(response.json()["article_count"], 30)
+        self.assertEqual(calls, [{"limit": 80, "top_n": 30}])
 
 
 class FakeRepository:

@@ -104,17 +104,21 @@ class ReportAndAPITests(unittest.TestCase):
         self.assertIn("- 核心总结：核心总结保留模型能力、适用对象和关键上下文。", markdown)
 
     def test_daily_json_and_public_payloads_match_contract(self):
+        generated_at = datetime(2026, 7, 7, 14, 30, tzinfo=timezone.utc)
         daily_json = build_daily_json(
             report_date=date(2026, 7, 1),
             clusters=[self.cluster],
             processed_by_article={"a1": self.processed},
             articles_by_id={"a1": self.article},
             sources_by_id={"openai_blog": self.source},
+            generated_at=generated_at,
         )
         latest = build_latest_payload(daily_json)
         daily = build_daily_payload(daily_json)
 
         self.assertEqual(latest["report_date"], "2026-07-01")
+        self.assertEqual(latest["updated_at"], "2026-07-07T14:30:00+00:00")
+        self.assertEqual(daily["latest_published_at"], "2026-07-01T09:00:00+00:00")
         self.assertEqual(latest["items"][0]["event_id"], "c1")
         self.assertEqual(latest["items"][0]["main_source"]["name"], "OpenAI Blog")
         self.assertEqual(daily["report_date"], "2026-07-01")

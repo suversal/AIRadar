@@ -23,6 +23,7 @@ export type LatestEvent = {
 export type LatestReport = {
   report_date?: string | null;
   updated_at: string | null;
+  article_count?: number;
   items: LatestEvent[];
 };
 
@@ -30,6 +31,9 @@ export type DailyReport = {
   report_date: string;
   title: string;
   summary: string;
+  updated_at?: string | null;
+  generated_at?: string | null;
+  latest_published_at?: string | null;
   sections: Record<string, LatestEvent[]>;
   items: LatestEvent[];
   article_count: number;

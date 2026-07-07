@@ -86,6 +86,16 @@ The API exposes:
 - `GET /api/public/daily/{date}`
 - `POST /api/admin/refresh-latest`
 
+`POST /api/admin/refresh-latest` accepts optional query parameters:
+
+- `limit`: candidate crawl/pipeline limit, default `DAILY_CANDIDATE_LIMIT` or `100`.
+- `top_n`: report item count, default `DAILY_SELECTED_LIMIT` or `12`.
+
+The `/latest` web page exposes two refresh actions: the normal digest generates
+12 items, while "刷新完整成果" requests `top_n=30`. The report `updated_at`
+field is the report generation time; `latest_published_at` records the newest
+source article time.
+
 ## Environment
 
 Required for real AI processing, choose one provider:
@@ -104,3 +114,5 @@ The scripts and refresh endpoint automatically use `FakeAIProvider` when no AI
 key is present or when `--fake-ai` is passed. Kimi uses Moonshot's
 OpenAI-compatible chat API for prefiltering and scoring; embeddings currently
 fall back to deterministic local vectors so the clustering pipeline still runs.
+Host-side API and pipeline runs load missing values from the local ignored
+`.env` file, while already-exported environment variables take precedence.
