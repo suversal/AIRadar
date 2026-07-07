@@ -1,8 +1,8 @@
 # Suversal AI Radar 完整开发计划书
 
-最后更新：2026-07-06
+最后更新：2026-07-07
 当前分支：`codex/ai-radar-data-loop`  
-当前阶段：Phase 0 已完成，Phase 1 真实采集闭环进行中，Phase 6 前端 MVP 首版已完成
+当前阶段：Phase 0 已完成，Phase 1 真实采集闭环进行中，Phase 2 真实 AI provider 接入进行中，Phase 6 前端 MVP 首版已完成
 
 ## 0. 总进度看板
 
@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | Phase 0 - 本地数据闭环骨架 | 已完成 | 代码骨架、核心模型、crawler 基础、AI 边界、评分、聚类、日报、CLI、测试、Docker 配置均已落地 | 进入真实源抓取验证 |
 | Phase 1 - 真实采集与质量闭环 | 进行中 | 已联网检查，当前 7/11 个 source 可抓取；真实 raw 可进入 fake AI 日报闭环 | 修正 Anthropic/DeepMind/Reddit ML/机器之心失败源，并继续人工检查日报质量 |
-| Phase 2 - OpenAI 接入、AI 总结与真实评分 | 未开始 | 需要 `.env` 中配置 `OPENAI_API_KEY`；Phase 0 已打通 fake AI 总结字段链路 | 小批量运行真实 AI pipeline，验证中文总结质量 |
+| Phase 2 - OpenAI/Kimi 接入、AI 总结与真实评分 | 进行中 | Kimi/Moonshot chat provider 已接入环境变量；OpenAI 边界保留；真实 key 不写入仓库 | 本地配置 `KIMI_API_KEY` 或 `MOONSHOT_API_KEY` 后跑小批量真实总结 |
 | Phase 3 - PostgreSQL + pgvector 持久化 | 进行中 | Docker 已安装；Postgres/Redis healthy；pipeline CLI 已写库；FastAPI public endpoints 已可读数据库 | 补 Alembic 迁移和 pgvector 相似查询 |
 | Phase 4 - API 与日报服务化 | 进行中 | 本地 FastAPI 服务已启动并通过 HTTP smoke；latest/daily 从 DB 读到 12 条日报 | 等 API compose 网络问题恢复后补容器验证 |
 | Phase 5 - 任务调度与稳定性 | 未开始 | Celery/Redis/scheduler 尚未接入 | 等数据库持久化完成后启动 |
@@ -30,6 +30,7 @@
 - [x] 已完成：URL/title 标准化和 hash 去重基础。
 - [x] 已完成：RSS、HN、GitHub crawler 基础。
 - [x] 已完成：AI provider 边界、fake provider、OpenAI 调用边界。
+- [x] 已完成：Kimi/Moonshot chat provider 环境变量接入，支持真实中文总结和评分。
 - [x] 已完成：fake AI 总结字段链路，覆盖中文标题、一句话摘要、核心摘要、推荐理由和下一步动作。
 - [x] 已完成：评分公式、阈值和精选判断。
 - [x] 已完成：事件聚类基础和主条选择。
@@ -64,7 +65,7 @@
 - [x] 已完成：GitHub Trending parser 不再误抓 `/trending/...` 伪 repo。
 - [x] 已完成：HN 关键词边界过滤，不再把 `Aims` 这类子串误当作 `AI`。
 - [x] 已完成：真实抓取结果跑通 fake AI pipeline。
-- [x] 已完成：50 个单元测试全部通过。
+- [x] 已完成：53 个单元测试全部通过。
 
 ## 1. 项目目标
 
@@ -102,7 +103,7 @@ python3 scripts/check_db_once.py
 .venv/bin/python scripts/check_api_once.py --base-url http://127.0.0.1:8000 --date 2026-07-02
 ```
 
-当前测试结果：50 个测试通过。
+当前测试结果：53 个测试通过。
 
 ## 3. 当前已完成范围
 
@@ -297,20 +298,45 @@ python3 scripts/run_pipeline_once.py --limit 100 --fake-ai --date 2026-07-01
     - 来源是否可信。
     - 是否有重复事件未聚合。
 
-## 6. Phase 2 - OpenAI 接入、AI 总结与真实评分
+## 6. Phase 2 - OpenAI/Kimi 接入、AI 总结与真实评分
 
-目标：使用真实 OpenAI API 替换 fake provider，验证预筛、AI 中文总结、推荐理由、六维评分和 embedding 的真实质量。
+目标：使用真实 OpenAI 或 Kimi/Moonshot API 替换 fake provider，验证预筛、AI 中文总结、推荐理由、六维评分和 embedding/聚类链路的真实质量。
 
 当前说明：
 
 - Phase 0 已经打通 AI 总结字段的端到端链路，但使用的是 `FakeAIProvider`，只适合本地干跑和测试。
-- 真实的“AI 总结功能”从 Phase 2 开始验收：每条精选事件由 OpenAI 生成中文标题、一句话摘要、核心摘要、推荐理由和下一步动作。
+- 真实的“AI 总结功能”从 Phase 2 开始验收：每条精选事件由真实模型生成中文标题、一句话摘要、核心摘要、推荐理由和下一步动作。
+- 当前已接入 Kimi/Moonshot OpenAI-compatible chat endpoint，用于预筛、中文总结和六维评分；Kimi embedding 暂时使用本地 deterministic fallback，保证没有 embedding API 时聚类链路不阻塞。
 - 日报 Markdown 当前展示中文标题、一句话摘要、核心总结、推荐理由和下一步动作；JSON 同时保留 `summary` 核心摘要，供后续 API/前端复用。
 
-- [ ] 配置 `.env`。
+- [x] 接入 Kimi/Moonshot provider。
+  - 涉及文件：`apps/api/app/services/ai_service.py`、`scripts/run_pipeline_once.py`、`apps/api/app/services/refresh_service.py`。
+  - 当前完成：
+    - 支持 `AI_PROVIDER=kimi`。
+    - 支持 `KIMI_API_KEY` 或 `MOONSHOT_API_KEY`。
+    - 支持 `KIMI_MODEL` 和 `KIMI_BASE_URL`。
+    - `/latest` 点击刷新和 CLI 共用同一个 provider 工厂。
+  - 注意：真实 API key 只放本地 `.env`，不得写入仓库、文档或提交。
+
+- [ ] 配置本地 `.env`。
   - 文件：从 `.env.example` 复制为 `.env`。
-  - 必填：`OPENAI_API_KEY`。
+  - 真实 AI 二选一：
+    - OpenAI：`AI_PROVIDER=openai` + `OPENAI_API_KEY`。
+    - Kimi：`AI_PROVIDER=kimi` + `KIMI_API_KEY` 或 `MOONSHOT_API_KEY`。
   - 可选：`GITHUB_TOKEN`。
+
+- [ ] 使用 Kimi 跑小批量 pipeline。
+  - 命令：
+
+```bash
+AI_PROVIDER=kimi KIMI_API_KEY=<local-only> python3 scripts/run_pipeline_once.py --limit 20 --date 2026-07-07
+```
+
+  - 验收：
+    - 预筛 JSON 能稳定解析。
+    - 评分 JSON 能稳定解析。
+    - 日报中文内容明显优于 fake provider。
+    - Kimi embedding fallback 不影响聚类流程产出。
 
 - [ ] 使用 OpenAI 跑小批量 pipeline。
   - 命令：
@@ -668,9 +694,9 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
 - [x] 实现点击刷新最新日报。
   - 内容：`/latest` 侧栏按钮、Next 转发 route、FastAPI 本地刷新 endpoint。
   - 验收：
-    - 点击后抓取最新内容，运行 fake AI pipeline，写入 `daily_reports`，并刷新页面。
+    - 点击后抓取最新内容，按环境变量选择 fake/Kimi/OpenAI provider 运行 pipeline，写入 `daily_reports`，并刷新页面。
   - 当前完成：`POST /api/admin/refresh-latest` 执行本地刷新；`POST /api/refresh-latest` 供前端按钮调用。
-  - 注意：当前刷新默认使用 `FakeAIProvider`，真实 Kimi/OpenAI 总结需要后续新增 provider 配置，API key 不写入仓库。
+  - 注意：没有真实 AI key 时自动使用 `FakeAIProvider`；配置 `AI_PROVIDER=kimi` 和本地 key 后，点击刷新会用 Kimi 生成预筛、中文摘要、推荐理由和评分。API key 不写入仓库。
 
 ## 11. Phase 7 - RSS/Public API/MCP
 
@@ -739,7 +765,7 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
 - [ ] 用真实公开源跑一次 `run_crawl_once.py`。
 - [ ] 修正无效或不可抓取的 source URL。
 - [ ] 用真实 raw 数据跑 fake pipeline，检查日报质量。
-- [ ] 配置 OpenAI key 后跑小批量真实 AI pipeline。
+- [ ] 配置 Kimi 或 OpenAI key 后跑小批量真实 AI pipeline。
 
 ### 中优先级
 

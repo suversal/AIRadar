@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import urllib.error
 import urllib.request
 from dataclasses import asdict
@@ -94,6 +95,19 @@ def parse_scoring_payload(payload: dict[str, Any]) -> ScoringResult:
         reason_zh=str(payload["reason_zh"]),
         action_zh=str(payload["action_zh"]),
     )
+
+
+def _scoring_schema_hint() -> dict[str, Any]:
+    return {
+        "dimensions": asdict(ScoreDimensions(0, 0, 0, 0, 0, 0)),
+        "category": "model_release",
+        "tags": ["Agent"],
+        "title_zh": "中文标题",
+        "one_line_summary": "一句话摘要",
+        "summary_zh": "核心摘要",
+        "reason_zh": "推荐理由",
+        "action_zh": "下一步动作",
+    }
 
 
 class FakeAIProvider:
@@ -213,16 +227,7 @@ class OpenAIProvider:
         return parse_prefilter_payload(json.loads(content))
 
     def score_article(self, title: str, content: str) -> ScoringResult:
-        schema_hint = {
-            "dimensions": asdict(ScoreDimensions(0, 0, 0, 0, 0, 0)),
-            "category": "model_release",
-            "tags": ["Agent"],
-            "title_zh": "中文标题",
-            "one_line_summary": "一句话摘要",
-            "summary_zh": "核心摘要",
-            "reason_zh": "推荐理由",
-            "action_zh": "下一步动作",
-        }
+        schema_hint = _scoring_schema_hint()
         payload = {
             "model": self.scoring_model,
             "response_format": {"type": "json_object"},
@@ -241,3 +246,114 @@ class OpenAIProvider:
         content = response["choices"][0]["message"]["content"]
         return parse_scoring_payload(json.loads(content))
 
+
+class KimiProvider:
+    """Kimi/Moonshot chat provider with local deterministic embeddings."""
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        model: str = "kimi-k2.7-code",
+        base_url: str = "https://api.moonshot.ai/v1",
+    ):
+        self.api_key = api_key
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        self._embedding_provider = FakeAIProvider()
+
+    def _post_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"Kimi request failed: {exc.code} {body}") from exc
+
+    def embed_text(self, text: str, dimensions: int = 64) -> list[float]:
+        return self._embedding_provider.embed_text(text, dimensions=dimensions)
+
+    def prefilter(self, text: str) -> PrefilterResult:
+        payload = {
+            "model": self.model,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "Return JSON with is_ai_related, confidence, reason. "
+                        "Only mark true for AI technology, products, research, industry, tooling."
+                    ),
+                },
+                {"role": "user", "content": text[:2000]},
+            ],
+        }
+        response = self._post_json(f"{self.base_url}/chat/completions", payload)
+        content = response["choices"][0]["message"]["content"]
+        return parse_prefilter_payload(json.loads(content))
+
+    def score_article(self, title: str, content: str) -> ScoringResult:
+        schema_hint = _scoring_schema_hint()
+        payload = {
+            "model": self.model,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "Score the AI news item for a Chinese AI intelligence daily report. "
+                        "Return strict JSON matching this example: "
+                        f"{json.dumps(schema_hint, ensure_ascii=False)}"
+                    ),
+                },
+                {"role": "user", "content": f"Title: {title}\n\nContent: {content[:4000]}"},
+            ],
+        }
+        response = self._post_json(f"{self.base_url}/chat/completions", payload)
+        content = response["choices"][0]["message"]["content"]
+        return parse_scoring_payload(json.loads(content))
+
+
+def provider_from_env(*, fake_ai: bool = False):
+    if fake_ai:
+        return FakeAIProvider()
+
+    kimi_api_key = os.getenv("KIMI_API_KEY") or os.getenv("MOONSHOT_API_KEY")
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    provider_name = os.getenv("AI_PROVIDER", "").strip().lower()
+    if not provider_name:
+        if kimi_api_key:
+            provider_name = "kimi"
+        elif openai_api_key:
+            provider_name = "openai"
+        else:
+            provider_name = "fake"
+
+    if provider_name in {"fake", "local"}:
+        return FakeAIProvider()
+    if provider_name in {"kimi", "moonshot"}:
+        if not kimi_api_key:
+            raise ValueError("KIMI_API_KEY or MOONSHOT_API_KEY is required when AI_PROVIDER=kimi")
+        return KimiProvider(
+            kimi_api_key,
+            model=os.getenv("KIMI_MODEL", "kimi-k2.7-code"),
+            base_url=os.getenv("KIMI_BASE_URL", "https://api.moonshot.ai/v1"),
+        )
+    if provider_name == "openai":
+        if not openai_api_key:
+            raise ValueError("OPENAI_API_KEY is required when AI_PROVIDER=openai")
+        return OpenAIProvider(
+            openai_api_key,
+            scoring_model=os.getenv("DEFAULT_SCORING_MODEL", "gpt-4.1-mini"),
+            embedding_model=os.getenv("DEFAULT_EMBEDDING_MODEL", "text-embedding-3-small"),
+        )
+    raise ValueError(f"unsupported AI_PROVIDER: {provider_name}")

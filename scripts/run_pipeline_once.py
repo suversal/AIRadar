@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "apps" / "api"))
 from app.data.default_sources import default_sources
 from app.pipeline.persistence import persist_pipeline_result_to_database
 from app.pipeline.runner import run_pipeline
-from app.services.ai_service import FakeAIProvider, OpenAIProvider
+from app.services.ai_service import provider_from_env as build_provider_from_env
 from app.storage.json_store import (
     article_to_dict,
     cluster_to_dict,
@@ -42,14 +42,7 @@ def persist_result_if_requested(
 
 
 def provider_from_env(fake_ai: bool):
-    api_key = os.getenv("OPENAI_API_KEY")
-    if fake_ai or not api_key:
-        return FakeAIProvider()
-    return OpenAIProvider(
-        api_key,
-        scoring_model=os.getenv("DEFAULT_SCORING_MODEL", "gpt-4.1-mini"),
-        embedding_model=os.getenv("DEFAULT_EMBEDDING_MODEL", "text-embedding-3-small"),
-    )
+    return build_provider_from_env(fake_ai=fake_ai)
 
 
 def main() -> int:

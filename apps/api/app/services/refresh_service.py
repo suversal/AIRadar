@@ -9,7 +9,7 @@ from app.data.default_sources import default_sources
 from app.models.domain import RawArticle, Source
 from app.pipeline.persistence import persist_pipeline_result_to_database
 from app.pipeline.runner import run_pipeline
-from app.services.ai_service import FakeAIProvider
+from app.services.ai_service import provider_from_env
 from app.storage.json_store import (
     article_to_dict,
     cluster_to_dict,
@@ -68,7 +68,7 @@ def refresh_latest_report(
     result = run_pipeline(
         sources=sources,
         raw_items_by_source=_raw_items_by_source(raw_articles),
-        ai_provider=FakeAIProvider(),
+        ai_provider=provider_from_env(),
         now=datetime.now(timezone.utc),
         report_date=resolved_date,
         candidate_limit=limit,

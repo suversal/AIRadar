@@ -10,8 +10,9 @@ Data-first AI intelligence radar. The first milestone is a reliable local loop:
 ## Current Scope
 
 This repository intentionally starts backend-first. It includes a pure-Python
-pipeline that can run with `FakeAIProvider` when `OPENAI_API_KEY` is missing,
-plus Docker/PostgreSQL/Redis scaffolding for the production-shaped runtime.
+pipeline that can run with `FakeAIProvider` when no AI key is configured,
+or use OpenAI/Kimi-compatible chat providers for real summaries and scoring.
+Docker/PostgreSQL/Redis scaffolding is included for the production-shaped runtime.
 
 Not in this milestone: full frontend, admin UI, Telegram push, MCP server.
 
@@ -83,16 +84,23 @@ The API exposes:
 - `GET /health`
 - `GET /api/public/latest`
 - `GET /api/public/daily/{date}`
+- `POST /api/admin/refresh-latest`
 
 ## Environment
 
-Required for real AI processing:
+Required for real AI processing, choose one provider:
 
 - `OPENAI_API_KEY`
+- `KIMI_API_KEY` or `MOONSHOT_API_KEY`
 
 Optional:
 
+- `AI_PROVIDER=openai|kimi|fake`
+- `KIMI_MODEL`
+- `KIMI_BASE_URL`
 - `GITHUB_TOKEN`
 
-The scripts automatically use `FakeAIProvider` when no OpenAI key is present or
-when `--fake-ai` is passed.
+The scripts and refresh endpoint automatically use `FakeAIProvider` when no AI
+key is present or when `--fake-ai` is passed. Kimi uses Moonshot's
+OpenAI-compatible chat API for prefiltering and scoring; embeddings currently
+fall back to deterministic local vectors so the clustering pipeline still runs.
