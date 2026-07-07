@@ -46,6 +46,13 @@ def provider_from_env(fake_ai: bool):
     return build_provider_from_env(fake_ai=fake_ai)
 
 
+def env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
 def main() -> int:
     load_env_file(ROOT / ".env")
     parser = argparse.ArgumentParser(description="Run one processing pass from raw articles.")
@@ -55,6 +62,7 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--top-n", type=int, default=12)
     parser.add_argument("--date", default=date.today().isoformat())
+    parser.add_argument("--ai-concurrency", type=int, default=env_int("AI_PIPELINE_CONCURRENCY", 1))
     parser.add_argument("--fake-ai", action="store_true")
     parser.add_argument("--persist-db", action="store_true")
     parser.add_argument("--database-url", default=os.getenv("DATABASE_URL"))
@@ -88,6 +96,7 @@ def main() -> int:
         report_date=date.fromisoformat(args.date),
         candidate_limit=args.limit,
         top_n=args.top_n,
+        ai_concurrency=args.ai_concurrency,
     )
 
     output_dir = ROOT / args.output_dir

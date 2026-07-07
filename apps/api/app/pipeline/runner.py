@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
 from datetime import date, datetime
+from typing import Any
 
 from app.crawlers.base import normalize_article
 from app.models.domain import DailyReport, PipelineResult, ProcessedArticle, RawArticle, Source
@@ -25,6 +27,42 @@ def dedupe_articles(articles: list[RawArticle]) -> list[RawArticle]:
     return deduped
 
 
+def _process_candidate_article(
+    *,
+    article: RawArticle,
+    source_by_id: dict[str, Source],
+    ai_provider: Any,
+    now: datetime,
+) -> tuple[ProcessedArticle | None, list[float] | None, str | None]:
+    prefilter = ai_provider.prefilter(f"{article.title}\n{article.content[:500]}")
+    if not prefilter.is_ai_related:
+        article.status = "skipped"
+        article.skipped_reason = "not_ai_related"
+        return None, None, "not_ai_related"
+
+    scoring = ai_provider.score_article(article.title, article.content)
+    source = source_by_id[article.source_id]
+    processed = select_processed_article(
+        article=article,
+        source=source,
+        dimensions=scoring.dimensions,
+        category=scoring.category,
+        tags=scoring.tags,
+        generated_fields={
+            "title_zh": scoring.title_zh,
+            "one_line_summary": scoring.one_line_summary,
+            "summary_zh": scoring.summary_zh,
+            "reason_zh": scoring.reason_zh,
+            "action_zh": scoring.action_zh,
+        },
+        now=now,
+        source_count=1,
+    )
+    embedding = ai_provider.embed_text(f"{article.title}\n{article.content}")
+    skipped_reason = None if processed.selected else "below_threshold"
+    return processed, embedding, skipped_reason
+
+
 def run_pipeline(
     *,
     sources: list[Source],
@@ -34,6 +72,7 @@ def run_pipeline(
     report_date: date,
     candidate_limit: int = 100,
     top_n: int = 12,
+    ai_concurrency: int = 1,
 ) -> PipelineResult:
     source_by_id = {source.id: source for source in sources}
     raw_articles: list[RawArticle] = []
@@ -52,35 +91,47 @@ def run_pipeline(
     processed_articles: list[ProcessedArticle] = []
     embeddings: dict[str, list[float]] = {}
 
-    for article in candidate_articles:
-        prefilter = ai_provider.prefilter(f"{article.title}\n{article.content[:500]}")
-        if not prefilter.is_ai_related:
-            article.status = "skipped"
-            article.skipped_reason = "not_ai_related"
-            skipped["not_ai_related"] += 1
+    max_workers = max(1, ai_concurrency)
+    candidate_results: list[
+        tuple[int, RawArticle, ProcessedArticle | None, list[float] | None, str | None]
+    ] = []
+    if max_workers == 1:
+        for index, article in enumerate(candidate_articles):
+            processed, embedding, skipped_reason = _process_candidate_article(
+                article=article,
+                source_by_id=source_by_id,
+                ai_provider=ai_provider,
+                now=now,
+            )
+            candidate_results.append((index, article, processed, embedding, skipped_reason))
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(
+                    _process_candidate_article,
+                    article=article,
+                    source_by_id=source_by_id,
+                    ai_provider=ai_provider,
+                    now=now,
+                ): (index, article)
+                for index, article in enumerate(candidate_articles)
+            }
+            for future in as_completed(futures):
+                index, article = futures[future]
+                processed, embedding, skipped_reason = future.result()
+                candidate_results.append((index, article, processed, embedding, skipped_reason))
+
+    for _, article, processed, embedding, skipped_reason in sorted(
+        candidate_results,
+        key=lambda item: item[0],
+    ):
+        if skipped_reason:
+            skipped[skipped_reason] += 1
+        if processed is None:
             continue
-        scoring = ai_provider.score_article(article.title, article.content)
-        source = source_by_id[article.source_id]
-        processed = select_processed_article(
-            article=article,
-            source=source,
-            dimensions=scoring.dimensions,
-            category=scoring.category,
-            tags=scoring.tags,
-            generated_fields={
-                "title_zh": scoring.title_zh,
-                "one_line_summary": scoring.one_line_summary,
-                "summary_zh": scoring.summary_zh,
-                "reason_zh": scoring.reason_zh,
-                "action_zh": scoring.action_zh,
-            },
-            now=now,
-            source_count=1,
-        )
         processed_articles.append(processed)
-        embeddings[article.id] = ai_provider.embed_text(f"{article.title}\n{article.content}")
-        if not processed.selected:
-            skipped["below_threshold"] += 1
+        if embedding is not None:
+            embeddings[article.id] = embedding
 
     report_article_ids = {
         processed.raw_article_id

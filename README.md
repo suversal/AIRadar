@@ -92,6 +92,7 @@ The API exposes:
 
 - `limit`: candidate crawl/pipeline limit, default `DAILY_CANDIDATE_LIMIT` or `100`.
 - `top_n`: report item count, default `DAILY_SELECTED_LIMIT` or `12`.
+- AI scoring concurrency is controlled by `AI_PIPELINE_CONCURRENCY`, default `1`.
 
 The `/latest` web page exposes two refresh actions: the normal digest generates
 12 items, while "刷新完整成果" requests `top_n=30`. Web refreshes start a
@@ -124,13 +125,15 @@ Optional:
 - `DEEPSEEK_BASE_URL`, default `https://api.deepseek.com`
 - `DEEPSEEK_USER_ID`, optional isolation id for DeepSeek requests
 - `DEEPSEEK_MAX_TOKENS`, default `2048`
+- `AI_PIPELINE_CONCURRENCY`, default `1`; set higher for providers with high concurrency limits.
 - `GITHUB_TOKEN`
 
 The scripts and refresh endpoint automatically use `FakeAIProvider` when no AI
 key is present or when `--fake-ai` is passed. Kimi and DeepSeek use
 OpenAI-compatible chat APIs for prefiltering and scoring; embeddings currently
 fall back to deterministic local vectors so the clustering pipeline still runs.
-DeepSeek `deepseek-v4-flash` has a high server-side concurrency quota, but the
-current pipeline still calls AI scoring serially. Host-side API and pipeline
-runs load missing values from the local ignored `.env` file, while
-already-exported environment variables take precedence.
+DeepSeek `deepseek-v4-flash` has a high server-side concurrency quota. The
+pipeline can process candidate AI scoring concurrently via
+`AI_PIPELINE_CONCURRENCY` or `scripts/run_pipeline_once.py --ai-concurrency`.
+Host-side API and pipeline runs load missing values from the local ignored
+`.env` file, while already-exported environment variables take precedence.

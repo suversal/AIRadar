@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | Phase 0 - 本地数据闭环骨架 | 已完成 | 代码骨架、核心模型、crawler 基础、AI 边界、评分、聚类、日报、CLI、测试、Docker 配置均已落地 | 进入真实源抓取验证 |
 | Phase 1 - 真实采集与质量闭环 | 进行中 | 已联网检查，当前 8/12 个 source 可抓取；IT之家 RSS 已接入，并可解析原文段落和图片 URL | 修正 Anthropic/DeepMind/Reddit ML/机器之心失败源，并继续人工检查日报质量 |
-| Phase 2 - OpenAI/Kimi/DeepSeek 接入、AI 总结与真实评分 | 进行中 | Kimi/Moonshot 和 DeepSeek chat provider 已接入环境变量；DeepSeek 小批量 pipeline 已跑通；OpenAI 边界保留；真实 key 不写入仓库 | 评估是否把 AI scoring 改成并发执行，并继续观察真实日报质量 |
+| Phase 2 - OpenAI/Kimi/DeepSeek 接入、AI 总结与真实评分 | 进行中 | Kimi/Moonshot 和 DeepSeek chat provider 已接入环境变量；DeepSeek 20 并发 API smoke 和 20 条日报生成已跑通；OpenAI 边界保留；真实 key 不写入仓库 | 继续观察真实日报质量，并根据成本/稳定性调整默认并发 |
 | Phase 3 - PostgreSQL + pgvector 持久化 | 进行中 | Docker 已安装；Postgres/Redis healthy；pipeline CLI 已写库；FastAPI public endpoints 已可读数据库 | 补 Alembic 迁移和 pgvector 相似查询 |
 | Phase 4 - API 与日报服务化 | 进行中 | 本地 FastAPI 服务已启动并通过 HTTP smoke；latest/daily 从 DB 读到 12 条日报 | 等 API compose 网络问题恢复后补容器验证 |
 | Phase 5 - 任务调度与稳定性 | 未开始 | Celery/Redis/scheduler 尚未接入 | 等数据库持久化完成后启动 |
@@ -34,6 +34,7 @@
 - [x] 已完成：AI provider 边界、fake provider、OpenAI 调用边界。
 - [x] 已完成：Kimi/Moonshot chat provider 环境变量接入，支持真实中文总结和评分。
 - [x] 已完成：DeepSeek chat provider 环境变量接入，默认模型 `deepseek-v4-flash`。
+- [x] 已完成：pipeline AI 预筛/评分/embedding 可配置并发，支持 DeepSeek 高并发。
 - [x] 已完成：fake AI 总结字段链路，覆盖中文标题、一句话摘要、核心摘要、推荐理由和下一步动作。
 - [x] 已完成：评分公式、阈值和精选判断。
 - [x] 已完成：事件聚类基础和主条选择。
@@ -70,7 +71,7 @@
 - [x] 已完成：GitHub Trending parser 不再误抓 `/trending/...` 伪 repo。
 - [x] 已完成：HN 关键词边界过滤，不再把 `Aims` 这类子串误当作 `AI`。
 - [x] 已完成：真实抓取结果跑通 fake AI pipeline。
-- [x] 已完成：64 个单元测试全部通过。
+- [x] 已完成：65 个单元测试全部通过。
 
 ## 1. 项目目标
 
@@ -108,7 +109,7 @@ python3 scripts/check_db_once.py
 .venv/bin/python scripts/check_api_once.py --base-url http://127.0.0.1:8000 --date 2026-07-02
 ```
 
-当前测试结果：64 个测试通过。
+当前测试结果：65 个测试通过。
 
 ## 3. 当前已完成范围
 
@@ -176,7 +177,8 @@ python3 scripts/check_db_once.py
 - [x] 实现 pipeline runner。
   - 文件：`apps/api/app/pipeline/runner.py`。
   - 流程：source raw items -> normalize -> dedupe -> fake/OpenAI prefilter -> score -> embed -> cluster -> report。
-  - 验收：`test_pipeline_skips_over_limit_and_generates_daily_report` 通过。
+  - 并发：`ai_concurrency` 支持候选文章并发 prefilter/score/embed；CLI 参数为 `--ai-concurrency`，刷新服务读取 `AI_PIPELINE_CONCURRENCY`。
+  - 验收：`test_pipeline_skips_over_limit_and_generates_daily_report`、`test_pipeline_can_process_ai_candidates_concurrently` 通过。
 
 - [x] 实现 CLI 脚本。
   - 文件：`scripts/seed_sources.py`、`run_crawl_once.py`、`run_pipeline_once.py`、`build_daily_report.py`。
@@ -334,7 +336,7 @@ python3 scripts/run_pipeline_once.py --limit 100 --fake-ai --date 2026-07-01
     - 支持 `DEEPSEEK_API_KEY`。
     - 支持 `DEEPSEEK_MODEL` 和 `DEEPSEEK_BASE_URL`；默认模型 `deepseek-v4-flash`，默认 endpoint `https://api.deepseek.com`。
     - 支持 `DEEPSEEK_USER_ID` 做请求隔离，支持 `DEEPSEEK_MAX_TOKENS` 降低 JSON 截断风险。
-    - DeepSeek `deepseek-v4-flash` 官方并发限制为账号级 2500；当前 pipeline 仍串行调用，后续如需提速再做 AI scoring 并发化。
+    - DeepSeek `deepseek-v4-flash` 官方并发限制为账号级 2500；当前 pipeline 已支持通过 `AI_PIPELINE_CONCURRENCY` 并发执行 AI 预筛、评分和 embedding。
   - 注意：真实 API key 只放本地 `.env`，不得写入仓库、文档或提交。
 
 - [x] 配置本地 `.env`。
@@ -370,7 +372,9 @@ AI_PROVIDER=deepseek DEEPSEEK_API_KEY=<local-only> python3 scripts/run_pipeline_
     - 评分 JSON 能稳定解析。
     - 日报中文内容明显优于 fake provider。
     - DeepSeek embedding fallback 不影响聚类流程产出。
-  - 当前完成：`--limit 2 --top-n 2` 小批量真实 pipeline 已通过，产出 1 条中文日报事件。
+  - 当前完成：
+    - 20 个 DeepSeek 并发预筛请求全部成功，错误数 0，总耗时约 2.7 秒。
+    - `--limit 20 --top-n 20 --ai-concurrency 20` 真实 pipeline 已通过；当前 `/api/public/latest` 返回 20 条日报 items。
 
 - [ ] 使用 OpenAI 跑小批量 pipeline。
   - 命令：
@@ -735,6 +739,7 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
     - `POST /api/admin/refresh-latest-async` 启动后台刷新任务；`GET /api/admin/refresh-jobs/:job_id` 查询任务状态。
     - `POST /api/refresh-latest` 供前端按钮调用并转发 query 参数；前端轮询 job 状态，避免 Kimi 慢请求触发 Next.js 单请求超时。
     - 普通刷新请求 `top_n=12`，完整成果请求 `top_n=30`。
+    - AI 并发由 `AI_PIPELINE_CONCURRENCY` 控制；本地 DeepSeek 测试使用 20 并发。
     - `updated_at` 已改为报告生成时间；`latest_published_at` 保留最新来源发布时间，避免同一天刷新时看起来时间不变。
     - 真实模型评分过严时，日报会用最高分候选补足剩余展示位，同时保留 `selected_count` 表示真正过阈值数量。
   - 注意：没有真实 AI key 时自动使用 `FakeAIProvider`；配置 `AI_PROVIDER=deepseek`/`kimi` 和本地 key 后，点击刷新会用对应 provider 生成预筛、中文摘要、推荐理由和评分。API key 不写入仓库。

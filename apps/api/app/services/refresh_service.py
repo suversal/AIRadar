@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,13 @@ def _load_or_seed_sources(sources_path: Path) -> list[Source]:
     return load_sources(sources_path)
 
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
 def refresh_latest_report(
     *,
     data_dir: Path,
@@ -75,6 +83,7 @@ def refresh_latest_report(
         report_date=resolved_date,
         candidate_limit=limit,
         top_n=top_n,
+        ai_concurrency=_env_int("AI_PIPELINE_CONCURRENCY", 1),
     )
 
     pipeline_dir = data_dir / "crawl_checks" / f"{resolved_date.isoformat()}-refresh-pipeline"
@@ -105,6 +114,7 @@ def refresh_latest_report(
         "ai_provider": ai_provider.__class__.__name__,
         "limit": limit,
         "top_n": top_n,
+        "ai_concurrency": _env_int("AI_PIPELINE_CONCURRENCY", 1),
         "crawled_count": len(raw_articles),
         "scored_count": len(result.processed_articles),
         "selected_count": len([item for item in result.processed_articles if item.selected]),

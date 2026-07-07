@@ -1,4 +1,6 @@
 import sys
+import threading
+import time
 import unittest
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -115,6 +117,47 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result.daily_report.article_count, 2)
         self.assertEqual(len(result.daily_report.json_data["items"]), 2)
 
+    def test_pipeline_can_process_ai_candidates_concurrently(self):
+        source = Source(
+            id="hn",
+            name="Hacker News",
+            source_role="signal",
+            tier="T2",
+            type="api",
+            category="community",
+            url="https://hn.algolia.com/api/v1/search",
+            homepage="https://news.ycombinator.com",
+            allowed_domains=["news.ycombinator.com"],
+        )
+        raw_items = [
+            {
+                "source_url": f"https://example.com/concurrent-{index}",
+                "title": f"AI agent concurrent update {index}",
+                "content": "AI agent workflow update for builders.",
+                "author": None,
+                "published_at": datetime(2026, 7, 1, 8 + index, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {},
+            }
+            for index in range(4)
+        ]
+        provider = SlowConcurrentAIProvider()
+
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={"hn": raw_items},
+            ai_provider=provider,
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 1),
+            candidate_limit=10,
+            top_n=4,
+            ai_concurrency=4,
+        )
+
+        self.assertGreater(provider.max_active, 1)
+        self.assertEqual(result.daily_report.article_count, 4)
+
 
 class LowScoreAIProvider(FakeAIProvider):
     def prefilter(self, text: str) -> PrefilterResult:
@@ -138,6 +181,29 @@ class LowScoreAIProvider(FakeAIProvider):
             reason_zh="低分候选仍可用于补足完整成果。",
             action_zh="阅读原文后再判断。",
         )
+
+
+class SlowConcurrentAIProvider(FakeAIProvider):
+    def __init__(self):
+        self.active = 0
+        self.max_active = 0
+        self.lock = threading.Lock()
+
+    def _enter_call(self):
+        with self.lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+        time.sleep(0.03)
+        with self.lock:
+            self.active -= 1
+
+    def prefilter(self, text: str) -> PrefilterResult:
+        self._enter_call()
+        return PrefilterResult(is_ai_related=True, confidence=0.9, reason="fixture")
+
+    def score_article(self, title: str, content: str) -> ScoringResult:
+        self._enter_call()
+        return super().score_article(title, content)
 
 
 if __name__ == "__main__":
