@@ -78,6 +78,12 @@ def _clean_original_blocks(blocks: Any) -> list[dict[str, Any]]:
     return cleaned
 
 
+def _clean_text_list(values: Any) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    return [str(value).strip() for value in values if str(value).strip()]
+
+
 def _original_article_payload(article: RawArticle) -> dict[str, Any]:
     metadata = article.metadata or {}
     raw_paragraphs = metadata.get("original_paragraphs")
@@ -98,13 +104,22 @@ def _original_article_payload(article: RawArticle) -> dict[str, Any]:
     original_text = str(metadata.get("original_text") or "").strip()
     if not original_text:
         original_text = "\n\n".join(paragraphs)
-    return {
+    payload = {
+        "source_language": article.language,
         "original_url": article.source_url,
         "original_content": original_text,
         "original_paragraphs": paragraphs,
         "original_images": images,
         "original_blocks": blocks,
     }
+    translated_paragraphs = _clean_text_list(metadata.get("translated_paragraphs"))
+    translated_blocks = _clean_original_blocks(metadata.get("translated_blocks"))
+    if translated_paragraphs:
+        payload["translated_paragraphs"] = translated_paragraphs
+        payload["translated_content"] = "\n\n".join(translated_paragraphs)
+    if translated_blocks:
+        payload["translated_blocks"] = translated_blocks
+    return payload
 
 
 def build_daily_json(

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import type { LatestEvent, OriginalBlock } from "@/lib/api";
 import { getLatestReport } from "@/lib/api";
 import { findEventById } from "@/lib/events";
+import { ArticleReadingToggle } from "./article-reading-toggle";
 
 type EventParams = Promise<{
   id: string;
@@ -72,6 +73,22 @@ function originalBlocksFor(event: LatestEvent): OriginalBlock[] {
   ];
 }
 
+function translatedBlocksFor(event: LatestEvent): OriginalBlock[] {
+  if (event.translated_blocks?.length) {
+    return event.translated_blocks;
+  }
+  if (event.translated_paragraphs?.length) {
+    return event.translated_paragraphs.map((paragraph) => ({
+      type: "paragraph",
+      text: paragraph,
+    }));
+  }
+  if (event.translated_content) {
+    return [{ type: "paragraph", text: event.translated_content }];
+  }
+  return [];
+}
+
 function renderOriginalBlock(block: OriginalBlock, index: number) {
   if (block.type === "image") {
     return (
@@ -106,6 +123,7 @@ export default async function EventDetailPage({ params }: { params: EventParams 
   const originalUrl = event.original_url ?? event.main_source?.url;
   const originalHost = hostFromUrl(originalUrl);
   const originalBlocks = originalBlocksFor(event);
+  const translatedBlocks = translatedBlocksFor(event);
 
   return (
     <main className="min-h-screen bg-[#070d1a] text-slate-100">
@@ -164,10 +182,14 @@ export default async function EventDetailPage({ params }: { params: EventParams 
           </p>
         </section>
 
-        <article className="mt-10 border-t border-slate-800 pt-8">
-          <h2 className="text-sm font-semibold text-slate-500">原文</h2>
-          <div className="mt-6 space-y-6">{originalBlocks.map(renderOriginalBlock)}</div>
-        </article>
+        {translatedBlocks.length ? (
+          <ArticleReadingToggle originalBlocks={originalBlocks} translatedBlocks={translatedBlocks} />
+        ) : (
+          <article className="mt-10 border-t border-slate-800 pt-8">
+            <h2 className="text-sm font-semibold text-slate-500">原文</h2>
+            <div className="mt-6 space-y-6">{originalBlocks.map(renderOriginalBlock)}</div>
+          </article>
+        )}
 
         {event.tags?.length ? (
           <section className="mt-10 flex flex-wrap gap-3" aria-label="标签">

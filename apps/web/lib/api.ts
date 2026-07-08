@@ -31,6 +31,7 @@ export type LatestEvent = {
   final_score?: number;
   source_count?: number;
   main_source?: RadarSource;
+  source_language?: string;
   one_line_summary?: string;
   summary?: string;
   reason?: string;
@@ -41,6 +42,9 @@ export type LatestEvent = {
   original_paragraphs?: string[];
   original_images?: OriginalImage[];
   original_blocks?: OriginalBlock[];
+  translated_content?: string;
+  translated_paragraphs?: string[];
+  translated_blocks?: OriginalBlock[];
 };
 
 export type LatestReport = {

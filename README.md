@@ -123,7 +123,9 @@ Event detail pages read structured original article fields from the daily JSON
 payload. RSS feeds that include article HTML, such as IT之家 RSS, are parsed into
 `original_paragraphs`, `original_images`, and ordered `original_blocks`, so the
 detail page can render the source article text and images before linking out to
-the original URL.
+the original URL. For selected English main articles, the pipeline can also add
+`translated_paragraphs` and ordered `translated_blocks`; the detail page then
+shows an "AI 翻译 · 中文" / "原文" toggle for side-by-side reading.
 
 ## Environment
 

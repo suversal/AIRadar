@@ -13,6 +13,9 @@ from app.services.clustering_service import cluster_articles
 from app.services.daily_report_service import build_daily_json, render_daily_markdown
 from app.services.scoring_service import select_processed_article
 
+TRANSLATION_PARAGRAPH_LIMIT = 12
+TRANSLATION_CHAR_LIMIT = 6000
+
 
 def dedupe_articles(articles: list[RawArticle]) -> list[RawArticle]:
     seen_urls: set[str] = set()
@@ -61,6 +64,116 @@ def _process_candidate_article(
     embedding = ai_provider.embed_text(f"{article.title}\n{article.content}")
     skipped_reason = None if processed.selected else "below_threshold"
     return processed, embedding, skipped_reason
+
+
+def _text_blocks_for_translation(article: RawArticle) -> list[dict[str, Any]]:
+    blocks = article.metadata.get("original_blocks") if article.metadata else None
+    if isinstance(blocks, list):
+        text_blocks = [
+            block
+            for block in blocks
+            if isinstance(block, dict)
+            and block.get("type") == "paragraph"
+            and str(block.get("text") or "").strip()
+        ]
+        if text_blocks:
+            return text_blocks
+    paragraphs = article.metadata.get("original_paragraphs") if article.metadata else None
+    if isinstance(paragraphs, list):
+        text_blocks = [
+            {"type": "paragraph", "text": str(paragraph).strip()}
+            for paragraph in paragraphs
+            if str(paragraph).strip()
+        ]
+        if text_blocks:
+            return text_blocks
+    if article.content.strip():
+        return [{"type": "paragraph", "text": article.content.strip()}]
+    return []
+
+
+def _translated_blocks_for(article: RawArticle, translated_paragraphs: list[str]) -> list[dict[str, Any]]:
+    source_blocks = article.metadata.get("original_blocks") if article.metadata else None
+    paragraph_index = 0
+    if isinstance(source_blocks, list) and source_blocks:
+        translated_blocks = []
+        for block in source_blocks:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "paragraph":
+                if paragraph_index >= len(translated_paragraphs):
+                    continue
+                translated_blocks.append(
+                    {"type": "paragraph", "text": translated_paragraphs[paragraph_index]}
+                )
+                paragraph_index += 1
+            elif block.get("type") == "image":
+                url = str(block.get("url") or "").strip()
+                if url:
+                    translated_blocks.append(
+                        {
+                            "type": "image",
+                            "url": url,
+                            "alt": str(block.get("alt") or "").strip(),
+                            "caption": str(block.get("caption") or "").strip(),
+                        }
+                    )
+        if translated_blocks:
+            return translated_blocks
+    return [{"type": "paragraph", "text": paragraph} for paragraph in translated_paragraphs]
+
+
+def _translate_selected_report_articles(
+    *,
+    clusters,
+    articles_by_id: dict[str, RawArticle],
+    ai_provider: Any,
+) -> None:
+    translate = getattr(ai_provider, "translate_paragraphs", None)
+    if not callable(translate):
+        return
+
+    for cluster in clusters:
+        article = articles_by_id[cluster.main_article_id]
+        if not article.language.lower().startswith("en"):
+            continue
+        if article.metadata.get("translated_blocks"):
+            continue
+
+        text_blocks = _text_blocks_for_translation(article)
+        if not text_blocks:
+            continue
+
+        paragraphs: list[str] = []
+        used_chars = 0
+        for block in text_blocks[:TRANSLATION_PARAGRAPH_LIMIT]:
+            paragraph = str(block.get("text") or "").strip()
+            if not paragraph:
+                continue
+            if used_chars + len(paragraph) > TRANSLATION_CHAR_LIMIT:
+                remaining = TRANSLATION_CHAR_LIMIT - used_chars
+                if remaining <= 0:
+                    break
+                paragraph = paragraph[:remaining].strip()
+            paragraphs.append(paragraph)
+            used_chars += len(paragraph)
+
+        if not paragraphs:
+            continue
+
+        try:
+            translated_paragraphs = translate(paragraphs)
+        except Exception as exc:  # pragma: no cover - provider/network defensive path
+            article.metadata["translation_status"] = "failed"
+            article.metadata["translation_error"] = str(exc)[:200]
+            continue
+        if not translated_paragraphs:
+            continue
+
+        article.metadata["translated_paragraphs"] = translated_paragraphs
+        article.metadata["translated_blocks"] = _translated_blocks_for(article, translated_paragraphs)
+        article.metadata["translation_source_language"] = article.language
+        article.metadata["translation_target_language"] = "zh"
 
 
 def run_pipeline(
@@ -169,6 +282,11 @@ def run_pipeline(
 
     processed_articles = list(processed_by_article.values())
     articles_by_id = {article.id: article for article in raw_articles}
+    _translate_selected_report_articles(
+        clusters=clusters,
+        articles_by_id=articles_by_id,
+        ai_provider=ai_provider,
+    )
     markdown = render_daily_markdown(
         report_date=report_date,
         clusters=clusters,

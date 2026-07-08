@@ -33,6 +33,7 @@ class WebAppStructureTests(unittest.TestCase):
             "app/weekly/page.tsx",
             "app/monthly/page.tsx",
             "app/event/[id]/page.tsx",
+            "app/event/[id]/article-reading-toggle.tsx",
             "lib/api.ts",
             "lib/events.ts",
             "lib/markdown.ts",
@@ -197,7 +198,11 @@ class WebAppStructureTests(unittest.TestCase):
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
         report_view = (WEB / "app" / "daily" / "report-view.tsx").read_text(encoding="utf-8")
         event_page = (WEB / "app" / "event" / "[id]" / "page.tsx").read_text(encoding="utf-8")
+        reading_toggle = (
+            WEB / "app" / "event" / "[id]" / "article-reading-toggle.tsx"
+        ).read_text(encoding="utf-8")
         event_helpers = (WEB / "lib" / "events.ts").read_text(encoding="utf-8")
+        api_source = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
 
         self.assertIn("eventHref", latest_page)
         self.assertIn("eventHref", report_view)
@@ -211,6 +216,13 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("original_blocks", event_page)
         self.assertIn("original_paragraphs", event_page)
         self.assertIn("original_images", event_page)
+        self.assertIn("translated_blocks", api_source)
+        self.assertIn("ArticleReadingToggle", event_page)
+        self.assertIn("translatedBlocksFor", event_page)
+        self.assertIn("显示原文", reading_toggle)
+        self.assertIn("显示译文", reading_toggle)
+        self.assertIn("AI 翻译 · 中文", reading_toggle)
+        self.assertIn("use client", reading_toggle)
         self.assertNotIn("报告正文", event_page)
         self.assertNotIn("时间线", event_page)
         self.assertNotIn("下一步", event_page)

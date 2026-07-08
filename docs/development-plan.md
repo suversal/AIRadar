@@ -726,6 +726,16 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
   - dev 验证：`/event/:id` 结构测试通过，HTML 源码不再包含“报告正文”“时间线”“下一步”，包含“推荐理由”“AI 摘要”“原文”“阅读原文”。
   - 截图验证：待下一轮浏览器视觉复核。
 
+- [x] 为英文来源详情页增加原文/译文切换。
+  - 内容：pipeline 只为最终日报入选的英文主文章生成 `translated_paragraphs` 和有序 `translated_blocks`；详情页有译文时默认展示“AI 翻译 · 中文”，按钮可切换“显示原文”/“显示译文”。
+  - 验收：
+    - 中文来源不触发翻译。
+    - 未入选候选不触发翻译，避免扩大模型成本。
+    - 有图片的原文块在译文模式中保留图片位置，便于对照阅读。
+    - 没有译文字段时详情页保持原文展示，不显示空切换按钮。
+  - 当前完成：`apps/api/app/pipeline/runner.py` 注入选中英文主文章译文 metadata；`daily_report_service.py` 输出译文字段；`apps/web/app/event/[id]/article-reading-toggle.tsx` 提供原文/译文切换。
+  - dev 验证：pipeline 测试确认只翻译选中的英文文章；report/API 测试确认 JSON 契约包含 `source_language`、`translated_paragraphs`、`translated_blocks`；web 结构测试确认详情页使用切换组件。
+
 - [x] 实现全部 AI 动态页。
   - 内容：AIHOT 风格侧栏、来源类型筛选、分类筛选、内联搜索、按日期折叠的信息流、摘要、图片、标签、评分、来源、推荐理由和详情链接。
   - 验收：
@@ -849,6 +859,7 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
 - [x] 实现 `/weekly` 周报页和 `/monthly` 月报页。
 - [x] 实现 `/event/:id` 事件详情页。
 - [x] 优化 `/event/:id` 为原文阅读布局并显示原文图片。
+- [x] 为英文来源 `/event/:id` 增加原文/AI 翻译切换。
 - [x] 实现 `/all` 全量列表页。
 - [x] 重构 `/all` 为 AIHOT 风格全部 AI 动态页。
 - [x] 实现 `/search` 搜索页。

@@ -105,6 +105,16 @@ def parse_scoring_payload(payload: dict[str, Any]) -> ScoringResult:
     )
 
 
+def parse_translation_payload(payload: dict[str, Any]) -> list[str]:
+    paragraphs = payload.get("paragraphs_zh") or payload.get("translated_paragraphs")
+    if not isinstance(paragraphs, list):
+        raise ValueError("translation payload missing paragraphs_zh")
+    cleaned = [str(paragraph).strip() for paragraph in paragraphs if str(paragraph).strip()]
+    if not cleaned:
+        raise ValueError("translation payload has no usable paragraphs")
+    return cleaned
+
+
 def _scoring_schema_hint() -> dict[str, Any]:
     return {
         "dimensions": asdict(ScoreDimensions(0, 0, 0, 0, 0, 0)),
@@ -115,6 +125,15 @@ def _scoring_schema_hint() -> dict[str, Any]:
         "summary_zh": "核心摘要",
         "reason_zh": "推荐理由",
         "action_zh": "下一步动作",
+    }
+
+
+def _translation_schema_hint() -> dict[str, Any]:
+    return {
+        "paragraphs_zh": [
+            "第一段中文译文",
+            "第二段中文译文",
+        ]
     }
 
 
@@ -163,6 +182,12 @@ class FakeAIProvider:
             reason_zh="该事件来自高价值 AI 信号源，可能影响开发者、产品或内容选题。",
             action_zh="阅读原文，判断是否需要试用、跟进或收藏。",
         )
+
+    def translate_paragraphs(self, paragraphs: list[str]) -> list[str]:
+        return [
+            paragraph if any("\u4e00" <= char <= "\u9fff" for char in paragraph) else f"译文：{paragraph}"
+            for paragraph in paragraphs
+        ]
 
     def embed_text(self, text: str, dimensions: int = 64) -> list[float]:
         digest = hashlib.sha256(text.lower().encode("utf-8")).digest()
@@ -254,6 +279,30 @@ class OpenAIProvider:
         content = response["choices"][0]["message"]["content"]
         return parse_scoring_payload(json.loads(content))
 
+    def translate_paragraphs(self, paragraphs: list[str]) -> list[str]:
+        schema_hint = _translation_schema_hint()
+        payload = {
+            "model": self.scoring_model,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "Translate each input paragraph into natural Simplified Chinese. "
+                        "Preserve paragraph order and return strict JSON matching this example: "
+                        f"{json.dumps(schema_hint, ensure_ascii=False)}"
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps({"paragraphs": paragraphs}, ensure_ascii=False)[:6000],
+                },
+            ],
+        }
+        response = self._post_json("https://api.openai.com/v1/chat/completions", payload)
+        content = response["choices"][0]["message"]["content"]
+        return parse_translation_payload(json.loads(content))
+
 
 class KimiProvider:
     """Kimi/Moonshot chat provider with local deterministic embeddings."""
@@ -329,6 +378,30 @@ class KimiProvider:
         response = self._post_json(f"{self.base_url}/chat/completions", payload)
         content = response["choices"][0]["message"]["content"]
         return parse_scoring_payload(json.loads(content))
+
+    def translate_paragraphs(self, paragraphs: list[str]) -> list[str]:
+        schema_hint = _translation_schema_hint()
+        payload = {
+            "model": self.model,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "Translate each input paragraph into natural Simplified Chinese. "
+                        "Preserve paragraph order and return strict JSON matching this example: "
+                        f"{json.dumps(schema_hint, ensure_ascii=False)}"
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps({"paragraphs": paragraphs}, ensure_ascii=False)[:6000],
+                },
+            ],
+        }
+        response = self._post_json(f"{self.base_url}/chat/completions", payload)
+        content = response["choices"][0]["message"]["content"]
+        return parse_translation_payload(json.loads(content))
 
 
 class DeepSeekProvider:
@@ -416,6 +489,28 @@ class DeepSeekProvider:
         response = self._post_json(f"{self.base_url}/chat/completions", payload)
         content = response["choices"][0]["message"]["content"]
         return parse_scoring_payload(json.loads(content))
+
+    def translate_paragraphs(self, paragraphs: list[str]) -> list[str]:
+        schema_hint = _translation_schema_hint()
+        payload = self._chat_payload(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "Translate each input paragraph into natural Simplified Chinese. "
+                        "Preserve paragraph order and return strict JSON matching this example: "
+                        f"{json.dumps(schema_hint, ensure_ascii=False)}"
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps({"paragraphs": paragraphs}, ensure_ascii=False)[:6000],
+                },
+            ]
+        )
+        response = self._post_json(f"{self.base_url}/chat/completions", payload)
+        content = response["choices"][0]["message"]["content"]
+        return parse_translation_payload(json.loads(content))
 
 
 def _env_int(name: str, default: int) -> int:

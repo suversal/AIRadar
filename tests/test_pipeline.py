@@ -158,6 +158,97 @@ class PipelineTests(unittest.TestCase):
         self.assertGreater(provider.max_active, 1)
         self.assertEqual(result.daily_report.article_count, 4)
 
+    def test_pipeline_translates_only_selected_english_report_articles(self):
+        english_source = Source(
+            id="hn",
+            name="Hacker News",
+            source_role="signal",
+            tier="T2",
+            type="api",
+            category="community",
+            url="https://hn.algolia.com/api/v1/search",
+            homepage="https://news.ycombinator.com",
+            allowed_domains=["news.ycombinator.com"],
+            language="en",
+        )
+        chinese_source = Source(
+            id="ithome",
+            name="IT之家",
+            source_role="media",
+            tier="T3",
+            type="rss",
+            category="media",
+            url="https://www.ithome.com/rss/",
+            homepage="https://www.ithome.com",
+            allowed_domains=["ithome.com"],
+            language="zh",
+        )
+        raw_items = {
+            "hn": [
+                {
+                    "source_url": "https://example.com/english-ai-agent",
+                    "title": "AI agent audit finds seven bugs",
+                    "content": "AI agents found security bugs.\nDevelopers verified the fixes.",
+                    "author": "HN",
+                    "published_at": datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+                    "language": "en",
+                    "raw_score": {},
+                    "metadata": {
+                        "original_blocks": [
+                            {"type": "paragraph", "text": "AI agents found security bugs."},
+                            {
+                                "type": "image",
+                                "url": "https://example.com/audit.png",
+                                "alt": "Audit diagram",
+                                "caption": "",
+                            },
+                            {"type": "paragraph", "text": "Developers verified the fixes."},
+                        ]
+                    },
+                },
+                {
+                    "source_url": "https://example.com/second-agent",
+                    "title": "AI agent workflow update",
+                    "content": "AI workflow update for builders.",
+                    "author": "HN",
+                    "published_at": datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+                    "language": "en",
+                    "raw_score": {},
+                    "metadata": {},
+                },
+            ],
+            "ithome": [
+                {
+                    "source_url": "https://ithome.com/ai",
+                    "title": "AI 公司发布新工具",
+                    "content": "这是一条中文 AI 新闻。",
+                    "author": "IT之家",
+                    "published_at": datetime(2026, 7, 1, 10, tzinfo=timezone.utc),
+                    "language": "zh",
+                    "raw_score": {},
+                    "metadata": {},
+                }
+            ],
+        }
+        provider = TranslatingAIProvider()
+
+        result = run_pipeline(
+            sources=[english_source, chinese_source],
+            raw_items_by_source=raw_items,
+            ai_provider=provider,
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 1),
+            candidate_limit=10,
+            top_n=1,
+        )
+
+        item = result.daily_report.json_data["items"][0]
+        self.assertEqual(provider.translation_calls, [["AI agents found security bugs.", "Developers verified the fixes."]])
+        self.assertEqual(item["source_language"], "en")
+        self.assertEqual(item["translated_paragraphs"], ["译文：AI agents found security bugs.", "译文：Developers verified the fixes."])
+        self.assertEqual(item["translated_blocks"][1]["type"], "image")
+        self.assertEqual(item["translated_blocks"][1]["url"], "https://example.com/audit.png")
+
 
 class LowScoreAIProvider(FakeAIProvider):
     def prefilter(self, text: str) -> PrefilterResult:
@@ -204,6 +295,38 @@ class SlowConcurrentAIProvider(FakeAIProvider):
     def score_article(self, title: str, content: str) -> ScoringResult:
         self._enter_call()
         return super().score_article(title, content)
+
+
+class TranslatingAIProvider(FakeAIProvider):
+    def __init__(self):
+        self.translation_calls = []
+
+    def prefilter(self, text: str) -> PrefilterResult:
+        return PrefilterResult(is_ai_related=True, confidence=0.9, reason="fixture")
+
+    def score_article(self, title: str, content: str) -> ScoringResult:
+        score = 9 if "seven bugs" in title else 6
+        return ScoringResult(
+            dimensions=ScoreDimensions(
+                ai_relevance=score,
+                novelty=score,
+                impact=score,
+                information_density=score,
+                actionability=score,
+                creator_value=score,
+            ),
+            category="industry",
+            tags=["AI"],
+            title_zh=title,
+            one_line_summary=f"{title}。",
+            summary_zh=f"{title}。{content}",
+            reason_zh="用于验证英文原文译文生成。",
+            action_zh="对照阅读原文和译文。",
+        )
+
+    def translate_paragraphs(self, paragraphs):
+        self.translation_calls.append(list(paragraphs))
+        return [f"译文：{paragraph}" for paragraph in paragraphs]
 
 
 if __name__ == "__main__":
