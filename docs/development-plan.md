@@ -377,6 +377,7 @@ AI_PROVIDER=deepseek DEEPSEEK_API_KEY=<local-only> python3 scripts/run_pipeline_
   - 当前完成：
     - 20 个 DeepSeek 并发预筛请求全部成功，错误数 0，总耗时约 2.7 秒。
     - `--limit 20 --top-n 20 --ai-concurrency 20` 真实 pipeline 已通过；当前 `/api/public/latest` 返回 20 条日报 items。
+    - 新增 `--skip-prefilter` 用于一次性审查运行：跳过 AI 相关预筛，100 个候选全部评分并进入日报，便于检查评分分布和低分样本。
 
 - [ ] 使用 OpenAI 跑小批量 pipeline。
   - 命令：

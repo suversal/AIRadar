@@ -64,6 +64,11 @@ def main() -> int:
     parser.add_argument("--date", default=date.today().isoformat())
     parser.add_argument("--ai-concurrency", type=int, default=env_int("AI_PIPELINE_CONCURRENCY", 1))
     parser.add_argument("--fake-ai", action="store_true")
+    parser.add_argument(
+        "--skip-prefilter",
+        action="store_true",
+        help="Score every candidate instead of dropping items during the AI-related prefilter.",
+    )
     parser.add_argument("--persist-db", action="store_true")
     parser.add_argument("--database-url", default=os.getenv("DATABASE_URL"))
     args = parser.parse_args()
@@ -97,6 +102,7 @@ def main() -> int:
         candidate_limit=args.limit,
         top_n=args.top_n,
         ai_concurrency=args.ai_concurrency,
+        skip_prefilter=args.skip_prefilter,
     )
 
     output_dir = ROOT / args.output_dir

@@ -118,6 +118,47 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result.daily_report.article_count, 2)
         self.assertEqual(len(result.daily_report.json_data["items"]), 2)
 
+    def test_pipeline_can_skip_prefilter_and_score_every_candidate(self):
+        source = Source(
+            id="mixed",
+            name="Mixed Feed",
+            source_role="signal",
+            tier="T2",
+            type="rss",
+            category="community",
+            url="https://example.com/feed",
+            homepage="https://example.com",
+            allowed_domains=["example.com"],
+        )
+        raw_items = [
+            {
+                "source_url": f"https://example.com/{index}",
+                "title": f"General update {index}",
+                "content": "This item has no explicit AI keyword.",
+                "author": None,
+                "published_at": datetime(2026, 7, 1, 8 + index, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {},
+            }
+            for index in range(3)
+        ]
+
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={"mixed": raw_items},
+            ai_provider=NonAiPrefilterProvider(),
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 1),
+            candidate_limit=3,
+            top_n=3,
+            skip_prefilter=True,
+        )
+
+        self.assertEqual(len(result.processed_articles), 3)
+        self.assertEqual(result.daily_report.article_count, 3)
+        self.assertNotIn("not_ai_related", result.skipped_reasons)
+
     def test_pipeline_can_process_ai_candidates_concurrently(self):
         source = Source(
             id="hn",
@@ -447,6 +488,11 @@ class LowScoreAIProvider(FakeAIProvider):
             reason_zh="低分候选仍可用于补足完整成果。",
             action_zh="阅读原文后再判断。",
         )
+
+
+class NonAiPrefilterProvider(FakeAIProvider):
+    def prefilter(self, text: str) -> PrefilterResult:
+        return PrefilterResult(is_ai_related=False, confidence=0.9, reason="fixture")
 
 
 class SlowConcurrentAIProvider(FakeAIProvider):

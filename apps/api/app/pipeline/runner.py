@@ -37,12 +37,14 @@ def _process_candidate_article(
     source_by_id: dict[str, Source],
     ai_provider: Any,
     now: datetime,
+    skip_prefilter: bool = False,
 ) -> tuple[ProcessedArticle | None, list[float] | None, str | None]:
-    prefilter = ai_provider.prefilter(f"{article.title}\n{article.content[:500]}")
-    if not prefilter.is_ai_related:
-        article.status = "skipped"
-        article.skipped_reason = "not_ai_related"
-        return None, None, "not_ai_related"
+    if not skip_prefilter:
+        prefilter = ai_provider.prefilter(f"{article.title}\n{article.content[:500]}")
+        if not prefilter.is_ai_related:
+            article.status = "skipped"
+            article.skipped_reason = "not_ai_related"
+            return None, None, "not_ai_related"
 
     scoring = ai_provider.score_article(article.title, article.content)
     source = source_by_id[article.source_id]
@@ -219,6 +221,7 @@ def run_pipeline(
     candidate_limit: int = 100,
     top_n: int = 12,
     ai_concurrency: int = 1,
+    skip_prefilter: bool = False,
 ) -> PipelineResult:
     source_by_id = {source.id: source for source in sources}
     raw_articles: list[RawArticle] = []
@@ -248,6 +251,7 @@ def run_pipeline(
                 source_by_id=source_by_id,
                 ai_provider=ai_provider,
                 now=now,
+                skip_prefilter=skip_prefilter,
             )
             candidate_results.append((index, article, processed, embedding, skipped_reason))
     else:
@@ -259,6 +263,7 @@ def run_pipeline(
                     source_by_id=source_by_id,
                     ai_provider=ai_provider,
                     now=now,
+                    skip_prefilter=skip_prefilter,
                 ): (index, article)
                 for index, article in enumerate(candidate_articles)
             }
