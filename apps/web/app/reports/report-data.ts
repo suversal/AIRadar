@@ -8,6 +8,8 @@ export type ReportHighlight = {
   items: LatestEvent[];
 };
 
+export type PeriodMode = "weekly" | "monthly";
+
 const fallbackCategoryLabels: Record<string, string> = {
   model_release: "模型发布/更新",
   product_release: "产品发布/更新",
@@ -73,5 +75,74 @@ export function latestToDailyReport(latest: LatestReport): DailyReport {
     sections: {},
     items,
     article_count: items.length,
+  };
+}
+
+function sortByScore(items: LatestEvent[]) {
+  return [...items].sort((left, right) => (right.final_score ?? 0) - (left.final_score ?? 0));
+}
+
+function addDays(date: Date, days: number) {
+  const copy = new Date(date);
+  copy.setDate(copy.getDate() + days);
+  return copy;
+}
+
+function formatDate(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
+function resolveRange(reportDate: string | null | undefined, mode: PeriodMode) {
+  const anchor = reportDate ? new Date(`${reportDate}T00:00:00`) : new Date();
+  const safeAnchor = Number.isNaN(anchor.getTime()) ? new Date() : anchor;
+  if (mode === "monthly") {
+    const start = new Date(safeAnchor.getFullYear(), safeAnchor.getMonth(), 1);
+    const end = new Date(safeAnchor.getFullYear(), safeAnchor.getMonth() + 1, 0);
+    return `${formatDate(start)} ~ ${formatDate(end)}`;
+  }
+  return `${formatDate(addDays(safeAnchor, -6))} ~ ${formatDate(safeAnchor)}`;
+}
+
+function mainlineFor(highlights: ReportHighlight[], mode: PeriodMode) {
+  const top = highlights[0];
+  if (!top) {
+    return {
+      title: mode === "weekly" ? "本周 AI 动态等待生成" : "本月 AI 动态等待生成",
+      body: "当前还没有足够事件形成主线。刷新日报后，这里会自动聚合本期主线。",
+    };
+  }
+  const prefix = mode === "weekly" ? "本周" : "本月";
+  return {
+    title: `${top.label}成为${prefix}主线`,
+    body: `${prefix} AI 动态围绕“${top.label}”集中展开，代表事件包括“${top.title}”。系统从当前可读事件中抽取主题、评分、标签和来源信号，形成这份周期综述。`,
+  };
+}
+
+export function buildPeriodDigest(latest: LatestReport, mode: PeriodMode) {
+  const items = sortByScore(latest.items);
+  const highlights = summarizeCategoryHighlights(items, mode === "monthly" ? 5 : 6);
+  const uniqueTags = new Set(items.flatMap((item) => item.tags ?? []));
+  const range = resolveRange(latest.report_date, mode);
+  const mainline = mainlineFor(highlights, mode);
+  const selectedCount = items.filter((item) => (item.final_score ?? 0) >= 65).length;
+
+  return {
+    mode,
+    title: mode === "weekly" ? "AIHOT 周报" : "AIHOT 月报",
+    label: mode === "weekly" ? "WEEKLY" : "MONTHLY",
+    issueMeta:
+      mode === "weekly"
+        ? `VOL.${range.slice(0, 4)}-W · ${items.length} STORIES · AI HOT WEEKLY`
+        : `VOL.${range.slice(0, 7)} · ${items.length} STORIES · AI HOT MONTHLY`,
+    range,
+    mainline,
+    highlights,
+    sections: highlights,
+    stats: [
+      { label: "独立事件", value: items.length.toString() },
+      { label: "条精选", value: selectedCount.toString() },
+      { label: mode === "weekly" ? "期日报浓缩" : "天趋势聚合", value: mode === "weekly" ? "7" : "30" },
+      { label: "阅读本页", value: `≈${mode === "weekly" ? 5 : 4} min` },
+    ],
   };
 }

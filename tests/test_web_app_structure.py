@@ -29,6 +29,9 @@ class WebAppStructureTests(unittest.TestCase):
             "app/daily/copy-markdown-button.tsx",
             "app/reports/report-shell.tsx",
             "app/reports/report-data.ts",
+            "app/reports/period-report-page.tsx",
+            "app/weekly/page.tsx",
+            "app/monthly/page.tsx",
             "app/event/[id]/page.tsx",
             "lib/api.ts",
             "lib/events.ts",
@@ -165,6 +168,30 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("夜间", shell_source)
         self.assertIn("buildDailyDigest", data_source)
         self.assertIn("summarizeCategoryHighlights", data_source)
+        self.assertIn("buildPeriodDigest", data_source)
+
+    def test_weekly_and_monthly_pages_render_aihot_period_reports(self):
+        period_page = (WEB / "app" / "reports" / "period-report-page.tsx").read_text(encoding="utf-8")
+        weekly_page = (WEB / "app" / "weekly" / "page.tsx").read_text(encoding="utf-8")
+        monthly_page = (WEB / "app" / "monthly" / "page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("ReportShell", period_page)
+        self.assertIn("buildPeriodDigest", period_page)
+
+        for source, title, mode in [
+            (weekly_page, "AIHOT 周报", "weekly"),
+            (monthly_page, "AIHOT 月报", "monthly"),
+        ]:
+            self.assertIn(title, source)
+            self.assertIn(f'mode="{mode}"', source)
+            self.assertIn("本期主线", source)
+            self.assertIn("本期看点", source)
+            self.assertIn("本期主题", source)
+
+        data_source = (WEB / "app" / "reports" / "report-data.ts").read_text(encoding="utf-8")
+        self.assertIn("独立事件", data_source)
+        self.assertIn("条精选", data_source)
+        self.assertIn("阅读本页", data_source)
 
     def test_event_detail_page_links_from_latest_and_daily_views(self):
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
