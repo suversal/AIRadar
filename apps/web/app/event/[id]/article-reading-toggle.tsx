@@ -13,6 +13,45 @@ type ArticleReadingToggleProps = {
   translatedBlocks: OriginalBlock[];
 };
 
+function numericDimension(value: unknown) {
+  if (typeof value === "number") {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return null;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isReadmeInlineImage({
+  src,
+  width,
+  height,
+}: {
+  src?: string;
+  width?: unknown;
+  height?: unknown;
+}) {
+  const imageUrl = src ?? "";
+  const imageWidth = numericDimension(width);
+  const imageHeight = numericDimension(height);
+  return (
+    imageUrl.includes("img.shields.io") ||
+    imageUrl.includes("badgen.net") ||
+    imageUrl.includes("badge.fury.io") ||
+    imageUrl.includes("/badge/") ||
+    (imageWidth !== null && imageWidth <= 360 && imageHeight !== null && imageHeight <= 120)
+  );
+}
+
+function readmeImageClassName(options: { src?: string; width?: unknown; height?: unknown }) {
+  if (isReadmeInlineImage(options)) {
+    return "inline-block h-auto w-auto max-w-full align-middle";
+  }
+  return "my-8 block h-auto max-w-full rounded-md border border-slate-800 object-contain";
+}
+
 const markdownComponents: Components = {
   h1({ node: _node, ...props }) {
     return <h1 className="mt-10 text-3xl font-semibold leading-tight text-slate-50" {...props} />;
@@ -76,7 +115,11 @@ const markdownComponents: Components = {
     return (
       <img
         alt={alt ?? ""}
-        className="my-8 max-h-[560px] w-full rounded-md border border-slate-800 object-contain"
+        className={readmeImageClassName({
+          src: typeof props.src === "string" ? props.src : undefined,
+          width: props.width,
+          height: props.height,
+        })}
         loading="lazy"
         {...props}
       />
@@ -89,12 +132,25 @@ const markdownComponents: Components = {
 
 function renderBlock(block: OriginalBlock, index: number) {
   if (block.type === "image") {
+    const imageClassName = readmeImageClassName({ src: block.url });
+    if (isReadmeInlineImage({ src: block.url })) {
+      return (
+        <img
+          key={`${block.url}-${index}`}
+          src={block.url}
+          alt={block.alt ?? ""}
+          className={imageClassName}
+          loading="lazy"
+        />
+      );
+    }
     return (
       <figure key={`${block.url}-${index}`} className="my-8">
         <img
           src={block.url}
           alt={block.alt ?? ""}
-          className="max-h-[520px] w-full rounded-md border border-slate-800 object-contain"
+          className={imageClassName}
+          loading="lazy"
         />
         {block.caption ? (
           <figcaption className="mt-2 text-center text-sm text-slate-500">{block.caption}</figcaption>
