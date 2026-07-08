@@ -16,6 +16,15 @@ from app.crawlers.base import clean_text
 README_PARAGRAPH_LIMIT = 12
 README_CHAR_LIMIT = 6000
 README_MARKDOWN_CHAR_LIMIT = 80_000
+CHINESE_README_PRIORITY = [
+    "README_zh.md",
+    "README_CN.md",
+    "README.zh-CN.md",
+    "README-zh.md",
+    "README.zh.md",
+    "README_zh-CN.md",
+    "README_cn.md",
+]
 
 GITHUB_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
@@ -214,13 +223,7 @@ def _readme_failure(status: str, error: str = "") -> dict[str, str]:
     return payload
 
 
-def fetch_github_readme(repo_path: str, github_token: str | None = None) -> dict[str, Any]:
-    repo_path = repo_path_from_github_url(repo_path)
-    if not repo_path:
-        return _readme_failure("skipped", "missing GitHub repo path")
-
-    owner, repo = repo_path.split("/", 1)
-    url = f"https://api.github.com/repos/{quote(owner)}/{quote(repo)}/readme"
+def _github_headers(github_token: str | None = None) -> dict[str, str]:
     token = github_token if github_token is not None else os.getenv("GITHUB_TOKEN")
     headers = {
         "Accept": "application/vnd.github+json",
@@ -229,17 +232,41 @@ def fetch_github_readme(repo_path: str, github_token: str | None = None) -> dict
     }
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    request = urllib.request.Request(url, headers=headers)
+    return headers
 
-    try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            api_payload = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        return _readme_failure("failed", f"GitHub README request failed: {exc.code} {body}")
-    except Exception as exc:
-        return _readme_failure("failed", str(exc))
 
+def _github_json_request(url: str, github_token: str | None = None) -> Any:
+    request = urllib.request.Request(url, headers=_github_headers(github_token))
+    with urllib.request.urlopen(request, timeout=20) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _selected_chinese_readme(root_payload: Any) -> dict[str, Any] | None:
+    if not isinstance(root_payload, list):
+        return None
+
+    files_by_name = {}
+    for item in root_payload:
+        if not isinstance(item, dict) or item.get("type") != "file":
+            continue
+        name = str(item.get("name") or "")
+        if name:
+            files_by_name[name.lower()] = item
+
+    for filename in CHINESE_README_PRIORITY:
+        match = files_by_name.get(filename.lower())
+        if match:
+            return match
+    return None
+
+
+def _decode_readme_payload(
+    api_payload: dict[str, Any],
+    *,
+    repo_path: str,
+    readme_language: str,
+    readme_selection: str,
+) -> dict[str, Any]:
     if api_payload.get("encoding") != "base64" or not api_payload.get("content"):
         return _readme_failure("failed", "GitHub README payload missing base64 content")
 
@@ -253,6 +280,7 @@ def fetch_github_readme(repo_path: str, github_token: str | None = None) -> dict
 
     download_url = str(api_payload.get("download_url") or "")
     html_url = str(api_payload.get("html_url") or "")
+    readme_name = str(api_payload.get("name") or "").strip()
     original_markdown = _limit_readme_markdown(
         _rewrite_readme_markdown_urls(
             markdown,
@@ -271,6 +299,78 @@ def fetch_github_readme(repo_path: str, github_token: str | None = None) -> dict
         "readme_status": "ok",
         "readme_url": download_url or html_url,
         "readme_html_url": html_url,
+        "readme_name": readme_name,
+        "readme_language": readme_language,
+        "readme_selection": readme_selection,
         "original_markdown": original_markdown,
         **original_payload,
     }
+
+
+def _fetch_default_readme(repo_path: str, github_token: str | None = None) -> dict[str, Any]:
+    owner, repo = repo_path.split("/", 1)
+    url = f"https://api.github.com/repos/{quote(owner)}/{quote(repo)}/readme"
+    api_payload = _github_json_request(url, github_token)
+    return _decode_readme_payload(
+        api_payload,
+        repo_path=repo_path,
+        readme_language="zh" if str(api_payload.get("name") or "").lower() in {
+            item.lower() for item in CHINESE_README_PRIORITY
+        } else "en",
+        readme_selection="default_readme",
+    )
+
+
+def fetch_github_readme(repo_path: str, github_token: str | None = None) -> dict[str, Any]:
+    repo_path = repo_path_from_github_url(repo_path)
+    if not repo_path:
+        return _readme_failure("skipped", "missing GitHub repo path")
+
+    owner, repo = repo_path.split("/", 1)
+    root_url = f"https://api.github.com/repos/{quote(owner)}/{quote(repo)}/contents"
+
+    try:
+        root_payload = _github_json_request(root_url, github_token)
+    except urllib.error.HTTPError as exc:
+        root_payload = None
+        root_error = f"GitHub README root contents request failed: {exc.code} {exc.read().decode('utf-8', errors='replace')}"
+    except Exception as exc:
+        root_payload = None
+        root_error = str(exc)
+    else:
+        root_error = ""
+
+    selected_readme = _selected_chinese_readme(root_payload)
+    if selected_readme:
+        selected_url = str(selected_readme.get("url") or "")
+        if selected_url:
+            try:
+                selected_payload = _github_json_request(selected_url, github_token)
+                selected_result = _decode_readme_payload(
+                    selected_payload,
+                    repo_path=repo_path,
+                    readme_language="zh",
+                    readme_selection="preferred_zh_readme",
+                )
+                if selected_result.get("readme_status") == "ok":
+                    return selected_result
+            except Exception:
+                pass
+
+    try:
+        result = _fetch_default_readme(repo_path, github_token)
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        detail = f"GitHub README request failed: {exc.code} {body}"
+        if root_error:
+            detail = f"{detail}; root contents: {root_error}"
+        return _readme_failure("failed", detail)
+    except Exception as exc:
+        detail = str(exc)
+        if root_error:
+            detail = f"{detail}; root contents: {root_error}"
+        return _readme_failure("failed", detail)
+
+    if root_error and result.get("readme_status") == "ok":
+        result.setdefault("readme_selection", "default_readme")
+    return result

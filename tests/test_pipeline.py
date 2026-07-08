@@ -357,6 +357,73 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(github_article.metadata["repo_description"], "Short trending description.")
         self.assertEqual(github_article.metadata["readme_status"], "ok")
 
+    def test_pipeline_skips_translation_for_selected_chinese_readme(self):
+        github_source = Source(
+            id="github_trending_ai",
+            name="GitHub Trending AI",
+            source_role="signal",
+            tier="T2",
+            type="github",
+            category="community",
+            url="https://github.com/trending?since=daily",
+            homepage="https://github.com/trending",
+            allowed_domains=["github.com"],
+            language="en",
+        )
+        raw_items = {
+            "github_trending_ai": [
+                {
+                    "source_url": "https://github.com/TencentCloud/TencentDB-Agent-Memory",
+                    "title": "AI selected readme zh project",
+                    "content": "Short trending description.",
+                    "author": "TencentCloud",
+                    "published_at": datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+                    "language": "en",
+                    "raw_score": {},
+                    "metadata": {
+                        "repo": "TencentCloud/TencentDB-Agent-Memory",
+                        "source_type": "github_trending",
+                    },
+                }
+            ],
+        }
+        provider = ReadmeAwareAIProvider()
+        readme_payload = {
+            "readme_status": "ok",
+            "readme_url": "https://raw.githubusercontent.com/TencentCloud/TencentDB-Agent-Memory/main/README_CN.md",
+            "readme_name": "README_CN.md",
+            "readme_language": "zh",
+            "readme_selection": "preferred_zh_readme",
+            "original_content": "中文说明\n\n这是中文 README。",
+            "original_markdown": "# 中文说明\n\n这是中文 README。",
+            "original_paragraphs": ["中文说明", "这是中文 README。"],
+            "original_blocks": [
+                {"type": "paragraph", "text": "中文说明"},
+                {"type": "paragraph", "text": "这是中文 README。"},
+            ],
+            "original_images": [],
+        }
+
+        with patch("app.pipeline.runner.fetch_github_readme", return_value=readme_payload):
+            result = run_pipeline(
+                sources=[github_source],
+                raw_items_by_source=raw_items,
+                ai_provider=provider,
+                now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+                report_date=date(2026, 7, 1),
+                candidate_limit=10,
+                top_n=1,
+            )
+
+        github_item = result.daily_report.json_data["items"][0]
+        self.assertEqual(github_item["readme_name"], "README_CN.md")
+        self.assertEqual(github_item["readme_language"], "zh")
+        self.assertEqual(github_item["readme_selection"], "preferred_zh_readme")
+        self.assertEqual(github_item["original_markdown"], "# 中文说明\n\n这是中文 README。")
+        self.assertNotIn("translated_paragraphs", github_item)
+        self.assertNotIn("translated_blocks", github_item)
+        self.assertEqual(provider.translation_calls, [])
+
 
 class LowScoreAIProvider(FakeAIProvider):
     def prefilter(self, text: str) -> PrefilterResult:

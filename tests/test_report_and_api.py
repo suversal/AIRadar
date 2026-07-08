@@ -33,6 +33,9 @@ class ReportAndAPITests(unittest.TestCase):
             metadata={
                 "original_text": "OpenAI 发布新的 Agent 模型。\n\n开发者可以用它构建自动化工作流。",
                 "original_markdown": "# OpenAI Agent\n\n开发者可以用它构建自动化工作流。",
+                "readme_name": "README_CN.md",
+                "readme_language": "zh",
+                "readme_selection": "preferred_zh_readme",
                 "original_paragraphs": [
                     "OpenAI 发布新的 Agent 模型。",
                     "开发者可以用它构建自动化工作流。",
@@ -169,6 +172,9 @@ class ReportAndAPITests(unittest.TestCase):
             latest["items"][0]["original_markdown"],
             "# OpenAI Agent\n\n开发者可以用它构建自动化工作流。",
         )
+        self.assertEqual(latest["items"][0]["readme_name"], "README_CN.md")
+        self.assertEqual(latest["items"][0]["readme_language"], "zh")
+        self.assertEqual(latest["items"][0]["readme_selection"], "preferred_zh_readme")
         self.assertEqual(latest["items"][0]["source_language"], "en")
         self.assertEqual(
             latest["items"][0]["translated_paragraphs"],

@@ -115,6 +115,10 @@ def _original_article_payload(article: RawArticle) -> dict[str, Any]:
     original_markdown = str(metadata.get("original_markdown") or "").strip()
     if original_markdown:
         payload["original_markdown"] = original_markdown
+    for key in ("readme_name", "readme_language", "readme_selection"):
+        value = str(metadata.get(key) or "").strip()
+        if value:
+            payload[key] = value
     translated_paragraphs = _clean_text_list(metadata.get("translated_paragraphs"))
     translated_blocks = _clean_original_blocks(metadata.get("translated_blocks"))
     if translated_paragraphs:

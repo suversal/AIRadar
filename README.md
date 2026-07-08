@@ -124,14 +124,15 @@ payload. RSS feeds that include article HTML, such as IT之家 RSS, are parsed i
 `original_paragraphs`, `original_images`, and ordered `original_blocks`, so the
 detail page can render the source article text and images before linking out to
 the original URL. Selected GitHub Trending repositories are enriched with README
-content after final report selection, using the GitHub README API and falling
-back to the short Trending description if README fetch fails. GitHub README
-payloads preserve bounded `original_markdown` for in-app Markdown rendering
-(up to 80KB) while also keeping paragraph/image blocks for translation and
-fallback display. Existing reports need to be refreshed before this Markdown
-field appears. For selected English main articles, the pipeline can also add
-`translated_paragraphs` and ordered `translated_blocks`; the detail page then
-shows an "AI 翻译 · 中文" / "原文" toggle for side-by-side reading.
+content after final report selection. The helper first checks the repository
+root for Chinese README files such as `README_zh.md` or `README_CN.md`; if none
+works, it falls back to GitHub's default README. GitHub README payloads preserve
+bounded `original_markdown` for in-app Markdown rendering (up to 80KB) while
+also keeping paragraph/image blocks for translation and fallback display.
+Existing reports need to be refreshed before this Markdown field appears. For
+selected English main articles, the pipeline can also add `translated_paragraphs`
+and ordered `translated_blocks`; Chinese README payloads are shown directly and
+skip AI translation.
 
 ## Environment
 

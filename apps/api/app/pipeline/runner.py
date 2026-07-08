@@ -168,6 +168,8 @@ def _translate_selected_report_articles(
         article = articles_by_id[cluster.main_article_id]
         if not article.language.lower().startswith("en"):
             continue
+        if str(article.metadata.get("readme_language") or "").lower() == "zh":
+            continue
         if article.metadata.get("translated_blocks"):
             continue
 
