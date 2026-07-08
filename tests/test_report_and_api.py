@@ -32,6 +32,7 @@ class ReportAndAPITests(unittest.TestCase):
             raw_score={},
             metadata={
                 "original_text": "OpenAI 发布新的 Agent 模型。\n\n开发者可以用它构建自动化工作流。",
+                "original_markdown": "# OpenAI Agent\n\n开发者可以用它构建自动化工作流。",
                 "original_paragraphs": [
                     "OpenAI 发布新的 Agent 模型。",
                     "开发者可以用它构建自动化工作流。",
@@ -164,6 +165,10 @@ class ReportAndAPITests(unittest.TestCase):
         )
         self.assertEqual(latest["items"][0]["original_images"][0]["url"], "https://openai.com/agent.png")
         self.assertEqual(latest["items"][0]["original_blocks"][1]["type"], "image")
+        self.assertEqual(
+            latest["items"][0]["original_markdown"],
+            "# OpenAI Agent\n\n开发者可以用它构建自动化工作流。",
+        )
         self.assertEqual(latest["items"][0]["source_language"], "en")
         self.assertEqual(
             latest["items"][0]["translated_paragraphs"],

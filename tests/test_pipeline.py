@@ -322,6 +322,7 @@ class PipelineTests(unittest.TestCase):
             "readme_status": "ok",
             "readme_url": "https://raw.githubusercontent.com/MadsLorentzen/ai-job-search/main/README.md",
             "original_content": "AI Job Search\n\nFull README details for the project.",
+            "original_markdown": "# AI Job Search\n\nFull README details for the project.",
             "original_paragraphs": ["AI Job Search", "Full README details for the project."],
             "original_blocks": [
                 {"type": "paragraph", "text": "AI Job Search"},
@@ -347,6 +348,7 @@ class PipelineTests(unittest.TestCase):
             if item["original_url"] == "https://github.com/MadsLorentzen/ai-job-search"
         )
         self.assertEqual(github_item["original_paragraphs"], readme_payload["original_paragraphs"])
+        self.assertEqual(github_item["original_markdown"], readme_payload["original_markdown"])
         self.assertEqual(github_item["translated_paragraphs"], ["译文：AI Job Search", "译文：Full README details for the project."])
         github_article = next(
             article for article in result.raw_articles

@@ -15,9 +15,11 @@ from app.crawlers.base import clean_text
 
 README_PARAGRAPH_LIMIT = 12
 README_CHAR_LIMIT = 6000
+README_MARKDOWN_CHAR_LIMIT = 80_000
 
 GITHUB_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
+MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[([^\]]+)\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 HTML_IMG_RE = re.compile(r"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
 HTML_ALT_RE = re.compile(r"\balt=[\"']([^\"']*)[\"']", re.IGNORECASE)
 FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL)
@@ -50,9 +52,7 @@ def _branch_and_readme_dir(download_url: str, repo_path: str) -> tuple[str, str]
         and path_segments[1].lower() == repo.lower()
     ):
         branch = path_segments[2]
-        readme_dir = str(PurePosixPath(*path_segments[3:-1]).parent)
-        if readme_dir == ".":
-            readme_dir = ""
+        readme_dir = str(PurePosixPath(*path_segments[3:-1])) if path_segments[3:-1] else ""
         return branch, readme_dir
     return "main", ""
 
@@ -72,6 +72,54 @@ def _absolute_readme_asset_url(url: str, *, repo_path: str, download_url: str) -
     if readme_dir:
         return urljoin(f"{raw_base}{readme_dir}/", url)
     return urljoin(raw_base, url)
+
+
+def _absolute_readme_link_url(url: str, *, repo_path: str, download_url: str) -> str:
+    url = url.strip()
+    if not url:
+        return ""
+    parts = urlsplit(url)
+    if parts.scheme or parts.netloc or url.startswith("#"):
+        return url
+    branch, readme_dir = _branch_and_readme_dir(download_url, repo_path)
+    owner, repo = repo_path.split("/", 1)
+    github_base = f"https://github.com/{owner}/{repo}/blob/{branch}/"
+    if url.startswith("/"):
+        return urljoin(github_base, url.lstrip("/"))
+    if readme_dir:
+        return urljoin(f"{github_base}{readme_dir}/", url)
+    return urljoin(github_base, url)
+
+
+def _rewrite_readme_markdown_urls(markdown: str, *, repo_path: str, download_url: str) -> str:
+    def replace_image(match: re.Match[str]) -> str:
+        alt = match.group(1)
+        url = match.group(2)
+        absolute_url = _absolute_readme_asset_url(url, repo_path=repo_path, download_url=download_url)
+        return f"![{alt}]({absolute_url})" if absolute_url else match.group(0)
+
+    def replace_link(match: re.Match[str]) -> str:
+        label = match.group(1)
+        url = match.group(2)
+        absolute_url = _absolute_readme_link_url(url, repo_path=repo_path, download_url=download_url)
+        return f"[{label}]({absolute_url})" if absolute_url else match.group(0)
+
+    def replace_html_img(match: re.Match[str]) -> str:
+        tag = match.group(0)
+        url = match.group(1)
+        absolute_url = _absolute_readme_asset_url(url, repo_path=repo_path, download_url=download_url)
+        return tag.replace(url, absolute_url, 1) if absolute_url else tag
+
+    markdown = MARKDOWN_IMAGE_RE.sub(replace_image, markdown)
+    markdown = MARKDOWN_LINK_RE.sub(replace_link, markdown)
+    return HTML_IMG_RE.sub(replace_html_img, markdown)
+
+
+def _limit_readme_markdown(markdown: str, *, char_limit: int = README_MARKDOWN_CHAR_LIMIT) -> str:
+    markdown = markdown.strip()
+    if len(markdown) <= char_limit:
+        return markdown
+    return markdown[:char_limit].rstrip()
 
 
 def _markdown_images(chunk: str, *, repo_path: str, download_url: str) -> list[dict[str, str]]:
@@ -205,6 +253,13 @@ def fetch_github_readme(repo_path: str, github_token: str | None = None) -> dict
 
     download_url = str(api_payload.get("download_url") or "")
     html_url = str(api_payload.get("html_url") or "")
+    original_markdown = _limit_readme_markdown(
+        _rewrite_readme_markdown_urls(
+            markdown,
+            repo_path=repo_path,
+            download_url=download_url,
+        )
+    )
     original_payload = markdown_to_original_payload(
         markdown,
         repo_path=repo_path,
@@ -216,5 +271,6 @@ def fetch_github_readme(repo_path: str, github_token: str | None = None) -> dict
         "readme_status": "ok",
         "readme_url": download_url or html_url,
         "readme_html_url": html_url,
+        "original_markdown": original_markdown,
         **original_payload,
     }

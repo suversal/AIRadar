@@ -112,6 +112,9 @@ def _original_article_payload(article: RawArticle) -> dict[str, Any]:
         "original_images": images,
         "original_blocks": blocks,
     }
+    original_markdown = str(metadata.get("original_markdown") or "").strip()
+    if original_markdown:
+        payload["original_markdown"] = original_markdown
     translated_paragraphs = _clean_text_list(metadata.get("translated_paragraphs"))
     translated_blocks = _clean_original_blocks(metadata.get("translated_blocks"))
     if translated_paragraphs:

@@ -313,7 +313,11 @@ class CrawlerTests(unittest.TestCase):
         self.assertEqual(payload["original_blocks"][1]["text"], "Agent Skills")
 
     def test_fetch_github_readme_decodes_api_payload_and_handles_failures(self):
-        readme = "# Agent Skills\n\nProduction-grade skills for AI agents."
+        readme = (
+            "# Agent Skills\n\n"
+            "![Demo](assets/demo.png)\n\n"
+            "Production-grade skills for [AI agents](docs/agents.md)."
+        )
         api_payload = {
             "content": b64encode(readme.encode("utf-8")).decode("ascii"),
             "encoding": "base64",
@@ -340,12 +344,47 @@ class CrawlerTests(unittest.TestCase):
         self.assertEqual(payload["readme_status"], "ok")
         self.assertEqual(payload["readme_url"], "https://raw.githubusercontent.com/openai/agent-kit/main/README.md")
         self.assertEqual(payload["original_paragraphs"], ["Agent Skills", "Production-grade skills for AI agents."])
+        self.assertIn("# Agent Skills", payload["original_markdown"])
+        self.assertIn(
+            "![Demo](https://raw.githubusercontent.com/openai/agent-kit/main/assets/demo.png)",
+            payload["original_markdown"],
+        )
+        self.assertIn(
+            "[AI agents](https://github.com/openai/agent-kit/blob/main/docs/agents.md)",
+            payload["original_markdown"],
+        )
 
         with patch("urllib.request.urlopen", side_effect=TimeoutError("network timeout")):
             failed = fetch_github_readme("openai/agent-kit")
 
         self.assertEqual(failed["readme_status"], "failed")
         self.assertIn("network timeout", failed["readme_error"])
+
+    def test_fetch_github_readme_limits_original_markdown_size(self):
+        readme = "# Agent Skills\n\n" + ("Long README paragraph.\n\n" * 6000)
+        api_payload = {
+            "content": b64encode(readme.encode("utf-8")).decode("ascii"),
+            "encoding": "base64",
+            "download_url": "https://raw.githubusercontent.com/openai/agent-kit/main/README.md",
+            "html_url": "https://github.com/openai/agent-kit/blob/main/README.md",
+        }
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return __import__("json").dumps(api_payload).encode("utf-8")
+
+        with patch("urllib.request.urlopen", return_value=FakeResponse()):
+            payload = fetch_github_readme("openai/agent-kit")
+
+        self.assertEqual(payload["readme_status"], "ok")
+        self.assertLessEqual(len(payload["original_markdown"]), 80_000)
+        self.assertTrue(payload["original_markdown"].startswith("# Agent Skills"))
 
     def test_parse_hn_hits_filters_ai_as_word_and_limits_after_filtering(self):
         source = Source(
