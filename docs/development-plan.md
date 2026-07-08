@@ -722,8 +722,8 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
   - 验收：
     - 详情页不再重复拼接摘要/推荐理由/动作建议。
     - 有结构化原文时按原文图文块展示，没有原文时降级显示摘要。
-  - 当前完成：`/latest` 和 `/daily/:date` 事件标题链接到 `/event/:id`；详情页从 latest payload 查找事件，并消费 `original_blocks`、`original_paragraphs`、`original_images`。
-  - dev 验证：`/event/:id` 结构测试通过，HTML 源码不再包含“报告正文”“时间线”“下一步”，包含“推荐理由”“AI 摘要”“原文”“阅读原文”。
+  - 当前完成：`/latest` 和 `/daily/:date` 事件标题链接到 `/event/:id`；详情页从 latest payload 查找事件，并消费 `original_blocks`、`original_paragraphs`、`original_images`；阅读文章时保留 AIHOT 左侧菜单栏，顶部不再显示“返回最新情报”。
+  - dev 验证：`/event/:id` 结构测试通过，HTML 源码不再包含“报告正文”“时间线”“下一步”“返回最新情报”，包含“推荐理由”“AI 摘要”“原文”“阅读原文”和 AIHOT 主导航。
   - 截图验证：待下一轮浏览器视觉复核。
 
 - [x] 为英文来源详情页增加原文/译文切换。
@@ -870,6 +870,7 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
 - [x] 实现 `/weekly` 周报页和 `/monthly` 月报页。
 - [x] 实现 `/event/:id` 事件详情页。
 - [x] 优化 `/event/:id` 为原文阅读布局并显示原文图片。
+- [x] 优化 `/event/:id` 阅读布局，保留左侧菜单并移除顶部返回按钮。
 - [x] 为英文来源 `/event/:id` 增加原文/AI 翻译切换。
 - [x] 为 GitHub 开源项目 `/event/:id` 增加 README 原文补抓。
 - [x] 实现 `/all` 全量列表页。

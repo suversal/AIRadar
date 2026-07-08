@@ -25,7 +25,7 @@
 - `apps/web/app/reports`: shared AIHOT report shell, report mode tabs, daily digest helpers, and period report helpers.
 - `apps/web/app/daily/page.tsx`: AIHOT-style daily report page with today highlights, stats, category sections, and Markdown copy. `/daily/[date]` remains as the dated report compatibility view.
 - `apps/web/app/weekly/page.tsx` and `apps/web/app/monthly/page.tsx`: AIHOT-style period report pages with mainline summary, stats, highlights, and theme sections. They currently aggregate the public latest payload until dedicated weekly/monthly report APIs exist.
-- `apps/web/app/event/[id]/page.tsx`: event detail is an article-reading view with recommendation reason, AI summary, original content, optional AI translation/original toggle, tags, and read-original actions.
+- `apps/web/app/event/[id]/page.tsx`: event detail keeps the AIHOT left navigation visible while reading, with recommendation reason, AI summary, original content, optional AI translation/original toggle, tags, and read-original actions.
 - `scripts`: local CLI entrypoints for seed, crawl, pipeline, and report output. `run_pipeline_once.py` supports `--ai-concurrency`; API refresh reads `AI_PIPELINE_CONCURRENCY`.
 - `infra`: Docker Compose and PostgreSQL schema with pgvector.
 
