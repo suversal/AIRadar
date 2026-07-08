@@ -14,9 +14,9 @@ pipeline that can run with `FakeAIProvider` when no AI key is configured,
 or use OpenAI/Kimi/DeepSeek-compatible chat providers for real summaries and scoring.
 Docker/PostgreSQL/Redis scaffolding is included for the production-shaped runtime.
 The current web MVP includes an AIHOT-style selected feed on `/latest`, an
-AIHOT-style all-dynamics feed on `/all`, daily, event detail, and search pages.
-The sidebar currently implements "精选" and "全部 AI 动态"; the other menu labels
-are reserved placeholders.
+AIHOT-style all-dynamics feed on `/all`, AIHOT-style daily/weekly/monthly report
+pages, event detail, and search pages. The sidebar currently implements "精选",
+"全部 AI 动态", and "AI 日报"; the other menu labels are reserved placeholders.
 
 Not in this milestone: admin UI, Telegram push, MCP server.
 
@@ -55,6 +55,15 @@ Open `http://127.0.0.1:3000/latest` for the current homepage, or
 search out of the selected feed; `/all` has its own source/category filters and
 inline search. The first `/all` implementation still reads the public latest
 payload, so a broader backend all-events API is a later milestone.
+
+Report pages:
+
+- `http://127.0.0.1:3000/daily`
+- `http://127.0.0.1:3000/weekly`
+- `http://127.0.0.1:3000/monthly`
+
+The first weekly and monthly pages aggregate the current public latest payload;
+dedicated period report APIs are a later milestone.
 
 Generated articles, reports, and crawl diagnostics are written under `data/`,
 which is ignored by git.

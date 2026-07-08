@@ -14,7 +14,7 @@
 | Phase 3 - PostgreSQL + pgvector 持久化 | 进行中 | Docker 已安装；Postgres/Redis healthy；pipeline CLI 已写库；FastAPI public endpoints 已可读数据库 | 补 Alembic 迁移和 pgvector 相似查询 |
 | Phase 4 - API 与日报服务化 | 进行中 | 本地 FastAPI 服务已启动并通过 HTTP smoke；latest/daily 从 DB 读到 12 条日报 | 等 API compose 网络问题恢复后补容器验证 |
 | Phase 5 - 任务调度与稳定性 | 未开始 | Celery/Redis/scheduler 尚未接入 | 等数据库持久化完成后启动 |
-| Phase 6 - 前端 MVP | 已完成 | `apps/web` Next.js + Tailwind 首版已完成：`/latest` 已重构为 AIHOT 风格精选首页；`/all` 已实现 AIHOT 风格全部 AI 动态页；`/daily`、`/daily/:date`、`/event/:id`、`/search`、点击刷新日报/完整成果、详情页原文阅读体验均通过验证 | 后续实现 AI 日报/主题/收藏等侧栏页面，并为 `/all` 接入真正全量事件 API |
+| Phase 6 - 前端 MVP | 已完成 | `apps/web` Next.js + Tailwind 首版已完成：`/latest` 已重构为 AIHOT 风格精选首页；`/all` 已实现 AIHOT 风格全部 AI 动态页；`/daily`、`/weekly`、`/monthly` 已实现 AIHOT 风格报告页；`/daily/:date`、`/event/:id`、`/search`、点击刷新日报/完整成果均通过验证 | 后续为 `/all` 和周/月报接入真正全量/周期 API，并实现主题、收藏等侧栏页面 |
 | Phase 7 - RSS/Public API/MCP | 未开始 | RSS/Public API 完整版和 MCP 暂缓 | 等 API 和数据质量稳定后启动 |
 | Phase 8 - 后台管理 | 未开始 | 后台暂缓，避免早期范围膨胀 | 等数据闭环稳定后启动 |
 
@@ -59,6 +59,7 @@
 - [x] 已完成：`/latest` AIHOT 风格精选首页首版，侧栏占位菜单已记录。
 - [x] 已完成：`/latest` 浏览器截图级视觉验收。
 - [x] 已完成：`/daily` 和 `/daily/:date` 日报页。
+- [x] 已完成：`/weekly` 周报页和 `/monthly` 月报页。
 - [x] 已完成：`/event/:id` 事件详情页。
 - [x] 已完成：`/event/:id` 详情页改为文章阅读布局，仅保留推荐理由、AI 摘要、原文、标签和阅读原文按钮。
 - [x] 已完成：`/all` AIHOT 风格全部 AI 动态页首版。
@@ -675,7 +676,8 @@ PYTHONPATH=apps/api uvicorn app.main:app --reload
     - `/` 直接跳转 `/latest`，避免落地页外壳。
     - `lib/api.ts` 通过 `AI_RADAR_API_BASE_URL` 读取 `/api/public/latest`。
     - `/latest` 已重构为 AIHOT 风格精选首页：侧栏、精选菜单、分类标签、当前热点、日期折叠信息流、摘要、推荐理由、来源和评分。
-    - `/daily` 可跳转最新日报日期；`/daily/:date` 展示分类日报并支持复制 Markdown。
+    - `/daily` 已重构为 AIHOT 风格日报页：报告模式切换、今日看点、统计卡、分栏目正文和复制 Markdown；`/daily/:date` 保留日期详情兼容。
+    - `/weekly` 和 `/monthly` 已实现 AIHOT 风格周期报告页：本期主线、统计卡、本期看点和主题章节。
     - `/event/:id` 可从 latest payload 查找事件并展示推荐理由、AI 摘要、原文正文、原文图片、标签和阅读原文按钮。
     - `/all` 已重构为 AIHOT 风格全部 AI 动态页：侧栏高亮、来源类型筛选、分类筛选、内联搜索、日期折叠时间线、摘要、图片、标签、推荐理由、评分和事件详情链接。
     - `/search` 可按关键词过滤 latest payload 中的标题、标签、来源、摘要和推荐字段。
@@ -694,18 +696,26 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
     - 桌面和手机都可读。
     - 首页不拥挤。
     - 推荐理由明显可见。
-  - 当前完成：`/latest` 已参考 AIHOT 样式重构为精选首页首版；左侧菜单“全部 AI 动态”已链接到 `/all`，其余“AI 日报、主题、收藏、Agent 接入、关于、更新日志、反馈”继续作为后续占位。
+  - 当前完成：`/latest` 已参考 AIHOT 样式重构为精选首页首版；左侧菜单“全部 AI 动态”已链接到 `/all`，“AI 日报”已链接到 `/daily`；其余“主题、收藏、Agent 接入、关于、更新日志、反馈”继续作为后续占位。
   - 本轮不放搜索框；搜索能力仍保留在独立 `/search` 页面，避免首页第一版变复杂。
   - dev 验证：`/latest` 返回 200，HTML 包含“AIHOT”“精选”“当前热点”“推荐理由”；`/latest?category=model_release` 返回 200，并按分类渲染 `<article>`。
   - 截图验证：桌面 `1440x1100` 和手机 `390x844` 页面需在本轮最终验收后更新记录。
 
-- [x] 实现日报页。
-  - 内容：按日期归档、分类展示、一键复制 Markdown。
+- [x] 实现 AIHOT 风格日报页。
+  - 内容：AIHOT 报告壳层、日报/周报/月报切换、今日看点、统计卡、分类正文、一键复制 Markdown。
   - 验收：
     - 可复制到 Notion、公众号草稿或 AI 助手。
-  - 当前完成：`/daily` 根据 latest `report_date` 跳转，`/daily/2026-07-02` 可读取 public daily JSON，按分类展示 12 条，并提供复制 Markdown 按钮。
-  - dev 验证：`/daily` 跳转到 `/daily/2026-07-02`；日期页 HTML 包含“复制 Markdown”“按日期归档”“为什么重要”“下一步”，并渲染 12 个 `<article>`。
-  - 截图验证：桌面 `1440x1100` 和手机 `390x844` 日期页均无横向溢出，Playwright console error 为 0。
+  - 当前完成：`/daily` 默认读取最新日报并直接展示 AIHOT 风格日报；`/daily/:date` 保留旧日期详情页和复制 Markdown 兼容。
+  - dev 验证：`/daily` 结构测试包含“AIHOT 日报”“今日看点”“ReportShell”“reportModeTabs”“buildDailyDigest”；日期页仍包含“复制 Markdown”“为什么重要”“下一步”。
+  - 截图验证：待本轮浏览器视觉复核。
+
+- [x] 实现 AIHOT 风格周报/月报页。
+  - 内容：`/weekly`、`/monthly`，共用报告壳层，包含本期主线、统计卡、本期看点、主题章节和侧栏期次列表。
+  - 验收：
+    - 周报和月报可从 AI 日报模式切换进入。
+    - 无专用后端 API 时可基于当前 latest payload 聚合生成可读版本。
+  - 当前完成：`/weekly` 和 `/monthly` 已基于 current latest payload 自动聚合，后续需要接入真正周期聚合 API 和历史归档。
+  - dev 验证：结构测试包含“AIHOT 周报”“AIHOT 月报”“本期主线”“本期看点”“本期主题”“独立事件”“条精选”“阅读本页”。
 
 - [x] 实现事件详情页。
   - 内容：推荐理由、AI 摘要、原文正文、原文图片、标签、阅读原文按钮。
@@ -750,7 +760,7 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
 
 - [x] 记录 AIHOT 风格首页的占位范围。
   - 已实现：`/latest` 作为“精选”首页；`/all` 作为“全部 AI 动态”页面首版。
-  - 占位待做：`AI 日报`、`主题`、`收藏`、`Agent 接入`、`关于`、`更新日志`、`反馈`。
+  - 占位待做：`主题`、`收藏`、`Agent 接入`、`关于`、`更新日志`、`反馈`。
   - 设计约束：本轮不在首页放搜索；分类使用顶部标签；主列表按日期折叠，优先展示少而精的判断型内容。
 
 ## 11. Phase 7 - RSS/Public API/MCP
@@ -836,6 +846,7 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
 - [x] 为 `/latest` 增加分类筛选。
 - [x] 启动前后端 dev server，做 `/latest` 浏览器截图级视觉验收。
 - [x] 实现 `/daily` 日报页。
+- [x] 实现 `/weekly` 周报页和 `/monthly` 月报页。
 - [x] 实现 `/event/:id` 事件详情页。
 - [x] 优化 `/event/:id` 为原文阅读布局并显示原文图片。
 - [x] 实现 `/all` 全量列表页。
