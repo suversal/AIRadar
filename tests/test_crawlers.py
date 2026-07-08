@@ -1,13 +1,20 @@
 import sys
 import unittest
+from base64 import b64encode
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
 from app.crawlers.base import normalize_article
 from app.crawlers.article_content import extract_article_content
 from app.crawlers.github import parse_github_trending
+from app.crawlers.github_readme import (
+    fetch_github_readme,
+    markdown_to_original_payload,
+    repo_path_from_github_url,
+)
 from app.crawlers.hn import parse_hn_hits
 from app.crawlers.rss import parse_rss
 from app.models.domain import Source
@@ -264,6 +271,81 @@ class CrawlerTests(unittest.TestCase):
             "huggingface/llm-course",
         ])
         self.assertNotIn("GitHub Trending: trending / developers", [article.title for article in articles])
+
+    def test_github_readme_helper_parses_repo_and_markdown_blocks(self):
+        self.assertEqual(
+            repo_path_from_github_url("https://github.com/MadsLorentzen/ai-job-search"),
+            "MadsLorentzen/ai-job-search",
+        )
+        markdown = """
+        <p align="center">
+          <img src="assets/demo.png" alt="Demo">
+        </p>
+
+        # Agent Skills
+
+        Production-grade skills for [AI agents](https://example.com).
+
+        ```bash
+        ignored code block
+        ```
+
+        ## Setup
+
+        Run the installer.
+        """
+
+        payload = markdown_to_original_payload(
+            markdown,
+            repo_path="openai/agent-kit",
+            download_url="https://raw.githubusercontent.com/openai/agent-kit/main/README.md",
+        )
+
+        self.assertEqual(
+            payload["original_paragraphs"],
+            ["Agent Skills", "Production-grade skills for AI agents.", "Setup", "Run the installer."],
+        )
+        self.assertEqual(payload["original_blocks"][0]["type"], "image")
+        self.assertEqual(
+            payload["original_blocks"][0]["url"],
+            "https://raw.githubusercontent.com/openai/agent-kit/main/assets/demo.png",
+        )
+        self.assertEqual(payload["original_blocks"][1]["text"], "Agent Skills")
+
+    def test_fetch_github_readme_decodes_api_payload_and_handles_failures(self):
+        readme = "# Agent Skills\n\nProduction-grade skills for AI agents."
+        api_payload = {
+            "content": b64encode(readme.encode("utf-8")).decode("ascii"),
+            "encoding": "base64",
+            "download_url": "https://raw.githubusercontent.com/openai/agent-kit/main/README.md",
+            "html_url": "https://github.com/openai/agent-kit/blob/main/README.md",
+        }
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return __import__("json").dumps(api_payload).encode("utf-8")
+
+        with patch("urllib.request.urlopen", return_value=FakeResponse()) as urlopen:
+            payload = fetch_github_readme("openai/agent-kit", github_token="test-token")
+
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "https://api.github.com/repos/openai/agent-kit/readme")
+        self.assertIn("Authorization", request.headers)
+        self.assertEqual(payload["readme_status"], "ok")
+        self.assertEqual(payload["readme_url"], "https://raw.githubusercontent.com/openai/agent-kit/main/README.md")
+        self.assertEqual(payload["original_paragraphs"], ["Agent Skills", "Production-grade skills for AI agents."])
+
+        with patch("urllib.request.urlopen", side_effect=TimeoutError("network timeout")):
+            failed = fetch_github_readme("openai/agent-kit")
+
+        self.assertEqual(failed["readme_status"], "failed")
+        self.assertIn("network timeout", failed["readme_error"])
 
     def test_parse_hn_hits_filters_ai_as_word_and_limits_after_filtering(self):
         source = Source(

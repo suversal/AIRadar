@@ -123,9 +123,12 @@ Event detail pages read structured original article fields from the daily JSON
 payload. RSS feeds that include article HTML, such as IT之家 RSS, are parsed into
 `original_paragraphs`, `original_images`, and ordered `original_blocks`, so the
 detail page can render the source article text and images before linking out to
-the original URL. For selected English main articles, the pipeline can also add
-`translated_paragraphs` and ordered `translated_blocks`; the detail page then
-shows an "AI 翻译 · 中文" / "原文" toggle for side-by-side reading.
+the original URL. Selected GitHub Trending repositories are enriched with README
+content after final report selection, using the GitHub README API and falling
+back to the short Trending description if README fetch fails. For selected
+English main articles, the pipeline can also add `translated_paragraphs` and
+ordered `translated_blocks`; the detail page then shows an "AI 翻译 · 中文" /
+"原文" toggle for side-by-side reading.
 
 ## Environment
 
@@ -145,6 +148,7 @@ Optional:
 - `DEEPSEEK_USER_ID`, optional isolation id for DeepSeek requests
 - `DEEPSEEK_MAX_TOKENS`, default `2048`
 - `AI_PIPELINE_CONCURRENCY`, default `1`; set higher for providers with high concurrency limits.
+- `GITHUB_TOKEN`, optional but recommended for README enrichment to reduce GitHub API rate-limit failures.
 - `GITHUB_TOKEN`
 
 The scripts and refresh endpoint automatically use `FakeAIProvider` when no AI

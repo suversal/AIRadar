@@ -736,6 +736,17 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
   - 当前完成：`apps/api/app/pipeline/runner.py` 注入选中英文主文章译文 metadata；`daily_report_service.py` 输出译文字段；`apps/web/app/event/[id]/article-reading-toggle.tsx` 提供原文/译文切换。
   - dev 验证：pipeline 测试确认只翻译选中的英文文章；report/API 测试确认 JSON 契约包含 `source_language`、`translated_paragraphs`、`translated_blocks`；web 结构测试确认详情页使用切换组件。
 
+- [x] 为 GitHub 开源项目详情页补抓 README 原文。
+  - 内容：pipeline 在最终日报选中 GitHub Trending 主文章后，通过 GitHub README API 获取 README，并写入 `original_paragraphs`、`original_blocks`、`original_images`。
+  - 验收：
+    - 只对最终入选的 GitHub Trending 项目抓 README。
+    - 未入选 GitHub 候选不抓 README。
+    - 非 GitHub 来源不触发 README 抓取。
+    - README 失败或限流时保留原 Trending 短描述，不阻塞日报生成。
+    - README 相对图片转换为 raw.githubusercontent.com 绝对 URL。
+  - 当前完成：`apps/api/app/crawlers/github_readme.py` 负责 repo 解析、README API 请求、base64 解码和 Markdown 转图文块；`apps/api/app/pipeline/runner.py` 在翻译前注入 README 原文。
+  - dev 验证：crawler 测试覆盖 README helper；pipeline 测试确认只抓选中 GitHub 项目且译文基于 README 内容生成。
+
 - [x] 实现全部 AI 动态页。
   - 内容：AIHOT 风格侧栏、来源类型筛选、分类筛选、内联搜索、按日期折叠的信息流、摘要、图片、标签、评分、来源、推荐理由和详情链接。
   - 验收：
@@ -860,6 +871,7 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
 - [x] 实现 `/event/:id` 事件详情页。
 - [x] 优化 `/event/:id` 为原文阅读布局并显示原文图片。
 - [x] 为英文来源 `/event/:id` 增加原文/AI 翻译切换。
+- [x] 为 GitHub 开源项目 `/event/:id` 增加 README 原文补抓。
 - [x] 实现 `/all` 全量列表页。
 - [x] 重构 `/all` 为 AIHOT 风格全部 AI 动态页。
 - [x] 实现 `/search` 搜索页。

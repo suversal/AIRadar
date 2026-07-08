@@ -4,6 +4,7 @@ import time
 import unittest
 from datetime import date, datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
@@ -249,6 +250,111 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(item["translated_blocks"][1]["type"], "image")
         self.assertEqual(item["translated_blocks"][1]["url"], "https://example.com/audit.png")
 
+    def test_pipeline_attaches_readme_only_for_selected_github_articles_before_translation(self):
+        github_source = Source(
+            id="github_trending_ai",
+            name="GitHub Trending AI",
+            source_role="signal",
+            tier="T2",
+            type="github",
+            category="community",
+            url="https://github.com/trending?since=daily",
+            homepage="https://github.com/trending",
+            allowed_domains=["github.com"],
+            language="en",
+        )
+        hn_source = Source(
+            id="hn",
+            name="Hacker News",
+            source_role="signal",
+            tier="T2",
+            type="api",
+            category="community",
+            url="https://hn.algolia.com/api/v1/search",
+            homepage="https://news.ycombinator.com",
+            allowed_domains=["news.ycombinator.com"],
+            language="en",
+        )
+        raw_items = {
+            "github_trending_ai": [
+                {
+                    "source_url": "https://github.com/MadsLorentzen/ai-job-search",
+                    "title": "AI selected readme project",
+                    "content": "Short trending description.",
+                    "author": "MadsLorentzen",
+                    "published_at": datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+                    "language": "en",
+                    "raw_score": {},
+                    "metadata": {
+                        "repo": "MadsLorentzen/ai-job-search",
+                        "source_type": "github_trending",
+                    },
+                },
+                {
+                    "source_url": "https://github.com/example/unselected-agent",
+                    "title": "AI low priority repo project",
+                    "content": "Another short description.",
+                    "author": "example",
+                    "published_at": datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+                    "language": "en",
+                    "raw_score": {},
+                    "metadata": {
+                        "repo": "example/unselected-agent",
+                        "source_type": "github_trending",
+                    },
+                },
+            ],
+            "hn": [
+                {
+                    "source_url": "https://example.com/non-github-agent",
+                    "title": "AI non github selected story",
+                    "content": "A non GitHub story that should not fetch README.",
+                    "author": "hn",
+                    "published_at": datetime(2026, 7, 1, 10, tzinfo=timezone.utc),
+                    "language": "en",
+                    "raw_score": {},
+                    "metadata": {},
+                }
+            ],
+        }
+        provider = ReadmeAwareAIProvider()
+        readme_payload = {
+            "readme_status": "ok",
+            "readme_url": "https://raw.githubusercontent.com/MadsLorentzen/ai-job-search/main/README.md",
+            "original_content": "AI Job Search\n\nFull README details for the project.",
+            "original_paragraphs": ["AI Job Search", "Full README details for the project."],
+            "original_blocks": [
+                {"type": "paragraph", "text": "AI Job Search"},
+                {"type": "paragraph", "text": "Full README details for the project."},
+            ],
+            "original_images": [],
+        }
+
+        with patch("app.pipeline.runner.fetch_github_readme", return_value=readme_payload) as fetch_readme:
+            result = run_pipeline(
+                sources=[github_source, hn_source],
+                raw_items_by_source=raw_items,
+                ai_provider=provider,
+                now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+                report_date=date(2026, 7, 1),
+                candidate_limit=10,
+                top_n=2,
+            )
+
+        fetch_readme.assert_called_once_with("MadsLorentzen/ai-job-search")
+        github_item = next(
+            item for item in result.daily_report.json_data["items"]
+            if item["original_url"] == "https://github.com/MadsLorentzen/ai-job-search"
+        )
+        self.assertEqual(github_item["original_paragraphs"], readme_payload["original_paragraphs"])
+        self.assertEqual(github_item["translated_paragraphs"], ["译文：AI Job Search", "译文：Full README details for the project."])
+        github_article = next(
+            article for article in result.raw_articles
+            if article.source_url == "https://github.com/MadsLorentzen/ai-job-search"
+        )
+        self.assertEqual(github_article.metadata["repo_description"], "Short trending description.")
+        self.assertEqual(github_article.metadata["readme_status"], "ok")
+
 
 class LowScoreAIProvider(FakeAIProvider):
     def prefilter(self, text: str) -> PrefilterResult:
@@ -327,6 +433,33 @@ class TranslatingAIProvider(FakeAIProvider):
     def translate_paragraphs(self, paragraphs):
         self.translation_calls.append(list(paragraphs))
         return [f"译文：{paragraph}" for paragraph in paragraphs]
+
+
+class ReadmeAwareAIProvider(TranslatingAIProvider):
+    def score_article(self, title: str, content: str) -> ScoringResult:
+        if "selected readme" in title:
+            score = 9
+        elif "non github selected" in title:
+            score = 8
+        else:
+            score = 5
+        return ScoringResult(
+            dimensions=ScoreDimensions(
+                ai_relevance=score,
+                novelty=score,
+                impact=score,
+                information_density=score,
+                actionability=score,
+                creator_value=score,
+            ),
+            category="industry",
+            tags=["AI"],
+            title_zh=title,
+            one_line_summary=f"{title}。",
+            summary_zh=f"{title}。{content}",
+            reason_zh="用于验证 GitHub README 原文。",
+            action_zh="对照阅读 README。",
+        )
 
 
 if __name__ == "__main__":

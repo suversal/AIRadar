@@ -7,6 +7,7 @@ from datetime import date, datetime
 from typing import Any
 
 from app.crawlers.base import normalize_article
+from app.crawlers.github_readme import fetch_github_readme, repo_path_from_github_url
 from app.models.domain import DailyReport, PipelineResult, ProcessedArticle, RawArticle, Source
 from app.services.ai_service import FakeAIProvider
 from app.services.clustering_service import cluster_articles
@@ -121,6 +122,36 @@ def _translated_blocks_for(article: RawArticle, translated_paragraphs: list[str]
         if translated_blocks:
             return translated_blocks
     return [{"type": "paragraph", "text": paragraph} for paragraph in translated_paragraphs]
+
+
+def _is_github_trending_article(article: RawArticle) -> bool:
+    return (
+        article.metadata.get("source_type") == "github_trending"
+        or article.source_id == "github_trending_ai"
+    )
+
+
+def _attach_github_readmes(
+    *,
+    clusters,
+    articles_by_id: dict[str, RawArticle],
+) -> None:
+    for cluster in clusters:
+        article = articles_by_id[cluster.main_article_id]
+        if not _is_github_trending_article(article):
+            continue
+        if article.metadata.get("readme_status") == "ok":
+            continue
+
+        repo_path = str(article.metadata.get("repo") or "").strip()
+        if not repo_path:
+            repo_path = repo_path_from_github_url(article.source_url)
+        readme_payload = fetch_github_readme(repo_path)
+        if readme_payload.get("readme_status") == "ok":
+            article.metadata.setdefault("repo_description", article.content)
+            article.metadata.update(readme_payload)
+        else:
+            article.metadata.update(readme_payload)
 
 
 def _translate_selected_report_articles(
@@ -282,6 +313,10 @@ def run_pipeline(
 
     processed_articles = list(processed_by_article.values())
     articles_by_id = {article.id: article for article in raw_articles}
+    _attach_github_readmes(
+        clusters=clusters,
+        articles_by_id=articles_by_id,
+    )
     _translate_selected_report_articles(
         clusters=clusters,
         articles_by_id=articles_by_id,
