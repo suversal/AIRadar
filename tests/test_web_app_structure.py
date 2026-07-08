@@ -27,6 +27,8 @@ class WebAppStructureTests(unittest.TestCase):
             "app/daily/[date]/page.tsx",
             "app/daily/report-view.tsx",
             "app/daily/copy-markdown-button.tsx",
+            "app/reports/report-shell.tsx",
+            "app/reports/report-data.ts",
             "app/event/[id]/page.tsx",
             "lib/api.ts",
             "lib/events.ts",
@@ -128,7 +130,12 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("/api/public/daily/", api_source)
         self.assertIn("getDailyReport", api_source)
         self.assertIn("getLatestReport", daily_index)
-        self.assertIn("redirect", daily_index)
+        self.assertIn("AIHOT 日报", daily_index)
+        self.assertIn("今日看点", daily_index)
+        self.assertIn("ReportShell", daily_index)
+        self.assertIn("buildDailyDigest", daily_index)
+        self.assertIn("reportModeTabs", daily_index)
+        self.assertNotIn("redirect", daily_index)
         self.assertIn("params", daily_date)
         self.assertIn("DailyReportView", daily_date)
         self.assertIn("CopyMarkdownButton", report_view)
@@ -138,6 +145,26 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("按日期归档", report_view)
         self.assertIn("为什么重要", report_view)
         self.assertIn("下一步", report_view)
+
+    def test_report_shell_exposes_aihot_sidebar_and_report_tabs(self):
+        shell_source = (WEB / "app" / "reports" / "report-shell.tsx").read_text(encoding="utf-8")
+        data_source = (WEB / "app" / "reports" / "report-data.ts").read_text(encoding="utf-8")
+
+        self.assertIn("AIHOT", shell_source)
+        self.assertIn("reportModeTabs", shell_source)
+        self.assertIn("日报", shell_source)
+        self.assertIn("周报", shell_source)
+        self.assertIn("月报", shell_source)
+        self.assertIn("href: \"/daily\"", shell_source)
+        self.assertIn("href: \"/weekly\"", shell_source)
+        self.assertIn("href: \"/monthly\"", shell_source)
+        self.assertIn("activeNavId", shell_source)
+        self.assertIn("AI 日报", shell_source)
+        self.assertIn("日间", shell_source)
+        self.assertIn("跟随系统", shell_source)
+        self.assertIn("夜间", shell_source)
+        self.assertIn("buildDailyDigest", data_source)
+        self.assertIn("summarizeCategoryHighlights", data_source)
 
     def test_event_detail_page_links_from_latest_and_daily_views(self):
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
