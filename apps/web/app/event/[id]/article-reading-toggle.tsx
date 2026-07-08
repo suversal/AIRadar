@@ -52,6 +52,14 @@ function readmeImageClassName(options: { src?: string; width?: unknown; height?:
   return "my-8 block h-auto max-w-full rounded-md border border-slate-800 object-contain";
 }
 
+function cleanTableElementProps<Props extends object>(props: Props) {
+  const { vAlign: _vAlign, valign: _valign, ...cleanProps } = props as Props & {
+    vAlign?: unknown;
+    valign?: unknown;
+  };
+  return cleanProps;
+}
+
 const markdownComponents: Components = {
   h1({ node: _node, ...props }) {
     return <h1 className="mt-10 text-3xl font-semibold leading-tight text-slate-50" {...props} />;
@@ -101,15 +109,26 @@ const markdownComponents: Components = {
   table({ node: _node, ...props }) {
     return (
       <div className="overflow-x-auto rounded-md border border-slate-800">
-        <table className="w-full border-collapse text-left text-sm text-slate-300" {...props} />
+        <table
+          className="w-full border-collapse text-left text-sm text-slate-300"
+          {...cleanTableElementProps(props)}
+        />
       </div>
     );
   },
+  tr({ node: _node, ...props }) {
+    return <tr {...cleanTableElementProps(props)} />;
+  },
   th({ node: _node, ...props }) {
-    return <th className="border-b border-slate-800 bg-slate-900 px-3 py-2 font-semibold text-slate-100" {...props} />;
+    return (
+      <th
+        className="border-b border-slate-800 bg-slate-900 px-3 py-2 font-semibold text-slate-100"
+        {...cleanTableElementProps(props)}
+      />
+    );
   },
   td({ node: _node, ...props }) {
-    return <td className="border-b border-slate-800 px-3 py-2 align-top" {...props} />;
+    return <td className="border-b border-slate-800 px-3 py-2 align-top" {...cleanTableElementProps(props)} />;
   },
   img({ node: _node, alt, ...props }) {
     return (
