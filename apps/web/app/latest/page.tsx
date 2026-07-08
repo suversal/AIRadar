@@ -1,3 +1,4 @@
+import type { LatestEvent } from "@/lib/api";
 import { getLatestReport } from "@/lib/api";
 import { eventHref } from "@/lib/events";
 import { RefreshReportButton } from "./refresh-report-button";
@@ -6,18 +7,169 @@ type LatestSearchParams = Promise<{
   category?: string | string[];
 }>;
 
-function formatScore(score?: number) {
-  if (typeof score !== "number") {
-    return "未评分";
-  }
-  return score.toFixed(1);
-}
+type SidebarItem = {
+  id: string;
+  label: string;
+  group: "内容" | "接入" | "更多";
+  href?: string;
+  active?: boolean;
+};
+
+const sidebarItems: SidebarItem[] = [
+  { id: "latest", label: "精选", group: "内容", href: "/latest", active: true },
+  { id: "all", label: "全部 AI 动态", group: "内容", href: "/all" },
+  { id: "daily", label: "AI 日报", group: "内容", href: "/daily" },
+  { id: "topics", label: "主题", group: "内容" },
+  { id: "bookmarks", label: "收藏", group: "内容" },
+  { id: "agent", label: "Agent 接入", group: "接入" },
+  { id: "about", label: "关于", group: "更多" },
+  { id: "changelog", label: "更新日志", group: "更多" },
+  { id: "feedback", label: "反馈", group: "更多" },
+];
+
+const categoryOptions = [
+  ["", "全部"],
+  ["model_release", "模型"],
+  ["product_release", "产品"],
+  ["industry", "行业"],
+  ["research", "论文"],
+  ["tutorial", "技巧"],
+];
 
 function firstQueryValue(value?: string | string[]) {
   if (Array.isArray(value)) {
     return value[0];
   }
   return value;
+}
+
+function formatScore(score?: number) {
+  if (typeof score !== "number") {
+    return "--";
+  }
+  return Math.round(score).toString();
+}
+
+function formatDateKey(value?: string) {
+  if (!value) {
+    return "日期未知";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value.slice(0, 10) || "日期未知";
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+  }).format(parsed);
+}
+
+function formatTime(value?: string) {
+  if (!value) {
+    return "--:--";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "--:--";
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(parsed);
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) {
+    return "暂无日报";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  })
+    .format(parsed)
+    .replace(/\//g, "-");
+}
+
+function groupEventsByDate(items: LatestEvent[]) {
+  const groups = new Map<string, LatestEvent[]>();
+  for (const item of items) {
+    const key = formatDateKey(item.published_at);
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  return Array.from(groups.entries()).map(([dateLabel, events]) => ({
+    dateLabel,
+    events,
+  }));
+}
+
+function menuGroupItems(group: SidebarItem["group"]) {
+  return sidebarItems.filter((item) => item.group === group);
+}
+
+function sidebarMarker(label: string) {
+  return label.slice(0, 1);
+}
+
+function categoryHref(category: string) {
+  return category ? `/latest?category=${encodeURIComponent(category)}` : "/latest";
+}
+
+function sourceLine(item: LatestEvent) {
+  const source = item.main_source?.name ?? "未知来源";
+  return `${source} · ${item.source_count ?? 1} 个来源`;
+}
+
+function EventCard({ item }: { item: LatestEvent }) {
+  return (
+    <article className="rounded-md border border-slate-800 bg-slate-900/80 p-5 shadow-[0_18px_60px_rgba(0,0,0,0.22)]">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm text-slate-500">{sourceLine(item)}</div>
+          <h3 className="mt-3 text-xl font-semibold leading-7 text-slate-100">
+            <a href={eventHref(item)}>{item.title}</a>
+          </h3>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="rounded-full border border-amber-500/40 px-3 py-1 text-xs font-semibold text-amber-300">
+            精选
+          </span>
+          <span className="rounded-full border border-cyan-400/40 px-3 py-1 text-xs font-semibold text-cyan-300">
+            {formatScore(item.final_score)}
+          </span>
+        </div>
+      </div>
+
+      <p className="mt-4 line-clamp-3 text-sm leading-6 text-slate-400">
+        {item.summary ?? item.one_line_summary ?? "暂无摘要。"}
+      </p>
+
+      {item.tags?.length ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {item.tags.slice(0, 4).map((tag) => (
+            <span key={tag} className="rounded-md bg-slate-800 px-3 py-1 text-xs text-slate-400">
+              {tag}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="mt-5 border-t border-slate-800 pt-4">
+        <p className="rounded-md bg-emerald-400/10 px-4 py-3 text-sm leading-6 text-emerald-300">
+          <span className="font-semibold">推荐理由：</span>
+          {item.reason ?? "暂无推荐理由。"}
+        </p>
+      </div>
+    </article>
+  );
 }
 
 export default async function LatestPage({
@@ -27,157 +179,165 @@ export default async function LatestPage({
 }) {
   const report = await getLatestReport();
   const resolvedSearchParams = await searchParams;
-  const selectedCategory = firstQueryValue(resolvedSearchParams.category);
-  const categoryOptions = Array.from(
-    new Map(
-      report.items.map((item) => [
-        item.category ?? "uncategorized",
-        item.category_label ?? item.category ?? "未分类",
-      ]),
-    ),
-  ).sort((left, right) => left[1].localeCompare(right[1], "zh-CN"));
+  const selectedCategory = firstQueryValue(resolvedSearchParams.category) ?? "";
   const filteredItems = selectedCategory
     ? report.items.filter((item) => (item.category ?? "uncategorized") === selectedCategory)
     : report.items;
   const topEvents = filteredItems.slice(0, 3);
-  const remainingEvents = filteredItems.slice(3);
+  const dateGroups = groupEventsByDate(filteredItems);
 
   return (
-    <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
-      <header className="border-b border-[var(--line)] bg-[var(--panel)]">
-        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-5 py-6 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-sm text-[var(--muted)]">Suversal AI Radar</p>
-            <h1 className="mt-2 text-3xl font-semibold">最新 AI 情报</h1>
-          </div>
-          <div className="text-sm text-[var(--muted)]">
-            更新时间：{report.updated_at ?? "暂无日报"}
-          </div>
-        </div>
-      </header>
-
-      <section className="mx-auto grid max-w-6xl gap-6 px-5 py-6 lg:grid-cols-[280px_1fr]">
-        <aside className="border-b border-[var(--line)] pb-5 lg:border-b-0 lg:border-r lg:pr-5">
-          <div className="grid grid-cols-3 gap-3 lg:grid-cols-1">
-            <div>
-              <div className="text-2xl font-semibold">{filteredItems.length}</div>
-              <div className="text-sm text-[var(--muted)]">精选事件</div>
-            </div>
-            <div>
-              <div className="text-2xl font-semibold">{topEvents.length}</div>
-              <div className="text-sm text-[var(--muted)]">重点关注</div>
-            </div>
-            <div>
-              <div className="text-2xl font-semibold">
-                {new Set(report.items.flatMap((item) => item.tags ?? [])).size}
-              </div>
-              <div className="text-sm text-[var(--muted)]">标签信号</div>
+    <main className="min-h-screen bg-[#070d1a] text-slate-100">
+      <div className="grid min-h-screen lg:grid-cols-[224px_1fr]">
+        <aside className="border-b border-slate-800 bg-[#080d19] px-4 py-5 lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
+          <div className="rounded-md border border-slate-800 bg-slate-900/80 px-5 py-6">
+            <div aria-label="AIHOT" className="text-2xl font-semibold tracking-[0.2em] text-slate-100">
+              AI<span className="text-cyan-300">HOT</span>
             </div>
           </div>
 
-          <nav className="mt-6 flex flex-wrap gap-2" aria-label="分类筛选">
-            <a
-              className={`rounded-md border px-3 py-2 text-sm ${
-                selectedCategory
-                  ? "border-[var(--line)] text-[var(--muted)]"
-                  : "border-[var(--accent)] bg-[var(--accent)] text-white"
-              }`}
-              href="/latest"
-            >
-              全部分类
-            </a>
-            {categoryOptions.map(([category, label]) => (
-              <a
-                key={category}
-                className={`rounded-md border px-3 py-2 text-sm ${
-                  selectedCategory === category
-                    ? "border-[var(--accent)] bg-[var(--accent)] text-white"
-                    : "border-[var(--line)] text-[var(--muted)]"
-                }`}
-                href={`/latest?category=${encodeURIComponent(category)}`}
-              >
-                {label}
-              </a>
+          <nav className="mt-6 space-y-6" aria-label="主导航">
+            {(["内容", "接入", "更多"] as const).map((group) => (
+              <section key={group}>
+                <div className="px-3 text-xs font-semibold text-slate-600">{group}</div>
+                <div className="mt-2 space-y-1">
+                  {menuGroupItems(group).map((item) => {
+                    const className = `flex items-center gap-3 rounded-md px-4 py-3 text-sm font-semibold ${
+                      item.active
+                        ? "border border-cyan-400/40 bg-cyan-400/10 text-cyan-300"
+                        : "text-slate-500 hover:text-slate-300"
+                    }`;
+                    const content = (
+                      <>
+                        <span className="flex h-6 w-6 items-center justify-center rounded-md border border-slate-700 text-xs">
+                          {sidebarMarker(item.label)}
+                        </span>
+                        {item.label}
+                      </>
+                    );
+                    return item.href ? (
+                      <a
+                        key={item.id}
+                        aria-current={item.active ? "page" : undefined}
+                        className={className}
+                        href={item.href}
+                      >
+                        {content}
+                      </a>
+                    ) : (
+                      <div key={item.id} aria-disabled="true" className={className}>
+                        {content}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
             ))}
           </nav>
 
           <div className="mt-6">
             <RefreshReportButton />
           </div>
+
+          <div className="mt-6 rounded-full border border-slate-800 bg-slate-900/80 p-1 text-xs text-slate-500">
+            <div className="grid grid-cols-3 gap-1">
+              <button className="rounded-full px-2 py-2" type="button">
+                日间
+              </button>
+              <button className="rounded-full bg-slate-800 px-2 py-2 text-slate-300" type="button">
+                跟随系统
+              </button>
+              <button className="rounded-full px-2 py-2" type="button">
+                夜间
+              </button>
+            </div>
+          </div>
         </aside>
 
-        <div className="space-y-8">
-          <section>
-            <h2 className="text-lg font-semibold">Top 3</h2>
-            <div className="mt-4 grid gap-4 md:grid-cols-3">
-              {topEvents.map((item) => (
-                <article
-                  key={item.event_id}
-                  className="rounded-lg border border-[var(--line)] bg-[var(--panel)] p-4"
+        <section className="px-5 py-6 md:px-9">
+          <header className="rounded-md border border-slate-800 bg-slate-900/80 p-6 shadow-[0_20px_80px_rgba(0,0,0,0.25)]">
+            <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+              <div>
+                <h1 className="text-3xl font-semibold text-slate-100">精选</h1>
+                <p className="mt-2 text-sm text-slate-500">AI 自动挑选的高价值内容</p>
+              </div>
+              <div className="text-sm text-slate-500">更新时间：{formatDateTime(report.updated_at)}</div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap gap-2 rounded-md border border-slate-800 bg-[#0b1220] p-2">
+              {categoryOptions.map(([category, label]) => (
+                <a
+                  key={category || "all"}
+                  className={`rounded-md px-5 py-2 text-sm font-semibold ${
+                    selectedCategory === category
+                      ? "bg-cyan-400/20 text-cyan-300"
+                      : "text-slate-500 hover:text-slate-300"
+                  }`}
+                  href={categoryHref(category)}
                 >
-                  <div className="text-sm text-[var(--accent)]">
-                    {item.category_label ?? item.category ?? "未分类"} · {formatScore(item.final_score)}
-                  </div>
-                  <h3 className="mt-3 text-base font-semibold leading-6">
-                    <a href={eventHref(item)}>{item.title}</a>
-                  </h3>
-                  <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
-                    {item.one_line_summary ?? item.summary}
-                  </p>
-                </article>
+                  {label}
+                </a>
+              ))}
+            </div>
+          </header>
+
+          {report.error ? (
+            <div className="mt-5 rounded-md border border-amber-500/40 bg-amber-500/10 p-4 text-sm leading-6 text-amber-200">
+              {report.error}
+            </div>
+          ) : null}
+
+          <section className="mt-5 rounded-md border border-slate-800 bg-slate-900/80 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold text-slate-100">当前热点</h2>
+              <span className="text-sm text-slate-600">多信源热度 · 随时间消退</span>
+            </div>
+            <div className="mt-4 grid gap-3">
+              {topEvents.map((item, index) => (
+                <a
+                  key={item.event_id}
+                  className="grid gap-2 rounded-md px-2 py-1 text-sm md:grid-cols-[32px_1fr_180px]"
+                  href={eventHref(item)}
+                >
+                  <span className="font-semibold text-cyan-300">{index + 1}</span>
+                  <span className="font-semibold text-slate-200">{item.title}</span>
+                  <span className="text-slate-600 md:text-right">
+                    {item.source_count ?? 1} 个信源 · {formatScore(item.final_score)}
+                  </span>
+                </a>
               ))}
             </div>
           </section>
 
-          <section>
-            <h2 className="text-lg font-semibold">全部精选</h2>
-            <div className="mt-4 divide-y divide-[var(--line)] border-y border-[var(--line)]">
-              {remainingEvents.length > 0 ? (
-                remainingEvents.map((item) => (
-                  <article
-                    key={item.event_id}
-                    className="grid gap-3 py-5 md:grid-cols-[1fr_160px]"
-                  >
-                    <div>
-                      <div className="text-sm text-[var(--accent-strong)]">
-                        {item.category_label ?? item.category ?? "未分类"}
+          <section className="mt-8">
+            {dateGroups.length > 0 ? (
+              dateGroups.map((group) => (
+                <details key={group.dateLabel} open className="group">
+                  <summary className="flex cursor-pointer list-none items-center gap-3 py-4 text-sm font-semibold text-slate-500">
+                    <span>{group.dateLabel}</span>
+                    <span className="text-slate-700">折叠</span>
+                  </summary>
+                  <div className="relative grid gap-4 border-l border-slate-800 pl-5 md:pl-8">
+                    {group.events.map((item) => (
+                      <div key={item.event_id} className="grid gap-3 md:grid-cols-[72px_1fr]">
+                        <div className="relative text-2xl font-semibold text-slate-200">
+                          <span className="absolute -left-[29px] top-2 h-3 w-3 rounded-full border border-cyan-300 bg-[#070d1a] md:-left-[41px]" />
+                          {formatTime(item.published_at)}
+                        </div>
+                        <EventCard item={item} />
                       </div>
-                      <h3 className="mt-2 text-xl font-semibold">
-                        <a href={eventHref(item)}>{item.title}</a>
-                      </h3>
-                      <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
-                        {item.summary ?? item.one_line_summary}
-                      </p>
-                      <p className="mt-3 text-sm leading-6">
-                        <span className="font-semibold">推荐理由：</span>
-                        {item.reason ?? "暂无推荐理由。"}
-                      </p>
-                      <p className="mt-2 text-sm leading-6">
-                        <span className="font-semibold">下一步：</span>
-                        {item.action ?? "阅读原文并评估是否跟进。"}
-                      </p>
-                    </div>
-                    <div className="text-sm text-[var(--muted)] md:text-right">
-                      <div>评分 {formatScore(item.final_score)}</div>
-                      <div className="mt-2">来源 {item.source_count ?? 1} 个</div>
-                      {item.main_source ? (
-                        <a
-                          className="mt-3 inline-block text-[var(--accent)] underline"
-                          href={item.main_source.url}
-                        >
-                          {item.main_source.name}
-                        </a>
-                      ) : null}
-                    </div>
-                  </article>
-                ))
-              ) : (
-                <p className="py-5 text-sm text-[var(--muted)]">当前分类没有更多精选。</p>
-              )}
-            </div>
+                    ))}
+                  </div>
+                </details>
+              ))
+            ) : (
+              <div className="rounded-md border border-slate-800 bg-slate-900/80 p-8 text-sm text-slate-500">
+                当前分类没有精选内容。
+              </div>
+            )}
           </section>
-        </div>
-      </section>
+        </section>
+      </div>
     </main>
   );
 }

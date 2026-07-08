@@ -48,6 +48,7 @@ export type LatestReport = {
   updated_at: string | null;
   article_count?: number;
   items: LatestEvent[];
+  error?: string | null;
 };
 
 export type DailyReport = {
@@ -68,14 +69,34 @@ export function getApiBaseUrl() {
   return process.env.AI_RADAR_API_BASE_URL ?? DEFAULT_API_BASE_URL;
 }
 
+function emptyLatestReport(error: string): LatestReport {
+  return {
+    report_date: null,
+    updated_at: null,
+    article_count: 0,
+    items: [],
+    error,
+  };
+}
+
+function latestLoadErrorMessage(error: unknown) {
+  const detail = error instanceof Error ? error.message : "unknown error";
+  return `API 服务暂时不可用，请确认后端 ${getApiBaseUrl()} 已启动。${detail}`;
+}
+
 export async function getLatestReport(): Promise<LatestReport> {
-  const response = await fetch(`${getApiBaseUrl()}/api/public/latest`, {
-    cache: "no-store",
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to load latest report: ${response.status}`);
+  try {
+    const response = await fetch(`${getApiBaseUrl()}/api/public/latest`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return emptyLatestReport(`API 服务暂时不可用：latest 接口返回 ${response.status}。`);
+    }
+    const payload = (await response.json()) as LatestReport;
+    return { ...payload, error: null };
+  } catch (error) {
+    return emptyLatestReport(latestLoadErrorMessage(error));
   }
-  return response.json();
 }
 
 export async function getDailyReport(reportDate: string): Promise<DailyReport> {

@@ -13,8 +13,10 @@ This repository intentionally starts data-first. It includes a pure-Python
 pipeline that can run with `FakeAIProvider` when no AI key is configured,
 or use OpenAI/Kimi/DeepSeek-compatible chat providers for real summaries and scoring.
 Docker/PostgreSQL/Redis scaffolding is included for the production-shaped runtime.
-The current web MVP includes latest, daily, event detail, all-events, and search
-pages.
+The current web MVP includes an AIHOT-style selected feed on `/latest`, an
+AIHOT-style all-dynamics feed on `/all`, daily, event detail, and search pages.
+The sidebar currently implements "精选" and "全部 AI 动态"; the other menu labels
+are reserved placeholders.
 
 Not in this milestone: admin UI, Telegram push, MCP server.
 
@@ -47,6 +49,12 @@ npm run typecheck
 npm run build
 AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev
 ```
+
+Open `http://127.0.0.1:3000/latest` for the current homepage, or
+`http://127.0.0.1:3000/all` for the all AI dynamics feed. The homepage keeps
+search out of the selected feed; `/all` has its own source/category filters and
+inline search. The first `/all` implementation still reads the public latest
+payload, so a broader backend all-events API is a later milestone.
 
 Generated articles, reports, and crawl diagnostics are written under `data/`,
 which is ignored by git.

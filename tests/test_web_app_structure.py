@@ -57,7 +57,38 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("getLatestReport", latest_page)
         self.assertIn("RefreshReportButton", latest_page)
         self.assertIn("推荐理由", latest_page)
-        self.assertIn("下一步", latest_page)
+        self.assertIn("当前热点", latest_page)
+        self.assertIn("groupEventsByDate", latest_page)
+        self.assertIn("<details", latest_page)
+        self.assertNotIn('name="q"', latest_page)
+
+    def test_latest_page_degrades_when_backend_api_is_unavailable(self):
+        api_source = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
+        latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("emptyLatestReport", api_source)
+        self.assertIn("API 服务暂时不可用", api_source)
+        self.assertIn("catch (error)", api_source)
+        self.assertIn("report.error", latest_page)
+        self.assertIn("formatDateTime", latest_page)
+
+    def test_latest_page_uses_aihot_style_sidebar_with_reserved_menus(self):
+        latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("AIHOT", latest_page)
+        self.assertIn("精选", latest_page)
+        self.assertIn("全部 AI 动态", latest_page)
+        self.assertIn('href: "/all"', latest_page)
+        self.assertIn("AI 日报", latest_page)
+        self.assertIn("主题", latest_page)
+        self.assertIn("收藏", latest_page)
+        self.assertIn("Agent 接入", latest_page)
+        self.assertIn("关于", latest_page)
+        self.assertIn("更新日志", latest_page)
+        self.assertIn("反馈", latest_page)
+        self.assertIn("日间", latest_page)
+        self.assertIn("跟随系统", latest_page)
+        self.assertIn("夜间", latest_page)
 
     def test_latest_page_exposes_refresh_report_button(self):
         button_source = (WEB / "app" / "latest" / "refresh-report-button.tsx").read_text(encoding="utf-8")
@@ -84,7 +115,7 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("categoryOptions", latest_page)
         self.assertIn("filteredItems", latest_page)
         self.assertIn("?category=", latest_page)
-        self.assertIn("全部分类", latest_page)
+        self.assertIn("全部", latest_page)
 
     def test_daily_pages_fetch_public_daily_report_and_render_copy_controls(self):
         api_source = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
@@ -135,8 +166,24 @@ class WebAppStructureTests(unittest.TestCase):
 
         self.assertIn("getLatestReport", all_page)
         self.assertIn("eventHref", all_page)
-        self.assertIn("全部事件", all_page)
-        self.assertIn("分类", all_page)
+        self.assertIn("全部 AI 动态", all_page)
+        self.assertIn("AI 相关资讯全量信息流", all_page)
+        self.assertIn("AIHOT", all_page)
+        self.assertIn("精选", all_page)
+        self.assertIn("activeNavId", all_page)
+        self.assertIn("sourceOptions", all_page)
+        self.assertIn("一手信源", all_page)
+        self.assertIn("资讯", all_page)
+        self.assertIn("推文", all_page)
+        self.assertIn("categoryOptions", all_page)
+        self.assertIn("searchParams", all_page)
+        self.assertIn("selectedSource", all_page)
+        self.assertIn("selectedCategory", all_page)
+        self.assertIn("searchEvents", all_page)
+        self.assertIn('name="q"', all_page)
+        self.assertIn("groupEventsByDate", all_page)
+        self.assertIn("<details", all_page)
+        self.assertIn("推荐理由", all_page)
         self.assertIn("评分", all_page)
         self.assertIn("来源", all_page)
 
