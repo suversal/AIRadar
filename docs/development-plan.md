@@ -737,15 +737,17 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
   - dev 验证：pipeline 测试确认只翻译选中的英文文章；report/API 测试确认 JSON 契约包含 `source_language`、`translated_paragraphs`、`translated_blocks`；web 结构测试确认详情页使用切换组件。
 
 - [x] 为 GitHub 开源项目详情页补抓 README 原文。
-  - 内容：pipeline 在最终日报选中 GitHub Trending 主文章后，通过 GitHub README API 获取 README，并写入 `original_paragraphs`、`original_blocks`、`original_images`。
+  - 内容：pipeline 在最终日报选中 GitHub Trending 主文章后，通过 GitHub README API 获取 README，并写入 `original_markdown`、`original_paragraphs`、`original_blocks`、`original_images`。
   - 验收：
     - 只对最终入选的 GitHub Trending 项目抓 README。
     - 未入选 GitHub 候选不抓 README。
     - 非 GitHub 来源不触发 README 抓取。
     - README 失败或限流时保留原 Trending 短描述，不阻塞日报生成。
     - README 相对图片转换为 raw.githubusercontent.com 绝对 URL。
-  - 当前完成：`apps/api/app/crawlers/github_readme.py` 负责 repo 解析、README API 请求、base64 解码和 Markdown 转图文块；`apps/api/app/pipeline/runner.py` 在翻译前注入 README 原文。
-  - dev 验证：crawler 测试覆盖 README helper；pipeline 测试确认只抓选中 GitHub 项目且译文基于 README 内容生成。
+    - README 相对文档链接转换为 GitHub blob 绝对 URL。
+    - 详情页优先渲染 `original_markdown`，没有该字段的旧日报继续使用 blocks 降级展示。
+  - 当前完成：`apps/api/app/crawlers/github_readme.py` 负责 repo 解析、README API 请求、base64 解码、相对 URL 改写、80KB Markdown 上限和 Markdown 转图文块；`apps/api/app/pipeline/runner.py` 在翻译前注入 README 原文；`apps/web/app/event/[id]/article-reading-toggle.tsx` 使用 Markdown/GFM 渲染原文。
+  - dev 验证：crawler 测试覆盖 README helper、Markdown 字段、URL 改写和长度上限；pipeline/report 测试确认 public JSON 透传 `original_markdown`；web 结构测试和 TypeScript 检查确认详情页使用 Markdown 渲染并保留降级。
 
 - [x] 实现全部 AI 动态页。
   - 内容：AIHOT 风格侧栏、来源类型筛选、分类筛选、内联搜索、按日期折叠的信息流、摘要、图片、标签、评分、来源、推荐理由和详情链接。
