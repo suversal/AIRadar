@@ -39,6 +39,7 @@ export type LatestEvent = {
   published_at?: string;
   original_url?: string;
   original_content?: string;
+  original_markdown?: string;
   original_paragraphs?: string[];
   original_images?: OriginalImage[];
   original_blocks?: OriginalBlock[];

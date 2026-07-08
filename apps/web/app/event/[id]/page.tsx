@@ -268,8 +268,12 @@ export default async function EventDetailPage({ params }: { params: EventParams 
               </p>
             </section>
 
-            {translatedBlocks.length ? (
-              <ArticleReadingToggle originalBlocks={originalBlocks} translatedBlocks={translatedBlocks} />
+            {translatedBlocks.length || event.original_markdown ? (
+              <ArticleReadingToggle
+                originalBlocks={originalBlocks}
+                originalMarkdown={event.original_markdown}
+                translatedBlocks={translatedBlocks}
+              />
             ) : (
               <article className="mt-10 border-t border-slate-800 pt-8">
                 <h2 className="text-sm font-semibold text-slate-500">原文</h2>
