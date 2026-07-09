@@ -1,14 +1,26 @@
 @import "tailwindcss";
 
-:root {
-  --background: #f7f7f4;
-  --foreground: #171717;
-  --muted: #666a70;
-  --line: #d9d9d2;
-  --panel: #ffffff;
-  --accent: #0f766e;
-  --accent-strong: #0f3d5e;
-  --warning: #9a3412;
+/* 琥珀信号 design tokens — warm charcoal canvas, amber signal accent,
+   cool slate-blue for secondary metadata. Zero external font deps:
+   refined CJK system stack + monospace numerals for instrument readouts. */
+@theme {
+  --color-canvas: #100e0c;
+  --color-panel: #191613;
+  --color-panel-soft: #221e19;
+  --color-line: #2b2620;
+  --color-line-strong: #3a332a;
+  --color-signal: #f0a020;
+  --color-signal-bright: #ffc45e;
+  --color-signal-dim: #b87d1a;
+  --color-cool: #8fa8b8;
+  --color-ink: #ece7df;
+  --color-ink-mid: #9a938a;
+  --color-ink-dim: #625c54;
+
+  --font-sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC",
+    "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono",
+    Menlo, monospace;
 }
 
 * {
@@ -17,12 +29,39 @@
 
 body {
   margin: 0;
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 a {
   color: inherit;
   text-decoration: none;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-signal) 30%, transparent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-signal);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* instrument readouts: scores, timestamps, counters */
+.readout {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
 }

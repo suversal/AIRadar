@@ -41,9 +41,9 @@ export function buildDailyDigest(report: DailyReport) {
   const uniqueTags = new Set(report.items.flatMap((item) => item.tags ?? []));
 
   return {
-    title: "AIHOT 日报",
+    title: "AI·RADAR 日报",
     reportDate: report.report_date,
-    issueMeta: `VOL.${report.report_date.replaceAll("-", ".")} · ${report.article_count} STORIES · AI HOT DAILY`,
+    issueMeta: `VOL.${report.report_date.replaceAll("-", ".")} · ${report.article_count} STORIES · AI RADAR DAILY`,
     summary: report.summary,
     sections,
     highlights,
@@ -61,7 +61,7 @@ export function latestToDailyReport(latest: LatestReport): DailyReport {
   const items = latest.items;
   return {
     report_date: reportDate,
-    title: "AIHOT 日报",
+    title: "AI·RADAR 日报",
     summary: items.length > 0 ? `精选 ${items.length} 条 AI 情报。` : "暂无可展示的日报内容。",
     updated_at: latest.updated_at,
     sections: {},
@@ -108,12 +108,12 @@ export function buildPeriodDigest(period: PeriodReport, mode: PeriodMode) {
 
   return {
     mode,
-    title: mode === "weekly" ? "AIHOT 周报" : "AIHOT 月报",
+    title: mode === "weekly" ? "AI·RADAR 周报" : "AI·RADAR 月报",
     label: mode === "weekly" ? "WEEKLY" : "MONTHLY",
     issueMeta:
       mode === "weekly"
-        ? `VOL.${range.slice(0, 4)}-W · ${items.length} STORIES · AI HOT WEEKLY`
-        : `VOL.${range.slice(0, 7)} · ${items.length} STORIES · AI HOT MONTHLY`,
+        ? `VOL.${range.slice(0, 4)}-W · ${items.length} STORIES · AI RADAR WEEKLY`
+        : `VOL.${range.slice(0, 7)} · ${items.length} STORIES · AI RADAR MONTHLY`,
     range,
     mainline,
     highlights,

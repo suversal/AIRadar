@@ -78,23 +78,17 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("report.error", latest_page)
         self.assertIn("formatDateTime", latest_page)
 
-    def test_latest_page_uses_aihot_style_sidebar_with_reserved_menus(self):
+    def test_latest_page_uses_shared_sidebar_with_reserved_menus(self):
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
+        sidebar = (WEB / "components" / "sidebar.tsx").read_text(encoding="utf-8")
+        nav = (WEB / "components" / "nav.ts").read_text(encoding="utf-8")
 
-        self.assertIn("AIHOT", latest_page)
-        self.assertIn("精选", latest_page)
-        self.assertIn("全部 AI 动态", latest_page)
-        self.assertIn('href: "/all"', latest_page)
-        self.assertIn("AI 日报", latest_page)
-        self.assertIn("主题", latest_page)
-        self.assertIn("收藏", latest_page)
-        self.assertIn("Agent 接入", latest_page)
-        self.assertIn("关于", latest_page)
-        self.assertIn("更新日志", latest_page)
-        self.assertIn("反馈", latest_page)
-        self.assertIn("日间", latest_page)
-        self.assertIn("跟随系统", latest_page)
-        self.assertIn("夜间", latest_page)
+        self.assertIn("Sidebar", latest_page)
+        self.assertIn("RadarStatus", latest_page)
+        self.assertIn("AI·RADAR", sidebar)
+        for label in ["精选", "全部 AI 动态", "AI 日报", "主题", "收藏", "Agent 接入", "关于", "更新日志", "反馈"]:
+            self.assertIn(label, nav)
+        self.assertIn('href: "/all"', nav)
 
     def test_latest_page_exposes_refresh_report_button(self):
         button_source = (WEB / "app" / "latest" / "refresh-report-button.tsx").read_text(encoding="utf-8")
@@ -121,7 +115,8 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("categoryOptions", latest_page)
         self.assertIn("filteredItems", latest_page)
         self.assertIn("?category=", latest_page)
-        self.assertIn("全部", latest_page)
+        taxonomy = (WEB / "lib" / "taxonomy.ts").read_text(encoding="utf-8")
+        self.assertIn('["", "全部"]', taxonomy)
 
     def test_daily_pages_fetch_public_daily_report_and_render_copy_controls(self):
         api_source = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
@@ -134,7 +129,7 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("/api/public/daily/", api_source)
         self.assertIn("getDailyReport", api_source)
         self.assertIn("getLatestReport", daily_index)
-        self.assertIn("AIHOT 日报", daily_index)
+        self.assertIn("AI·RADAR 日报", daily_index)
         self.assertIn("今日看点", daily_index)
         self.assertIn("ReportShell", daily_index)
         self.assertIn("buildDailyDigest", daily_index)
@@ -154,7 +149,7 @@ class WebAppStructureTests(unittest.TestCase):
         shell_source = (WEB / "app" / "reports" / "report-shell.tsx").read_text(encoding="utf-8")
         data_source = (WEB / "app" / "reports" / "report-data.ts").read_text(encoding="utf-8")
 
-        self.assertIn("AIHOT", shell_source)
+        self.assertIn("AI·RADAR", shell_source)
         self.assertIn("reportModeTabs", shell_source)
         self.assertIn("日报", shell_source)
         self.assertIn("周报", shell_source)
@@ -181,8 +176,8 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("getPeriodReport", period_page)
 
         for source, title, mode in [
-            (weekly_page, "AIHOT 周报", "weekly"),
-            (monthly_page, "AIHOT 月报", "monthly"),
+            (weekly_page, "AI·RADAR 周报", "weekly"),
+            (monthly_page, "AI·RADAR 月报", "monthly"),
         ]:
             self.assertIn(title, source)
             self.assertIn(f'mode="{mode}"', source)
@@ -222,12 +217,9 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("translated_blocks", api_source)
         self.assertIn("ArticleReadingToggle", event_page)
         self.assertIn("translatedBlocksFor", event_page)
-        self.assertIn("AIHOT", event_page)
-        self.assertIn("主导航", event_page)
-        self.assertIn("全部 AI 动态", event_page)
-        self.assertIn("AI 日报", event_page)
+        self.assertIn("Sidebar", event_page)
         self.assertIn("lg:grid-cols-[224px_1fr]", event_page)
-        self.assertIn("lg:sticky", event_page)
+        self.assertIn("lg:sticky", (WEB / "components" / "sidebar.tsx").read_text(encoding="utf-8"))
         self.assertIn("显示原文", reading_toggle)
         self.assertIn("显示译文", reading_toggle)
         self.assertIn("AI 翻译 · 中文", reading_toggle)
@@ -260,9 +252,8 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("eventHref", all_page)
         self.assertIn("全部 AI 动态", all_page)
         self.assertIn("AI 相关资讯全量信息流", all_page)
-        self.assertIn("AIHOT", all_page)
+        self.assertIn("Sidebar", all_page)
         self.assertIn("精选", all_page)
-        self.assertIn("activeNavId", all_page)
         self.assertIn("sourceOptions", all_page)
         self.assertIn("一手信源", all_page)
         self.assertIn("资讯", all_page)
