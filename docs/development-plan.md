@@ -9,7 +9,7 @@
 | 阶段 | 状态 | 当前结论 | 下一步 |
 | --- | --- | --- | --- |
 | Phase 0 - 本地数据闭环骨架 | 已完成 | 代码骨架、核心模型、crawler 基础、AI 边界、评分、聚类、日报、CLI、测试、Docker 配置均已落地 | 进入真实源抓取验证 |
-| Phase 1 - 真实采集与质量闭环 | 进行中 | 源清单已扩至 27 个（26/27 实测可抓取，180 篇/轮）；Anthropic 改用 sitemap 爬虫，DeepMind 修正 RSS 地址，机器之心 RSS 已下线故移除；抓取层加了浏览器 UA、429/5xx 退避重试、同域名 6 秒礼貌间隔 | 观察 Reddit 限流恢复情况，继续人工检查日报质量并调源权重 |
+| Phase 1 - 真实采集与质量闭环 | 进行中 | 源清单 27 个（实测 27/27 可抓取，135 篇/轮）；Anthropic 用 sitemap 爬虫，机器之心 RSS 已下线故移除，venturebeat 修正 308 地址；抓取层：浏览器 UA、429/5xx 退避重试、同域 6 秒礼貌间隔、跨域并行（默认 8 并发）、sitemap 页面 lastmod 缓存、10 秒超时——整轮抓取 118s→25s | 继续人工检查日报质量并调源权重 |
 | Phase 2 - OpenAI/Kimi/DeepSeek 接入、AI 总结与真实评分 | 进行中 | Kimi/Moonshot 和 DeepSeek chat provider 已接入环境变量；DeepSeek 20 并发 API smoke 和 20 条日报生成已跑通；OpenAI 边界保留；真实 key 不写入仓库 | 继续观察真实日报质量，并根据成本/稳定性调整默认并发 |
 | Phase 3 - PostgreSQL + pgvector 持久化 | 基本完成 | 全部 8 张表已投入使用：raw/processed/event_clusters/关联表/daily_reports/pipeline_runs 均由 pipeline 持久化；事件 ID 改为内容哈希（跨 run 稳定）；pipeline 按 url_hash 增量复用已缓存的 AI 评分与译文（实测 74s→17s，仅新文章产生 AI 调用） | 补 Alembic 迁移；article_embeddings 待接入真实 embedding API 后启用 pgvector 相似查询 |
 | Phase 4 - API 与日报服务化 | 进行中 | 本地 FastAPI 服务已启动并通过 HTTP smoke；latest/daily 从 DB 读到 12 条日报 | 等 API compose 网络问题恢复后补容器验证 |

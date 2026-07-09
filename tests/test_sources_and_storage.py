@@ -45,6 +45,11 @@ class SourcesAndStorageTests(unittest.TestCase):
         deepmind = by_id["deepmind_blog"]
         self.assertEqual(deepmind.url, "https://deepmind.google/blog/rss.xml")
 
+        # urllib does not follow 308 redirects, so the URL must not have the
+        # trailing slash that venturebeat permanently redirects away from
+        venturebeat = by_id["venturebeat_ai"]
+        self.assertEqual(venturebeat.url, "https://venturebeat.com/category/ai/feed")
+
         for expected_id in [
             "google_ai_blog",
             "microsoft_research",

@@ -29,7 +29,7 @@ def fetch_url_text(
     url: str,
     *,
     accept: str = FEED_ACCEPT_HEADER,
-    timeout: int = 20,
+    timeout: int = 10,
     max_attempts: int = 3,
     backoff_seconds: float = 3.0,
 ) -> str:

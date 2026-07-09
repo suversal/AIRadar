@@ -272,7 +272,7 @@ def default_sources() -> list[Source]:
             tier="T2",
             type="rss",
             category="media",
-            url="https://venturebeat.com/category/ai/feed/",
+            url="https://venturebeat.com/category/ai/feed",
             homepage="https://venturebeat.com/category/ai/",
             allowed_domains=["venturebeat.com"],
             fetch_interval_min=180,

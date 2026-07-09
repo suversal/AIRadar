@@ -115,6 +115,18 @@ class FetchUrlTextTests(unittest.TestCase):
                 with self.assertRaises(HTTPError):
                     fetch_url_text("https://example.com/feed", max_attempts=3)
 
+    def test_fetch_url_text_defaults_to_ten_second_timeout(self):
+        captured: dict = {}
+
+        def fake_urlopen(request, timeout=None):
+            captured["timeout"] = timeout
+            return FakeResponse(b"<rss></rss>")
+
+        with patch("app.crawlers.base.urllib.request.urlopen", side_effect=fake_urlopen):
+            fetch_url_text("https://example.com/feed")
+
+        self.assertEqual(captured["timeout"], 10)
+
     def test_fetch_url_text_does_not_retry_not_found(self):
         attempts = []
 
