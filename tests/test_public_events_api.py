@@ -132,6 +132,19 @@ class EventsPayloadTests(unittest.TestCase):
         model_only = build_events_payload([daily], category="model")
         self.assertEqual(model_only["total"], 1)
 
+    def test_topic_filter_narrows_events(self):
+        items = [
+            make_item("evt-1", title="OpenAI releases agent model"),
+            make_item("evt-2", title="Claude 5 launches"),
+            make_item("evt-3", title="随便聊聊"),
+        ]
+        daily = make_daily_payload("2026-07-08", items)
+
+        payload = build_events_payload([daily], topic="anthropic")
+
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(payload["items"][0]["event_id"], "evt-2")
+
     def test_empty_payloads_produce_empty_contract(self):
         payload = build_events_payload([])
 
@@ -245,6 +258,48 @@ class PublicEventRouteTests(unittest.TestCase):
         self.assertEqual(body["mode"], "monthly")
         self.assertEqual(body["range_start"], "2026-07-01")
         self.assertEqual(body["range_end"], "2026-07-31")
+
+    def test_topics_route_returns_grouped_counts(self):
+        client, _ = self._client(
+            {
+                date(2026, 7, 8): make_daily_payload(
+                    "2026-07-08",
+                    [
+                        make_item("evt-1", title="OpenAI releases agent model"),
+                        make_item("evt-2", title="Claude 5 launches"),
+                    ],
+                )
+            }
+        )
+
+        response = client.get("/api/public/topics")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual([g["id"] for g in body["groups"]], ["companies", "directions", "formats"])
+        companies = {t["id"]: t["count"] for t in body["groups"][0]["topics"]}
+        self.assertEqual(companies["openai"], 1)
+        self.assertEqual(companies["anthropic"], 1)
+
+    def test_events_route_accepts_topic_param(self):
+        client, _ = self._client(
+            {
+                date(2026, 7, 8): make_daily_payload(
+                    "2026-07-08",
+                    [
+                        make_item("evt-1", title="OpenAI releases agent model"),
+                        make_item("evt-2", title="Claude 5 launches"),
+                    ],
+                )
+            }
+        )
+
+        response = client.get("/api/public/events?topic=anthropic")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["total"], 1)
+        self.assertEqual(body["items"][0]["event_id"], "evt-2")
 
     def test_monthly_route_rejects_bad_month(self):
         client, _ = self._client({})

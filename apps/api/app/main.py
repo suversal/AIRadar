@@ -193,11 +193,28 @@ def create_app(
                 return repository.get_daily_report_payloads_between(start_date, end_date)
         return load_daily_reports_between(data_dir, start_date, end_date)
 
+    def load_event_items(days: int) -> list[dict]:
+        end_date = date.today()
+        start_date = end_date - timedelta(days=days - 1)
+        repository_context = report_repository_context()
+        if repository_context is not None:
+            with repository_context as repository:
+                return repository.get_all_event_items_between(start_date, end_date)
+        payloads = load_daily_reports_between(data_dir, start_date, end_date)
+        merged: dict[str, dict] = {}
+        for payload in sorted(payloads, key=lambda p: p.get("report_date") or ""):
+            for item in payload.get("items", []):
+                event_id = item.get("event_id") or item.get("original_url") or item.get("title")
+                if event_id is not None:
+                    merged[str(event_id)] = item
+        return list(merged.values())
+
     @app.get("/api/public/events")
     def events(
         days: int = 30,
         category: Optional[str] = None,
         q: Optional[str] = None,
+        topic: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> dict:
@@ -214,12 +231,20 @@ def create_app(
             with repository_context as repository:
                 items = repository.get_all_event_items_between(start_date, end_date)
             return build_events_payload_from_items(
-                items, category=category, q=q, limit=limit, offset=offset
+                items, category=category, q=q, topic=topic, limit=limit, offset=offset
             )
         payloads = load_daily_reports_between(data_dir, start_date, end_date)
         return build_events_payload(
-            payloads, category=category, q=q, limit=limit, offset=offset
+            payloads, category=category, q=q, topic=topic, limit=limit, offset=offset
         )
+
+    @app.get("/api/public/topics")
+    def topics(days: int = 30) -> dict:
+        if days < 1 or days > 90:
+            raise HTTPException(status_code=400, detail="days must be between 1 and 90")
+        from app.services.topics import build_topics_payload
+
+        return build_topics_payload(load_event_items(days))
 
     @app.get("/api/public/events/{event_id}")
     def event_detail(event_id: str) -> dict:

@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from app.services.taxonomy import display_category
+from app.services.topics import item_matches_topic, topic_by_id
 
 WEEK_DAYS = 7
 
@@ -39,7 +40,13 @@ def _merge_daily_items(daily_payloads: list[dict[str, Any]]) -> tuple[list[dict[
     return list(merged.values()), report_dates, updated_at
 
 
-def _item_matches(item: dict[str, Any], *, category: str | None, q: str | None) -> bool:
+def _item_matches(
+    item: dict[str, Any],
+    *,
+    category: str | None,
+    q: str | None,
+    topic: str | None = None,
+) -> bool:
     if category:
         item_category = str(item.get("category") or "")
         # compare in display-taxonomy space so both scoring keys (older
@@ -48,6 +55,8 @@ def _item_matches(item: dict[str, Any], *, category: str | None, q: str | None) 
             category
         ):
             return False
+    if topic and not item_matches_topic(item, topic_by_id(topic)):
+        return False
     if q:
         needle = q.lower()
         haystack = " ".join(
@@ -75,11 +84,14 @@ def build_events_payload(
     *,
     category: str | None = None,
     q: str | None = None,
+    topic: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
     items, report_dates, updated_at = _merge_daily_items(daily_payloads)
-    filtered = [item for item in items if _item_matches(item, category=category, q=q)]
+    filtered = [
+        item for item in items if _item_matches(item, category=category, q=q, topic=topic)
+    ]
     filtered.sort(key=_published_sort_key, reverse=True)
     page = filtered[offset : offset + limit]
     return {
@@ -98,10 +110,13 @@ def build_events_payload_from_items(
     *,
     category: str | None = None,
     q: str | None = None,
+    topic: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
-    filtered = [item for item in items if _item_matches(item, category=category, q=q)]
+    filtered = [
+        item for item in items if _item_matches(item, category=category, q=q, topic=topic)
+    ]
     filtered.sort(key=_published_sort_key, reverse=True)
     page = filtered[offset : offset + limit]
     updated_at = max(

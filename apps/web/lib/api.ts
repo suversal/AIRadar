@@ -140,11 +140,14 @@ function emptyAllEvents(error: string): AllEventsPayload {
 }
 
 export async function getAllEvents(
-  params: { days?: number; limit?: number } = {},
+  params: { days?: number; limit?: number; topic?: string } = {},
 ): Promise<AllEventsPayload> {
   const search = new URLSearchParams();
   search.set("days", String(params.days ?? 30));
   search.set("limit", String(params.limit ?? 200));
+  if (params.topic) {
+    search.set("topic", params.topic);
+  }
   try {
     const response = await fetch(`${getApiBaseUrl()}/api/public/events?${search}`, {
       cache: "no-store",
@@ -184,6 +187,44 @@ export async function getPeriodReport(mode: "weekly" | "monthly"): Promise<Perio
     return { ...payload, error: null };
   } catch (error) {
     return emptyPeriodReport(mode, latestLoadErrorMessage(error));
+  }
+}
+
+export type TopicSummary = {
+  id: string;
+  name: string;
+  count: number;
+};
+
+export type TopicGroup = {
+  id: string;
+  name: string;
+  description: string;
+  topics: TopicSummary[];
+};
+
+export type TopicsPayload = {
+  groups: TopicGroup[];
+  article_count: number;
+  error?: string | null;
+};
+
+export async function getTopics(): Promise<TopicsPayload> {
+  try {
+    const response = await fetch(`${getApiBaseUrl()}/api/public/topics`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return {
+        groups: [],
+        article_count: 0,
+        error: `API 服务暂时不可用：topics 接口返回 ${response.status}。`,
+      };
+    }
+    const payload = (await response.json()) as TopicsPayload;
+    return { ...payload, error: null };
+  } catch (error) {
+    return { groups: [], article_count: 0, error: latestLoadErrorMessage(error) };
   }
 }
 

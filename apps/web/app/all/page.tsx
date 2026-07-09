@@ -7,6 +7,7 @@ type AllSearchParams = Promise<{
   source?: string | string[];
   category?: string | string[];
   q?: string | string[];
+  topic?: string | string[];
 }>;
 
 type NavItem = {
@@ -20,7 +21,7 @@ const navItems: NavItem[] = [
   { id: "latest", label: "精选", group: "内容", href: "/latest" },
   { id: "all", label: "全部 AI 动态", group: "内容", href: "/all" },
   { id: "daily", label: "AI 日报", group: "内容", href: "/daily" },
-  { id: "topics", label: "主题", group: "内容" },
+  { id: "topics", label: "主题", group: "内容", href: "/topics" },
   { id: "bookmarks", label: "收藏", group: "内容" },
   { id: "agent", label: "Agent 接入", group: "接入" },
   { id: "about", label: "关于", group: "更多" },
@@ -232,11 +233,12 @@ export default async function AllEventsPage({
 }: {
   searchParams: AllSearchParams;
 }) {
-  const report = await getAllEvents();
   const resolvedSearchParams = await searchParams;
   const selectedSource = firstQueryValue(resolvedSearchParams.source) ?? "";
   const selectedCategory = firstQueryValue(resolvedSearchParams.category) ?? "";
+  const selectedTopic = firstQueryValue(resolvedSearchParams.topic)?.trim() ?? "";
   const query = firstQueryValue(resolvedSearchParams.q)?.trim() ?? "";
+  const report = await getAllEvents(selectedTopic ? { topic: selectedTopic } : {});
   const activeNavId = "all";
   const searchedItems = searchEvents(report.items, query);
   const filteredItems = sortByPublishedAtDesc(
@@ -378,6 +380,20 @@ export default async function AllEventsPage({
           {report.error ? (
             <div className="mt-5 rounded-md border border-amber-500/40 bg-amber-500/10 p-4 text-sm leading-6 text-amber-200">
               {report.error}
+            </div>
+          ) : null}
+
+          {selectedTopic ? (
+            <div className="mt-5 flex items-center gap-3 text-sm">
+              <span className="rounded-full border border-cyan-400/40 bg-cyan-400/10 px-4 py-2 font-semibold text-cyan-300">
+                主题筛选：{selectedTopic} · {report.total} 条
+              </span>
+              <a className="text-slate-500 hover:text-slate-300" href="/all">
+                清除
+              </a>
+              <a className="text-slate-500 hover:text-slate-300" href="/topics">
+                返回主题
+              </a>
             </div>
           ) : null}
 
