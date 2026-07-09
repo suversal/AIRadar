@@ -51,6 +51,29 @@ class ClusteringTests(unittest.TestCase):
         self.assertEqual(len(clusters), 2)
         self.assertEqual(clusters[0].source_count, 2)
 
+    def test_cluster_ids_are_stable_across_runs_and_orderings(self):
+        articles = [
+            raw_article("a1", "openai_blog", "authority", "T1", "OpenAI releases agent model", 8),
+            raw_article("a2", "hn", "signal", "T2", "OpenAI agent model discussion", 9),
+            raw_article("a3", "arxiv", "authority", "T1", "New diffusion paper", 10),
+        ]
+        embeddings = {
+            "a1": [1.0, 0.0, 0.0],
+            "a2": [0.97, 0.03, 0.0],
+            "a3": [0.0, 1.0, 0.0],
+        }
+
+        first_run = cluster_articles(articles, embeddings, threshold=0.85)
+        second_run = cluster_articles(list(reversed(articles)), embeddings, threshold=0.85)
+
+        first_ids = {cluster.main_article_id: cluster.id for cluster in first_run}
+        second_ids = {cluster.main_article_id: cluster.id for cluster in second_run}
+        self.assertEqual(first_ids, second_ids)
+        # ids must be content-derived, not positional counters
+        self.assertNotIn("c1", first_ids.values())
+        for cluster_id in first_ids.values():
+            self.assertRegex(cluster_id, r"^e[0-9a-f]{12}$")
+
     def test_choose_main_article_prefers_authority_over_aggregator(self):
         sources = {
             "openai_blog": Source(

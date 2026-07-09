@@ -87,3 +87,80 @@ class DailyReportModel(Base):
     status: Mapped[str] = mapped_column(String, nullable=False, default="generated")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ProcessedArticleModel(Base):
+    __tablename__ = "processed_articles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    raw_article_id: Mapped[str] = mapped_column(
+        ForeignKey("raw_articles.id"), nullable=False, unique=True, index=True
+    )
+    event_cluster_id: Mapped[Optional[str]] = mapped_column(ForeignKey("event_clusters.id"))
+    ai_relevance: Mapped[float] = mapped_column(Float, nullable=False)
+    novelty: Mapped[float] = mapped_column(Float, nullable=False)
+    impact: Mapped[float] = mapped_column(Float, nullable=False)
+    information_density: Mapped[float] = mapped_column(Float, nullable=False)
+    actionability: Mapped[float] = mapped_column(Float, nullable=False)
+    creator_value: Mapped[float] = mapped_column(Float, nullable=False)
+    base_score: Mapped[float] = mapped_column(Float, nullable=False)
+    final_score: Mapped[float] = mapped_column(Float, nullable=False)
+    title_zh: Mapped[str] = mapped_column(Text, nullable=False)
+    one_line_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    summary_zh: Mapped[str] = mapped_column(Text, nullable=False)
+    reason_zh: Mapped[str] = mapped_column(Text, nullable=False)
+    action_zh: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(String, nullable=False)
+    tags: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    model_used: Mapped[Optional[str]] = mapped_column(String)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    status: Mapped[str] = mapped_column(String, nullable=False, default="processed")
+    rejection_reason: Mapped[Optional[str]] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class EventClusterModel(Base):
+    __tablename__ = "event_clusters"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    main_article_id: Mapped[str] = mapped_column(ForeignKey("raw_articles.id"), nullable=False)
+    event_title: Mapped[str] = mapped_column(Text, nullable=False)
+    event_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    category: Mapped[str] = mapped_column(String, nullable=False)
+    tags: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    final_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    source_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="published")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class EventClusterArticleModel(Base):
+    __tablename__ = "event_cluster_articles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_cluster_id: Mapped[str] = mapped_column(
+        ForeignKey("event_clusters.id"), nullable=False, index=True
+    )
+    raw_article_id: Mapped[str] = mapped_column(ForeignKey("raw_articles.id"), nullable=False)
+    similarity_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    is_main: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    source_priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PipelineRunModel(Base):
+    __tablename__ = "pipeline_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String, nullable=False, default="succeeded")
+    raw_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    processed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cluster_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    skipped_reasons: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    error: Mapped[Optional[str]] = mapped_column(Text)

@@ -74,6 +74,14 @@ def refresh_latest_report(
     save_articles(raw_path, raw_articles)
     write_json(crawl_report_path, crawl_report)
 
+    cached_results: dict[str, Any] = {}
+    if database_url:
+        from app.pipeline.persistence import load_cached_results_from_database
+
+        cached_results = load_cached_results_from_database(
+            database_url, [article.url_hash for article in raw_articles]
+        )
+
     ai_provider = provider_from_env()
     result = run_pipeline(
         sources=sources,
@@ -84,6 +92,7 @@ def refresh_latest_report(
         candidate_limit=limit,
         top_n=top_n,
         ai_concurrency=_env_int("AI_PIPELINE_CONCURRENCY", 1),
+        cached_results=cached_results,
     )
 
     pipeline_dir = data_dir / "crawl_checks" / f"{resolved_date.isoformat()}-refresh-pipeline"

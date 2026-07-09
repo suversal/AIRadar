@@ -77,6 +77,119 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result.skipped_reasons["candidate_limit"], 1)
         self.assertEqual(result.skipped_reasons["not_ai_related"], 1)
 
+    def test_pipeline_reuses_cached_results_without_ai_calls(self):
+        source = Source(
+            id="openai_blog",
+            name="OpenAI Blog",
+            source_role="authority",
+            tier="T1",
+            type="rss",
+            category="official",
+            url="https://openai.com/rss.xml",
+            homepage="https://openai.com",
+            allowed_domains=["openai.com"],
+            can_be_main_source=True,
+        )
+        raw_items = [
+            {
+                "source_url": "https://openai.com/cached",
+                "title": "OpenAI releases agent model",
+                "content": "OpenAI releases a new AI agent model for developers.",
+                "author": "OpenAI",
+                "published_at": datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {},
+            },
+            {
+                "source_url": "https://openai.com/fresh",
+                "title": "Anthropic ships AI coding agent",
+                "content": "New AI coding agent release for developers.",
+                "author": "Anthropic",
+                "published_at": datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {},
+            },
+            {
+                "source_url": "https://openai.com/known-noise",
+                "title": "Office lunch menu",
+                "content": "Cafeteria update.",
+                "author": "OpenAI",
+                "published_at": datetime(2026, 7, 1, 10, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {},
+            },
+        ]
+
+        from app.crawlers.base import canonicalize_url, stable_hash
+
+        cached_hash = stable_hash(canonicalize_url("https://openai.com/cached"))
+        noise_hash = stable_hash(canonicalize_url("https://openai.com/known-noise"))
+        cached_results = {
+            cached_hash: {
+                "scoring": {
+                    "dimensions": {
+                        "ai_relevance": 9,
+                        "novelty": 8,
+                        "impact": 8,
+                        "information_density": 7,
+                        "actionability": 7,
+                        "creator_value": 6,
+                    },
+                    "category": "model_release",
+                    "tags": ["Agent"],
+                    "title_zh": "缓存的中文标题",
+                    "one_line_summary": "缓存摘要。",
+                    "summary_zh": "缓存核心摘要。",
+                    "reason_zh": "缓存推荐理由。",
+                    "action_zh": "缓存动作。",
+                },
+                "skipped_reason": None,
+                "metadata": {"translated_paragraphs": ["缓存译文段落"]},
+            },
+            noise_hash: {"scoring": None, "skipped_reason": "not_ai_related", "metadata": {}},
+        }
+
+        class CountingProvider(FakeAIProvider):
+            def __init__(self):
+                self.prefilter_calls = 0
+                self.score_calls = 0
+
+            def prefilter(self, text):
+                self.prefilter_calls += 1
+                return super().prefilter(text)
+
+            def score_article(self, title, content):
+                self.score_calls += 1
+                return super().score_article(title, content)
+
+        provider = CountingProvider()
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={"openai_blog": raw_items},
+            ai_provider=provider,
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 1),
+            candidate_limit=10,
+            top_n=12,
+            cached_results=cached_results,
+        )
+
+        # only the fresh article should reach the AI provider
+        self.assertEqual(provider.prefilter_calls, 1)
+        self.assertEqual(provider.score_calls, 1)
+        cached_processed = next(
+            p
+            for p in result.processed_articles
+            if any(a.id == p.raw_article_id and a.url_hash == cached_hash for a in result.raw_articles)
+        )
+        self.assertEqual(cached_processed.title_zh, "缓存的中文标题")
+        self.assertEqual(result.skipped_reasons["not_ai_related"], 1)
+        cached_article = next(a for a in result.raw_articles if a.url_hash == cached_hash)
+        self.assertEqual(cached_article.metadata["translated_paragraphs"], ["缓存译文段落"])
+
     def test_translate_in_chunks_bounds_each_call_and_preserves_order(self):
         calls: list[list[str]] = []
 

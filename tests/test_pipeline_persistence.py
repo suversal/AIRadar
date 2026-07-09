@@ -56,10 +56,24 @@ class PipelinePersistenceTests(unittest.TestCase):
 
         summary = persist_pipeline_result(repository, sources=[source], result=result)
 
-        self.assertEqual(repository.calls, ["sources", "raw_articles", "daily_report"])
+        self.assertEqual(
+            repository.calls,
+            [
+                "sources",
+                "raw_articles",
+                # clusters must precede processed articles: processed rows carry
+                # an event_cluster_id foreign key into event_clusters
+                "event_clusters",
+                "processed_articles",
+                "daily_report",
+                "pipeline_run",
+            ],
+        )
         self.assertEqual(summary.sources.inserted, 1)
         self.assertEqual(summary.raw_articles.inserted, 1)
         self.assertEqual(summary.daily_report.updated, 1)
+        self.assertIsNotNone(summary.processed_articles)
+        self.assertIsNotNone(summary.event_clusters)
 
 
 class FakeWriteResult:
@@ -84,6 +98,18 @@ class FakeRepository:
     def upsert_daily_report(self, report):
         self.calls.append("daily_report")
         return FakeWriteResult(updated=report.article_count + 1)
+
+    def upsert_processed_articles(self, processed_articles):
+        self.calls.append("processed_articles")
+        return FakeWriteResult(inserted=len(processed_articles))
+
+    def upsert_event_clusters(self, clusters):
+        self.calls.append("event_clusters")
+        return FakeWriteResult(inserted=len(clusters))
+
+    def record_pipeline_run(self, **kwargs):
+        self.calls.append("pipeline_run")
+        return FakeWriteResult(inserted=1)
 
 
 if __name__ == "__main__":

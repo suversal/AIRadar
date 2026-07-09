@@ -71,6 +71,11 @@ def main() -> int:
     )
     parser.add_argument("--persist-db", action="store_true")
     parser.add_argument("--database-url", default=os.getenv("DATABASE_URL"))
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Reprocess every article with AI even when cached results exist in the database.",
+    )
     args = parser.parse_args()
 
     sources_path = ROOT / args.sources
@@ -93,6 +98,16 @@ def main() -> int:
             }
         )
 
+    cached_results = {}
+    if args.database_url and not args.no_cache:
+        from app.pipeline.persistence import load_cached_results_from_database
+
+        cached_results = load_cached_results_from_database(
+            args.database_url, [article.url_hash for article in raw_articles]
+        )
+    if cached_results:
+        print(f"Loaded {len(cached_results)} cached article results from database")
+
     result = run_pipeline(
         sources=sources,
         raw_items_by_source=raw_items_by_source,
@@ -103,6 +118,7 @@ def main() -> int:
         top_n=args.top_n,
         ai_concurrency=args.ai_concurrency,
         skip_prefilter=args.skip_prefilter,
+        cached_results=cached_results,
     )
 
     output_dir = ROOT / args.output_dir

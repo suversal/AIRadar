@@ -3,7 +3,13 @@ from __future__ import annotations
 import math
 from datetime import datetime
 
+from app.crawlers.base import stable_hash
 from app.models.domain import EventCluster, RawArticle, Source
+
+
+def stable_cluster_id(main_article_id: str) -> str:
+    """Content-derived cluster id so events keep their identity across runs."""
+    return f"e{stable_hash(main_article_id)[:12]}"
 
 ROLE_PRIORITY = {
     "authority": 4,
@@ -86,14 +92,14 @@ def cluster_articles(
             buckets[matched_index].append(article)
 
     clusters: list[EventCluster] = []
-    for index, bucket in enumerate(buckets, start=1):
+    for bucket in buckets:
         main = choose_main_article(bucket, sources=sources, final_scores=final_scores)
         score = max(final_scores.get(article.id, 0.0) for article in bucket)
         first_seen = min(article.published_at for article in bucket)
         last_seen = max(article.published_at for article in bucket)
         clusters.append(
             EventCluster(
-                id=f"c{index}",
+                id=stable_cluster_id(main.id),
                 main_article_id=main.id,
                 article_ids=[article.id for article in bucket],
                 event_title=main.title,

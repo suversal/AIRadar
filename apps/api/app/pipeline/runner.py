@@ -8,7 +8,15 @@ from typing import Any
 
 from app.crawlers.base import normalize_article
 from app.crawlers.github_readme import fetch_github_readme, repo_path_from_github_url
-from app.models.domain import DailyReport, PipelineResult, ProcessedArticle, RawArticle, Source
+from app.models.domain import (
+    DailyReport,
+    PipelineResult,
+    ProcessedArticle,
+    RawArticle,
+    ScoreDimensions,
+    ScoringResult,
+    Source,
+)
 from app.services.ai_service import FakeAIProvider
 from app.services.clustering_service import cluster_articles
 from app.services.daily_report_service import build_daily_json, render_daily_markdown
@@ -90,6 +98,35 @@ def dedupe_articles(articles: list[RawArticle]) -> list[RawArticle]:
     return deduped
 
 
+def _cached_scoring_result(cached: dict[str, Any] | None) -> ScoringResult | None:
+    if not cached:
+        return None
+    scoring = cached.get("scoring")
+    if not scoring:
+        return None
+    dimensions = scoring.get("dimensions") or {}
+    try:
+        return ScoringResult(
+            dimensions=ScoreDimensions(
+                ai_relevance=float(dimensions["ai_relevance"]),
+                novelty=float(dimensions["novelty"]),
+                impact=float(dimensions["impact"]),
+                information_density=float(dimensions["information_density"]),
+                actionability=float(dimensions["actionability"]),
+                creator_value=float(dimensions["creator_value"]),
+            ),
+            category=str(scoring["category"]),
+            tags=[str(tag) for tag in scoring.get("tags") or []],
+            title_zh=str(scoring["title_zh"]),
+            one_line_summary=str(scoring["one_line_summary"]),
+            summary_zh=str(scoring["summary_zh"]),
+            reason_zh=str(scoring["reason_zh"]),
+            action_zh=str(scoring["action_zh"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def _process_candidate_article(
     *,
     article: RawArticle,
@@ -97,15 +134,23 @@ def _process_candidate_article(
     ai_provider: Any,
     now: datetime,
     skip_prefilter: bool = False,
+    cached: dict[str, Any] | None = None,
 ) -> tuple[ProcessedArticle | None, list[float] | None, str | None]:
-    if not skip_prefilter:
+    scoring = _cached_scoring_result(cached)
+    if scoring is None and cached and cached.get("skipped_reason") == "not_ai_related":
+        article.status = "skipped"
+        article.skipped_reason = "not_ai_related"
+        return None, None, "not_ai_related"
+
+    if scoring is None and not skip_prefilter:
         prefilter = ai_provider.prefilter(f"{article.title}\n{article.content[:500]}")
         if not prefilter.is_ai_related:
             article.status = "skipped"
             article.skipped_reason = "not_ai_related"
             return None, None, "not_ai_related"
 
-    scoring = ai_provider.score_article(article.title, article.content)
+    if scoring is None:
+        scoring = ai_provider.score_article(article.title, article.content)
     source = source_by_id[article.source_id]
     processed = select_processed_article(
         article=article,
@@ -135,6 +180,7 @@ def _safe_process_candidate_article(
     ai_provider: Any,
     now: datetime,
     skip_prefilter: bool = False,
+    cached: dict[str, Any] | None = None,
 ) -> tuple[ProcessedArticle | None, list[float] | None, str | None]:
     try:
         return _process_candidate_article(
@@ -143,6 +189,7 @@ def _safe_process_candidate_article(
             ai_provider=ai_provider,
             now=now,
             skip_prefilter=skip_prefilter,
+            cached=cached,
         )
     except Exception as exc:  # one flaky AI response must not kill the whole run
         article.status = "skipped"
@@ -256,7 +303,9 @@ def _translate_selected_report_articles(
             continue
         if _is_github_trending_article(article) and str(article.metadata.get("original_markdown") or "").strip():
             continue
-        if article.metadata.get("translated_blocks"):
+        if article.metadata.get("translated_blocks") or article.metadata.get(
+            "translated_paragraphs"
+        ):
             continue
 
         text_blocks = _text_blocks_for_translation(article)
@@ -306,15 +355,24 @@ def run_pipeline(
     top_n: int = 12,
     ai_concurrency: int = 1,
     skip_prefilter: bool = False,
+    cached_results: dict[str, dict[str, Any]] | None = None,
 ) -> PipelineResult:
     source_by_id = {source.id: source for source in sources}
+    cached_results = cached_results or {}
     raw_articles: list[RawArticle] = []
     skipped = Counter()
 
     for source_id, raw_items in raw_items_by_source.items():
         source = source_by_id[source_id]
         for item in raw_items:
-            raw_articles.append(normalize_article(source=source, **item))
+            article = normalize_article(source=source, **item)
+            cached = cached_results.get(article.url_hash)
+            if cached:
+                # reuse expensive AI artifacts (translations, README selection)
+                # from earlier runs; freshly crawled metadata still wins
+                for key, value in (cached.get("metadata") or {}).items():
+                    article.metadata.setdefault(key, value)
+            raw_articles.append(article)
 
     raw_articles = dedupe_articles(raw_articles)
     candidate_articles = raw_articles[:candidate_limit]
@@ -336,6 +394,7 @@ def run_pipeline(
                 ai_provider=ai_provider,
                 now=now,
                 skip_prefilter=skip_prefilter,
+                cached=cached_results.get(article.url_hash),
             )
             candidate_results.append((index, article, processed, embedding, skipped_reason))
     else:
@@ -348,6 +407,7 @@ def run_pipeline(
                     ai_provider=ai_provider,
                     now=now,
                     skip_prefilter=skip_prefilter,
+                    cached=cached_results.get(article.url_hash),
                 ): (index, article)
                 for index, article in enumerate(candidate_articles)
             }

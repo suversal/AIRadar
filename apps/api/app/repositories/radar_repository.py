@@ -10,8 +10,16 @@ try:
 except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard for local stdlib tests
     raise RuntimeError("SQLAlchemy is required for database repositories.") from exc
 
-from app.db.models import DailyReportModel, RawArticleModel, SourceModel
-from app.models.domain import DailyReport, RawArticle, Source
+from app.db.models import (
+    DailyReportModel,
+    EventClusterArticleModel,
+    EventClusterModel,
+    PipelineRunModel,
+    ProcessedArticleModel,
+    RawArticleModel,
+    SourceModel,
+)
+from app.models.domain import DailyReport, EventCluster, ProcessedArticle, RawArticle, Source
 
 
 @dataclass(frozen=True)
@@ -69,6 +77,139 @@ class RadarRepository:
         if model is None:
             return None
         return _daily_report_payload(model)
+
+    def upsert_processed_articles(self, processed_articles: list[ProcessedArticle]) -> WriteResult:
+        inserted = 0
+        updated = 0
+        for processed in processed_articles:
+            model = self.session.scalar(
+                select(ProcessedArticleModel).where(
+                    ProcessedArticleModel.raw_article_id == processed.raw_article_id
+                )
+            )
+            if model is None:
+                model = ProcessedArticleModel(raw_article_id=processed.raw_article_id)
+                self.session.add(model)
+                inserted += 1
+            else:
+                updated += 1
+            _apply_processed_article(model, processed)
+        return WriteResult(inserted=inserted, updated=updated)
+
+    def upsert_event_clusters(self, clusters: list[EventCluster]) -> WriteResult:
+        inserted = 0
+        updated = 0
+        for cluster in clusters:
+            model = self.session.get(EventClusterModel, cluster.id)
+            if model is None:
+                model = EventClusterModel(id=cluster.id)
+                self.session.add(model)
+                inserted += 1
+            else:
+                updated += 1
+            _apply_event_cluster(model, cluster)
+            existing_memberships = self.session.scalars(
+                select(EventClusterArticleModel).where(
+                    EventClusterArticleModel.event_cluster_id == cluster.id
+                )
+            ).all()
+            for membership in existing_memberships:
+                self.session.delete(membership)
+            for priority, article_id in enumerate(cluster.article_ids):
+                self.session.add(
+                    EventClusterArticleModel(
+                        event_cluster_id=cluster.id,
+                        raw_article_id=article_id,
+                        is_main=article_id == cluster.main_article_id,
+                        source_priority=priority,
+                    )
+                )
+        self.session.flush()
+        return WriteResult(inserted=inserted, updated=updated)
+
+    def record_pipeline_run(
+        self,
+        *,
+        status: str,
+        raw_count: int,
+        processed_count: int,
+        cluster_count: int,
+        skipped_reasons: dict[str, int],
+        started_at: Any = None,
+        finished_at: Any = None,
+        error: str | None = None,
+    ) -> WriteResult:
+        model = PipelineRunModel(
+            status=status,
+            raw_count=raw_count,
+            processed_count=processed_count,
+            cluster_count=cluster_count,
+            skipped_reasons=dict(skipped_reasons),
+            error=error,
+        )
+        if started_at is not None:
+            model.started_at = started_at
+        if finished_at is not None:
+            model.finished_at = finished_at
+        self.session.add(model)
+        return WriteResult(inserted=1)
+
+    CACHED_METADATA_KEYS = (
+        "translated_paragraphs",
+        "translated_blocks",
+        "translation_source_language",
+        "translation_target_language",
+        "original_markdown",
+        "readme_name",
+        "readme_language",
+        "readme_selection",
+    )
+
+    def get_cached_results_by_url_hash(self, url_hashes: list[str]) -> dict[str, dict[str, Any]]:
+        if not url_hashes:
+            return {}
+        rows = self.session.execute(
+            select(RawArticleModel, ProcessedArticleModel)
+            .join(
+                ProcessedArticleModel,
+                ProcessedArticleModel.raw_article_id == RawArticleModel.id,
+                isouter=True,
+            )
+            .where(RawArticleModel.url_hash.in_(url_hashes))
+        ).all()
+        cached: dict[str, dict[str, Any]] = {}
+        for raw, processed in rows:
+            raw_metadata = dict(raw.raw_metadata or {})
+            metadata = {
+                key: raw_metadata[key]
+                for key in self.CACHED_METADATA_KEYS
+                if raw_metadata.get(key)
+            }
+            scoring = None
+            if processed is not None:
+                scoring = {
+                    "dimensions": {
+                        "ai_relevance": processed.ai_relevance,
+                        "novelty": processed.novelty,
+                        "impact": processed.impact,
+                        "information_density": processed.information_density,
+                        "actionability": processed.actionability,
+                        "creator_value": processed.creator_value,
+                    },
+                    "category": processed.category,
+                    "tags": list(processed.tags or []),
+                    "title_zh": processed.title_zh,
+                    "one_line_summary": processed.one_line_summary,
+                    "summary_zh": processed.summary_zh,
+                    "reason_zh": processed.reason_zh,
+                    "action_zh": processed.action_zh,
+                }
+            cached[raw.url_hash] = {
+                "scoring": scoring,
+                "skipped_reason": raw.skipped_reason if scoring is None else None,
+                "metadata": metadata,
+            }
+        return cached
 
     def get_daily_report_payloads_between(
         self, start_date: date, end_date: date
@@ -139,6 +280,40 @@ def _raw_article_to_model(article: RawArticle) -> RawArticleModel:
         status=article.status,
         skipped_reason=article.skipped_reason,
     )
+
+
+def _apply_processed_article(model: ProcessedArticleModel, processed: ProcessedArticle) -> None:
+    model.event_cluster_id = processed.event_cluster_id
+    model.ai_relevance = processed.dimensions.ai_relevance
+    model.novelty = processed.dimensions.novelty
+    model.impact = processed.dimensions.impact
+    model.information_density = processed.dimensions.information_density
+    model.actionability = processed.dimensions.actionability
+    model.creator_value = processed.dimensions.creator_value
+    model.base_score = processed.base_score
+    model.final_score = processed.final_score
+    model.title_zh = processed.title_zh
+    model.one_line_summary = processed.one_line_summary
+    model.summary_zh = processed.summary_zh
+    model.reason_zh = processed.reason_zh
+    model.action_zh = processed.action_zh
+    model.category = processed.category
+    model.tags = list(processed.tags)
+    model.status = processed.status
+    model.rejection_reason = processed.rejection_reason
+
+
+def _apply_event_cluster(model: EventClusterModel, cluster: EventCluster) -> None:
+    model.main_article_id = cluster.main_article_id
+    model.event_title = cluster.event_title
+    model.event_summary = cluster.event_summary
+    model.category = cluster.category
+    model.tags = list(cluster.tags)
+    model.final_score = cluster.final_score
+    model.source_count = cluster.source_count
+    model.first_seen_at = cluster.first_seen_at
+    model.last_seen_at = cluster.last_seen_at
+    model.status = cluster.status
 
 
 def _daily_report_to_model(report: DailyReport) -> DailyReportModel:
