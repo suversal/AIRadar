@@ -178,6 +178,7 @@ class WebAppStructureTests(unittest.TestCase):
 
         self.assertIn("ReportShell", period_page)
         self.assertIn("buildPeriodDigest", period_page)
+        self.assertIn("getPeriodReport", period_page)
 
         for source, title, mode in [
             (weekly_page, "AIHOT 周报", "weekly"),
@@ -255,7 +256,7 @@ class WebAppStructureTests(unittest.TestCase):
     def test_all_page_renders_all_latest_events(self):
         all_page = (WEB / "app" / "all" / "page.tsx").read_text(encoding="utf-8")
 
-        self.assertIn("getLatestReport", all_page)
+        self.assertIn("getAllEvents", all_page)
         self.assertIn("eventHref", all_page)
         self.assertIn("全部 AI 动态", all_page)
         self.assertIn("AI 相关资讯全量信息流", all_page)

@@ -4,15 +4,19 @@ import os
 import threading
 import uuid
 from contextlib import contextmanager, nullcontext
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
 from app.api.public import (
     build_daily_payload,
     build_daily_payload_from_repository,
+    build_events_payload,
     build_latest_payload,
     build_latest_payload_from_repository,
+    build_period_payload,
+    month_range,
+    week_range,
 )
 from app.core.config import load_env_file
 from app.storage.json_store import read_json
@@ -44,6 +48,21 @@ def load_latest_daily_json(data_dir: Path = DATA_DIR) -> dict:
             "article_count": 0,
         }
     return read_json(candidates[-1])
+
+
+def load_daily_reports_between(data_dir: Path, start_date: date, end_date: date) -> list[dict]:
+    reports_dir = data_dir / "reports"
+    if not reports_dir.exists():
+        return []
+    payloads = []
+    for report_path in sorted(reports_dir.glob("*.json")):
+        try:
+            report_date = date.fromisoformat(report_path.stem)
+        except ValueError:
+            continue
+        if start_date <= report_date <= end_date:
+            payloads.append(read_json(report_path))
+    return payloads
 
 
 def _env_int(name: str, default: int) -> int:
@@ -165,6 +184,68 @@ def create_app(
         if report_path.exists():
             return build_daily_payload(read_json(report_path))
         return build_daily_payload(load_latest_daily_json(data_dir))
+
+    def load_payloads_between(start_date: date, end_date: date) -> list[dict]:
+        repository_context = report_repository_context()
+        if repository_context is not None:
+            with repository_context as repository:
+                return repository.get_daily_report_payloads_between(start_date, end_date)
+        return load_daily_reports_between(data_dir, start_date, end_date)
+
+    @app.get("/api/public/events")
+    def events(
+        days: int = 30,
+        category: Optional[str] = None,
+        q: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict:
+        if days < 1 or days > 90:
+            raise HTTPException(status_code=400, detail="days must be between 1 and 90")
+        if limit < 1 or limit > 200:
+            raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
+        if offset < 0:
+            raise HTTPException(status_code=400, detail="offset must be non-negative")
+        end_date = date.today()
+        start_date = end_date - timedelta(days=days - 1)
+        payloads = load_payloads_between(start_date, end_date)
+        return build_events_payload(
+            payloads, category=category, q=q, limit=limit, offset=offset
+        )
+
+    def period_report(mode: str, range_start: date, range_end: date) -> dict:
+        payloads = load_payloads_between(range_start, range_end)
+        return build_period_payload(
+            payloads, mode=mode, range_start=range_start, range_end=range_end
+        )
+
+    @app.get("/api/public/reports/weekly")
+    def weekly_latest() -> dict:
+        range_start, range_end = week_range(date.today())
+        return period_report("weekly", range_start, range_end)
+
+    @app.get("/api/public/reports/weekly/{report_date}")
+    def weekly(report_date: str) -> dict:
+        try:
+            anchor = date.fromisoformat(report_date)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid report date") from exc
+        range_start, range_end = week_range(anchor)
+        return period_report("weekly", range_start, range_end)
+
+    @app.get("/api/public/reports/monthly")
+    def monthly_latest() -> dict:
+        range_start, range_end = month_range(date.today())
+        return period_report("monthly", range_start, range_end)
+
+    @app.get("/api/public/reports/monthly/{month}")
+    def monthly(month: str) -> dict:
+        try:
+            anchor = datetime.strptime(month, "%Y-%m").date()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid month, expected YYYY-MM") from exc
+        range_start, range_end = month_range(anchor)
+        return period_report("monthly", range_start, range_end)
 
     @app.post("/api/admin/refresh-latest")
     def refresh_latest(limit: Optional[int] = None, top_n: Optional[int] = None) -> dict:

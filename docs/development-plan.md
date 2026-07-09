@@ -14,7 +14,7 @@
 | Phase 3 - PostgreSQL + pgvector 持久化 | 进行中 | Docker 已安装；Postgres/Redis healthy；pipeline CLI 已写库；FastAPI public endpoints 已可读数据库 | 补 Alembic 迁移和 pgvector 相似查询 |
 | Phase 4 - API 与日报服务化 | 进行中 | 本地 FastAPI 服务已启动并通过 HTTP smoke；latest/daily 从 DB 读到 12 条日报 | 等 API compose 网络问题恢复后补容器验证 |
 | Phase 5 - 任务调度与稳定性 | 未开始 | Celery/Redis/scheduler 尚未接入 | 等数据库持久化完成后启动 |
-| Phase 6 - 前端 MVP | 已完成 | `apps/web` Next.js + Tailwind 首版已完成：`/latest` 已重构为 AIHOT 风格精选首页；`/all` 已实现 AIHOT 风格全部 AI 动态页；`/daily`、`/weekly`、`/monthly` 已实现 AIHOT 风格报告页；`/daily/:date`、`/event/:id`、`/search`、点击刷新日报/完整成果均通过验证 | 后续为 `/all` 和周/月报接入真正全量/周期 API，并实现主题、收藏等侧栏页面 |
+| Phase 6 - 前端 MVP | 已完成 | `apps/web` Next.js + Tailwind 首版已完成：`/latest` 已重构为 AIHOT 风格精选首页；`/all` 已接入真正的全量事件 API（跨日期区间合并去重）；`/daily`、`/weekly`、`/monthly` 已实现 AIHOT 风格报告页，周/月报已接入真实周期报告 API；`/daily/:date`、`/event/:id`、`/search`、点击刷新日报/完整成果均通过验证 | 实现主题、收藏等侧栏页面；界面视觉升级 |
 | Phase 7 - RSS/Public API/MCP | 未开始 | RSS/Public API 完整版和 MCP 暂缓 | 等 API 和数据质量稳定后启动 |
 | Phase 8 - 后台管理 | 未开始 | 后台暂缓，避免早期范围膨胀 | 等数据闭环稳定后启动 |
 

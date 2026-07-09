@@ -87,6 +87,24 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(latest_payload["report_date"], "2026-07-02")
         self.assertEqual(latest_payload["article_count"], 3)
 
+    def test_daily_report_payloads_between_returns_range_in_ascending_order(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            for day, count in [(1, 1), (3, 3), (5, 5), (9, 9)]:
+                repository.upsert_daily_report(self._report(date(2026, 7, day), article_count=count))
+            session.commit()
+
+            payloads = repository.get_daily_report_payloads_between(
+                date(2026, 7, 2), date(2026, 7, 6)
+            )
+
+        self.assertEqual(
+            [payload["report_date"] for payload in payloads],
+            ["2026-07-03", "2026-07-05"],
+        )
+
     def _source(self, *, name="OpenAI Blog"):
         return Source(
             id="openai_blog",

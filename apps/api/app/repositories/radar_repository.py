@@ -70,6 +70,17 @@ class RadarRepository:
             return None
         return _daily_report_payload(model)
 
+    def get_daily_report_payloads_between(
+        self, start_date: date, end_date: date
+    ) -> list[dict[str, Any]]:
+        models = self.session.scalars(
+            select(DailyReportModel)
+            .where(DailyReportModel.report_date >= start_date)
+            .where(DailyReportModel.report_date <= end_date)
+            .order_by(DailyReportModel.report_date.asc())
+        )
+        return [_daily_report_payload(model) for model in models]
+
     def get_latest_daily_report_payload(self) -> Optional[dict[str, Any]]:
         model = self.session.scalar(
             select(DailyReportModel).order_by(DailyReportModel.report_date.desc()).limit(1)

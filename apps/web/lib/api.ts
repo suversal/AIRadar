@@ -104,6 +104,89 @@ export async function getLatestReport(): Promise<LatestReport> {
   }
 }
 
+export type AllEventsPayload = {
+  report_dates: string[];
+  updated_at: string | null;
+  total: number;
+  limit: number;
+  offset: number;
+  article_count: number;
+  items: LatestEvent[];
+  error?: string | null;
+};
+
+export type PeriodReport = {
+  mode: "weekly" | "monthly";
+  range_start: string;
+  range_end: string;
+  report_dates: string[];
+  updated_at: string | null;
+  article_count: number;
+  items: LatestEvent[];
+  error?: string | null;
+};
+
+function emptyAllEvents(error: string): AllEventsPayload {
+  return {
+    report_dates: [],
+    updated_at: null,
+    total: 0,
+    limit: 0,
+    offset: 0,
+    article_count: 0,
+    items: [],
+    error,
+  };
+}
+
+export async function getAllEvents(
+  params: { days?: number; limit?: number } = {},
+): Promise<AllEventsPayload> {
+  const search = new URLSearchParams();
+  search.set("days", String(params.days ?? 30));
+  search.set("limit", String(params.limit ?? 200));
+  try {
+    const response = await fetch(`${getApiBaseUrl()}/api/public/events?${search}`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return emptyAllEvents(`API 服务暂时不可用：events 接口返回 ${response.status}。`);
+    }
+    const payload = (await response.json()) as AllEventsPayload;
+    return { ...payload, error: null };
+  } catch (error) {
+    return emptyAllEvents(latestLoadErrorMessage(error));
+  }
+}
+
+function emptyPeriodReport(mode: "weekly" | "monthly", error: string): PeriodReport {
+  return {
+    mode,
+    range_start: "",
+    range_end: "",
+    report_dates: [],
+    updated_at: null,
+    article_count: 0,
+    items: [],
+    error,
+  };
+}
+
+export async function getPeriodReport(mode: "weekly" | "monthly"): Promise<PeriodReport> {
+  try {
+    const response = await fetch(`${getApiBaseUrl()}/api/public/reports/${mode}`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return emptyPeriodReport(mode, `API 服务暂时不可用：${mode} 接口返回 ${response.status}。`);
+    }
+    const payload = (await response.json()) as PeriodReport;
+    return { ...payload, error: null };
+  } catch (error) {
+    return emptyPeriodReport(mode, latestLoadErrorMessage(error));
+  }
+}
+
 export async function getDailyReport(reportDate: string): Promise<DailyReport> {
   const response = await fetch(
     `${getApiBaseUrl()}/api/public/daily/${encodeURIComponent(reportDate)}`,

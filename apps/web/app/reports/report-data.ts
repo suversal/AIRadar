@@ -1,4 +1,4 @@
-import type { DailyReport, LatestEvent, LatestReport } from "@/lib/api";
+import type { DailyReport, LatestEvent, LatestReport, PeriodReport } from "@/lib/api";
 import { getDailySections } from "@/lib/markdown";
 
 export type ReportHighlight = {
@@ -82,25 +82,12 @@ function sortByScore(items: LatestEvent[]) {
   return [...items].sort((left, right) => (right.final_score ?? 0) - (left.final_score ?? 0));
 }
 
-function addDays(date: Date, days: number) {
-  const copy = new Date(date);
-  copy.setDate(copy.getDate() + days);
-  return copy;
-}
-
-function formatDate(value: Date) {
-  return value.toISOString().slice(0, 10);
-}
-
-function resolveRange(reportDate: string | null | undefined, mode: PeriodMode) {
-  const anchor = reportDate ? new Date(`${reportDate}T00:00:00`) : new Date();
-  const safeAnchor = Number.isNaN(anchor.getTime()) ? new Date() : anchor;
-  if (mode === "monthly") {
-    const start = new Date(safeAnchor.getFullYear(), safeAnchor.getMonth(), 1);
-    const end = new Date(safeAnchor.getFullYear(), safeAnchor.getMonth() + 1, 0);
-    return `${formatDate(start)} ~ ${formatDate(end)}`;
+function resolveRange(period: PeriodReport) {
+  if (period.range_start && period.range_end) {
+    return `${period.range_start} ~ ${period.range_end}`;
   }
-  return `${formatDate(addDays(safeAnchor, -6))} ~ ${formatDate(safeAnchor)}`;
+  const today = new Date().toISOString().slice(0, 10);
+  return `${today} ~ ${today}`;
 }
 
 function mainlineFor(highlights: ReportHighlight[], mode: PeriodMode) {
@@ -118,13 +105,14 @@ function mainlineFor(highlights: ReportHighlight[], mode: PeriodMode) {
   };
 }
 
-export function buildPeriodDigest(latest: LatestReport, mode: PeriodMode) {
-  const items = sortByScore(latest.items);
+export function buildPeriodDigest(period: PeriodReport, mode: PeriodMode) {
+  const items = sortByScore(period.items);
   const highlights = summarizeCategoryHighlights(items, mode === "monthly" ? 5 : 6);
   const uniqueTags = new Set(items.flatMap((item) => item.tags ?? []));
-  const range = resolveRange(latest.report_date, mode);
+  const range = resolveRange(period);
   const mainline = mainlineFor(highlights, mode);
   const selectedCount = items.filter((item) => (item.final_score ?? 0) >= 65).length;
+  const coveredDays = Math.max(period.report_dates.length, 1);
 
   return {
     mode,
@@ -141,7 +129,7 @@ export function buildPeriodDigest(latest: LatestReport, mode: PeriodMode) {
     stats: [
       { label: "独立事件", value: items.length.toString() },
       { label: "条精选", value: selectedCount.toString() },
-      { label: mode === "weekly" ? "期日报浓缩" : "天趋势聚合", value: mode === "weekly" ? "7" : "30" },
+      { label: "期日报浓缩", value: coveredDays.toString() },
       { label: "阅读本页", value: `≈${mode === "weekly" ? 5 : 4} min` },
     ],
   };

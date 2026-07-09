@@ -1,5 +1,5 @@
 import type { LatestEvent } from "@/lib/api";
-import { getLatestReport } from "@/lib/api";
+import { getAllEvents } from "@/lib/api";
 import { eventHref, searchEvents } from "@/lib/events";
 
 type AllSearchParams = Promise<{
@@ -238,7 +238,7 @@ export default async function AllEventsPage({
 }: {
   searchParams: AllSearchParams;
 }) {
-  const report = await getLatestReport();
+  const report = await getAllEvents();
   const resolvedSearchParams = await searchParams;
   const selectedSource = firstQueryValue(resolvedSearchParams.source) ?? "";
   const selectedCategory = firstQueryValue(resolvedSearchParams.category) ?? "";

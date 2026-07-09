@@ -53,8 +53,8 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev
 Open `http://127.0.0.1:3000/latest` for the current homepage, or
 `http://127.0.0.1:3000/all` for the all AI dynamics feed. The homepage keeps
 search out of the selected feed; `/all` has its own source/category filters and
-inline search. The first `/all` implementation still reads the public latest
-payload, so a broader backend all-events API is a later milestone.
+inline search, backed by `GET /api/public/events`, which merges daily reports
+across a date range (default 30 days) and dedupes by event id.
 
 Report pages:
 
@@ -62,8 +62,10 @@ Report pages:
 - `http://127.0.0.1:3000/weekly`
 - `http://127.0.0.1:3000/monthly`
 
-The first weekly and monthly pages aggregate the current public latest payload;
-dedicated period report APIs are a later milestone.
+Weekly and monthly pages read the dedicated period report APIs
+(`GET /api/public/reports/weekly[/{date}]` for the trailing 7 days and
+`GET /api/public/reports/monthly[/{YYYY-MM}]` for the calendar month), which
+aggregate daily reports over the true period range.
 
 Generated articles, reports, and crawl diagnostics are written under `data/`,
 which is ignored by git.

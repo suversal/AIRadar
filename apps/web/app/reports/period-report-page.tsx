@@ -1,4 +1,4 @@
-import { getLatestReport } from "@/lib/api";
+import { getPeriodReport } from "@/lib/api";
 import { eventHref } from "@/lib/events";
 import { buildPeriodDigest, type PeriodMode } from "./report-data";
 import { ReportShell } from "./report-shell";
@@ -35,8 +35,8 @@ export async function PeriodReportPage({
   highlightsTitle: string;
   themeLabel: string;
 }) {
-  const latest = await getLatestReport();
-  const digest = buildPeriodDigest(latest, mode);
+  const period = await getPeriodReport(mode);
+  const digest = buildPeriodDigest(period, mode);
 
   return (
     <ReportShell
@@ -97,7 +97,7 @@ export async function PeriodReportPage({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-base font-semibold text-slate-100">{highlightsTitle}</h2>
             <div className="text-sm text-slate-600">
-              {digest.highlights.length} 个主题 · {latest.items.length} 篇报道
+              {digest.highlights.length} 个主题 · {period.items.length} 篇报道
             </div>
           </div>
           <div className="mt-4 divide-y divide-slate-800">
