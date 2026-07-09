@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import type { LatestEvent, OriginalBlock } from "@/lib/api";
-import { getLatestReport } from "@/lib/api";
+import { getEventDetail, getLatestReport } from "@/lib/api";
 import { findEventById } from "@/lib/events";
 import { ArticleReadingToggle } from "./article-reading-toggle";
 
@@ -142,7 +142,7 @@ function renderOriginalBlock(block: OriginalBlock, index: number) {
 export default async function EventDetailPage({ params }: { params: EventParams }) {
   const { id } = await params;
   const report = await getLatestReport();
-  const event = findEventById(report.items, id);
+  const event = findEventById(report.items, id) ?? (await getEventDetail(id));
 
   if (!event) {
     notFound();

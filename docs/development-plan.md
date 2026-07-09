@@ -11,10 +11,10 @@
 | Phase 0 - 本地数据闭环骨架 | 已完成 | 代码骨架、核心模型、crawler 基础、AI 边界、评分、聚类、日报、CLI、测试、Docker 配置均已落地 | 进入真实源抓取验证 |
 | Phase 1 - 真实采集与质量闭环 | 进行中 | 源清单已扩至 27 个（26/27 实测可抓取，180 篇/轮）；Anthropic 改用 sitemap 爬虫，DeepMind 修正 RSS 地址，机器之心 RSS 已下线故移除；抓取层加了浏览器 UA、429/5xx 退避重试、同域名 6 秒礼貌间隔 | 观察 Reddit 限流恢复情况，继续人工检查日报质量并调源权重 |
 | Phase 2 - OpenAI/Kimi/DeepSeek 接入、AI 总结与真实评分 | 进行中 | Kimi/Moonshot 和 DeepSeek chat provider 已接入环境变量；DeepSeek 20 并发 API smoke 和 20 条日报生成已跑通；OpenAI 边界保留；真实 key 不写入仓库 | 继续观察真实日报质量，并根据成本/稳定性调整默认并发 |
-| Phase 3 - PostgreSQL + pgvector 持久化 | 进行中 | Docker 已安装；Postgres/Redis healthy；pipeline CLI 已写库；FastAPI public endpoints 已可读数据库 | 补 Alembic 迁移和 pgvector 相似查询 |
+| Phase 3 - PostgreSQL + pgvector 持久化 | 基本完成 | 全部 8 张表已投入使用：raw/processed/event_clusters/关联表/daily_reports/pipeline_runs 均由 pipeline 持久化；事件 ID 改为内容哈希（跨 run 稳定）；pipeline 按 url_hash 增量复用已缓存的 AI 评分与译文（实测 74s→17s，仅新文章产生 AI 调用） | 补 Alembic 迁移；article_embeddings 待接入真实 embedding API 后启用 pgvector 相似查询 |
 | Phase 4 - API 与日报服务化 | 进行中 | 本地 FastAPI 服务已启动并通过 HTTP smoke；latest/daily 从 DB 读到 12 条日报 | 等 API compose 网络问题恢复后补容器验证 |
-| Phase 5 - 任务调度与稳定性 | 未开始 | Celery/Redis/scheduler 尚未接入 | 等数据库持久化完成后启动 |
-| Phase 6 - 前端 MVP | 已完成 | `apps/web` Next.js + Tailwind 首版已完成：`/latest` 已重构为 AIHOT 风格精选首页；`/all` 已接入真正的全量事件 API（跨日期区间合并去重）；`/daily`、`/weekly`、`/monthly` 已实现 AIHOT 风格报告页，周/月报已接入真实周期报告 API；`/daily/:date`、`/event/:id`、`/search`、点击刷新日报/完整成果均通过验证 | 实现主题、收藏等侧栏页面；界面视觉升级 |
+| Phase 5 - 任务调度与稳定性 | 进行中 | 轻量调度已就绪：`scripts/run_scheduled_refresh.sh`（带锁防重入、日志落 data/logs/）+ launchd 配置 `infra/launchd/`，每 2 小时抓取+处理；安装命令见 README；Celery/Redis 队列后置 | 用户确认安装 launchd agent；观察若干天后再评估是否需要 Celery |
+| Phase 6 - 前端 MVP | 已完成 | `apps/web` Next.js + Tailwind 首版已完成：`/latest` 已重构为 AIHOT 风格精选首页；`/all` 在数据库模式下直读 processed_articles 全量事件（含未入选日报的文章，JSON 模式回退日报聚合）；`/daily`、`/weekly`、`/monthly` 已接入真实周期报告 API；`/event/:id` 支持任意已处理文章（先查精选，未命中回退单事件 API `GET /api/public/events/{id}`） | 实现主题、收藏等侧栏页面；界面视觉升级 |
 | Phase 7 - RSS/Public API/MCP | 未开始 | RSS/Public API 完整版和 MCP 暂缓 | 等 API 和数据质量稳定后启动 |
 | Phase 8 - 后台管理 | 未开始 | 后台暂缓，避免早期范围膨胀 | 等数据闭环稳定后启动 |
 

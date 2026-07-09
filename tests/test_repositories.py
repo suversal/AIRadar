@@ -190,6 +190,52 @@ class RepositoryTests(unittest.TestCase):
         self.assertIsNone(miss["scoring"])
         self.assertEqual(miss["skipped_reason"], "not_ai_related")
 
+    def test_all_event_items_come_from_processed_articles_table(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        main = self._article(
+            article_id="a1", title="OpenAI releases agent model", url_hash="hash-a1"
+        )
+        main.metadata["original_images"] = [{"url": "https://openai.com/a.png", "alt": ""}]
+        rejected = self._article(
+            article_id="a2", title="Minor AI tooling update", url_hash="hash-a2"
+        )
+
+        selected = self._processed("a1", final_score=88.0)
+        below = self._processed("a2", final_score=40.0)
+        below.selected = False
+        below.status = "rejected"
+        below.rejection_reason = "below_threshold:70"
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([main, rejected])
+            repository.upsert_event_clusters([self._cluster("e-abc123", main_article_id="a1")])
+            selected.event_cluster_id = "e-abc123"
+            repository.upsert_processed_articles([selected, below])
+            session.commit()
+
+            items = repository.get_all_event_items_between(
+                date(2026, 6, 30), date(2026, 7, 2)
+            )
+            detail = repository.get_event_item("e-abc123")
+
+        self.assertEqual(len(items), 2)  # rejected articles are visible in /all
+        selected_item = next(item for item in items if item["event_id"] == "e-abc123")
+        self.assertEqual(selected_item["final_score"], 88.0)
+        self.assertEqual(selected_item["main_source"]["name"], "OpenAI Blog")
+        self.assertEqual(
+            selected_item["original_images"][0]["url"], "https://openai.com/a.png"
+        )
+        self.assertNotIn("original_paragraphs", selected_item)
+        rejected_item = next(item for item in items if item["event_id"] != "e-abc123")
+        self.assertTrue(rejected_item["event_id"].startswith("a"))
+
+        self.assertEqual(detail["event_id"], "e-abc123")
+        self.assertEqual(detail["original_url"], "https://openai.com/a1")
+        self.assertIn("original_blocks", detail)
+
     def _processed(self, raw_article_id, *, final_score=88.0):
         from app.models.domain import ProcessedArticle, ScoreDimensions
 

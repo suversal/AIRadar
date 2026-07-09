@@ -12,6 +12,7 @@ from app.api.public import (
     build_daily_payload,
     build_daily_payload_from_repository,
     build_events_payload,
+    build_events_payload_from_items,
     build_latest_payload,
     build_latest_payload_from_repository,
     build_period_payload,
@@ -208,10 +209,34 @@ def create_app(
             raise HTTPException(status_code=400, detail="offset must be non-negative")
         end_date = date.today()
         start_date = end_date - timedelta(days=days - 1)
-        payloads = load_payloads_between(start_date, end_date)
+        repository_context = report_repository_context()
+        if repository_context is not None:
+            with repository_context as repository:
+                items = repository.get_all_event_items_between(start_date, end_date)
+            return build_events_payload_from_items(
+                items, category=category, q=q, limit=limit, offset=offset
+            )
+        payloads = load_daily_reports_between(data_dir, start_date, end_date)
         return build_events_payload(
             payloads, category=category, q=q, limit=limit, offset=offset
         )
+
+    @app.get("/api/public/events/{event_id}")
+    def event_detail(event_id: str) -> dict:
+        repository_context = report_repository_context()
+        if repository_context is not None:
+            with repository_context as repository:
+                item = repository.get_event_item(event_id)
+            if item is None:
+                raise HTTPException(status_code=404, detail="Event not found")
+            return item
+        end_date = date.today()
+        payloads = load_daily_reports_between(data_dir, end_date - timedelta(days=30), end_date)
+        for payload in reversed(payloads):
+            for item in payload.get("items", []):
+                if str(item.get("event_id")) == event_id:
+                    return item
+        raise HTTPException(status_code=404, detail="Event not found")
 
     def period_report(mode: str, range_start: date, range_end: date) -> dict:
         payloads = load_payloads_between(range_start, range_end)

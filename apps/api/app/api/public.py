@@ -85,6 +85,32 @@ def build_events_payload(
     }
 
 
+def build_events_payload_from_items(
+    items: list[dict[str, Any]],
+    *,
+    category: str | None = None,
+    q: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    filtered = [item for item in items if _item_matches(item, category=category, q=q)]
+    filtered.sort(key=_published_sort_key, reverse=True)
+    page = filtered[offset : offset + limit]
+    updated_at = max(
+        (str(item.get("published_at")) for item in filtered if item.get("published_at")),
+        default=None,
+    )
+    return {
+        "report_dates": [],
+        "updated_at": updated_at,
+        "total": len(filtered),
+        "limit": limit,
+        "offset": offset,
+        "article_count": len(page),
+        "items": page,
+    }
+
+
 def build_period_payload(
     daily_payloads: list[dict[str, Any]],
     *,

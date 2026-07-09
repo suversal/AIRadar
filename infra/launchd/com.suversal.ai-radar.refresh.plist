@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.suversal.ai-radar.refresh</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>/Users/sue/Documents/HotAI/scripts/run_scheduled_refresh.sh</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>7200</integer>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>/Users/sue/Documents/HotAI/data/logs/launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/sue/Documents/HotAI/data/logs/launchd.err.log</string>
+  <key>WorkingDirectory</key>
+  <string>/Users/sue/Documents/HotAI</string>
+</dict>
+</plist>

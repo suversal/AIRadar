@@ -159,7 +159,7 @@ class PublicEventRouteTests(unittest.TestCase):
         app = module.create_app(report_repository_factory=lambda: repository)
         return TestClient(app), repository
 
-    def test_events_route_returns_merged_payload(self):
+    def test_events_route_reads_processed_article_items_from_repository(self):
         client, repository = self._client(
             {
                 date(2026, 7, 8): make_daily_payload(
@@ -173,7 +173,20 @@ class PublicEventRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["total"], 2)
-        self.assertTrue(any(call.startswith("between:") for call in repository.calls))
+        self.assertTrue(
+            any(call.startswith("all_items:") for call in repository.calls),
+            f"expected all_items call, got {repository.calls}",
+        )
+
+    def test_event_detail_route_returns_single_event(self):
+        client, _ = self._client({})
+
+        found = client.get("/api/public/events/evt-known")
+        missing = client.get("/api/public/events/evt-missing")
+
+        self.assertEqual(found.status_code, 200)
+        self.assertEqual(found.json()["event_id"], "evt-known")
+        self.assertEqual(missing.status_code, 404)
 
     def test_events_route_validates_days(self):
         client, _ = self._client({})
@@ -248,6 +261,20 @@ class FakeRepository:
             for report_date, payload in sorted(self.payloads.items())
             if start_date <= report_date <= end_date
         ]
+
+    def get_all_event_items_between(self, start_date, end_date):
+        self.calls.append(f"all_items:{start_date.isoformat()}:{end_date.isoformat()}")
+        items = []
+        for report_date, payload in sorted(self.payloads.items()):
+            if start_date <= report_date <= end_date:
+                items.extend(payload.get("items", []))
+        return items
+
+    def get_event_item(self, event_id):
+        self.calls.append(f"event:{event_id}")
+        if event_id == "evt-known":
+            return make_item("evt-known")
+        return None
 
 
 if __name__ == "__main__":

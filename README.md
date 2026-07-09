@@ -70,6 +70,22 @@ aggregate daily reports over the true period range.
 Generated articles, reports, and crawl diagnostics are written under `data/`,
 which is ignored by git.
 
+## Scheduled Refresh
+
+`scripts/run_scheduled_refresh.sh` runs one crawl + pipeline pass with a lock
+against overlapping runs; logs land in `data/logs/refresh.log`. Thanks to
+incremental caching only newly crawled articles cost AI calls. To run it every
+2 hours via launchd:
+
+```bash
+cp infra/launchd/com.suversal.ai-radar.refresh.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.suversal.ai-radar.refresh.plist
+```
+
+To stop it: `launchctl unload ~/Library/LaunchAgents/com.suversal.ai-radar.refresh.plist`.
+Database persistence requires the Docker Postgres to be running; if it is
+down, reports still land under `data/reports/` and only the DB write fails.
+
 ## Docker Runtime
 
 Install Docker Desktop first, then:

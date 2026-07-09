@@ -187,6 +187,21 @@ export async function getPeriodReport(mode: "weekly" | "monthly"): Promise<Perio
   }
 }
 
+export async function getEventDetail(eventId: string): Promise<LatestEvent | null> {
+  try {
+    const response = await fetch(
+      `${getApiBaseUrl()}/api/public/events/${encodeURIComponent(eventId)}`,
+      { cache: "no-store" },
+    );
+    if (!response.ok) {
+      return null;
+    }
+    return (await response.json()) as LatestEvent;
+  } catch {
+    return null;
+  }
+}
+
 export async function getDailyReport(reportDate: string): Promise<DailyReport> {
   const response = await fetch(
     `${getApiBaseUrl()}/api/public/daily/${encodeURIComponent(reportDate)}`,

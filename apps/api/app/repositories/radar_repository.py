@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, time, timezone
 from typing import Any, Optional
 
 try:
@@ -211,6 +211,61 @@ class RadarRepository:
             }
         return cached
 
+    _EVENT_CONTENT_METADATA_KEYS = (
+        "original_paragraphs",
+        "original_blocks",
+        "original_markdown",
+        "translated_paragraphs",
+        "translated_blocks",
+        "translated_content",
+        "translation_status",
+        "translation_error",
+        "readme_name",
+        "readme_language",
+        "readme_selection",
+    )
+
+    def get_all_event_items_between(
+        self, start_date: date, end_date: date
+    ) -> list[dict[str, Any]]:
+        window_start = datetime.combine(start_date, time.min, tzinfo=timezone.utc)
+        window_end = datetime.combine(end_date, time.max, tzinfo=timezone.utc)
+        rows = self.session.execute(
+            select(ProcessedArticleModel, RawArticleModel, SourceModel)
+            .join(RawArticleModel, ProcessedArticleModel.raw_article_id == RawArticleModel.id)
+            .join(SourceModel, RawArticleModel.source_id == SourceModel.id)
+            .where(RawArticleModel.published_at >= window_start)
+            .where(RawArticleModel.published_at <= window_end)
+            .order_by(RawArticleModel.published_at.desc())
+        ).all()
+        return [
+            _event_item(processed, raw, source, include_content=False)
+            for processed, raw, source in rows
+        ]
+
+    def get_event_item(self, event_id: str) -> Optional[dict[str, Any]]:
+        cluster = self.session.get(EventClusterModel, event_id)
+        if cluster is not None:
+            row = self.session.execute(
+                select(ProcessedArticleModel, RawArticleModel, SourceModel)
+                .join(RawArticleModel, ProcessedArticleModel.raw_article_id == RawArticleModel.id)
+                .join(SourceModel, RawArticleModel.source_id == SourceModel.id)
+                .where(ProcessedArticleModel.raw_article_id == cluster.main_article_id)
+            ).first()
+        elif event_id.startswith("a"):
+            row = self.session.execute(
+                select(ProcessedArticleModel, RawArticleModel, SourceModel)
+                .join(RawArticleModel, ProcessedArticleModel.raw_article_id == RawArticleModel.id)
+                .join(SourceModel, RawArticleModel.source_id == SourceModel.id)
+                .where(RawArticleModel.id.like(f"{event_id[1:]}%"))
+            ).first()
+        else:
+            row = None
+        if row is None:
+            return None
+        processed, raw, source = row
+        return _event_item(processed, raw, source, include_content=True)
+
     def get_daily_report_payloads_between(
         self, start_date: date, end_date: date
     ) -> list[dict[str, Any]]:
@@ -280,6 +335,51 @@ def _raw_article_to_model(article: RawArticle) -> RawArticleModel:
         status=article.status,
         skipped_reason=article.skipped_reason,
     )
+
+
+def _event_item(
+    processed: ProcessedArticleModel,
+    raw: RawArticleModel,
+    source: SourceModel,
+    *,
+    include_content: bool,
+) -> dict[str, Any]:
+    metadata = dict(raw.raw_metadata or {})
+    published_at = raw.published_at
+    if published_at is not None and published_at.tzinfo is None:
+        published_at = published_at.replace(tzinfo=timezone.utc)
+    item: dict[str, Any] = {
+        "event_id": processed.event_cluster_id or f"a{raw.id[:12]}",
+        "title": processed.title_zh or raw.title,
+        "category": processed.category,
+        "tags": list(processed.tags or []),
+        "final_score": processed.final_score,
+        "selected": processed.status == "processed",
+        "source_count": 1,
+        "main_source": {"name": source.name, "url": raw.source_url, "tier": source.tier},
+        "source_language": raw.language,
+        "one_line_summary": processed.one_line_summary,
+        "summary": processed.summary_zh,
+        "reason": processed.reason_zh,
+        "action": processed.action_zh,
+        "published_at": published_at.isoformat() if published_at else None,
+        "original_url": raw.source_url,
+    }
+    images = metadata.get("original_images")
+    if images:
+        item["original_images"] = images
+    if include_content:
+        paragraphs = metadata.get("original_paragraphs") or []
+        item["original_content"] = str(
+            metadata.get("original_text") or "\n\n".join(str(p) for p in paragraphs)
+        )
+        item["original_paragraphs"] = paragraphs
+        item["original_blocks"] = metadata.get("original_blocks") or []
+        for key in RadarRepository._EVENT_CONTENT_METADATA_KEYS:
+            value = metadata.get(key)
+            if value:
+                item[key] = value
+    return item
 
 
 def _apply_processed_article(model: ProcessedArticleModel, processed: ProcessedArticle) -> None:
