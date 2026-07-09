@@ -14,7 +14,7 @@
 | Phase 3 - PostgreSQL + pgvector 持久化 | 基本完成 | 全部 8 张表已投入使用：raw/processed/event_clusters/关联表/daily_reports/pipeline_runs 均由 pipeline 持久化；事件 ID 改为内容哈希（跨 run 稳定）；pipeline 按 url_hash 增量复用已缓存的 AI 评分与译文（实测 74s→17s，仅新文章产生 AI 调用） | 补 Alembic 迁移；article_embeddings 待接入真实 embedding API 后启用 pgvector 相似查询 |
 | Phase 4 - API 与日报服务化 | 进行中 | 本地 FastAPI 服务已启动并通过 HTTP smoke；latest/daily 从 DB 读到 12 条日报 | 等 API compose 网络问题恢复后补容器验证 |
 | Phase 5 - 任务调度与稳定性 | 进行中 | 轻量调度已就绪：`scripts/run_scheduled_refresh.sh`（带锁防重入、日志落 data/logs/）+ launchd 配置 `infra/launchd/`，每 2 小时抓取+处理；安装命令见 README；Celery/Redis 队列后置 | 用户确认安装 launchd agent；观察若干天后再评估是否需要 Celery |
-| Phase 6 - 前端 MVP | 已完成 | `apps/web` Next.js + Tailwind 首版已完成：`/latest` 已重构为 AIHOT 风格精选首页；`/all` 在数据库模式下直读 processed_articles 全量事件（含未入选日报的文章，JSON 模式回退日报聚合）；`/daily`、`/weekly`、`/monthly` 已接入真实周期报告 API；`/event/:id` 支持任意已处理文章（先查精选，未命中回退单事件 API `GET /api/public/events/{id}`） | 实现主题、收藏等侧栏页面；界面视觉升级 |
+| Phase 6 - 前端 MVP | 已完成（v1 收尾完成） | 分类统一为 全部/模型/产品/行业/论文/技巧 六类（后端 8 类评分→展示映射，AI prompt 已约束枚举）；主题页上线（公司与模型/技术方向/内容形态 三组，点击进入 `/all?topic=` 筛选流）；视觉重设计为"琥珀信号"体系（AI·RADAR 品牌、暖炭黑+琥珀金 token、等宽仪表读数、雷达状态条、共享 Sidebar）；Agent接入/关于/更新日志/反馈 四个静态页上线；全部 15 条路由 + 404/API宕机降级走查通过 | 收藏（v2）；移动端截图细调 |
 | Phase 7 - RSS/Public API/MCP | 未开始 | RSS/Public API 完整版和 MCP 暂缓 | 等 API 和数据质量稳定后启动 |
 | Phase 8 - 后台管理 | 未开始 | 后台暂缓，避免早期范围膨胀 | 等数据闭环稳定后启动 |
 

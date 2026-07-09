@@ -42,6 +42,13 @@ class TaxonomyTests(unittest.TestCase):
         self.assertEqual(display_category("mystery"), "industry")
         self.assertEqual(display_category(""), "industry")
         self.assertEqual(display_category(None), "industry")
+        # observed legacy values from pre-constraint prompt runs
+        self.assertEqual(display_category("tool_release"), "product")
+        self.assertEqual(display_category("framework_update"), "product")
+        self.assertEqual(display_category("application_launch"), "product")
+        self.assertEqual(display_category("expert_opinion"), "tutorial")
+        self.assertEqual(display_category("safety_research"), "research")
+        self.assertEqual(display_category("policy_regulation"), "industry")
 
     def test_scoring_categories_for_expands_display_category(self):
         self.assertEqual(

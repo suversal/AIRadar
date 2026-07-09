@@ -34,6 +34,10 @@
 - `scripts`: local CLI entrypoints for seed, crawl, pipeline, and report output. `run_pipeline_once.py` supports `--ai-concurrency` and `--skip-prefilter`; API refresh reads `AI_PIPELINE_CONCURRENCY`.
 - `infra`: Docker Compose and PostgreSQL schema with pgvector.
 
+- Taxonomy: `app/services/taxonomy.py` is the single category standard — 8 scoring categories (with per-category thresholds) map to 5 display categories + 全部 (模型/产品/行业/论文/技巧). All payloads emit display-key `category`, Chinese `category_label`, and `scoring_category`; the events API category filter compares in display space; `scoring_system_prompt()` (shared by all chat providers) constrains the model to the 8-value enum. `apps/web/lib/taxonomy.ts` mirrors the standard for filter options.
+- Topics: `app/services/topics.py` registers three groups (公司与模型 12 topics by company keywords, 技术方向 8 topics by technique keywords, 内容形态 = display categories). ASCII keywords match on word boundaries, CJK by substring. `GET /api/public/topics` returns grouped 30-day counts; `GET /api/public/events?topic=` filters. `/topics` page links each card to `/all?topic=`.
+- Visual identity "琥珀信号": design tokens in `apps/web/app/globals.css` via Tailwind `@theme` (canvas/panel/line/signal/cool/ink scales), CJK system font stack, `.readout` mono utility for scores/clocks. Brand is AI·RADAR. Shared `components/sidebar.tsx` + `components/nav.ts` replace per-page sidebars; `components/radar-status.tsx` is the signature instrument bar; `components/static-page.tsx` shells the four static pages (/agent /about /changelog /feedback). Single dark theme by design.
+
 ## Next Milestone After 7-Day Observation
 
 - Persist pipeline writes into PostgreSQL instead of JSON files.

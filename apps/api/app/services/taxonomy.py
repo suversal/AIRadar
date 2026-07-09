@@ -32,10 +32,16 @@ _FALLBACK_KEYWORDS: list[tuple[str, str]] = [
     ("model", "model"),
     ("research", "research"),
     ("paper", "research"),
+    ("academic", "research"),
     ("product", "product"),
     ("open_source", "product"),
+    ("tool", "product"),
+    ("framework", "product"),
+    ("launch", "product"),
+    ("release", "product"),
     ("tutorial", "tutorial"),
     ("opinion", "tutorial"),
+    ("technique", "tutorial"),
     ("funding", "industry"),
 ]
 

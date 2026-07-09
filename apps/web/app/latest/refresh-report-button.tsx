@@ -104,7 +104,7 @@ export function RefreshReportButton() {
           type="button"
           onClick={() => refreshReport("digest")}
           disabled={refreshState === "running"}
-          className="w-full rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+          className="w-full rounded-md border border-signal bg-signal px-3 py-2 text-sm font-semibold text-canvas disabled:cursor-not-allowed disabled:opacity-60"
         >
           {refreshState === "running" && activeMode === "digest" ? "刷新中..." : "刷新最新日报"}
         </button>
@@ -112,12 +112,12 @@ export function RefreshReportButton() {
           type="button"
           onClick={() => refreshReport("complete")}
           disabled={refreshState === "running"}
-          className="w-full rounded-md border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-60"
+          className="w-full rounded-md border border-line px-3 py-2 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
         >
           {refreshState === "running" && activeMode === "complete" ? "生成中..." : "刷新完整成果"}
         </button>
       </div>
-      <p className="mt-2 min-h-5 text-sm text-[var(--muted)]" aria-live="polite">
+      <p className="mt-2 min-h-5 text-sm text-ink-mid" aria-live="polite">
         {message}
       </p>
     </div>
