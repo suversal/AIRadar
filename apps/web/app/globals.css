@@ -1,21 +1,21 @@
 @import "tailwindcss";
 
-/* 电紫脉冲 design tokens — deep indigo canvas, electric violet signal,
-   cool lavender-gray metadata. Zero external font deps: refined CJK
-   system stack + monospace numerals for instrument readouts. */
+/* Claude-style palette — warm charcoal surfaces, coral signal accent,
+   ivory ink. Zero external font deps: refined CJK system stack +
+   monospace numerals for instrument readouts. */
 @theme {
-  --color-canvas: #0d0b14;
-  --color-panel: #16131f;
-  --color-panel-soft: #201b2d;
-  --color-line: #292339;
-  --color-line-strong: #3a3252;
-  --color-signal: #a78bfa;
-  --color-signal-bright: #c4b5fd;
-  --color-signal-dim: #7c5fd8;
-  --color-cool: #93a0c8;
-  --color-ink: #eae8f2;
-  --color-ink-mid: #9b95a8;
-  --color-ink-dim: #615a70;
+  --color-canvas: #1f1e1d;
+  --color-panel: #262624;
+  --color-panel-soft: #32302c;
+  --color-line: #3d3a35;
+  --color-line-strong: #4c4842;
+  --color-signal: #d97757;
+  --color-signal-bright: #e89b7d;
+  --color-signal-dim: #b4553a;
+  --color-cool: #a5adb8;
+  --color-ink: #f0eee6;
+  --color-ink-mid: #a9a69c;
+  --color-ink-dim: #75726a;
 
   --font-sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC",
     "Microsoft YaHei", system-ui, sans-serif;
@@ -47,9 +47,9 @@ a,
 button,
 summary {
   transition:
-    color 0.15s ease,
-    background-color 0.15s ease,
-    border-color 0.15s ease,
+    color 0.18s ease,
+    background-color 0.18s ease,
+    border-color 0.18s ease,
     box-shadow 0.2s ease,
     transform 0.2s ease;
 }
@@ -70,7 +70,7 @@ summary {
   letter-spacing: 0.02em;
 }
 
-/* hoverable content cards: lift + violet edge glow */
+/* hoverable content cards: lift + coral edge glow */
 .card-hover {
   transition:
     border-color 0.2s ease,
@@ -81,12 +81,12 @@ summary {
 .card-hover:hover {
   border-color: color-mix(in srgb, var(--color-signal) 45%, transparent);
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--color-signal) 18%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--color-signal) 16%, transparent),
     0 12px 40px rgba(0, 0, 0, 0.35);
   transform: translateY(-2px);
 }
 
-/* loading skeletons: violet-tinted shimmer sweep */
+/* loading skeletons: warm shimmer sweep */
 @keyframes shimmer {
   from {
     background-position: 200% 0;

@@ -111,7 +111,7 @@ export function DailyReportView({ report }: { report: DailyReport }) {
                           {section.label} · {formatScore(item.final_score)}
                         </div>
                         <h3 className="mt-2 text-xl font-semibold">
-                          <a href={eventHref(item)}>{item.title}</a>
+                          <a className="hover:text-signal" href={eventHref(item)}>{item.title}</a>
                         </h3>
                         <p className="mt-3 text-sm leading-6 text-ink-mid">
                           {item.summary ?? item.one_line_summary ?? "暂无摘要。"}

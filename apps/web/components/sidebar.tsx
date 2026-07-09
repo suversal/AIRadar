@@ -19,7 +19,7 @@ export function Sidebar({ activeNavId }: { activeNavId: string }) {
                 const className = `flex items-center gap-3 rounded-md px-4 py-3 text-sm font-semibold ${
                   active
                     ? "border border-signal/40 bg-signal/10 text-signal"
-                    : "text-ink-mid hover:text-ink"
+                    : "text-ink-mid hover:bg-panel-soft hover:text-ink"
                 }`;
                 const content = (
                   <>

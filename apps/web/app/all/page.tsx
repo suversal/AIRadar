@@ -158,7 +158,7 @@ function AllEventCard({ item }: { item: LatestEvent }) {
           <div className="min-w-0">
             <div className="truncate text-sm text-ink-mid">{sourceLine(item)}</div>
             <h2 className="mt-3 text-xl font-semibold leading-8 text-ink">
-              <a href={eventHref(item)}>{item.title}</a>
+              <a className="hover:text-signal" href={eventHref(item)}>{item.title}</a>
             </h2>
           </div>
         </div>
@@ -189,7 +189,7 @@ function AllEventCard({ item }: { item: LatestEvent }) {
       {item.tags?.length ? (
         <div className="mt-4 flex flex-wrap gap-2">
           {item.tags.slice(0, 5).map((tag) => (
-            <span key={tag} className="rounded-md bg-panel-soft px-3 py-1 text-xs text-ink-mid">
+            <span key={tag} className="rounded-md bg-panel-soft px-3 py-1 text-xs text-ink-mid transition hover:bg-line hover:text-signal-bright">
               {tag}
             </span>
           ))}
@@ -256,7 +256,7 @@ export default async function AllEventsPage({
                     className={`rounded-md px-5 py-2 text-sm font-semibold ${
                       selectedSource === source
                         ? "bg-signal/15 text-signal"
-                        : "text-ink-mid hover:text-ink"
+                        : "text-ink-mid hover:bg-panel-soft hover:text-ink"
                     }`}
                     href={allHref({ source, category: selectedCategory, q: query })}
                   >
@@ -272,7 +272,7 @@ export default async function AllEventsPage({
                     className={`rounded-md px-5 py-2 text-sm font-semibold ${
                       selectedCategory === category
                         ? "bg-signal/15 text-signal"
-                        : "text-ink-mid hover:text-ink"
+                        : "text-ink-mid hover:bg-panel-soft hover:text-ink"
                     }`}
                     href={allHref({ source: selectedSource, category, q: query })}
                   >

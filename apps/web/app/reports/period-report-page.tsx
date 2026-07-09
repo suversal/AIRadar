@@ -3,21 +3,6 @@ import { eventHref } from "@/lib/events";
 import { buildPeriodDigest, type PeriodMode } from "./report-data";
 import { ReportShell } from "./report-shell";
 
-function secondaryItems(mode: PeriodMode) {
-  if (mode === "weekly") {
-    return [
-      ["第5周", "模型军备竞赛与智能体落地"],
-      ["第4周", "智能体生态加速成型"],
-      ["第3周", "AI应用资金时代与地缘博弈"],
-      ["第2周", "超级应用与模型军备竞赛"],
-    ];
-  }
-  return [
-    ["6月", "AI基础设施与智能体生态加速"],
-    ["5月", "模型开源与智能体生态加速"],
-  ];
-}
-
 function labelFor(mode: PeriodMode) {
   return mode === "weekly" ? "周报" : "月报";
 }
@@ -42,19 +27,22 @@ export async function PeriodReportPage({
     <ReportShell
       activeMode={mode}
       secondary={
-        <div className="mt-6 space-y-2">
-          {secondaryItems(mode).map(([period, label], index) => (
-            <a
-              key={period}
-              className={`grid grid-cols-[48px_1fr] gap-3 rounded-md px-3 py-3 text-sm ${
-                index === 0 ? "bg-signal/10 text-signal-bright" : "text-ink-mid hover:text-ink"
-              }`}
-              href={mode === "weekly" ? "/weekly" : "/monthly"}
-            >
-              <span>{period}</span>
-              <span className="line-clamp-2">{label}</span>
+        <div className="mt-6">
+          <div className="text-sm font-semibold text-ink-mid">
+            {mode === "weekly" ? "本周" : "本月"}
+          </div>
+          <div className="mt-3 rounded-md bg-signal/10 px-3 py-3 text-sm text-signal-bright">
+            <div className="readout text-xs">{digest.range}</div>
+            <div className="mt-2 line-clamp-2">{digest.mainline.title}</div>
+          </div>
+          <p className="mt-4 text-xs leading-5 text-ink-dim">
+            往期{labelFor(mode)}归档将随数据积累逐步开放
+          </p>
+          <div className="mt-5 border-t border-line pt-4 text-sm text-ink-dim">
+            <a className="hover:text-signal" href="/all">
+              查看全部动态
             </a>
-          ))}
+          </div>
         </div>
       }
     >
@@ -104,7 +92,7 @@ export async function PeriodReportPage({
             {digest.highlights.map((highlight, index) => (
               <a
                 key={highlight.label}
-                className="grid gap-2 py-3 text-sm md:grid-cols-[36px_1fr_40px]"
+                className="grid gap-2 rounded-md px-2 py-3 text-sm transition hover:bg-panel-soft/60 md:grid-cols-[36px_1fr_40px]"
                 href={eventHref(highlight.items[0])}
               >
                 <span className="font-semibold text-signal">{String(index + 1).padStart(2, "0")}</span>
@@ -132,7 +120,7 @@ export async function PeriodReportPage({
                 {section.items.slice(0, 3).map((item) => (
                   <article key={item.event_id} className="card-hover rounded-md border border-line bg-panel p-5">
                     <h3 className="text-lg font-semibold text-ink">
-                      <a href={eventHref(item)}>{item.title}</a>
+                      <a className="hover:text-signal" href={eventHref(item)}>{item.title}</a>
                     </h3>
                     <p className="mt-3 text-sm leading-6 text-ink-mid">
                       {item.reason ?? item.one_line_summary ?? "暂无推荐理由。"}

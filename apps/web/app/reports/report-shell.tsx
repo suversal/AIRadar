@@ -27,7 +27,7 @@ export function ReportShell({
       <div className="grid min-h-screen lg:grid-cols-[224px_200px_1fr]">
         <Sidebar activeNavId="daily" />
 
-        <aside className="border-b border-line bg-canvas px-4 py-6 lg:sticky lg:top-0 lg:h-screen lg:overflow-y-auto lg:border-b-0 lg:border-r">
+        <aside className="relative z-10 border-b border-line bg-canvas px-4 py-6 lg:sticky lg:top-0 lg:h-screen lg:overflow-y-auto lg:border-b-0 lg:border-r">
           <div className="grid grid-cols-3 overflow-hidden rounded-md border border-line text-sm font-semibold text-ink-mid">
             {reportModeTabs.map((tab) => (
               <a

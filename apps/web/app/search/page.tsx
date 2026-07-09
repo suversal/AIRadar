@@ -83,7 +83,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Searc
                     {item.category_label ?? item.category ?? "未分类"}
                   </div>
                   <h3 className="mt-2 text-xl font-semibold">
-                    <a href={eventHref(item)}>{item.title}</a>
+                    <a className="hover:text-signal" href={eventHref(item)}>{item.title}</a>
                   </h3>
                   <p className="mt-3 text-sm leading-6 text-ink-mid">
                     {item.summary ?? item.one_line_summary ?? "暂无摘要。"}

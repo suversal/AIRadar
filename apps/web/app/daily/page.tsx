@@ -96,7 +96,7 @@ export default async function DailyPage() {
             {digest.highlights.map((highlight, index) => (
               <a
                 key={highlight.label}
-                className="grid gap-2 py-3 text-sm md:grid-cols-[36px_1fr_40px]"
+                className="grid gap-2 rounded-md px-2 py-3 text-sm transition hover:bg-panel-soft/60 md:grid-cols-[36px_1fr_40px]"
                 href={eventHref(highlight.items[0])}
               >
                 <span className="font-semibold text-signal">{String(index + 1).padStart(2, "0")}</span>
@@ -139,7 +139,7 @@ export default async function DailyPage() {
                       {item.main_source?.name ?? "未知来源"} · {item.source_count ?? 1} 个来源
                     </div>
                     <h3 className="mt-3 text-xl font-semibold leading-8 text-ink">
-                      <a href={eventHref(item)}>{item.title}</a>
+                      <a className="hover:text-signal" href={eventHref(item)}>{item.title}</a>
                     </h3>
                     <p className="mt-4 text-[15px] leading-7 text-ink-mid">
                       {item.summary ?? item.one_line_summary ?? "暂无摘要。"}

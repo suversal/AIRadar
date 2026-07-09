@@ -105,7 +105,7 @@ function EventCard({ item }: { item: LatestEvent }) {
         <div className="min-w-0">
           <div className="text-sm text-ink-mid">{sourceLine(item)}</div>
           <h3 className="mt-3 text-xl font-semibold leading-7 text-ink">
-            <a href={eventHref(item)}>{item.title}</a>
+            <a className="hover:text-signal" href={eventHref(item)}>{item.title}</a>
           </h3>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -125,7 +125,7 @@ function EventCard({ item }: { item: LatestEvent }) {
       {item.tags?.length ? (
         <div className="mt-4 flex flex-wrap gap-2">
           {item.tags.slice(0, 4).map((tag) => (
-            <span key={tag} className="rounded-md bg-panel-soft px-3 py-1 text-xs text-ink-mid">
+            <span key={tag} className="rounded-md bg-panel-soft px-3 py-1 text-xs text-ink-mid transition hover:bg-line hover:text-signal-bright">
               {tag}
             </span>
           ))}
@@ -183,7 +183,7 @@ export default async function LatestPage({
                   className={`rounded-md px-5 py-2 text-sm font-semibold ${
                     selectedCategory === category
                       ? "bg-signal/15 text-signal"
-                      : "text-ink-mid hover:text-ink"
+                      : "text-ink-mid hover:bg-panel-soft hover:text-ink"
                   }`}
                   href={categoryHref(category)}
                 >
@@ -208,7 +208,7 @@ export default async function LatestPage({
               {topEvents.map((item, index) => (
                 <a
                   key={item.event_id}
-                  className="grid gap-2 rounded-md px-2 py-1 text-sm md:grid-cols-[32px_1fr_180px]"
+                  className="grid gap-2 rounded-md px-2 py-2 text-sm transition hover:bg-panel-soft/60 md:grid-cols-[32px_1fr_180px]"
                   href={eventHref(item)}
                 >
                   <span className="font-semibold text-signal">{index + 1}</span>
