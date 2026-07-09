@@ -116,6 +116,22 @@ class EventsPayloadTests(unittest.TestCase):
         self.assertEqual(paged["total"], 3)
         self.assertEqual(len(paged["items"]), 1)
 
+    def test_display_category_filter_expands_to_scoring_categories(self):
+        items = [
+            make_item("evt-1", category="product_release", title="Product ships"),
+            make_item("evt-2", category="open_source", title="Repo trends"),
+            make_item("evt-3", category="model_release", title="New model"),
+            make_item("evt-4", category="product", title="Already display-keyed"),
+        ]
+        daily = make_daily_payload("2026-07-08", items)
+
+        payload = build_events_payload([daily], category="product")
+
+        # display filter "product" covers product_release + open_source + raw "product"
+        self.assertEqual(payload["total"], 3)
+        model_only = build_events_payload([daily], category="model")
+        self.assertEqual(model_only["total"], 1)
+
     def test_empty_payloads_produce_empty_contract(self):
         payload = build_events_payload([])
 

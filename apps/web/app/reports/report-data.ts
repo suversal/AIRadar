@@ -1,5 +1,6 @@
 import type { DailyReport, LatestEvent, LatestReport, PeriodReport } from "@/lib/api";
 import { getDailySections } from "@/lib/markdown";
+import { categoryLabel, displayCategory } from "@/lib/taxonomy";
 
 export type ReportHighlight = {
   label: string;
@@ -10,23 +11,14 @@ export type ReportHighlight = {
 
 export type PeriodMode = "weekly" | "monthly";
 
-const fallbackCategoryLabels: Record<string, string> = {
-  model_release: "模型发布/更新",
-  product_release: "产品发布/更新",
-  industry: "行业动态",
-  research: "论文研究",
-  tutorial: "技巧与观点",
-  uncategorized: "其他动态",
-};
-
 export function categoryDisplayName(key: string, item?: LatestEvent) {
-  return item?.category_label ?? fallbackCategoryLabels[key] ?? key;
+  return item?.category_label ?? categoryLabel(key);
 }
 
 export function summarizeCategoryHighlights(items: LatestEvent[], limit = 5): ReportHighlight[] {
   const grouped = new Map<string, LatestEvent[]>();
   for (const item of items) {
-    const key = item.category ?? "uncategorized";
+    const key = displayCategory(item.category);
     grouped.set(key, [...(grouped.get(key) ?? []), item]);
   }
   return Array.from(grouped.entries())

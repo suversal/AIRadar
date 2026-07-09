@@ -1,6 +1,7 @@
 import type { LatestEvent } from "@/lib/api";
 import { getLatestReport } from "@/lib/api";
 import { eventHref } from "@/lib/events";
+import { CATEGORY_FILTER_OPTIONS, displayCategory } from "@/lib/taxonomy";
 import { RefreshReportButton } from "./refresh-report-button";
 
 type LatestSearchParams = Promise<{
@@ -27,14 +28,7 @@ const sidebarItems: SidebarItem[] = [
   { id: "feedback", label: "反馈", group: "更多" },
 ];
 
-const categoryOptions = [
-  ["", "全部"],
-  ["model_release", "模型"],
-  ["product_release", "产品"],
-  ["industry", "行业"],
-  ["research", "论文"],
-  ["tutorial", "技巧"],
-];
+const categoryOptions = CATEGORY_FILTER_OPTIONS;
 
 function firstQueryValue(value?: string | string[]) {
   if (Array.isArray(value)) {
@@ -181,7 +175,7 @@ export default async function LatestPage({
   const resolvedSearchParams = await searchParams;
   const selectedCategory = firstQueryValue(resolvedSearchParams.category) ?? "";
   const filteredItems = selectedCategory
-    ? report.items.filter((item) => (item.category ?? "uncategorized") === selectedCategory)
+    ? report.items.filter((item) => displayCategory(item.category) === selectedCategory)
     : report.items;
   const topEvents = filteredItems.slice(0, 3);
   const dateGroups = groupEventsByDate(filteredItems);

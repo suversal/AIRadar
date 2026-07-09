@@ -4,6 +4,8 @@ import calendar
 from datetime import date, timedelta
 from typing import Any
 
+from app.services.taxonomy import display_category
+
 WEEK_DAYS = 7
 
 
@@ -38,8 +40,14 @@ def _merge_daily_items(daily_payloads: list[dict[str, Any]]) -> tuple[list[dict[
 
 
 def _item_matches(item: dict[str, Any], *, category: str | None, q: str | None) -> bool:
-    if category and item.get("category") != category:
-        return False
+    if category:
+        item_category = str(item.get("category") or "")
+        # compare in display-taxonomy space so both scoring keys (older
+        # payloads) and display keys match the same filter
+        if item_category != category and display_category(item_category) != display_category(
+            category
+        ):
+            return False
     if q:
         needle = q.lower()
         haystack = " ".join(

@@ -138,6 +138,43 @@ def _translation_schema_hint() -> dict[str, Any]:
     }
 
 
+SCORING_CATEGORIES = [
+    "model_release",
+    "product_release",
+    "open_source",
+    "research",
+    "industry",
+    "funding",
+    "opinion",
+    "tutorial",
+]
+
+SUGGESTED_TAGS = [
+    "Agent",
+    "多模态",
+    "推理",
+    "开源",
+    "编码",
+    "语音",
+    "机器人",
+    "安全对齐",
+    "评测",
+    "融资",
+]
+
+
+def scoring_system_prompt() -> str:
+    schema_hint = _scoring_schema_hint()
+    return (
+        "Score the AI news item for a Chinese AI intelligence daily report. "
+        "Return strict JSON matching this example: "
+        f"{json.dumps(schema_hint, ensure_ascii=False)}. "
+        f"category MUST be exactly one of: {', '.join(SCORING_CATEGORIES)}. "
+        "tags: up to 5 short Chinese or product-name tags; prefer this vocabulary "
+        f"when applicable: {', '.join(SUGGESTED_TAGS)}; add company/model names as needed."
+    )
+
+
 _JSON_FENCE_RE = re.compile(r"^```[a-zA-Z]*\s*|\s*```$", re.MULTILINE)
 
 
@@ -292,17 +329,13 @@ class OpenAIProvider:
         return parse_prefilter_payload(parse_chat_json(content))
 
     def score_article(self, title: str, content: str) -> ScoringResult:
-        schema_hint = _scoring_schema_hint()
         payload = {
             "model": self.scoring_model,
             "response_format": {"type": "json_object"},
             "messages": [
                 {
                     "role": "system",
-                    "content": (
-                        "Score the AI news item. Return strict JSON matching this example: "
-                        f"{json.dumps(schema_hint, ensure_ascii=False)}"
-                    ),
+                    "content": scoring_system_prompt(),
                 },
                 {"role": "user", "content": f"Title: {title}\n\nContent: {content[:4000]}"},
             ],
@@ -391,18 +424,13 @@ class KimiProvider:
         return parse_prefilter_payload(parse_chat_json(content))
 
     def score_article(self, title: str, content: str) -> ScoringResult:
-        schema_hint = _scoring_schema_hint()
         payload = {
             "model": self.model,
             "response_format": {"type": "json_object"},
             "messages": [
                 {
                     "role": "system",
-                    "content": (
-                        "Score the AI news item for a Chinese AI intelligence daily report. "
-                        "Return strict JSON matching this example: "
-                        f"{json.dumps(schema_hint, ensure_ascii=False)}"
-                    ),
+                    "content": scoring_system_prompt(),
                 },
                 {"role": "user", "content": f"Title: {title}\n\nContent: {content[:4000]}"},
             ],
@@ -504,16 +532,11 @@ class DeepSeekProvider:
         return parse_prefilter_payload(parse_chat_json(content))
 
     def score_article(self, title: str, content: str) -> ScoringResult:
-        schema_hint = _scoring_schema_hint()
         payload = self._chat_payload(
             [
                 {
                     "role": "system",
-                    "content": (
-                        "Score the AI news item for a Chinese AI intelligence daily report. "
-                        "Return strict JSON matching this example: "
-                        f"{json.dumps(schema_hint, ensure_ascii=False)}"
-                    ),
+                    "content": scoring_system_prompt(),
                 },
                 {"role": "user", "content": f"Title: {title}\n\nContent: {content[:4000]}"},
             ]

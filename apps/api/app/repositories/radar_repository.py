@@ -20,6 +20,7 @@ from app.db.models import (
     SourceModel,
 )
 from app.models.domain import DailyReport, EventCluster, ProcessedArticle, RawArticle, Source
+from app.services.taxonomy import category_label, display_category
 
 
 @dataclass(frozen=True)
@@ -351,7 +352,9 @@ def _event_item(
     item: dict[str, Any] = {
         "event_id": processed.event_cluster_id or f"a{raw.id[:12]}",
         "title": processed.title_zh or raw.title,
-        "category": processed.category,
+        "category": display_category(processed.category),
+        "category_label": category_label(processed.category),
+        "scoring_category": processed.category,
         "tags": list(processed.tags or []),
         "final_score": processed.final_score,
         "selected": processed.status == "processed",

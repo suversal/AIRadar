@@ -1,6 +1,7 @@
 import type { LatestEvent } from "@/lib/api";
 import { getAllEvents } from "@/lib/api";
 import { eventHref, searchEvents } from "@/lib/events";
+import { CATEGORY_FILTER_OPTIONS, displayCategory } from "@/lib/taxonomy";
 
 type AllSearchParams = Promise<{
   source?: string | string[];
@@ -34,14 +35,7 @@ const sourceOptions = [
   ["community", "推文"],
 ] as const;
 
-const categoryOptions = [
-  ["", "全部"],
-  ["model_release", "模型"],
-  ["product_release", "产品"],
-  ["industry", "行业"],
-  ["research", "论文"],
-  ["tutorial", "技巧"],
-] as const;
+const categoryOptions = CATEGORY_FILTER_OPTIONS;
 
 function firstQueryValue(value?: string | string[]) {
   if (Array.isArray(value)) {
@@ -249,7 +243,7 @@ export default async function AllEventsPage({
     searchedItems.filter((item) => {
       const sourceMatches = selectedSource ? sourceBucket(item) === selectedSource : true;
       const categoryMatches = selectedCategory
-        ? (item.category ?? "uncategorized") === selectedCategory
+        ? displayCategory(item.category) === selectedCategory
         : true;
       return sourceMatches && categoryMatches;
     }),

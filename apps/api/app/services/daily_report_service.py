@@ -4,18 +4,8 @@ from datetime import date, datetime, timezone
 from typing import Any
 
 from app.models.domain import EventCluster, RawArticle, Source
+from app.services.taxonomy import category_label, display_category
 
-CATEGORY_LABELS = {
-    "model_release": "模型发布/更新",
-    "product_release": "产品发布/更新",
-    "open_source": "开源项目",
-    "research": "论文研究",
-    "industry": "行业动态",
-    "funding": "融资并购",
-    "opinion": "观点",
-    "tutorial": "技巧教程",
-    "uncategorized": "其他",
-}
 
 
 def selected_clusters(
@@ -153,8 +143,9 @@ def build_daily_json(
             {
                 "event_id": cluster.id,
                 "title": processed.title_zh,
-                "category": processed.category,
-                "category_label": CATEGORY_LABELS.get(processed.category, processed.category),
+                "category": display_category(processed.category),
+                "category_label": category_label(processed.category),
+                "scoring_category": processed.category,
                 "tags": processed.tags,
                 "final_score": cluster.final_score,
                 "source_count": cluster.source_count,
@@ -215,7 +206,7 @@ def render_daily_markdown(
         "",
     ]
     for category, items in daily["sections"].items():
-        lines.append(f"## {CATEGORY_LABELS.get(category, category)}")
+        lines.append(f"## {category_label(category)}")
         lines.append("")
         for index, item in enumerate(items, start=1):
             tags = " ".join(f"`{tag}`" for tag in item["tags"])

@@ -183,6 +183,23 @@ class ReportAndAPITests(unittest.TestCase):
         self.assertEqual(latest["items"][0]["translated_blocks"][1]["type"], "image")
         self.assertEqual(daily["report_date"], "2026-07-01")
 
+    def test_daily_json_items_and_sections_use_display_taxonomy(self):
+        daily_json = build_daily_json(
+            report_date=date(2026, 7, 1),
+            clusters=[self.cluster],
+            processed_by_article={"a1": self.processed},
+            articles_by_id={"a1": self.article},
+            sources_by_id={"openai_blog": self.source},
+            generated_at=datetime(2026, 7, 7, 14, 30, tzinfo=timezone.utc),
+        )
+
+        item = daily_json["items"][0]
+        # self.processed has scoring category model_release
+        self.assertEqual(item["category"], "model")
+        self.assertEqual(item["category_label"], "模型")
+        self.assertEqual(item["scoring_category"], "model_release")
+        self.assertEqual(list(daily_json["sections"].keys()), ["model"])
+
     def test_daily_json_exposes_translation_failure_status(self):
         self.article.metadata.pop("translated_paragraphs", None)
         self.article.metadata.pop("translated_blocks", None)

@@ -43,6 +43,72 @@ class ParseChatJsonTests(unittest.TestCase):
             parse_chat_json("")
 
 
+class ScoringPromptTests(unittest.TestCase):
+    def test_scoring_system_prompt_constrains_category_enum_and_tags(self):
+        from app.services.ai_service import scoring_system_prompt
+
+        prompt = scoring_system_prompt()
+
+        for category in [
+            "model_release",
+            "product_release",
+            "open_source",
+            "research",
+            "industry",
+            "funding",
+            "opinion",
+            "tutorial",
+        ]:
+            self.assertIn(category, prompt)
+        # controlled tag vocabulary guidance
+        self.assertIn("Agent", prompt)
+        self.assertIn("多模态", prompt)
+        self.assertIn("strict JSON", prompt)
+
+    def test_deepseek_scoring_uses_shared_system_prompt(self):
+        from app.services.ai_service import scoring_system_prompt
+
+        provider = DeepSeekProvider(api_key="test-key")
+        captured: dict = {}
+
+        def fake_post(url, payload):
+            captured["payload"] = payload
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "dimensions": {
+                                        "ai_relevance": 9,
+                                        "novelty": 8,
+                                        "impact": 8,
+                                        "information_density": 7,
+                                        "actionability": 7,
+                                        "creator_value": 6,
+                                    },
+                                    "category": "model_release",
+                                    "tags": ["Agent"],
+                                    "title_zh": "标题",
+                                    "one_line_summary": "摘要",
+                                    "summary_zh": "核心",
+                                    "reason_zh": "理由",
+                                    "action_zh": "动作",
+                                },
+                                ensure_ascii=False,
+                            )
+                        }
+                    }
+                ]
+            }
+
+        with patch.object(provider, "_post_json", side_effect=fake_post):
+            provider.score_article("t", "c")
+
+        system_message = captured["payload"]["messages"][0]["content"]
+        self.assertEqual(system_message, scoring_system_prompt())
+
+
 class AIProviderTests(unittest.TestCase):
     def test_parse_prefilter_payload_rejects_missing_required_fields(self):
         with self.assertRaises(ValueError):
