@@ -10,6 +10,6 @@ venv/
 node_modules/
 .next/
 *.tsbuildinfo
-data/
-output/
+/data/
+/output/
 .worktrees/

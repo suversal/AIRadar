@@ -4,12 +4,15 @@ import time
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Callable
+from urllib.parse import urlsplit
 
 from app.crawlers.base import BaseCrawler
 from app.crawlers.registry import crawler_for_source
 from app.models.domain import RawArticle, Source
 
 CrawlerFactory = Callable[[Source], BaseCrawler]
+
+SAME_DOMAIN_DELAY_SECONDS = 6.0
 
 
 def _utc_now_iso() -> str:
@@ -29,7 +32,15 @@ def crawl_sources(
     per_source: dict[str, dict] = {}
     started_at = _utc_now_iso()
 
+    last_fetch_by_domain: dict[str, float] = {}
     for source in active_sources:
+        domain = urlsplit(source.url).netloc.lower()
+        previous_fetch = last_fetch_by_domain.get(domain)
+        if previous_fetch is not None:
+            wait_seconds = SAME_DOMAIN_DELAY_SECONDS - (time.monotonic() - previous_fetch)
+            if wait_seconds > 0:
+                time.sleep(wait_seconds)
+        last_fetch_by_domain[domain] = time.monotonic()
         source_started = time.perf_counter()
         try:
             fetched = crawler_factory(source).fetch(limit=per_source_limit)

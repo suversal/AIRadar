@@ -19,7 +19,6 @@ class SourcesAndStorageTests(unittest.TestCase):
         self.assertIn("arxiv_ai", source_ids)
         self.assertIn("github_trending_ai", source_ids)
         self.assertIn("reddit_localllama", source_ids)
-        self.assertIn("jiqizhixin", source_ids)
         self.assertIn("ithome", source_ids)
         self.assertTrue(any(source.source_role == "authority" for source in sources))
         self.assertTrue(any(source.source_role == "signal" for source in sources))
@@ -28,6 +27,48 @@ class SourcesAndStorageTests(unittest.TestCase):
         self.assertEqual(ithome.url, "https://www.ithome.com/rss/")
         self.assertEqual(ithome.language, "zh")
         self.assertTrue(ithome.config["extract_original_content"])
+
+    def test_default_sources_second_batch_replaces_dead_feeds(self):
+        sources = default_sources()
+        by_id = {source.id: source for source in sources}
+
+        # 机器之心 RSS 已下线，返回 HTML 页面，不能再作为默认源。
+        self.assertNotIn("jiqizhixin", by_id)
+
+        anthropic = by_id["anthropic_news"]
+        self.assertEqual(anthropic.type, "sitemap")
+        self.assertEqual(anthropic.url, "https://www.anthropic.com/sitemap.xml")
+        self.assertEqual(
+            anthropic.config["path_prefix"], "https://www.anthropic.com/news/"
+        )
+
+        deepmind = by_id["deepmind_blog"]
+        self.assertEqual(deepmind.url, "https://deepmind.google/blog/rss.xml")
+
+        for expected_id in [
+            "google_ai_blog",
+            "microsoft_research",
+            "bair_blog",
+            "simon_willison",
+            "mit_tech_review_ai",
+            "techcrunch_ai",
+            "venturebeat_ai",
+            "the_decoder",
+            "verge_ai",
+            "nvidia_blog",
+            "aws_ml_blog",
+            "qwen_blog",
+            "ifanr",
+            "kr36",
+            "sspai",
+            "infoq_cn",
+        ]:
+            self.assertIn(expected_id, by_id)
+
+        self.assertGreaterEqual(len(sources), 25)
+        self.assertEqual(len({source.id for source in sources}), len(sources))
+        chinese_sources = [source for source in sources if source.language == "zh"]
+        self.assertGreaterEqual(len(chinese_sources), 5)
 
     def test_sources_round_trip_to_json(self):
         with tempfile.TemporaryDirectory() as tmpdir:

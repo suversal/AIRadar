@@ -2,6 +2,7 @@ import sys
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
@@ -81,6 +82,62 @@ class CrawlRunTests(unittest.TestCase):
         self.assertEqual(report["per_source"]["bad"]["status"], "skipped")
         self.assertEqual(report["per_source"]["bad"]["error"], "boom")
         self.assertEqual(report["skipped_reasons"], {"bad:fetch_failed": 1})
+
+    def test_crawl_sources_waits_between_same_domain_sources(self):
+        def make_reddit_source(source_id: str, path: str) -> Source:
+            return Source(
+                id=source_id,
+                name=source_id,
+                source_role="signal",
+                tier="T2",
+                type="rss",
+                category="community",
+                url=f"https://www.reddit.com/{path}/.rss",
+                homepage=f"https://www.reddit.com/{path}/",
+                allowed_domains=["reddit.com"],
+            )
+
+        sources = [
+            make_reddit_source("reddit_a", "r/LocalLLaMA"),
+            make_reddit_source("reddit_b", "r/MachineLearning"),
+        ]
+        sleeps: list[float] = []
+
+        with patch("app.crawlers.run.time.sleep", side_effect=sleeps.append):
+            crawl_sources(
+                sources,
+                limit=10,
+                crawler_factory=lambda source: FakeCrawler(articles=[]),
+            )
+
+        self.assertEqual(len(sleeps), 1)
+        self.assertGreater(sleeps[0], 0)
+
+    def test_crawl_sources_does_not_wait_between_different_domains(self):
+        def make_source(source_id: str, domain: str) -> Source:
+            return Source(
+                id=source_id,
+                name=source_id,
+                source_role="context",
+                tier="T2",
+                type="rss",
+                category="media",
+                url=f"https://{domain}/feed.xml",
+                homepage=f"https://{domain}",
+                allowed_domains=[domain],
+            )
+
+        sources = [make_source("a", "one.example"), make_source("b", "two.example")]
+        sleeps: list[float] = []
+
+        with patch("app.crawlers.run.time.sleep", side_effect=sleeps.append):
+            crawl_sources(
+                sources,
+                limit=10,
+                crawler_factory=lambda source: FakeCrawler(articles=[]),
+            )
+
+        self.assertEqual(sleeps, [])
 
 
 if __name__ == "__main__":

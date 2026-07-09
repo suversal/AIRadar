@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import email.utils
 import re
-import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
-from urllib.request import Request
 
 from app.crawlers.article_content import extract_article_content
-from app.crawlers.base import BaseCrawler, clean_text, normalize_article
+from app.crawlers.base import BaseCrawler, clean_text, fetch_url_text, normalize_article
 from app.models.domain import RawArticle, Source
 
 
@@ -152,13 +150,5 @@ def parse_rss(xml_text: str, source: Source, limit: int | None = None) -> list[R
 
 class RSSCrawler(BaseCrawler):
     def fetch(self, limit: int | None = None) -> list[RawArticle]:
-        request = Request(
-            self.source.url,
-            headers={
-                "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
-                "User-Agent": "SuversalAIRadar/0.1 (+https://github.com/suversal/HotAI)",
-            },
-        )
-        with urllib.request.urlopen(request, timeout=20) as response:
-            xml_text = response.read().decode("utf-8", errors="replace")
+        xml_text = fetch_url_text(self.source.url)
         return parse_rss(xml_text, self.source, limit=limit)

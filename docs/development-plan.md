@@ -9,7 +9,7 @@
 | 阶段 | 状态 | 当前结论 | 下一步 |
 | --- | --- | --- | --- |
 | Phase 0 - 本地数据闭环骨架 | 已完成 | 代码骨架、核心模型、crawler 基础、AI 边界、评分、聚类、日报、CLI、测试、Docker 配置均已落地 | 进入真实源抓取验证 |
-| Phase 1 - 真实采集与质量闭环 | 进行中 | 已联网检查，当前 8/12 个 source 可抓取；IT之家 RSS 已接入，并可解析原文段落和图片 URL | 修正 Anthropic/DeepMind/Reddit ML/机器之心失败源，并继续人工检查日报质量 |
+| Phase 1 - 真实采集与质量闭环 | 进行中 | 源清单已扩至 27 个（26/27 实测可抓取，180 篇/轮）；Anthropic 改用 sitemap 爬虫，DeepMind 修正 RSS 地址，机器之心 RSS 已下线故移除；抓取层加了浏览器 UA、429/5xx 退避重试、同域名 6 秒礼貌间隔 | 观察 Reddit 限流恢复情况，继续人工检查日报质量并调源权重 |
 | Phase 2 - OpenAI/Kimi/DeepSeek 接入、AI 总结与真实评分 | 进行中 | Kimi/Moonshot 和 DeepSeek chat provider 已接入环境变量；DeepSeek 20 并发 API smoke 和 20 条日报生成已跑通；OpenAI 边界保留；真实 key 不写入仓库 | 继续观察真实日报质量，并根据成本/稳定性调整默认并发 |
 | Phase 3 - PostgreSQL + pgvector 持久化 | 进行中 | Docker 已安装；Postgres/Redis healthy；pipeline CLI 已写库；FastAPI public endpoints 已可读数据库 | 补 Alembic 迁移和 pgvector 相似查询 |
 | Phase 4 - API 与日报服务化 | 进行中 | 本地 FastAPI 服务已启动并通过 HTTP smoke；latest/daily 从 DB 读到 12 条日报 | 等 API compose 网络问题恢复后补容器验证 |

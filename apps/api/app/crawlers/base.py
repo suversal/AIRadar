@@ -2,14 +2,50 @@ from __future__ import annotations
 
 import hashlib
 import re
+import time
+import urllib.request
 from datetime import datetime, timezone
 from typing import Any
+from urllib.error import HTTPError
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.request import Request
 
 from app.models.domain import RawArticle, Source
 
 TRACKING_QUERY_PREFIXES = ("utm_",)
 TRACKING_QUERY_KEYS = {"fbclid", "gclid", "igshid", "mc_cid", "mc_eid", "ref"}
+
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0 Safari/537.36 SuversalAIRadar/0.1"
+)
+FEED_ACCEPT_HEADER = (
+    "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"
+)
+RETRYABLE_HTTP_STATUSES = {429, 500, 502, 503, 504}
+
+
+def fetch_url_text(
+    url: str,
+    *,
+    accept: str = FEED_ACCEPT_HEADER,
+    timeout: int = 20,
+    max_attempts: int = 3,
+    backoff_seconds: float = 3.0,
+) -> str:
+    for attempt in range(max_attempts):
+        request = Request(
+            url,
+            headers={"Accept": accept, "User-Agent": BROWSER_USER_AGENT},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return response.read().decode("utf-8", errors="replace")
+        except HTTPError as error:
+            if error.code not in RETRYABLE_HTTP_STATUSES or attempt == max_attempts - 1:
+                raise
+            time.sleep(backoff_seconds * (attempt + 1))
+    raise RuntimeError(f"unreachable retry loop for {url}")  # pragma: no cover
 
 
 def clean_text(value: str | None) -> str:
