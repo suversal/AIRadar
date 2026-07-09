@@ -69,6 +69,29 @@ def _process_candidate_article(
     return processed, embedding, skipped_reason
 
 
+def _safe_process_candidate_article(
+    *,
+    article: RawArticle,
+    source_by_id: dict[str, Source],
+    ai_provider: Any,
+    now: datetime,
+    skip_prefilter: bool = False,
+) -> tuple[ProcessedArticle | None, list[float] | None, str | None]:
+    try:
+        return _process_candidate_article(
+            article=article,
+            source_by_id=source_by_id,
+            ai_provider=ai_provider,
+            now=now,
+            skip_prefilter=skip_prefilter,
+        )
+    except Exception as exc:  # one flaky AI response must not kill the whole run
+        article.status = "skipped"
+        article.skipped_reason = "ai_error"
+        article.metadata["ai_error"] = str(exc)[:200]
+        return None, None, "ai_error"
+
+
 def _text_blocks_for_translation(article: RawArticle) -> list[dict[str, Any]]:
     blocks = article.metadata.get("original_blocks") if article.metadata else None
     if isinstance(blocks, list):
@@ -248,7 +271,7 @@ def run_pipeline(
     ] = []
     if max_workers == 1:
         for index, article in enumerate(candidate_articles):
-            processed, embedding, skipped_reason = _process_candidate_article(
+            processed, embedding, skipped_reason = _safe_process_candidate_article(
                 article=article,
                 source_by_id=source_by_id,
                 ai_provider=ai_provider,
@@ -260,7 +283,7 @@ def run_pipeline(
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
                 executor.submit(
-                    _process_candidate_article,
+                    _safe_process_candidate_article,
                     article=article,
                     source_by_id=source_by_id,
                     ai_provider=ai_provider,

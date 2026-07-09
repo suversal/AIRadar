@@ -77,6 +77,71 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result.skipped_reasons["candidate_limit"], 1)
         self.assertEqual(result.skipped_reasons["not_ai_related"], 1)
 
+    def test_pipeline_isolates_single_article_ai_failures(self):
+        source = Source(
+            id="openai_blog",
+            name="OpenAI Blog",
+            source_role="authority",
+            tier="T1",
+            type="rss",
+            category="official",
+            url="https://openai.com/rss.xml",
+            homepage="https://openai.com",
+            allowed_domains=["openai.com"],
+            can_be_main_source=True,
+        )
+        raw_items = [
+            {
+                "source_url": "https://openai.com/good",
+                "title": "OpenAI releases agent model",
+                "content": "OpenAI releases a new AI agent model for developers.",
+                "author": "OpenAI",
+                "published_at": datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {},
+            },
+            {
+                "source_url": "https://openai.com/poison",
+                "title": "Anthropic AI safety research update",
+                "content": "AI safety research update triggers a provider glitch.",
+                "author": "Anthropic",
+                "published_at": datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {},
+            },
+        ]
+
+        class FlakyProvider(FakeAIProvider):
+            def score_article(self, title, content):
+                if "safety" in title.lower():
+                    raise ValueError("Chat response was not valid JSON")
+                return super().score_article(title, content)
+
+        for concurrency in [1, 4]:
+            with self.subTest(concurrency=concurrency):
+                result = run_pipeline(
+                    sources=[source],
+                    raw_items_by_source={"openai_blog": raw_items},
+                    ai_provider=FlakyProvider(),
+                    now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+                    report_date=date(2026, 7, 1),
+                    candidate_limit=10,
+                    top_n=12,
+                    ai_concurrency=concurrency,
+                )
+
+                self.assertEqual(result.skipped_reasons["ai_error"], 1)
+                self.assertEqual(len(result.processed_articles), 1)
+                poison = next(
+                    article
+                    for article in result.raw_articles
+                    if article.source_url.endswith("/poison")
+                )
+                self.assertEqual(poison.status, "skipped")
+                self.assertEqual(poison.skipped_reason, "ai_error")
+
     def test_pipeline_fills_report_from_below_threshold_candidates(self):
         source = Source(
             id="hn",

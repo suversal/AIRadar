@@ -11,10 +11,36 @@ from app.services.ai_service import (
     DeepSeekProvider,
     FakeAIProvider,
     KimiProvider,
+    parse_chat_json,
     parse_prefilter_payload,
     parse_scoring_payload,
     provider_from_env,
 )
+
+
+class ParseChatJsonTests(unittest.TestCase):
+    def test_parses_plain_json_object(self):
+        self.assertEqual(parse_chat_json('{"a": 1}'), {"a": 1})
+
+    def test_parses_json_wrapped_in_markdown_fences(self):
+        content = '```json\n{"is_ai_related": true, "confidence": 0.9}\n```'
+        self.assertEqual(
+            parse_chat_json(content),
+            {"is_ai_related": True, "confidence": 0.9},
+        )
+
+    def test_parses_json_with_leading_and_trailing_prose(self):
+        content = 'Here is the result:\n{"score": 8}\nHope this helps!'
+        self.assertEqual(parse_chat_json(content), {"score": 8})
+
+    def test_raises_value_error_with_snippet_for_garbage(self):
+        with self.assertRaises(ValueError) as ctx:
+            parse_chat_json("I cannot answer that.")
+        self.assertIn("I cannot answer", str(ctx.exception))
+
+    def test_raises_value_error_for_empty_content(self):
+        with self.assertRaises(ValueError):
+            parse_chat_json("")
 
 
 class AIProviderTests(unittest.TestCase):

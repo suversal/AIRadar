@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import os
 import urllib.error
 import urllib.request
@@ -137,6 +138,37 @@ def _translation_schema_hint() -> dict[str, Any]:
     }
 
 
+_JSON_FENCE_RE = re.compile(r"^```[a-zA-Z]*\s*|\s*```$", re.MULTILINE)
+
+
+def parse_chat_json(content: str) -> Any:
+    """Parse chat-completion content that should be JSON but may be wrapped.
+
+    Providers occasionally wrap the object in markdown fences or surround it
+    with prose even when json response_format is requested.
+    """
+    text = (content or "").strip()
+    if not text:
+        raise ValueError("Chat response content is empty")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    unfenced = _JSON_FENCE_RE.sub("", text).strip()
+    try:
+        return json.loads(unfenced)
+    except json.JSONDecodeError:
+        pass
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end > start:
+        try:
+            return json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            pass
+    raise ValueError(f"Chat response was not valid JSON: {text[:200]}")
+
+
 class FakeAIProvider:
     """Deterministic provider for local tests and no-key dry runs."""
 
@@ -257,7 +289,7 @@ class OpenAIProvider:
         }
         response = self._post_json("https://api.openai.com/v1/chat/completions", payload)
         content = response["choices"][0]["message"]["content"]
-        return parse_prefilter_payload(json.loads(content))
+        return parse_prefilter_payload(parse_chat_json(content))
 
     def score_article(self, title: str, content: str) -> ScoringResult:
         schema_hint = _scoring_schema_hint()
@@ -277,7 +309,7 @@ class OpenAIProvider:
         }
         response = self._post_json("https://api.openai.com/v1/chat/completions", payload)
         content = response["choices"][0]["message"]["content"]
-        return parse_scoring_payload(json.loads(content))
+        return parse_scoring_payload(parse_chat_json(content))
 
     def translate_paragraphs(self, paragraphs: list[str]) -> list[str]:
         schema_hint = _translation_schema_hint()
@@ -301,7 +333,7 @@ class OpenAIProvider:
         }
         response = self._post_json("https://api.openai.com/v1/chat/completions", payload)
         content = response["choices"][0]["message"]["content"]
-        return parse_translation_payload(json.loads(content))
+        return parse_translation_payload(parse_chat_json(content))
 
 
 class KimiProvider:
@@ -356,7 +388,7 @@ class KimiProvider:
         }
         response = self._post_json(f"{self.base_url}/chat/completions", payload)
         content = response["choices"][0]["message"]["content"]
-        return parse_prefilter_payload(json.loads(content))
+        return parse_prefilter_payload(parse_chat_json(content))
 
     def score_article(self, title: str, content: str) -> ScoringResult:
         schema_hint = _scoring_schema_hint()
@@ -377,7 +409,7 @@ class KimiProvider:
         }
         response = self._post_json(f"{self.base_url}/chat/completions", payload)
         content = response["choices"][0]["message"]["content"]
-        return parse_scoring_payload(json.loads(content))
+        return parse_scoring_payload(parse_chat_json(content))
 
     def translate_paragraphs(self, paragraphs: list[str]) -> list[str]:
         schema_hint = _translation_schema_hint()
@@ -401,7 +433,7 @@ class KimiProvider:
         }
         response = self._post_json(f"{self.base_url}/chat/completions", payload)
         content = response["choices"][0]["message"]["content"]
-        return parse_translation_payload(json.loads(content))
+        return parse_translation_payload(parse_chat_json(content))
 
 
 class DeepSeekProvider:
@@ -469,7 +501,7 @@ class DeepSeekProvider:
         )
         response = self._post_json(f"{self.base_url}/chat/completions", payload)
         content = response["choices"][0]["message"]["content"]
-        return parse_prefilter_payload(json.loads(content))
+        return parse_prefilter_payload(parse_chat_json(content))
 
     def score_article(self, title: str, content: str) -> ScoringResult:
         schema_hint = _scoring_schema_hint()
@@ -488,7 +520,7 @@ class DeepSeekProvider:
         )
         response = self._post_json(f"{self.base_url}/chat/completions", payload)
         content = response["choices"][0]["message"]["content"]
-        return parse_scoring_payload(json.loads(content))
+        return parse_scoring_payload(parse_chat_json(content))
 
     def translate_paragraphs(self, paragraphs: list[str]) -> list[str]:
         schema_hint = _translation_schema_hint()
@@ -510,7 +542,7 @@ class DeepSeekProvider:
         )
         response = self._post_json(f"{self.base_url}/chat/completions", payload)
         content = response["choices"][0]["message"]["content"]
-        return parse_translation_payload(json.loads(content))
+        return parse_translation_payload(parse_chat_json(content))
 
 
 def _env_int(name: str, default: int) -> int:
