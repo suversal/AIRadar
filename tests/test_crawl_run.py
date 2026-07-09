@@ -83,6 +83,104 @@ class CrawlRunTests(unittest.TestCase):
         self.assertEqual(report["per_source"]["bad"]["error"], "boom")
         self.assertEqual(report["skipped_reasons"], {"bad:fetch_failed": 1})
 
+    def test_crawl_sources_fetches_different_domains_concurrently(self):
+        import threading
+
+        def make_source(source_id: str, domain: str) -> Source:
+            return Source(
+                id=source_id,
+                name=source_id,
+                source_role="context",
+                tier="T2",
+                type="rss",
+                category="media",
+                url=f"https://{domain}/feed.xml",
+                homepage=f"https://{domain}",
+                allowed_domains=[domain],
+            )
+
+        # both crawlers must be in-flight at the same time to pass the barrier;
+        # a serial implementation deadlocks until the timeout and fails
+        barrier = threading.Barrier(2, timeout=5)
+
+        class BarrierCrawler:
+            def fetch(self, limit=None):
+                barrier.wait()
+                return []
+
+        sources = [make_source("a", "one.example"), make_source("b", "two.example")]
+
+        _, report = crawl_sources(
+            sources,
+            limit=10,
+            crawler_factory=lambda source: BarrierCrawler(),
+        )
+
+        self.assertEqual(report["per_source"]["a"]["status"], "ok")
+        self.assertEqual(report["per_source"]["b"]["status"], "ok")
+
+    def test_crawl_sources_keeps_article_order_deterministic_by_source_order(self):
+        def make_source(source_id: str, domain: str) -> Source:
+            return Source(
+                id=source_id,
+                name=source_id,
+                source_role="context",
+                tier="T2",
+                type="rss",
+                category="media",
+                url=f"https://{domain}/feed.xml",
+                homepage=f"https://{domain}",
+                allowed_domains=[domain],
+            )
+
+        def make_article(article_id: str, source_id: str) -> RawArticle:
+            return RawArticle(
+                id=article_id,
+                source_id=source_id,
+                source_name=source_id,
+                source_role="context",
+                source_tier="T2",
+                source_url=f"https://example.com/{article_id}",
+                title=article_id,
+                content="AI content",
+                author=None,
+                published_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+                language="en",
+                raw_score={},
+                metadata={},
+                title_hash=f"t-{article_id}",
+                url_hash=f"u-{article_id}",
+            )
+
+        import time as time_module
+
+        class SlowFirstCrawler:
+            def __init__(self, article, delay):
+                self.article = article
+                self.delay = delay
+
+            def fetch(self, limit=None):
+                time_module.sleep(self.delay)
+                return [self.article]
+
+        sources = [make_source("first", "one.example"), make_source("second", "two.example")]
+        crawlers = {
+            "first": SlowFirstCrawler(make_article("a-first", "first"), 0.2),
+            "second": SlowFirstCrawler(make_article("a-second", "second"), 0.0),
+        }
+
+        articles, report = crawl_sources(
+            sources,
+            limit=1,
+            crawler_factory=lambda source: crawlers[source.id],
+        )
+
+        # the global limit is applied in source order even when a later
+        # source finishes first
+        self.assertEqual([a.id for a in articles], ["a-first"])
+        self.assertEqual(report["per_source"]["first"]["article_count"], 1)
+        self.assertEqual(report["per_source"]["second"]["article_count"], 0)
+
     def test_crawl_sources_waits_between_same_domain_sources(self):
         def make_reddit_source(source_id: str, path: str) -> Source:
             return Source(
