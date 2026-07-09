@@ -3,7 +3,7 @@ import { eventHref } from "@/lib/events";
 import { CopyMarkdownButton } from "./copy-markdown-button";
 import { buildDailyMarkdown } from "@/lib/markdown";
 import { buildDailyDigest, latestToDailyReport } from "../reports/report-data";
-import { ReportShell, reportModeTabs } from "../reports/report-shell";
+import { ReportShell } from "../reports/report-shell";
 
 async function loadReport() {
   const latest = await getLatestReport();
@@ -15,6 +15,14 @@ async function loadReport() {
   } catch {
     return latestToDailyReport(latest);
   }
+}
+
+function formatArchiveMonth(reportDate: string) {
+  const parsed = new Date(`${reportDate}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    return "日报归档";
+  }
+  return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long" }).format(parsed);
 }
 
 function formatChineseDate(reportDate: string) {
@@ -40,7 +48,9 @@ export default async function DailyPage() {
       activeMode="daily"
       secondary={
         <div className="mt-6">
-          <div className="text-sm font-semibold text-ink-mid">2026 年 7 月</div>
+          <div className="text-sm font-semibold text-ink-mid">
+            {formatArchiveMonth(report.report_date)}
+          </div>
           <a
             className="mt-3 grid grid-cols-[36px_1fr] gap-3 rounded-md bg-signal/10 px-3 py-3 text-sm text-signal-bright"
             href="/daily"
@@ -64,15 +74,16 @@ export default async function DailyPage() {
           </div>
           <h1
             aria-label="AI·RADAR 日报"
-            className="mt-8 text-6xl font-semibold leading-none tracking-normal text-ink md:text-8xl"
+            className="mt-8 text-5xl font-semibold leading-none tracking-tight text-ink md:text-7xl"
           >
             <span className="text-ink">AI</span>
             <span className="text-signal">·RADAR</span> 日报
           </h1>
-          <div className="mt-8 grid items-center gap-4 text-sm text-ink-mid md:grid-cols-[auto_1fr_auto]">
+          <div className="mt-8 grid items-center gap-4 text-sm text-ink-mid md:grid-cols-[auto_1fr_auto_auto]">
             <span>{formatChineseDate(report.report_date)}</span>
             <span className="hidden h-px bg-panel-soft md:block" />
             <span>DAILY · 每日八时</span>
+            <CopyMarkdownButton markdown={markdown} />
           </div>
         </header>
 
@@ -108,24 +119,7 @@ export default async function DailyPage() {
           ))}
         </div>
 
-        <div className="mt-6 flex flex-wrap gap-3">
-          <CopyMarkdownButton markdown={markdown} />
-          {reportModeTabs.map((tab) => (
-            <a
-              key={tab.id}
-              className={`rounded-md border px-4 py-2 text-sm font-semibold ${
-                tab.id === "daily"
-                  ? "border-signal/50 text-signal-bright"
-                  : "border-line text-ink-mid hover:text-ink"
-              }`}
-              href={tab.href}
-            >
-              {tab.label}
-            </a>
-          ))}
-        </div>
-
-        <div className="mt-14 space-y-12">
+        <div className="mt-10 space-y-12">
           {digest.sections.map((section, sectionIndex) => (
             <section key={section.key}>
               <div className="flex items-end justify-between gap-4">
@@ -140,17 +134,17 @@ export default async function DailyPage() {
 
               <div className="mt-6 grid gap-5">
                 {section.items.map((item) => (
-                  <article key={item.event_id} className="rounded-md border border-line bg-panel p-5">
+                  <article key={item.event_id} className="card-hover rounded-md border border-line bg-panel p-5">
                     <div className="text-sm text-signal-bright">
                       {item.main_source?.name ?? "未知来源"} · {item.source_count ?? 1} 个来源
                     </div>
                     <h3 className="mt-3 text-xl font-semibold leading-8 text-ink">
                       <a href={eventHref(item)}>{item.title}</a>
                     </h3>
-                    <p className="mt-4 text-sm leading-7 text-ink-mid">
+                    <p className="mt-4 text-[15px] leading-7 text-ink-mid">
                       {item.summary ?? item.one_line_summary ?? "暂无摘要。"}
                     </p>
-                    <p className="mt-4 rounded-md bg-signal/10 px-4 py-3 text-sm leading-6 text-signal-bright">
+                    <p className="mt-4 rounded-md bg-signal/10 px-4 py-3 text-[15px] leading-7 text-signal-bright">
                       <span className="font-semibold">为什么重要：</span>
                       {item.reason ?? "暂无推荐理由。"}
                     </p>

@@ -149,7 +149,7 @@ function AllEventCard({ item }: { item: LatestEvent }) {
   const score = formatScore(item.final_score);
 
   return (
-    <article className="rounded-md border border-line bg-panel p-5 shadow-[0_18px_60px_rgba(0,0,0,0.22)]">
+    <article className="card-hover rounded-md border border-line bg-panel p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line-strong bg-panel-soft text-xs font-semibold text-signal">
@@ -174,7 +174,7 @@ function AllEventCard({ item }: { item: LatestEvent }) {
         </div>
       </div>
 
-      <p className="mt-4 text-sm leading-6 text-ink-mid">
+      <p className="mt-4 text-[15px] leading-7 text-ink-mid">
         {item.summary ?? item.one_line_summary ?? "暂无摘要。"}
       </p>
 
@@ -198,7 +198,7 @@ function AllEventCard({ item }: { item: LatestEvent }) {
 
       {item.reason ? (
         <div className="mt-5 border-t border-line pt-4">
-          <p className="rounded-md bg-signal/10 px-4 py-3 text-sm leading-6 text-signal-bright">
+          <p className="rounded-md bg-signal/10 px-4 py-3 text-[15px] leading-7 text-signal-bright">
             <span className="font-semibold">推荐理由：</span>
             {item.reason}
           </p>

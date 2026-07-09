@@ -1,21 +1,21 @@
 @import "tailwindcss";
 
-/* 琥珀信号 design tokens — warm charcoal canvas, amber signal accent,
-   cool slate-blue for secondary metadata. Zero external font deps:
-   refined CJK system stack + monospace numerals for instrument readouts. */
+/* 电紫脉冲 design tokens — deep indigo canvas, electric violet signal,
+   cool lavender-gray metadata. Zero external font deps: refined CJK
+   system stack + monospace numerals for instrument readouts. */
 @theme {
-  --color-canvas: #100e0c;
-  --color-panel: #191613;
-  --color-panel-soft: #221e19;
-  --color-line: #2b2620;
-  --color-line-strong: #3a332a;
-  --color-signal: #f0a020;
-  --color-signal-bright: #ffc45e;
-  --color-signal-dim: #b87d1a;
-  --color-cool: #8fa8b8;
-  --color-ink: #ece7df;
-  --color-ink-mid: #9a938a;
-  --color-ink-dim: #625c54;
+  --color-canvas: #0d0b14;
+  --color-panel: #16131f;
+  --color-panel-soft: #201b2d;
+  --color-line: #292339;
+  --color-line-strong: #3a3252;
+  --color-signal: #a78bfa;
+  --color-signal-bright: #c4b5fd;
+  --color-signal-dim: #7c5fd8;
+  --color-cool: #93a0c8;
+  --color-ink: #eae8f2;
+  --color-ink-mid: #9b95a8;
+  --color-ink-dim: #615a70;
 
   --font-sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC",
     "Microsoft YaHei", system-ui, sans-serif;
@@ -32,6 +32,7 @@ body {
   background: var(--color-canvas);
   color: var(--color-ink);
   font-family: var(--font-sans);
+  letter-spacing: 0.01em;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -41,13 +42,86 @@ a {
   text-decoration: none;
 }
 
+/* interactive elements ease between states instead of snapping */
+a,
+button,
+summary {
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
 ::selection {
-  background: color-mix(in srgb, var(--color-signal) 30%, transparent);
+  background: color-mix(in srgb, var(--color-signal) 32%, transparent);
 }
 
 :focus-visible {
   outline: 2px solid var(--color-signal);
   outline-offset: 2px;
+}
+
+/* instrument readouts: scores, timestamps, counters */
+.readout {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+/* hoverable content cards: lift + violet edge glow */
+.card-hover {
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.25s ease,
+    transform 0.2s ease;
+}
+
+.card-hover:hover {
+  border-color: color-mix(in srgb, var(--color-signal) 45%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-signal) 18%, transparent),
+    0 12px 40px rgba(0, 0, 0, 0.35);
+  transform: translateY(-2px);
+}
+
+/* loading skeletons: violet-tinted shimmer sweep */
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton {
+  border-radius: 6px;
+  background: linear-gradient(
+    100deg,
+    var(--color-panel) 40%,
+    var(--color-panel-soft) 50%,
+    var(--color-panel) 60%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
+@keyframes signal-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-signal) 45%, transparent);
+  }
+  50% {
+    opacity: 0.7;
+    box-shadow: 0 0 0 5px transparent;
+  }
+}
+
+.signal-pulse {
+  animation: signal-pulse 2s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -57,11 +131,4 @@ a {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
-}
-
-/* instrument readouts: scores, timestamps, counters */
-.readout {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
 }

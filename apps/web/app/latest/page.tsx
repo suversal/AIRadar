@@ -100,7 +100,7 @@ function sourceLine(item: LatestEvent) {
 
 function EventCard({ item }: { item: LatestEvent }) {
   return (
-    <article className="rounded-md border border-line bg-panel p-5 shadow-[0_18px_60px_rgba(0,0,0,0.22)]">
+    <article className="card-hover rounded-md border border-line bg-panel p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-sm text-ink-mid">{sourceLine(item)}</div>
@@ -118,7 +118,7 @@ function EventCard({ item }: { item: LatestEvent }) {
         </div>
       </div>
 
-      <p className="mt-4 line-clamp-3 text-sm leading-6 text-ink-mid">
+      <p className="mt-4 line-clamp-3 text-[15px] leading-7 text-ink-mid">
         {item.summary ?? item.one_line_summary ?? "暂无摘要。"}
       </p>
 
@@ -133,7 +133,7 @@ function EventCard({ item }: { item: LatestEvent }) {
       ) : null}
 
       <div className="mt-5 border-t border-line pt-4">
-        <p className="rounded-md bg-signal/10 px-4 py-3 text-sm leading-6 text-signal-bright">
+        <p className="rounded-md bg-signal/10 px-4 py-3 text-[15px] leading-7 text-signal-bright">
           <span className="font-semibold">推荐理由：</span>
           {item.reason ?? "暂无推荐理由。"}
         </p>

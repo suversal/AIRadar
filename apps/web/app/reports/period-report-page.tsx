@@ -66,7 +66,7 @@ export async function PeriodReportPage({
           </div>
           <h1
             aria-label={title}
-            className="mt-8 text-6xl font-semibold leading-none tracking-normal text-ink md:text-8xl"
+            className="mt-8 text-5xl font-semibold leading-none tracking-tight text-ink md:text-7xl"
           >
             <span className="text-ink">AI</span>
             <span className="text-signal">·RADAR</span> {labelFor(mode)}
@@ -81,7 +81,7 @@ export async function PeriodReportPage({
         <section className="rounded-md border-l-4 border-signal bg-signal/10 p-6">
           <div className="text-sm font-semibold text-signal-bright">{mainlineLabel}</div>
           <h2 className="mt-3 text-3xl font-semibold leading-tight text-ink">{digest.mainline.title}</h2>
-          <p className="mt-4 text-sm leading-7 text-ink-mid">{digest.mainline.body}</p>
+          <p className="mt-4 text-[15px] leading-7 text-ink-mid">{digest.mainline.body}</p>
         </section>
 
         <div className="mt-6 grid gap-3 md:grid-cols-4">
@@ -130,7 +130,7 @@ export async function PeriodReportPage({
               </p>
               <div className="mt-5 grid gap-4">
                 {section.items.slice(0, 3).map((item) => (
-                  <article key={item.event_id} className="rounded-md border border-line bg-panel p-5">
+                  <article key={item.event_id} className="card-hover rounded-md border border-line bg-panel p-5">
                     <h3 className="text-lg font-semibold text-ink">
                       <a href={eventHref(item)}>{item.title}</a>
                     </h3>

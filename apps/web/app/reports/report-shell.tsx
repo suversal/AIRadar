@@ -1,11 +1,5 @@
 import type { ReactNode } from "react";
-
-type NavItem = {
-  id: string;
-  label: string;
-  group: "内容" | "接入" | "更多";
-  href?: string;
-};
+import { Sidebar } from "@/components/sidebar";
 
 export type ReportMode = "daily" | "weekly" | "monthly";
 
@@ -19,26 +13,6 @@ export const reportModeTabs: Array<{
   { id: "monthly", label: "月报", href: "/monthly" },
 ];
 
-const navItems: NavItem[] = [
-  { id: "latest", label: "精选", group: "内容", href: "/latest" },
-  { id: "all", label: "全部 AI 动态", group: "内容", href: "/all" },
-  { id: "daily", label: "AI 日报", group: "内容", href: "/daily" },
-  { id: "topics", label: "主题", group: "内容", href: "/topics" },
-  { id: "bookmarks", label: "收藏", group: "内容" },
-  { id: "agent", label: "Agent 接入", group: "接入" },
-  { id: "about", label: "关于", group: "更多" },
-  { id: "changelog", label: "更新日志", group: "更多" },
-  { id: "feedback", label: "反馈", group: "更多" },
-];
-
-function navGroupItems(group: NavItem["group"]) {
-  return navItems.filter((item) => item.group === group);
-}
-
-function marker(label: string) {
-  return label.slice(0, 1);
-}
-
 export function ReportShell({
   activeMode,
   secondary,
@@ -48,80 +22,21 @@ export function ReportShell({
   secondary: ReactNode;
   children: ReactNode;
 }) {
-  const activeNavId = "daily";
-
   return (
     <main className="min-h-screen bg-canvas text-ink">
-      <div className="grid min-h-screen lg:grid-cols-[144px_176px_1fr]">
-        <aside className="border-b border-line bg-panel px-3 py-5 lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
-          <a className="block rounded-md border border-line bg-panel px-4 py-5" href="/latest">
-            <div aria-label="AI·RADAR" className="text-xl font-semibold tracking-[0.18em] text-ink">
-              AI<span className="text-signal">·RADAR</span>
-            </div>
-          </a>
+      <div className="grid min-h-screen lg:grid-cols-[224px_200px_1fr]">
+        <Sidebar activeNavId="daily" />
 
-          <nav className="mt-6 space-y-6" aria-label="主导航">
-            {(["内容", "接入", "更多"] as const).map((group) => (
-              <section key={group}>
-                <div className="px-3 text-xs font-semibold text-ink-dim">{group}</div>
-                <div className="mt-2 space-y-1">
-                  {navGroupItems(group).map((item) => {
-                    const active = item.id === activeNavId;
-                    const className = `flex items-center gap-3 rounded-md px-3 py-3 text-sm font-semibold ${
-                      active
-                        ? "border border-signal/40 bg-signal/10 text-signal"
-                        : "text-ink-mid hover:text-ink"
-                    }`;
-                    const content = (
-                      <>
-                        <span className="flex h-6 w-6 items-center justify-center rounded-md border border-line-strong text-xs">
-                          {marker(item.label)}
-                        </span>
-                        <span className="min-w-0 truncate">{item.label}</span>
-                      </>
-                    );
-                    return item.href ? (
-                      <a
-                        key={item.id}
-                        aria-current={active ? "page" : undefined}
-                        className={className}
-                        href={item.href}
-                      >
-                        {content}
-                      </a>
-                    ) : (
-                      <div key={item.id} aria-disabled="true" className={className}>
-                        {content}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
-          </nav>
-
-          <div className="mt-6 rounded-full border border-line bg-panel p-1 text-xs text-ink-mid">
-            <div className="grid grid-cols-3 gap-1">
-              <button className="rounded-full px-2 py-2" type="button">
-                日间
-              </button>
-              <button className="rounded-full bg-panel-soft px-2 py-2 text-ink-mid" type="button">
-                跟随系统
-              </button>
-              <button className="rounded-full px-2 py-2" type="button">
-                夜间
-              </button>
-            </div>
-          </div>
-        </aside>
-
-        <aside className="border-b border-line bg-panel px-4 py-6 lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
-          <div className="grid grid-cols-3 rounded-md border border-line bg-panel text-sm font-semibold text-ink-mid">
+        <aside className="border-b border-line bg-canvas px-4 py-6 lg:sticky lg:top-0 lg:h-screen lg:overflow-y-auto lg:border-b-0 lg:border-r">
+          <div className="grid grid-cols-3 overflow-hidden rounded-md border border-line text-sm font-semibold text-ink-mid">
             {reportModeTabs.map((tab) => (
               <a
                 key={tab.id}
-                className={`px-3 py-3 text-center ${
-                  activeMode === tab.id ? "bg-signal/10 text-signal-bright" : "hover:text-ink"
+                aria-current={activeMode === tab.id ? "page" : undefined}
+                className={`whitespace-nowrap px-2 py-2.5 text-center ${
+                  activeMode === tab.id
+                    ? "bg-signal/15 text-signal"
+                    : "hover:bg-panel hover:text-ink"
                 }`}
                 href={tab.href}
               >

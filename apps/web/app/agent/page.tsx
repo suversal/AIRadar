@@ -81,7 +81,7 @@ curl "http://127.0.0.1:8000/api/public/events?days=7&topic=anthropic"
 # 主题清单与计数
 curl http://127.0.0.1:8000/api/public/topics`}
         </pre>
-        <p className="mt-4 text-sm leading-6 text-ink-mid">
+        <p className="mt-4 text-[15px] leading-7 text-ink-mid">
           事件对象的关键字段：<code className="readout text-xs">title</code>（中文标题）、
           <code className="readout text-xs">final_score</code>（0-100 综合评分）、
           <code className="readout text-xs">category</code>（6 类展示分类）、

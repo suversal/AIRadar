@@ -32,7 +32,7 @@ export function RadarStatus({
       <span className="flex items-center gap-2">
         <span
           aria-hidden
-          className={`h-1.5 w-1.5 rounded-full ${live ? "bg-signal" : "bg-ink-dim"}`}
+          className={`h-1.5 w-1.5 rounded-full ${live ? "signal-pulse bg-signal" : "bg-ink-dim"}`}
         />
         <span className={live ? "text-signal" : undefined}>SIGNAL</span>
       </span>

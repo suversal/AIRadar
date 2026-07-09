@@ -43,7 +43,7 @@ export default async function TopicsPage() {
                   {group.topics.map((topic) => (
                     <a
                       key={topic.id}
-                      className="group rounded-md border border-line bg-panel p-5 transition hover:border-signal/40 hover:bg-panel"
+                      className="group card-hover rounded-md border border-line bg-panel p-5"
                       href={topicHref(topic.id)}
                     >
                       <div className="flex items-baseline justify-between gap-3">
