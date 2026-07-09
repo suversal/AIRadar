@@ -1,15 +1,25 @@
 from __future__ import annotations
 
 import html
+import json
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+from pathlib import Path
 
 from app.crawlers.article_content import extract_article_content
-from app.crawlers.base import BaseCrawler, clean_text, fetch_url_text, normalize_article
-from app.models.domain import RawArticle
+from app.crawlers.base import (
+    BaseCrawler,
+    canonicalize_url,
+    clean_text,
+    fetch_url_text,
+    normalize_article,
+    stable_hash,
+)
+from app.models.domain import RawArticle, Source
 
 DEFAULT_MAX_PAGES = 8
+DEFAULT_PAGE_CACHE_DIR = Path("data") / "page_cache"
 
 _ARTICLE_REGION_RE = re.compile(r"<article\b.*?</article>", re.IGNORECASE | re.DOTALL)
 _MAIN_REGION_RE = re.compile(r"<main\b.*?</main>", re.IGNORECASE | re.DOTALL)
@@ -87,6 +97,61 @@ def extract_page_article(html_text: str) -> tuple[str, str]:
 
 
 class SitemapCrawler(BaseCrawler):
+    def __init__(self, source: Source, *, cache_dir: Path | None = None):
+        super().__init__(source)
+        self.cache_dir = Path(cache_dir) if cache_dir is not None else DEFAULT_PAGE_CACHE_DIR
+
+    def _cache_path(self, loc: str) -> Path:
+        return self.cache_dir / f"{stable_hash(canonicalize_url(loc))}.json"
+
+    def _read_cached_page(self, loc: str, lastmod: datetime | None) -> dict | None:
+        cache_path = self._cache_path(loc)
+        if not cache_path.exists():
+            return None
+        try:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        cached_lastmod = cached.get("lastmod")
+        current_lastmod = lastmod.isoformat() if lastmod else None
+        # refetch when the sitemap advertises a newer revision (or we cannot compare)
+        if current_lastmod is None or cached_lastmod is None:
+            return None
+        if current_lastmod > cached_lastmod:
+            return None
+        return cached
+
+    def _write_cached_page(self, loc: str, lastmod: datetime | None, payload: dict) -> None:
+        try:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            payload = dict(payload)
+            payload["lastmod"] = lastmod.isoformat() if lastmod else None
+            self._cache_path(loc).write_text(
+                json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+            )
+        except OSError:
+            pass  # cache is an optimization; never fail the crawl over it
+
+    def _extract_page_payload(self, loc: str, page_html: str) -> dict | None:
+        title, description = extract_page_article(page_html)
+        if not title:
+            return None
+        metadata: dict = {"crawler": "sitemap"}
+        content = description
+        region = main_content_region(page_html)
+        if region:
+            extracted = extract_article_content(region, base_url=loc)
+            if extracted["original_paragraphs"]:
+                metadata.update(
+                    {
+                        "original_paragraphs": extracted["original_paragraphs"],
+                        "original_images": extracted["original_images"],
+                        "original_blocks": extracted["original_blocks"],
+                    }
+                )
+                content = extracted["original_text"] or description
+        return {"title": title, "content": content, "metadata": metadata}
+
     def fetch(self, limit: int | None = None) -> list[RawArticle]:
         config = self.source.config or {}
         path_prefix = config.get("path_prefix") or self.source.homepage
@@ -99,35 +164,24 @@ class SitemapCrawler(BaseCrawler):
 
         articles: list[RawArticle] = []
         for loc, lastmod in entries[:max_pages]:
-            page_html = fetch_url_text(loc, accept="text/html, */*")
-            title, description = extract_page_article(page_html)
-            if not title:
-                continue
-            metadata: dict = {"crawler": "sitemap"}
-            content = description
-            region = main_content_region(page_html)
-            if region:
-                extracted = extract_article_content(region, base_url=loc)
-                if extracted["original_paragraphs"]:
-                    metadata.update(
-                        {
-                            "original_paragraphs": extracted["original_paragraphs"],
-                            "original_images": extracted["original_images"],
-                            "original_blocks": extracted["original_blocks"],
-                        }
-                    )
-                    content = extracted["original_text"] or description
+            payload = self._read_cached_page(loc, lastmod)
+            if payload is None:
+                page_html = fetch_url_text(loc, accept="text/html, */*")
+                payload = self._extract_page_payload(loc, page_html)
+                if payload is None:
+                    continue
+                self._write_cached_page(loc, lastmod, payload)
             articles.append(
                 normalize_article(
                     source=self.source,
                     source_url=loc,
-                    title=title,
-                    content=content,
+                    title=payload["title"],
+                    content=payload["content"],
                     author=None,
                     published_at=lastmod,
                     language=self.source.language,
                     raw_score={},
-                    metadata=metadata,
+                    metadata=dict(payload["metadata"]),
                 )
             )
         return articles

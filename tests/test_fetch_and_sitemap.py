@@ -154,6 +154,13 @@ class SitemapCrawlerTests(unittest.TestCase):
         self.assertEqual(title, "Claude ships a new model")
         self.assertEqual(description, "Today we announce a new model.")
 
+    def setUp(self):
+        import tempfile
+
+        self._cache_tmp = tempfile.TemporaryDirectory()
+        self.cache_dir = Path(self._cache_tmp.name)
+        self.addCleanup(self._cache_tmp.cleanup)
+
     def test_sitemap_crawler_fetch_builds_normalized_articles(self):
         def fake_fetch(url, **kwargs):
             if url.endswith("sitemap.xml"):
@@ -161,7 +168,7 @@ class SitemapCrawlerTests(unittest.TestCase):
             return PAGE_HTML
 
         source = make_source()
-        crawler = SitemapCrawler(source)
+        crawler = SitemapCrawler(source, cache_dir=self.cache_dir)
         with patch("app.crawlers.sitemap.fetch_url_text", side_effect=fake_fetch):
             articles = crawler.fetch(limit=10)
 
@@ -181,7 +188,7 @@ class SitemapCrawlerTests(unittest.TestCase):
                 return SITEMAP_XML
             return PAGE_HTML
 
-        crawler = SitemapCrawler(make_source())
+        crawler = SitemapCrawler(make_source(), cache_dir=self.cache_dir)
         with patch("app.crawlers.sitemap.fetch_url_text", side_effect=fake_fetch):
             articles = crawler.fetch(limit=10)
 
@@ -213,7 +220,7 @@ class SitemapCrawlerTests(unittest.TestCase):
                 return SITEMAP_XML
             return bare_html
 
-        crawler = SitemapCrawler(make_source())
+        crawler = SitemapCrawler(make_source(), cache_dir=self.cache_dir)
         with patch("app.crawlers.sitemap.fetch_url_text", side_effect=fake_fetch):
             articles = crawler.fetch(limit=10)
 
@@ -228,11 +235,77 @@ class SitemapCrawlerTests(unittest.TestCase):
             return PAGE_HTML
 
         source = make_source(config={"path_prefix": "https://www.anthropic.com/news/", "max_pages": 1})
-        crawler = SitemapCrawler(source)
+        crawler = SitemapCrawler(source, cache_dir=self.cache_dir)
         with patch("app.crawlers.sitemap.fetch_url_text", side_effect=fake_fetch):
             articles = crawler.fetch(limit=10)
 
         self.assertEqual(len(articles), 1)
+
+    def test_sitemap_crawler_serves_unchanged_pages_from_cache(self):
+        import tempfile
+
+        fetch_calls: list[str] = []
+
+        def fake_fetch(url, **kwargs):
+            fetch_calls.append(url)
+            if url.endswith("sitemap.xml"):
+                return SITEMAP_XML
+            return PAGE_HTML
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_dir = Path(tmpdir)
+            source = make_source()
+
+            with patch("app.crawlers.sitemap.fetch_url_text", side_effect=fake_fetch):
+                first = SitemapCrawler(source, cache_dir=cache_dir).fetch(limit=10)
+            first_call_count = len(fetch_calls)
+
+            with patch("app.crawlers.sitemap.fetch_url_text", side_effect=fake_fetch):
+                second = SitemapCrawler(source, cache_dir=cache_dir).fetch(limit=10)
+
+        # second run refetches only the sitemap; both pages come from cache
+        self.assertEqual(first_call_count, 3)  # sitemap + 2 pages
+        self.assertEqual(len(fetch_calls) - first_call_count, 1)
+        self.assertEqual(len(second), len(first))
+        self.assertEqual(
+            [a.source_url for a in second], [a.source_url for a in first]
+        )
+        self.assertEqual(second[0].title, first[0].title)
+        self.assertEqual(
+            second[0].metadata.get("original_paragraphs"),
+            first[0].metadata.get("original_paragraphs"),
+        )
+        self.assertEqual(second[0].published_at, first[0].published_at)
+
+    def test_sitemap_crawler_refetches_when_lastmod_changes(self):
+        import tempfile
+
+        fetch_calls: list[str] = []
+        current_sitemap = {"xml": SITEMAP_XML}
+
+        def fake_fetch(url, **kwargs):
+            fetch_calls.append(url)
+            if url.endswith("sitemap.xml"):
+                return current_sitemap["xml"]
+            return PAGE_HTML
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_dir = Path(tmpdir)
+            source = make_source()
+
+            with patch("app.crawlers.sitemap.fetch_url_text", side_effect=fake_fetch):
+                SitemapCrawler(source, cache_dir=cache_dir).fetch(limit=10)
+
+            current_sitemap["xml"] = SITEMAP_XML.replace(
+                "2026-07-07T09:30:00.000Z", "2026-07-09T00:00:00.000Z"
+            )
+            fetch_calls.clear()
+            with patch("app.crawlers.sitemap.fetch_url_text", side_effect=fake_fetch):
+                articles = SitemapCrawler(source, cache_dir=cache_dir).fetch(limit=10)
+
+        # updated page refetched, unchanged page still cached
+        self.assertEqual(len(fetch_calls), 2)  # sitemap + 1 updated page
+        self.assertEqual(len(articles), 2)
 
     def test_registry_returns_sitemap_crawler_for_sitemap_type(self):
         crawler = crawler_for_source(make_source())
