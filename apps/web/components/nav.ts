@@ -11,10 +11,10 @@ export const navItems: NavItem[] = [
   { id: "daily", label: "AI 日报", group: "内容", href: "/daily" },
   { id: "topics", label: "主题", group: "内容", href: "/topics" },
   { id: "bookmarks", label: "收藏", group: "内容" },
-  { id: "agent", label: "Agent 接入", group: "接入" },
-  { id: "about", label: "关于", group: "更多" },
-  { id: "changelog", label: "更新日志", group: "更多" },
-  { id: "feedback", label: "反馈", group: "更多" },
+  { id: "agent", label: "Agent 接入", group: "接入", href: "/agent" },
+  { id: "about", label: "关于", group: "更多", href: "/about" },
+  { id: "changelog", label: "更新日志", group: "更多", href: "/changelog" },
+  { id: "feedback", label: "反馈", group: "更多", href: "/feedback" },
 ];
 
 export function navGroupItems(group: NavItem["group"]) {
