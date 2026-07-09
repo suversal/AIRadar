@@ -203,13 +203,15 @@ export function ArticleReadingToggle({
   originalMarkdown,
   translatedBlocks,
 }: ArticleReadingToggleProps) {
-  const hasTranslation = translatedBlocks.length > 0;
+  const markdown = originalMarkdown?.trim();
+  const hasOriginalMarkdown = Boolean(markdown);
+  const hasTranslation = translatedBlocks.length > 0 && !hasOriginalMarkdown;
+  const defaultMode = hasOriginalMarkdown ? "original" : "translated";
   const [mode, setMode] = useState<"translated" | "original">(
-    hasTranslation ? "translated" : "original",
+    hasTranslation ? defaultMode : "original",
   );
   const isOriginal = mode === "original";
   const blocks = isOriginal ? originalBlocks : translatedBlocks;
-  const markdown = originalMarkdown?.trim();
 
   return (
     <article className="mt-10 border-t border-slate-800 pt-8">

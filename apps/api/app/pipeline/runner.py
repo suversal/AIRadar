@@ -172,6 +172,8 @@ def _translate_selected_report_articles(
             continue
         if str(article.metadata.get("readme_language") or "").lower() == "zh":
             continue
+        if _is_github_trending_article(article) and str(article.metadata.get("original_markdown") or "").strip():
+            continue
         if article.metadata.get("translated_blocks"):
             continue
 

@@ -390,13 +390,15 @@ class PipelineTests(unittest.TestCase):
         )
         self.assertEqual(github_item["original_paragraphs"], readme_payload["original_paragraphs"])
         self.assertEqual(github_item["original_markdown"], readme_payload["original_markdown"])
-        self.assertEqual(github_item["translated_paragraphs"], ["译文：AI Job Search", "译文：Full README details for the project."])
+        self.assertNotIn("translated_paragraphs", github_item)
+        self.assertNotIn("translated_blocks", github_item)
         github_article = next(
             article for article in result.raw_articles
             if article.source_url == "https://github.com/MadsLorentzen/ai-job-search"
         )
         self.assertEqual(github_article.metadata["repo_description"], "Short trending description.")
         self.assertEqual(github_article.metadata["readme_status"], "ok")
+        self.assertEqual(provider.translation_calls, [["A non GitHub story that should not fetch README."]])
 
     def test_pipeline_skips_translation_for_selected_chinese_readme(self):
         github_source = Source(

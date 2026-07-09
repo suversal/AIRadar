@@ -10,7 +10,7 @@
 - Cap daily candidates at 100 and selected events at 8-12 by default.
 - Preserve structured original article content when feeds provide it, including paragraph blocks and image URLs for event detail pages.
 - Enrich selected GitHub Trending repositories with README content after report selection, with short-description fallback on GitHub API errors or rate limits.
-- Generate optional Chinese translation blocks only for selected English main articles, so detail pages can offer 原文/译文 comparison without translating every candidate.
+- Generate optional Chinese translation blocks only for selected English main articles, so detail pages can offer 原文/译文 comparison without translating every candidate. GitHub README Markdown is treated as canonical original content and is rendered directly instead of being translated into the body view.
 - Keep `/latest` as the AIHOT-style selected feed. Search stays out of `/latest`; `/all` owns the all-dynamics filters and inline search. `/daily`, `/weekly`, and `/monthly` own the report-reading flow under the "AI 日报" menu. Sidebar items beyond "精选", "全部 AI 动态", and "AI 日报" remain placeholders until their data contracts are defined.
 
 ## Current Engineering Shape
