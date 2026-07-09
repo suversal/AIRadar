@@ -9,7 +9,7 @@ from unittest.mock import patch
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
 from app.models.domain import PrefilterResult, ScoreDimensions, ScoringResult, Source
-from app.pipeline.runner import run_pipeline
+from app.pipeline.runner import _translate_in_chunks, run_pipeline
 from app.services.ai_service import FakeAIProvider
 
 
@@ -76,6 +76,102 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("Suversal AI Radar 日报", result.daily_report.markdown)
         self.assertEqual(result.skipped_reasons["candidate_limit"], 1)
         self.assertEqual(result.skipped_reasons["not_ai_related"], 1)
+
+    def test_translate_in_chunks_bounds_each_call_and_preserves_order(self):
+        calls: list[list[str]] = []
+
+        def translate(paragraphs):
+            calls.append(paragraphs)
+            return [f"译:{p}" for p in paragraphs]
+
+        paragraphs = [f"{'x' * 500}-{index}" for index in range(6)]  # ~3000 chars total
+
+        translated = _translate_in_chunks(translate, paragraphs, chunk_char_limit=1200)
+
+        self.assertEqual(translated, [f"译:{p}" for p in paragraphs])
+        self.assertGreater(len(calls), 1)
+        for call in calls:
+            self.assertLessEqual(sum(len(p) for p in call), 1200)
+
+    def test_translate_in_chunks_splits_oversized_paragraph_and_rejoins(self):
+        calls: list[list[str]] = []
+
+        def translate(paragraphs):
+            calls.append(paragraphs)
+            return [f"[{p[:6]}]" for p in paragraphs]
+
+        oversized = "Sentence one is long. " * 60  # ~1320 chars, sentence boundaries
+        translated = _translate_in_chunks(translate, ["short", oversized], chunk_char_limit=600)
+
+        self.assertEqual(len(translated), 2)  # rejoined into one paragraph per input
+        for call in calls:
+            self.assertLessEqual(sum(len(p) for p in call), 600)
+        self.assertGreaterEqual(len(calls), 3)
+
+    def test_translate_in_chunks_splits_boundaryless_oversized_paragraph(self):
+        def translate(paragraphs):
+            for p in paragraphs:
+                if len(p) > 600:
+                    raise ValueError("truncated")
+            return [f"译{len(p)}" for p in paragraphs]
+
+        oversized = "y" * 2000  # no sentence boundary at all
+        translated = _translate_in_chunks(translate, [oversized], chunk_char_limit=600)
+
+        self.assertEqual(len(translated), 1)
+
+    def test_pipeline_translates_long_articles_through_chunked_calls(self):
+        source = Source(
+            id="anthropic_news",
+            name="Anthropic News",
+            source_role="authority",
+            tier="T1",
+            type="sitemap",
+            category="official",
+            url="https://www.anthropic.com/sitemap.xml",
+            homepage="https://www.anthropic.com/news",
+            allowed_domains=["anthropic.com"],
+            can_be_main_source=True,
+        )
+        long_blocks = [
+            {"type": "paragraph", "text": f"AI model paragraph {index} " + "detail " * 60}
+            for index in range(12)
+        ]
+        raw_items = [
+            {
+                "source_url": "https://www.anthropic.com/news/long-post",
+                "title": "OpenAI and Anthropic release new AI agent model",
+                "content": "A long AI article.",
+                "author": "Anthropic",
+                "published_at": datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {"original_blocks": long_blocks},
+            }
+        ]
+
+        class TokenLimitedProvider(FakeAIProvider):
+            """Mimics a provider whose responses truncate beyond ~1600 input chars."""
+
+            def translate_paragraphs(self, paragraphs):
+                if sum(len(p) for p in paragraphs) > 1600:
+                    raise ValueError("Chat response was not valid JSON: truncated")
+                return [f"译:{p[:20]}" for p in paragraphs]
+
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={"anthropic_news": raw_items},
+            ai_provider=TokenLimitedProvider(),
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 1),
+            candidate_limit=10,
+            top_n=12,
+        )
+
+        article = result.raw_articles[0]
+        translated = article.metadata.get("translated_paragraphs") or []
+        self.assertEqual(len(translated), 12)
+        self.assertNotIn("translation_status", article.metadata)
 
     def test_pipeline_isolates_single_article_ai_failures(self):
         source = Source(

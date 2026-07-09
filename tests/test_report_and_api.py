@@ -183,6 +183,24 @@ class ReportAndAPITests(unittest.TestCase):
         self.assertEqual(latest["items"][0]["translated_blocks"][1]["type"], "image")
         self.assertEqual(daily["report_date"], "2026-07-01")
 
+    def test_daily_json_exposes_translation_failure_status(self):
+        self.article.metadata.pop("translated_paragraphs", None)
+        self.article.metadata.pop("translated_blocks", None)
+        self.article.metadata["translation_status"] = "failed"
+        self.article.metadata["translation_error"] = "Chat response was not valid JSON"
+        daily_json = build_daily_json(
+            report_date=date(2026, 7, 1),
+            clusters=[self.cluster],
+            processed_by_article={"a1": self.processed},
+            articles_by_id={"a1": self.article},
+            sources_by_id={"openai_blog": self.source},
+            generated_at=datetime(2026, 7, 7, 14, 30, tzinfo=timezone.utc),
+        )
+
+        item = daily_json["items"][0]
+        self.assertEqual(item["translation_status"], "failed")
+        self.assertEqual(item["translation_error"], "Chat response was not valid JSON")
+
     def test_public_payloads_can_be_loaded_from_repository(self):
         repository = FakeDailyReportRepository(
             {

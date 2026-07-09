@@ -126,6 +126,10 @@ def _original_article_payload(article: RawArticle) -> dict[str, Any]:
         payload["translated_content"] = "\n\n".join(translated_paragraphs)
     if translated_blocks:
         payload["translated_blocks"] = translated_blocks
+    for key in ("translation_status", "translation_error"):
+        value = str(metadata.get(key) or "").strip()
+        if value:
+            payload[key] = value
     return payload
 
 

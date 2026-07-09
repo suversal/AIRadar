@@ -16,6 +16,65 @@ from app.services.scoring_service import select_processed_article
 
 TRANSLATION_PARAGRAPH_LIMIT = 12
 TRANSLATION_CHAR_LIMIT = 6000
+# Chinese output tokens roughly track input chars, so keep each provider call
+# well under the smallest chat max_tokens (2048) to avoid truncated JSON.
+TRANSLATION_CHUNK_CHAR_LIMIT = 1600
+
+
+_SENTENCE_BOUNDARIES = ("。", "！", "？", ". ", "! ", "? ", "; ", "；")
+
+
+def _split_long_paragraph(paragraph: str, limit: int) -> list[str]:
+    pieces: list[str] = []
+    remaining = paragraph
+    while len(remaining) > limit:
+        cut = max(
+            remaining.rfind(boundary, limit // 2, limit) + len(boundary.rstrip())
+            for boundary in _SENTENCE_BOUNDARIES
+        )
+        if cut <= 0:
+            cut = limit
+        pieces.append(remaining[:cut].strip())
+        remaining = remaining[cut:].strip()
+    if remaining:
+        pieces.append(remaining)
+    return pieces
+
+
+def _translate_in_chunks(
+    translate: Any,
+    paragraphs: list[str],
+    *,
+    chunk_char_limit: int = TRANSLATION_CHUNK_CHAR_LIMIT,
+) -> list[str]:
+    translated: list[str] = []
+    chunk: list[str] = []
+    chunk_chars = 0
+
+    def flush() -> None:
+        nonlocal chunk, chunk_chars
+        if chunk:
+            translated.extend(translate(chunk))
+            chunk = []
+            chunk_chars = 0
+
+    for paragraph in paragraphs:
+        if len(paragraph) > chunk_char_limit:
+            # a single oversized paragraph cannot fit any batch: translate its
+            # sentence slices separately and rejoin them as one paragraph
+            flush()
+            pieces = _split_long_paragraph(paragraph, chunk_char_limit)
+            translated_pieces: list[str] = []
+            for piece in pieces:
+                translated_pieces.extend(translate([piece]))
+            translated.append("".join(translated_pieces))
+            continue
+        if chunk and chunk_chars + len(paragraph) > chunk_char_limit:
+            flush()
+        chunk.append(paragraph)
+        chunk_chars += len(paragraph)
+    flush()
+    return translated
 
 
 def dedupe_articles(articles: list[RawArticle]) -> list[RawArticle]:
@@ -222,8 +281,8 @@ def _translate_selected_report_articles(
             continue
 
         try:
-            translated_paragraphs = translate(paragraphs)
-        except Exception as exc:  # pragma: no cover - provider/network defensive path
+            translated_paragraphs = _translate_in_chunks(translate, paragraphs)
+        except Exception as exc:
             article.metadata["translation_status"] = "failed"
             article.metadata["translation_error"] = str(exc)[:200]
             continue

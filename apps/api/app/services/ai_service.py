@@ -446,7 +446,7 @@ class DeepSeekProvider:
         model: str = "deepseek-v4-flash",
         base_url: str = "https://api.deepseek.com",
         user_id: str | None = None,
-        max_tokens: int = 2048,
+        max_tokens: int = 4096,
     ):
         self.api_key = api_key
         self.model = model
@@ -588,7 +588,7 @@ def provider_from_env(*, fake_ai: bool = False):
             model=os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
             base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
             user_id=os.getenv("DEEPSEEK_USER_ID") or None,
-            max_tokens=_env_int("DEEPSEEK_MAX_TOKENS", 2048),
+            max_tokens=_env_int("DEEPSEEK_MAX_TOKENS", 4096),
         )
     if provider_name == "openai":
         if not openai_api_key:
