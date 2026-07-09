@@ -5,10 +5,14 @@ import re
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
+from app.crawlers.article_content import extract_article_content
 from app.crawlers.base import BaseCrawler, clean_text, fetch_url_text, normalize_article
 from app.models.domain import RawArticle
 
 DEFAULT_MAX_PAGES = 8
+
+_ARTICLE_REGION_RE = re.compile(r"<article\b.*?</article>", re.IGNORECASE | re.DOTALL)
+_MAIN_REGION_RE = re.compile(r"<main\b.*?</main>", re.IGNORECASE | re.DOTALL)
 
 _TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 _META_RE = re.compile(
@@ -57,6 +61,16 @@ def parse_sitemap_entries(
     return entries
 
 
+def main_content_region(html_text: str) -> str | None:
+    match = _ARTICLE_REGION_RE.search(html_text)
+    if match:
+        return match.group(0)
+    match = _MAIN_REGION_RE.search(html_text)
+    if match:
+        return match.group(0)
+    return None
+
+
 def extract_page_article(html_text: str) -> tuple[str, str]:
     title = ""
     title_match = _TITLE_RE.search(html_text)
@@ -89,17 +103,31 @@ class SitemapCrawler(BaseCrawler):
             title, description = extract_page_article(page_html)
             if not title:
                 continue
+            metadata: dict = {"crawler": "sitemap"}
+            content = description
+            region = main_content_region(page_html)
+            if region:
+                extracted = extract_article_content(region, base_url=loc)
+                if extracted["original_paragraphs"]:
+                    metadata.update(
+                        {
+                            "original_paragraphs": extracted["original_paragraphs"],
+                            "original_images": extracted["original_images"],
+                            "original_blocks": extracted["original_blocks"],
+                        }
+                    )
+                    content = extracted["original_text"] or description
             articles.append(
                 normalize_article(
                     source=self.source,
                     source_url=loc,
                     title=title,
-                    content=description,
+                    content=content,
                     author=None,
                     published_at=lastmod,
                     language=self.source.language,
                     raw_score={},
-                    metadata={"crawler": "sitemap"},
+                    metadata=metadata,
                 )
             )
         return articles

@@ -72,7 +72,16 @@ PAGE_HTML = """<!DOCTYPE html>
 <title>Claude ships a new model \\ Anthropic</title>
 <meta property="og:description" content="Today we announce a new model." />
 </head>
-<body><h1>Claude ships a new model</h1></body>
+<body>
+<nav><ul><li>Home</li><li>Careers</li></ul></nav>
+<article>
+<h1>Claude ships a new model</h1>
+<p>Today we announce a new model with stronger reasoning.</p>
+<p>The model is available to all developers starting today.</p>
+<img src="/images/model-card.png" alt="Model card" />
+</article>
+<footer><p>Copyright Anthropic</p></footer>
+</body>
 </html>
 """
 
@@ -161,10 +170,56 @@ class SitemapCrawlerTests(unittest.TestCase):
         self.assertEqual(first.source_id, "anthropic_news")
         self.assertEqual(first.title, "Claude ships a new model")
         self.assertEqual(first.source_url, "https://www.anthropic.com/news/newer-post")
-        self.assertEqual(first.content, "Today we announce a new model.")
+        self.assertIn("Today we announce a new model", first.content)
         self.assertEqual(
             first.published_at, datetime(2026, 7, 7, 9, 30, tzinfo=timezone.utc)
         )
+
+    def test_sitemap_crawler_extracts_full_article_body_from_article_region(self):
+        def fake_fetch(url, **kwargs):
+            if url.endswith("sitemap.xml"):
+                return SITEMAP_XML
+            return PAGE_HTML
+
+        crawler = SitemapCrawler(make_source())
+        with patch("app.crawlers.sitemap.fetch_url_text", side_effect=fake_fetch):
+            articles = crawler.fetch(limit=10)
+
+        first = articles[0]
+        self.assertIn("stronger reasoning", first.content)
+        self.assertIn("available to all developers", first.content)
+        self.assertNotIn("Careers", first.content)
+        self.assertNotIn("Copyright", first.content)
+        paragraphs = first.metadata["original_paragraphs"]
+        self.assertEqual(len(paragraphs), 3)  # h1 + two paragraphs
+        images = first.metadata["original_images"]
+        self.assertEqual(
+            images[0]["url"],
+            "https://www.anthropic.com/images/model-card.png",
+        )
+        self.assertTrue(
+            any(block["type"] == "image" for block in first.metadata["original_blocks"])
+        )
+
+    def test_sitemap_crawler_falls_back_to_description_without_article_region(self):
+        bare_html = (
+            "<html><head><title>Bare page</title>"
+            '<meta name="description" content="Only a description." />'
+            "</head><body><p>junk nav</p></body></html>"
+        )
+
+        def fake_fetch(url, **kwargs):
+            if url.endswith("sitemap.xml"):
+                return SITEMAP_XML
+            return bare_html
+
+        crawler = SitemapCrawler(make_source())
+        with patch("app.crawlers.sitemap.fetch_url_text", side_effect=fake_fetch):
+            articles = crawler.fetch(limit=10)
+
+        first = articles[0]
+        self.assertEqual(first.content, "Only a description.")
+        self.assertEqual(first.metadata.get("original_paragraphs") or [], [])
 
     def test_sitemap_crawler_respects_max_pages_config(self):
         def fake_fetch(url, **kwargs):
