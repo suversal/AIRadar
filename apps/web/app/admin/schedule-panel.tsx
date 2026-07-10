@@ -100,36 +100,38 @@ export function SchedulePanel({ initialConfig }: { initialConfig: ScheduleConfig
             上次触发：{formatTime(config.last_triggered_at)} · 预计下次：
             {nextRunEstimate(config)}
           </p>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-xs text-ink-dim">
+              同步间隔
+              <input
+                inputMode="numeric"
+                type="text"
+                value={intervalInput}
+                onChange={(event) => setIntervalInput(event.target.value)}
+                className="readout w-20 rounded-md border border-line bg-canvas px-2 py-1 text-sm text-ink outline-none focus:border-signal/50"
+              />
+              分钟
+            </label>
+            <button
+              type="button"
+              onClick={() => void save(config.enabled)}
+              disabled={saving}
+              className="rounded-md border border-signal bg-signal px-3 py-1.5 text-xs font-semibold text-canvas hover:bg-signal-bright disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saving ? "保存中..." : "保存间隔"}
+            </button>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-3 lg:justify-end">
           <span
             className={
               config.enabled
-                ? "rounded border border-green-400/30 bg-green-400/10 px-2 py-1 text-xs font-semibold text-green-300"
-                : "rounded border border-line bg-panel px-2 py-1 text-xs font-semibold text-ink-dim"
+                ? "rounded-md border border-signal bg-signal px-3 py-1.5 text-xs font-semibold text-canvas"
+                : "rounded-md border border-line bg-panel px-3 py-1.5 text-xs font-semibold text-ink-dim"
             }
           >
             {config.enabled ? "已开启" : "已关闭"}
           </span>
-          <label className="flex items-center gap-2 text-xs text-ink-dim">
-            同步间隔
-            <input
-              inputMode="numeric"
-              type="text"
-              value={intervalInput}
-              onChange={(event) => setIntervalInput(event.target.value)}
-              className="readout w-20 rounded-md border border-line bg-canvas px-2 py-1 text-sm text-ink outline-none focus:border-signal/50"
-            />
-            分钟
-          </label>
-          <button
-            type="button"
-            onClick={() => void save(config.enabled)}
-            disabled={saving}
-            className="rounded-md border border-signal bg-signal px-3 py-1.5 text-xs font-semibold text-canvas hover:bg-signal-bright disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {saving ? "保存中..." : "保存间隔"}
-          </button>
           <button
             type="button"
             onClick={() => void save(!config.enabled)}
