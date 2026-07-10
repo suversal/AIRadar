@@ -120,6 +120,54 @@ class AdminSourcesApiTests(unittest.TestCase):
         self.assertIn("404", body["error"])
 
 
+@unittest.skipIf(TestClient is None, "FastAPI is not installed in this environment")
+class AdminEventsApiTests(unittest.TestCase):
+    def setUp(self):
+        self.repository = _FakeSourceRepository()
+        env = patch.dict("os.environ", {"ADMIN_TOKEN": "secret-token"})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def _client(self):
+        from app import main as module
+
+        app = module.create_app(report_repository_factory=lambda: self.repository)
+        return TestClient(app)
+
+    def test_admin_events_lists_hidden_items(self):
+        client = self._client()
+
+        response = client.get("/api/admin/events?days=7", headers=AUTH)
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["items"][0]["event_id"], "aa1")
+        self.assertTrue(self.repository.admin_listed_with_hidden)
+
+    def test_patch_event_moderation_validates_category(self):
+        client = self._client()
+
+        bad = client.patch(
+            "/api/admin/events/aa1", headers=AUTH, json={"category": "nonsense"}
+        )
+        good = client.patch(
+            "/api/admin/events/aa1",
+            headers=AUTH,
+            json={"hidden": True, "category": "research", "extra": "x"},
+        )
+        missing = client.patch(
+            "/api/admin/events/a-none", headers=AUTH, json={"hidden": True}
+        )
+
+        self.assertEqual(bad.status_code, 400)
+        self.assertEqual(good.status_code, 200)
+        self.assertEqual(
+            self.repository.moderations,
+            [("aa1", {"hidden": True, "category": "research"})],
+        )
+        self.assertEqual(missing.status_code, 404)
+
+
 class _FakeSourceRepository:
     def __init__(self):
         self.updates = []
@@ -153,6 +201,19 @@ class _FakeSourceRepository:
 
     def upsert_sources(self, sources):
         self.created.extend(sources)
+
+    admin_listed_with_hidden = False
+    moderations: list = []
+
+    def get_all_event_items_between(self, start_date, end_date, include_hidden=False):
+        self.admin_listed_with_hidden = include_hidden
+        return [{"event_id": "aa1", "title": "t", "hidden": False}]
+
+    def update_event_moderation(self, event_id, fields):
+        if event_id == "a-none":
+            return False
+        self.moderations.append((event_id, fields))
+        return True
 
 
 if __name__ == "__main__":

@@ -425,6 +425,45 @@ def create_app(
             ],
         }
 
+    @app.get("/api/admin/events", dependencies=[admin_guard])
+    def admin_events(days: int = 30) -> dict:
+        if days < 1 or days > 90:
+            raise HTTPException(status_code=400, detail="days must be between 1 and 90")
+        end_date = date.today()
+        start_date = end_date - timedelta(days=days - 1)
+        with _admin_repository_context() as repository:
+            items = repository.get_all_event_items_between(
+                start_date, end_date, include_hidden=True
+            )
+        return {"items": items, "total": len(items)}
+
+    @app.patch("/api/admin/events/{event_id}", dependencies=[admin_guard])
+    def admin_moderate_event(event_id: str, payload: dict) -> dict:
+        from app.services.ai_service import SCORING_CATEGORIES
+        from app.services.taxonomy import DISPLAY_CATEGORIES
+
+        allowed_categories = set(SCORING_CATEGORIES) | {key for key, _ in DISPLAY_CATEGORIES}
+        fields = {
+            key: value
+            for key, value in (payload or {}).items()
+            if key in {"hidden", "title_zh", "category", "tags"}
+        }
+        if not fields:
+            raise HTTPException(status_code=400, detail="No editable fields in payload")
+        if "category" in fields and str(fields["category"]) not in allowed_categories:
+            raise HTTPException(
+                status_code=400,
+                detail=f"category must be one of: {', '.join(sorted(allowed_categories))}",
+            )
+        with _admin_repository_context() as repository:
+            found = repository.update_event_moderation(event_id, fields)
+            if not found:
+                raise HTTPException(status_code=404, detail="Event not found")
+            commit = getattr(getattr(repository, "session", None), "commit", None)
+            if callable(commit):
+                commit()
+        return {"status": "ok", "updated": sorted(fields)}
+
     @app.post("/api/admin/refresh-latest", dependencies=[admin_guard])
     def refresh_latest(limit: Optional[int] = None, top_n: Optional[int] = None) -> dict:
         try:

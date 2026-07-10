@@ -359,44 +359,73 @@ class RadarRepository:
     )
 
     def get_all_event_items_between(
-        self, start_date: date, end_date: date
+        self, start_date: date, end_date: date, *, include_hidden: bool = False
     ) -> list[dict[str, Any]]:
         window_start = datetime.combine(start_date, time.min, tzinfo=timezone.utc)
         window_end = datetime.combine(end_date, time.max, tzinfo=timezone.utc)
-        rows = self.session.execute(
+        query = (
             select(ProcessedArticleModel, RawArticleModel, SourceModel)
             .join(RawArticleModel, ProcessedArticleModel.raw_article_id == RawArticleModel.id)
             .join(SourceModel, RawArticleModel.source_id == SourceModel.id)
             .where(RawArticleModel.published_at >= window_start)
             .where(RawArticleModel.published_at <= window_end)
             .order_by(RawArticleModel.published_at.desc())
-        ).all()
+        )
+        if not include_hidden:
+            query = query.where(ProcessedArticleModel.status != "hidden")
+        rows = self.session.execute(query).all()
         return [
             _event_item(processed, raw, source, include_content=False)
             for processed, raw, source in rows
         ]
 
-    def get_event_item(self, event_id: str) -> Optional[dict[str, Any]]:
+    def _resolve_processed_row(self, event_id: str):
         cluster = self.session.get(EventClusterModel, event_id)
         if cluster is not None:
-            row = self.session.execute(
+            return self.session.execute(
                 select(ProcessedArticleModel, RawArticleModel, SourceModel)
                 .join(RawArticleModel, ProcessedArticleModel.raw_article_id == RawArticleModel.id)
                 .join(SourceModel, RawArticleModel.source_id == SourceModel.id)
                 .where(ProcessedArticleModel.raw_article_id == cluster.main_article_id)
             ).first()
-        elif event_id.startswith("a"):
-            row = self.session.execute(
+        if event_id.startswith("a"):
+            return self.session.execute(
                 select(ProcessedArticleModel, RawArticleModel, SourceModel)
                 .join(RawArticleModel, ProcessedArticleModel.raw_article_id == RawArticleModel.id)
                 .join(SourceModel, RawArticleModel.source_id == SourceModel.id)
                 .where(RawArticleModel.id.like(f"{event_id[1:]}%"))
             ).first()
-        else:
-            row = None
+        return None
+
+    EVENT_MODERATION_FIELDS = {"hidden", "title_zh", "category", "tags"}
+
+    def update_event_moderation(self, event_id: str, fields: dict[str, Any]) -> bool:
+        row = self._resolve_processed_row(event_id)
+        if row is None:
+            return False
+        processed, _raw, _source = row
+        for key, value in fields.items():
+            if key not in self.EVENT_MODERATION_FIELDS:
+                continue
+            if key == "hidden":
+                if value:
+                    processed.status = "hidden"
+                else:
+                    # restore to the status implied by the stored verdict
+                    processed.status = "rejected" if processed.rejection_reason else "processed"
+            elif key == "tags":
+                processed.tags = [str(tag) for tag in (value or [])][:5]
+            else:
+                setattr(processed, key, str(value))
+        return True
+
+    def get_event_item(self, event_id: str) -> Optional[dict[str, Any]]:
+        row = self._resolve_processed_row(event_id)
         if row is None:
             return None
         processed, raw, source = row
+        if processed.status == "hidden":
+            return None
         return _event_item(processed, raw, source, include_content=True)
 
     def get_daily_report_payloads_between(
@@ -512,6 +541,7 @@ def _event_item(
         "tags": list(processed.tags or []),
         "final_score": processed.final_score,
         "selected": processed.status == "processed",
+        "hidden": processed.status == "hidden",
         "source_count": 1,
         "main_source": {"name": source.name, "url": raw.source_url, "tier": source.tier},
         "source_language": raw.language,

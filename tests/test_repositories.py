@@ -395,6 +395,77 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(model.success_rate, 0.0)  # health not editable
         self.assertEqual(model.config_json, {"a": 1})
 
+    def test_hidden_events_are_filtered_from_public_queries(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        article = self._article(article_id="a1", title="Visible", url_hash="hash-a1")
+        other = self._article(article_id="a2", title="Hidden one", url_hash="hash-a2")
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([article, other])
+            repository.upsert_processed_articles(
+                [self._processed("a1"), self._processed("a2")]
+            )
+            session.commit()
+
+            updated = repository.update_event_moderation("aa2", {"hidden": True})
+            session.commit()
+
+            public_items = repository.get_all_event_items_between(
+                date(2026, 6, 30), date(2026, 7, 2)
+            )
+            admin_items = repository.get_all_event_items_between(
+                date(2026, 6, 30), date(2026, 7, 2), include_hidden=True
+            )
+            detail = repository.get_event_item("aa2")
+
+        self.assertTrue(updated)
+        self.assertEqual(len(public_items), 1)
+        self.assertEqual(len(admin_items), 2)
+        hidden_item = next(i for i in admin_items if i["event_id"] == "aa2")
+        self.assertTrue(hidden_item["hidden"])
+        self.assertIsNone(detail)  # hidden events 404 publicly
+
+    def test_update_event_moderation_edits_and_restores(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        article = self._article(article_id="a1", title="Editable", url_hash="hash-a1")
+        rejected = self._processed("a1", final_score=40.0)
+        rejected.selected = False
+        rejected.status = "rejected"
+        rejected.rejection_reason = "below_threshold:70"
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([article])
+            repository.upsert_processed_articles([rejected])
+            session.commit()
+
+            repository.update_event_moderation(
+                "aa1",
+                {"hidden": True, "title_zh": "改后的标题", "category": "research", "tags": ["新标签"]},
+            )
+            session.commit()
+            repository.update_event_moderation("aa1", {"hidden": False})
+            session.commit()
+
+            items = repository.get_all_event_items_between(
+                date(2026, 6, 30), date(2026, 7, 2), include_hidden=True
+            )
+            missing = repository.update_event_moderation("a-nope", {"hidden": True})
+
+        item = items[0]
+        self.assertEqual(item["title"], "改后的标题")
+        self.assertEqual(item["category"], "research")
+        self.assertEqual(item["tags"], ["新标签"])
+        self.assertFalse(item["hidden"])
+        # restore returns to prior rejected status, not processed
+        self.assertEqual(item["selected"], False)
+        self.assertFalse(missing)
+
     def _processed(self, raw_article_id, *, final_score=88.0):
         from app.models.domain import ProcessedArticle, ScoreDimensions
 
