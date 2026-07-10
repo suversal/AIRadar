@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 type RefreshState = "idle" | "running" | "done" | "failed";
-type RefreshMode = "digest" | "complete";
 type RefreshJob = {
   job_id?: string;
   status?: string;
@@ -41,17 +40,12 @@ async function readJson(response: Response) {
 export function RefreshReportButton() {
   const router = useRouter();
   const [refreshState, setRefreshState] = useState<RefreshState>("idle");
-  const [activeMode, setActiveMode] = useState<RefreshMode | null>(null);
   const [message, setMessage] = useState("");
 
-  async function refreshReport(mode: RefreshMode) {
-    const url =
-      mode === "complete"
-        ? "/api/refresh-latest?limit=100&top_n=30"
-        : "/api/refresh-latest?limit=100&top_n=12";
+  async function refreshReport() {
+    const url = "/api/refresh-latest?limit=100&top_n=30";
     setRefreshState("running");
-    setActiveMode(mode);
-    setMessage(mode === "complete" ? "正在启动完整成果生成..." : "正在启动日报刷新...");
+    setMessage("正在启动数据同步...");
     try {
       const response = await fetch(url, { method: "POST" });
       const payload: RefreshJob = await readJson(response);
@@ -73,8 +67,6 @@ export function RefreshReportButton() {
     } catch (error) {
       setRefreshState("failed");
       setMessage(error instanceof Error ? error.message : "刷新失败");
-    } finally {
-      setActiveMode(null);
     }
   }
 
@@ -98,26 +90,16 @@ export function RefreshReportButton() {
   }
 
   return (
-    <div>
-      <div className="grid gap-2">
-        <button
-          type="button"
-          onClick={() => refreshReport("digest")}
-          disabled={refreshState === "running"}
-          className="w-full rounded-md border border-signal bg-signal px-3 py-2 text-sm font-semibold text-canvas disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {refreshState === "running" && activeMode === "digest" ? "刷新中..." : "刷新日报（精选 12 条）"}
-        </button>
-        <button
-          type="button"
-          onClick={() => refreshReport("complete")}
-          disabled={refreshState === "running"}
-          className="w-full rounded-md border border-line px-3 py-2 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {refreshState === "running" && activeMode === "complete" ? "生成中..." : "完整刷新（精选 30 条）"}
-        </button>
-      </div>
-      <p className="mt-2 min-h-5 text-sm text-ink-mid" aria-live="polite">
+    <div className="flex flex-wrap items-center gap-3">
+      <button
+        type="button"
+        onClick={() => refreshReport()}
+        disabled={refreshState === "running"}
+        className="rounded-md border border-signal bg-signal px-4 py-2 text-sm font-semibold text-canvas disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {refreshState === "running" ? "同步中..." : "刷新数据"}
+      </button>
+      <p className="min-h-5 text-sm text-ink-mid" aria-live="polite">
         {message}
       </p>
     </div>

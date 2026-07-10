@@ -52,8 +52,8 @@ export function SchedulePanel({ initialConfig }: { initialConfig: ScheduleConfig
 
   if (!initialConfig) {
     return (
-      <div className="rounded-md border border-line bg-panel p-5 text-sm text-ink-dim">
-        定时任务需要数据库模式（设置 DATABASE_URL）才能使用。
+      <div className="rounded-md border border-line bg-canvas px-3 py-2 text-xs text-ink-dim">
+        定时任务不可用：需要数据库模式
       </div>
     );
   }
@@ -87,47 +87,44 @@ export function SchedulePanel({ initialConfig }: { initialConfig: ScheduleConfig
   }
 
   return (
-    <section className="rounded-md border border-line bg-panel p-5">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h2 className="text-base font-semibold text-ink">定时任务</h2>
-        <span className="text-xs text-ink-dim">
-          由后端服务内置调度，不依赖操作系统定时任务；关闭时不会自动触发抓取。
-        </span>
-      </div>
-      <div className="mt-4 flex flex-wrap items-end gap-4">
-        <label className="flex items-center gap-2 text-sm text-ink">
+    <div className="rounded-md border border-line bg-canvas px-3 py-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-sm font-semibold text-ink">自动同步</span>
+        <label className="flex items-center gap-2 text-sm text-ink-mid">
           <input
+            className="accent-[var(--color-signal)]"
             type="checkbox"
             checked={config.enabled}
             onChange={(event) => void save(event.target.checked)}
             disabled={saving}
           />
-          开启自动刷新
+          {config.enabled ? "已开启" : "已关闭"}
         </label>
-        <label className="flex flex-col gap-1 text-xs text-ink-dim">
-          间隔（分钟）
+        <label className="flex items-center gap-2 text-xs text-ink-dim">
+          间隔
           <input
             type="number"
             min={5}
             max={1440}
             value={intervalInput}
             onChange={(event) => setIntervalInput(event.target.value)}
-            className="w-28 rounded-md border border-line bg-canvas px-2 py-1 text-sm text-ink"
+            className="readout w-20 rounded-md border border-line bg-panel px-2 py-1 text-sm text-ink"
           />
+          分钟
         </label>
         <button
           type="button"
           onClick={() => void save(config.enabled)}
           disabled={saving}
-          className="rounded-md border border-signal bg-signal px-3 py-2 text-sm font-semibold text-canvas disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-ink-mid hover:border-signal/40 hover:text-signal disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {saving ? "保存中..." : "保存间隔"}
+          {saving ? "保存中..." : "保存"}
         </button>
       </div>
-      <p className="mt-3 text-xs text-ink-dim" aria-live="polite">
+      <p className="mt-2 text-xs text-ink-dim" aria-live="polite">
         上次触发：{formatTime(config.last_triggered_at)} · 预计下次：{nextRunEstimate(config)}
       </p>
       {message ? <p className="mt-1 text-sm text-ink-mid">{message}</p> : null}
-    </section>
+    </div>
   );
 }

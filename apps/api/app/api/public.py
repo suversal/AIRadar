@@ -58,7 +58,7 @@ def _item_matches(
     if topic and not item_matches_topic(item, topic_by_id(topic)):
         return False
     if q:
-        needle = q.lower()
+        needles = [part for part in q.lower().split() if part]
         haystack = " ".join(
             str(value)
             for value in [
@@ -70,7 +70,7 @@ def _item_matches(
             ]
             if value
         ).lower()
-        if needle not in haystack:
+        if any(needle not in haystack for needle in needles):
             return False
     return True
 

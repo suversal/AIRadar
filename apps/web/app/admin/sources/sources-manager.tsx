@@ -13,6 +13,7 @@ export type AdminSource = {
   is_active: boolean;
   fetch_interval_min: number;
   language: string;
+  last_crawled_at: string | null;
   last_success_at: string | null;
   success_rate: number;
   error_count: number;
@@ -38,11 +39,24 @@ async function api(path: string, init?: RequestInit) {
 }
 
 function healthLabel(source: AdminSource) {
-  if (!source.is_active) return { text: "停用", tone: "text-ink-dim" };
+  if (!source.is_active) return { text: "停用", tone: "text-ink-dim", dot: "bg-ink-dim" };
   if (source.error_count > 0 || source.success_rate < 0.5)
-    return { text: "故障", tone: "text-red-300" };
-  if (source.success_rate < 0.9) return { text: "波动", tone: "text-yellow-300" };
-  return { text: "正常", tone: "text-green-400" };
+    return { text: "故障", tone: "text-red-300", dot: "bg-red-400" };
+  if (source.success_rate < 0.9) return { text: "波动", tone: "text-yellow-300", dot: "bg-yellow-400" };
+  return { text: "正常", tone: "text-green-400", dot: "bg-green-400" };
+}
+
+function formatTime(value?: string | null) {
+  if (!value) return "从未";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(parsed);
 }
 
 export function SourcesManager({ initialSources }: { initialSources: AdminSource[] }) {
@@ -125,9 +139,9 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
           <thead>
             <tr className="border-b border-line text-xs text-ink-dim">
               <th className="px-4 py-3">信源</th>
-              <th className="px-4 py-3">类型/层级</th>
-              <th className="px-4 py-3">健康</th>
-              <th className="px-4 py-3">成功率</th>
+              <th className="px-4 py-3">类型</th>
+              <th className="px-4 py-3">状态与健康</th>
+              <th className="px-4 py-3">最近记录</th>
               <th className="px-4 py-3">操作</th>
             </tr>
           </thead>
@@ -156,15 +170,23 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
                       </div>
                     ) : null}
                   </td>
-                  <td className="readout px-4 py-3 text-xs">
-                    {source.type} · {source.tier}
+                  <td className="px-4 py-3 text-xs text-ink-mid">
+                    <div className="readout">{source.type} · {source.tier}</div>
+                    <div className="mt-1">{source.category} · {source.language}</div>
+                    <div className="readout mt-1 text-ink-dim">{source.fetch_interval_min} min</div>
                   </td>
-                  <td className={`px-4 py-3 text-xs font-semibold ${health.tone}`}>
-                    {health.text}
-                    {source.error_count > 0 ? ` (${source.error_count})` : ""}
+                  <td className="px-4 py-3 text-xs">
+                    <div className={`flex items-center gap-2 font-semibold ${health.tone}`}>
+                      <span aria-hidden className={`h-2 w-2 rounded-full ${health.dot}`} />
+                      {health.text}
+                    </div>
+                    <div className="readout mt-1 text-ink-dim">
+                      成功率 {(source.success_rate * 100).toFixed(0)}% · 错误 {source.error_count}
+                    </div>
                   </td>
-                  <td className="readout px-4 py-3 text-xs">
-                    {(source.success_rate * 100).toFixed(0)}%
+                  <td className="readout px-4 py-3 text-xs text-ink-dim">
+                    <div>最近成功 {formatTime(source.last_success_at)}</div>
+                    <div className="mt-1">最近抓取 {formatTime(source.last_crawled_at)}</div>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-2 text-xs font-semibold">

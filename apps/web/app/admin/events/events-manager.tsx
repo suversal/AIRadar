@@ -59,12 +59,14 @@ async function api(path: string, init?: RequestInit) {
 export function EventsManager({
   initialEvents,
   page,
+  pageSize,
   totalPages,
   total,
   q,
 }: {
   initialEvents: AdminEvent[];
   page: number;
+  pageSize: number;
   totalPages: number;
   total: number;
   q: string;
@@ -74,6 +76,10 @@ export function EventsManager({
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [editing, setEditing] = useState<AdminEvent | null>(null);
+  const [searchInput, setSearchInput] = useState("");
+  const [searchTerms, setSearchTerms] = useState(() =>
+    q.split(/\s+/).map((term) => term.trim()).filter(Boolean),
+  );
 
   const events = useMemo(() => {
     if (filter === "selected") return initialEvents.filter((event) => event.selected);
@@ -122,28 +128,91 @@ export function EventsManager({
     });
   }
 
+  function addSearchTerm() {
+    const term = searchInput.trim();
+    if (!term || searchTerms.includes(term)) {
+      setSearchInput("");
+      return;
+    }
+    setSearchTerms((prev) => [...prev, term]);
+    setSearchInput("");
+  }
+
+  function queryHref(nextPage: number, nextPageSize = pageSize) {
+    const params = new URLSearchParams({
+      page: String(nextPage),
+      page_size: String(nextPageSize),
+    });
+    if (q) {
+      params.set("q", q);
+    }
+    return `/admin/events?${params.toString()}`;
+  }
+
   return (
     <div className="space-y-4">
-      <form action="/admin/events" className="flex flex-wrap items-center gap-3" method="get">
-        <input
-          className="min-w-64 rounded-md border border-line bg-canvas px-4 py-2 text-sm text-ink outline-none placeholder:text-ink-dim focus:border-signal/60"
-          defaultValue={q}
-          name="q"
-          placeholder="搜索标题/摘要/标签/来源…"
-          type="search"
-        />
-        <button
-          className="rounded-md border border-signal/40 bg-signal/10 px-4 py-2 text-sm font-semibold text-signal hover:bg-signal/15"
-          type="submit"
-        >
-          搜索
-        </button>
-        {q ? (
-          <a className="text-sm text-ink-dim hover:text-ink" href="/admin/events">
-            清除
-          </a>
-        ) : null}
-      </form>
+      <section className="rounded-md border border-line bg-panel p-4">
+        <form action="/admin/events" className="space-y-3" method="get">
+          <input name="page" type="hidden" value="1" />
+          <input name="page_size" type="hidden" value={pageSize} />
+          <input name="q" type="hidden" value={searchTerms.join(" ")} />
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              className="min-w-64 flex-1 rounded-md border border-line bg-canvas px-4 py-2 text-sm text-ink outline-none placeholder:text-ink-dim focus:border-signal/60"
+              onChange={(event) => setSearchInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  addSearchTerm();
+                }
+              }}
+              placeholder="输入关键词后点击添加，可添加多个"
+              type="search"
+              value={searchInput}
+            />
+            <button
+              className="rounded-md border border-line px-4 py-2 text-sm font-semibold text-ink-mid hover:border-signal/40 hover:text-signal"
+              onClick={addSearchTerm}
+              type="button"
+            >
+              添加
+            </button>
+            <button
+              className="rounded-md border border-signal bg-signal px-4 py-2 text-sm font-semibold text-canvas"
+              type="submit"
+            >
+              搜索
+            </button>
+            {q || searchTerms.length ? (
+              <a className="px-2 text-sm text-ink-dim hover:text-ink" href="/admin/events">
+                清除
+              </a>
+            ) : null}
+          </div>
+          <div className="flex min-h-8 flex-wrap items-center gap-2">
+            {searchTerms.length ? (
+              searchTerms.map((term) => (
+                <span
+                  key={term}
+                  className="inline-flex items-center gap-2 rounded-md border border-line bg-canvas px-2.5 py-1 text-xs text-ink-mid"
+                >
+                  {term}
+                  <button
+                    aria-label={`移除 ${term}`}
+                    className="text-ink-dim hover:text-red-300"
+                    onClick={() => setSearchTerms((prev) => prev.filter((item) => item !== term))}
+                    type="button"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))
+            ) : (
+              <span className="text-xs text-ink-dim">未添加关键词时显示近 30 天全部内容</span>
+            )}
+          </div>
+        </form>
+      </section>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-1 rounded-md border border-line bg-panel p-1 text-sm font-semibold">
@@ -242,17 +311,50 @@ export function EventsManager({
         ) : null}
       </div>
 
-      <div className="flex items-center justify-between text-sm text-ink-mid">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-line bg-panel px-4 py-3 text-sm text-ink-mid">
         <span className="readout text-xs text-ink-dim">
           共 {total} 篇 · 第 {page}/{totalPages} 页
         </span>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <form action="/admin/events" className="flex items-center gap-2 text-xs text-ink-dim" method="get">
+            <input name="q" type="hidden" value={q} />
+            <input name="page" type="hidden" value="1" />
+            每页
+            <select
+              className="rounded border border-line bg-canvas px-2 py-1 text-ink"
+              defaultValue={pageSize}
+              name="page_size"
+              onChange={(event) => event.currentTarget.form?.requestSubmit()}
+            >
+              {[10, 20, 50, 100].map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </form>
+          <form action="/admin/events" className="flex items-center gap-2 text-xs text-ink-dim" method="get">
+            <input name="q" type="hidden" value={q} />
+            <input name="page_size" type="hidden" value={pageSize} />
+            跳至
+            <input
+              className="readout w-16 rounded border border-line bg-canvas px-2 py-1 text-ink"
+              defaultValue={page}
+              max={totalPages}
+              min={1}
+              name="page"
+              type="number"
+            />
+            <button className="rounded border border-line px-2 py-1 hover:border-signal/40 hover:text-signal" type="submit">
+              前往
+            </button>
+          </form>
           <a
             aria-disabled={page <= 1}
             className={`rounded border border-line px-4 py-1.5 ${
               page <= 1 ? "pointer-events-none opacity-40" : "hover:border-signal/40 hover:text-signal"
             }`}
-            href={`/admin/events?page=${page - 1}${q ? `&q=${encodeURIComponent(q)}` : ""}`}
+            href={queryHref(page - 1)}
           >
             上一页
           </a>
@@ -261,7 +363,7 @@ export function EventsManager({
             className={`rounded border border-line px-4 py-1.5 ${
               page >= totalPages ? "pointer-events-none opacity-40" : "hover:border-signal/40 hover:text-signal"
             }`}
-            href={`/admin/events?page=${page + 1}${q ? `&q=${encodeURIComponent(q)}` : ""}`}
+            href={queryHref(page + 1)}
           >
             下一页
           </a>

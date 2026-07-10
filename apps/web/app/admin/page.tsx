@@ -65,6 +65,39 @@ function healthTone(source: SourceHealth) {
   return { dot: "bg-green-400", label: "正常" };
 }
 
+const COUNT_LABELS: Record<string, { label: string; help: string }> = {
+  sources: { label: "信源", help: "已配置的抓取入口" },
+  raw_articles: { label: "原始文章", help: "抓取入库的去重文章" },
+  processed_articles: { label: "已处理文章", help: "完成 AI 评分/分类的文章" },
+  event_clusters: { label: "事件簇", help: "相似文章合并后的事件" },
+  daily_reports: { label: "日报", help: "已生成的日报版本" },
+  pipeline_runs: { label: "同步记录", help: "每次数据同步运行记录" },
+};
+
+const SKIPPED_REASON_LABELS: Record<string, string> = {
+  ai_error: "AI 返回异常",
+  below_threshold: "评分未达精选阈值",
+  candidate_limit: "超过候选上限",
+  not_ai_related: "非 AI 相关",
+  cached_not_ai_related: "命中历史非 AI 结果",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  succeeded: "成功",
+  failed: "失败",
+  running: "运行中",
+};
+
+function skippedReasonText(reasons: Record<string, number>) {
+  const entries = Object.entries(reasons);
+  if (entries.length === 0) {
+    return "无";
+  }
+  return entries
+    .map(([reason, count]) => `${SKIPPED_REASON_LABELS[reason] ?? reason} ${count}`)
+    .join(" · ");
+}
+
 export default async function AdminDashboardPage() {
   const [response, scheduleResponse] = await Promise.all([
     adminFetch("/api/admin/overview"),
@@ -87,58 +120,40 @@ export default async function AdminDashboardPage() {
         <div className="space-y-8">
           <section className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
             {Object.entries(overview.counts).map(([name, value]) => (
-              <div key={name} className="rounded-md border border-line bg-panel p-4 text-center">
+              <div key={name} className="rounded-md border border-line bg-panel p-4">
                 <div className="readout text-xl font-semibold text-ink">{value}</div>
-                <div className="mt-1 text-xs text-ink-dim">{name}</div>
+                <div className="mt-1 text-sm font-semibold text-ink-mid">
+                  {COUNT_LABELS[name]?.label ?? name}
+                </div>
+                <div className="mt-1 min-h-8 text-xs leading-4 text-ink-dim">
+                  {COUNT_LABELS[name]?.help ?? "数据库记录数"}
+                </div>
               </div>
             ))}
           </section>
 
-          <SchedulePanel initialConfig={scheduleConfig} />
-
           <section className="rounded-md border border-line bg-panel p-5">
             <div className="flex flex-wrap items-center justify-between gap-4">
-              <h2 className="text-base font-semibold text-ink">手动刷新</h2>
+              <h2 className="text-base font-semibold text-ink">手动同步</h2>
               <span className="text-xs text-ink-dim">
-                两种模式都会抓取全部信源并 AI 处理至多 100 篇候选（增量缓存生效，仅新文章产生 AI
-                调用）；区别只在日报收录条数——日报 12 条，完整刷新 30 条
+                抓取全部启用信源，最多处理 100 篇候选，生成最多 30 条日报结果
               </span>
             </div>
-            <div className="mt-4 max-w-md">
+            <div className="mt-4">
               <RefreshReportButton />
             </div>
           </section>
 
           <section className="rounded-md border border-line bg-panel p-5">
-            <h2 className="text-base font-semibold text-ink">
-              信源健康 <span className="ml-2 text-sm font-normal text-ink-dim">{overview.sources.length} 个</span>
-            </h2>
-            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {overview.sources.map((source) => {
-                const tone = healthTone(source);
-                return (
-                  <div
-                    key={source.id}
-                    className="flex items-center justify-between gap-3 rounded-md border border-line bg-canvas px-4 py-3"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${tone.dot}`} />
-                        <span className="truncate text-sm font-semibold text-ink">{source.name}</span>
-                      </div>
-                      <div className="readout mt-1 text-xs text-ink-dim">
-                        {tone.label} · 成功率 {(source.success_rate * 100).toFixed(0)}% · 最近成功{" "}
-                        {formatTime(source.last_success_at)}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h2 className="text-base font-semibold text-ink">运行台账</h2>
+                <p className="mt-1 text-xs text-ink-dim">
+                  记录每次数据同步的抓取、AI 处理、聚类和跳过情况
+                </p>
+              </div>
+              <SchedulePanel initialConfig={scheduleConfig} />
             </div>
-          </section>
-
-          <section className="rounded-md border border-line bg-panel p-5">
-            <h2 className="text-base font-semibold text-ink">运行台账</h2>
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
@@ -146,10 +161,10 @@ export default async function AdminDashboardPage() {
                     <th className="py-2 pr-4">#</th>
                     <th className="py-2 pr-4">时间</th>
                     <th className="py-2 pr-4">状态</th>
-                    <th className="py-2 pr-4">原始</th>
-                    <th className="py-2 pr-4">处理</th>
-                    <th className="py-2 pr-4">聚类</th>
-                    <th className="py-2">跳过原因</th>
+                    <th className="py-2 pr-4">抓取文章</th>
+                    <th className="py-2 pr-4">AI 处理</th>
+                    <th className="py-2 pr-4">事件簇</th>
+                    <th className="py-2">跳过说明</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
@@ -163,16 +178,14 @@ export default async function AdminDashboardPage() {
                             run.status === "succeeded" ? "text-green-400" : "text-red-300"
                           }
                         >
-                          {run.status}
+                          {STATUS_LABELS[run.status] ?? run.status}
                         </span>
                       </td>
                       <td className="readout py-2 pr-4">{run.raw_count}</td>
                       <td className="readout py-2 pr-4">{run.processed_count}</td>
                       <td className="readout py-2 pr-4">{run.cluster_count}</td>
-                      <td className="py-2 text-xs">
-                        {Object.entries(run.skipped_reasons)
-                          .map(([reason, count]) => `${reason}:${count}`)
-                          .join(" ") || "-"}
+                      <td className="max-w-md py-2 text-xs leading-5 text-ink-dim">
+                        {skippedReasonText(run.skipped_reasons)}
                       </td>
                     </tr>
                   ))}
