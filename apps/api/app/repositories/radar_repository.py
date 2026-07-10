@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Optional
 
@@ -35,6 +35,13 @@ class WriteResult:
     inserted: int = 0
     updated: int = 0
     skipped: int = 0
+    # populated only by upsert_event_clusters: {original_cluster_id: target_event_id}
+    # for every incoming cluster that got merged into a different, already-
+    # existing event instead of creating its own row. Callers (persistence
+    # layer) must remap processed_articles.event_cluster_id and daily report
+    # entries through this before writing them, or they'll reference an
+    # event_clusters row that was never actually created.
+    redirects: dict[str, str] = field(default_factory=dict)
 
 
 # translation is AI output, not crawl data: these keys never get merged into
@@ -397,6 +404,7 @@ class RadarRepository:
     ) -> WriteResult:
         inserted = 0
         updated = 0
+        redirects: dict[str, str] = {}
         for cluster in clusters:
             model = self.session.get(EventClusterModel, cluster.id)
             target_id = cluster.id
@@ -411,6 +419,7 @@ class RadarRepository:
                     if matched_id is not None:
                         target_id = matched_id
                         model = self.session.get(EventClusterModel, target_id)
+                        redirects[cluster.id] = target_id
 
             if model is None:
                 model = EventClusterModel(id=target_id)
@@ -460,7 +469,7 @@ class RadarRepository:
 
             model.source_count = self._count_distinct_sources(target_id)
         self.session.flush()
-        return WriteResult(inserted=inserted, updated=updated)
+        return WriteResult(inserted=inserted, updated=updated, redirects=redirects)
 
     def record_pipeline_run(
         self,

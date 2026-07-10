@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
 from app.crawlers.base import stable_hash
@@ -86,11 +86,23 @@ def persist_pipeline_result(
         cluster_window_hours=cluster_window_hours,
         similarity_threshold=similarity_threshold,
     )
-    processed_result = repository.upsert_processed_articles(result.processed_articles)
+    # a cluster's id was stamped onto processed_articles/daily_report items
+    # back in run_pipeline(), before the repository decided (via the merge
+    # above) that it should actually join a different, already-existing
+    # event instead of creating its own row - remap through redirects or
+    # these rows would reference an event_clusters id that was never created
+    redirects: dict[str, str] = getattr(cluster_result, "redirects", None) or {}
+    processed_articles = result.processed_articles
+    if redirects:
+        processed_articles = [
+            replace(processed, event_cluster_id=redirects.get(processed.event_cluster_id, processed.event_cluster_id))
+            for processed in processed_articles
+        ]
+    processed_result = repository.upsert_processed_articles(processed_articles)
     daily_result = repository.upsert_daily_report(result.daily_report)
     entries = [
         {
-            "event_id": item["event_id"],
+            "event_id": redirects.get(item["event_id"], item["event_id"]),
             "raw_article_id": item["raw_article_id"],
             "reason": item.get("reason", ""),
             "final_score": item.get("final_score", 0.0),

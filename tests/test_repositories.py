@@ -353,6 +353,10 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(len(all_clusters), 1)  # no new event_clusters row created
         self.assertEqual(result.inserted, 0)
         self.assertEqual(result.updated, 1)
+        # callers (persistence layer) must remap any processed_articles /
+        # daily_report_entries that reference the original "e-new-bucket" id -
+        # that row was never created, only "e-old" absorbed the new article
+        self.assertEqual(result.redirects, {"e-new-bucket": "e-old"})
         self.assertEqual({m.raw_article_id for m in memberships}, {"old1", "new1"})
         self.assertEqual(merged.source_count, 2)
         # lower-scoring new article must not steal the main slot

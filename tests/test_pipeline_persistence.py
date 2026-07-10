@@ -174,11 +174,84 @@ class PipelinePersistenceTests(unittest.TestCase):
         )
 
 
+    def test_persist_pipeline_result_remaps_event_cluster_id_through_merge_redirects(self):
+        # regression, found via real-data verification: upsert_event_clusters
+        # can redirect a "new" cluster into a different, already-existing
+        # event (cross-day merge). processed_articles/daily_report entries
+        # are stamped with the ORIGINAL cluster id back in run_pipeline(),
+        # before that redirect decision exists, so persistence must remap
+        # them - otherwise they reference an event_clusters row that was
+        # never created, and the processed_articles write raises a foreign
+        # key violation.
+        from app.models.domain import ProcessedArticle, ScoreDimensions
+
+        repository = FakeRepository()
+        repository.cluster_redirects = {"c-new": "c-existing"}
+        article = RawArticle(
+            id="a1",
+            source_id="openai_blog",
+            source_name="OpenAI Blog",
+            source_role="authority",
+            source_tier="T1",
+            source_url="https://openai.com/a",
+            title="t",
+            content="c",
+            author="OpenAI",
+            published_at=datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+            language="en",
+            raw_score={},
+            metadata={},
+            title_hash="title-a1",
+            url_hash="url-a1",
+        )
+        processed = ProcessedArticle(
+            raw_article_id="a1",
+            event_cluster_id="c-new",
+            dimensions=ScoreDimensions(9, 8, 8, 7, 7, 6),
+            base_score=7.8,
+            final_score=88.0,
+            title_zh="t",
+            one_line_summary="s",
+            summary_zh="s",
+            reason_zh="r",
+            action_zh="a",
+            category="model_release",
+            tags=[],
+            selected=True,
+            status="processed",
+        )
+        daily_report = DailyReport(
+            report_date=date(2026, 7, 1),
+            markdown="# report",
+            json_data={
+                "report_date": "2026-07-01",
+                "items": [
+                    {"event_id": "c-new", "raw_article_id": "a1", "reason": "x", "final_score": 88.0}
+                ],
+                "article_count": 1,
+            },
+            article_count=1,
+        )
+        result = PipelineResult(
+            raw_articles=[article],
+            processed_articles=[processed],
+            event_clusters=[],
+            daily_report=daily_report,
+            skipped_reasons={},
+        )
+
+        persist_pipeline_result(repository, sources=[], result=result)
+
+        self.assertEqual(repository.processed_articles_written[0].event_cluster_id, "c-existing")
+        self.assertEqual(repository.entries_written[1][0]["event_id"], "c-existing")
+
+
 class FakeWriteResult:
-    def __init__(self, *, inserted=0, updated=0, skipped=0):
+    def __init__(self, *, inserted=0, updated=0, skipped=0, redirects=None):
         self.inserted = inserted
         self.updated = updated
         self.skipped = skipped
+        self.redirects = redirects or {}
 
 
 class FakeRepository:
@@ -187,6 +260,8 @@ class FakeRepository:
         self.entries_written = None
         self.embeddings_written = []
         self.event_cluster_kwargs = None
+        self.processed_articles_written = None
+        self.cluster_redirects = {}
 
     def upsert_sources(self, sources):
         self.calls.append("sources")
@@ -210,12 +285,13 @@ class FakeRepository:
 
     def upsert_processed_articles(self, processed_articles):
         self.calls.append("processed_articles")
+        self.processed_articles_written = processed_articles
         return FakeWriteResult(inserted=len(processed_articles))
 
     def upsert_event_clusters(self, clusters, **kwargs):
         self.calls.append("event_clusters")
         self.event_cluster_kwargs = kwargs
-        return FakeWriteResult(inserted=len(clusters))
+        return FakeWriteResult(inserted=len(clusters), redirects=self.cluster_redirects)
 
     def record_pipeline_run(self, **kwargs):
         self.calls.append("pipeline_run")
