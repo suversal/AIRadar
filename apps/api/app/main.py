@@ -112,11 +112,33 @@ def create_app(
 ):
     load_env_file()
     try:
-        from fastapi import FastAPI, HTTPException
+        from fastapi import Cookie, Depends, FastAPI, Header, HTTPException
     except ModuleNotFoundError as exc:
         raise RuntimeError("FastAPI is not installed. Install requirements.txt first.") from exc
 
     app = FastAPI(title="Suversal AI Radar API", version="0.1.0")
+
+    def require_admin(
+        authorization: Optional[str] = Header(default=None),
+        admin_cookie: Optional[str] = Cookie(default=None, alias="admin_token"),
+    ) -> None:
+        import secrets
+
+        admin_token = os.getenv("ADMIN_TOKEN")
+        if not admin_token:
+            raise HTTPException(
+                status_code=403,
+                detail="Admin console disabled: set the ADMIN_TOKEN environment variable.",
+            )
+        header_value = authorization or ""
+        if header_value.lower().startswith("bearer "):
+            provided = header_value[7:].strip()
+        else:
+            provided = admin_cookie or ""
+        if not provided or not secrets.compare_digest(provided, admin_token):
+            raise HTTPException(status_code=401, detail="Invalid admin token")
+
+    admin_guard = Depends(require_admin)
     refresh_jobs: dict[str, dict[str, Any]] = {}
     refresh_jobs_lock = threading.Lock()
 
@@ -297,7 +319,11 @@ def create_app(
         range_start, range_end = month_range(anchor)
         return period_report("monthly", range_start, range_end)
 
-    @app.post("/api/admin/refresh-latest")
+    @app.get("/api/admin/ping", dependencies=[admin_guard])
+    def admin_ping() -> dict:
+        return {"status": "ok"}
+
+    @app.post("/api/admin/refresh-latest", dependencies=[admin_guard])
     def refresh_latest(limit: Optional[int] = None, top_n: Optional[int] = None) -> dict:
         try:
             resolved_limit, resolved_top_n = resolve_refresh_params(limit, top_n)
@@ -309,7 +335,7 @@ def create_app(
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    @app.post("/api/admin/refresh-latest-async")
+    @app.post("/api/admin/refresh-latest-async", dependencies=[admin_guard])
     def refresh_latest_async(limit: Optional[int] = None, top_n: Optional[int] = None) -> dict:
         try:
             resolved_limit, resolved_top_n = resolve_refresh_params(limit, top_n)
@@ -355,7 +381,7 @@ def create_app(
         with refresh_jobs_lock:
             return dict(refresh_jobs[job_id])
 
-    @app.get("/api/admin/refresh-jobs/{job_id}")
+    @app.get("/api/admin/refresh-jobs/{job_id}", dependencies=[admin_guard])
     def refresh_job(job_id: str) -> dict:
         with refresh_jobs_lock:
             job = refresh_jobs.get(job_id)

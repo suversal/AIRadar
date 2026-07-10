@@ -65,7 +65,14 @@ class APIMainTests(unittest.TestCase):
             calls.append({"limit": limit, "top_n": top_n})
             return {"status": "ok", "report_date": "2026-07-07", "article_count": top_n}
 
+        import os
+        from unittest.mock import patch as env_patch
+
+        env = env_patch.dict(os.environ, {"ADMIN_TOKEN": "test-admin"})
+        env.start()
+        self.addCleanup(env.stop)
         client = TestClient(module.create_app(refresh_runner=refresh_runner))
+        client.headers.update({"Authorization": "Bearer test-admin"})
 
         response = client.post("/api/admin/refresh-latest?limit=80&top_n=30")
 
@@ -87,7 +94,14 @@ class APIMainTests(unittest.TestCase):
                 "article_count": top_n,
             }
 
+        import os
+        from unittest.mock import patch as env_patch
+
+        env = env_patch.dict(os.environ, {"ADMIN_TOKEN": "test-admin"})
+        env.start()
+        self.addCleanup(env.stop)
         client = TestClient(module.create_app(refresh_runner=refresh_runner))
+        client.headers.update({"Authorization": "Bearer test-admin"})
 
         response = client.post("/api/admin/refresh-latest-async?limit=20&top_n=9")
 
