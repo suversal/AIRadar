@@ -16,7 +16,7 @@
 | Phase 5 - 任务调度与稳定性 | 进行中 | 轻量调度已就绪：`scripts/run_scheduled_refresh.sh`（带锁防重入、日志落 data/logs/）+ launchd 配置 `infra/launchd/`，每 2 小时抓取+处理；安装命令见 README；Celery/Redis 队列后置 | 用户确认安装 launchd agent；观察若干天后再评估是否需要 Celery |
 | Phase 6 - 前端 MVP | 已完成（v1 收尾完成） | 分类统一为 全部/模型/产品/行业/论文/技巧 六类（后端 8 类评分→展示映射，AI prompt 已约束枚举）；主题页上线（公司与模型/技术方向/内容形态 三组，点击进入 `/all?topic=` 筛选流）；视觉重设计为"琥珀信号"体系（AI·RADAR 品牌、暖炭黑+琥珀金 token、等宽仪表读数、雷达状态条、共享 Sidebar）；Agent接入/关于/更新日志/反馈 四个静态页上线；全部 15 条路由 + 404/API宕机降级走查通过 | 收藏（v2）；移动端截图细调 |
 | Phase 7 - RSS/Public API/MCP | 未开始 | RSS/Public API 完整版和 MCP 暂缓 | 等 API 和数据质量稳定后启动 |
-| Phase 8 - 后台管理 | 未开始 | 后台暂缓，避免早期范围膨胀 | 等数据闭环稳定后启动 |
+| Phase 8 - 后台管理 | 前期完成 | Token 认证管理后台上线（/admin，ADMIN_TOKEN 环境变量 + HttpOnly cookie）：仪表盘（信源健康网格/运行台账/手动刷新——刷新入口已从公开页移入后台）、信源管理（启停/编辑/新增/试抓，DB 为配置事实源）、内容修正（隐藏/恢复/改标题分类标签，隐藏事件公开侧即时 404）| 后期：阈值与 prompt 调参、故障告警、编辑工作流、审计日志、多管理员 |
 
 ## 0.1 已完成任务索引
 

@@ -15,6 +15,7 @@ export const navItems: NavItem[] = [
   { id: "about", label: "关于", group: "更多", href: "/about" },
   { id: "changelog", label: "更新日志", group: "更多", href: "/changelog" },
   { id: "feedback", label: "反馈", group: "更多", href: "/feedback" },
+  { id: "admin", label: "管理后台", group: "更多", href: "/admin" },
 ];
 
 export function navGroupItems(group: NavItem["group"]) {

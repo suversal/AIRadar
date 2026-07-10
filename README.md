@@ -70,6 +70,14 @@ aggregate daily reports over the true period range.
 Generated articles, reports, and crawl diagnostics are written under `data/`,
 which is ignored by git.
 
+## Admin Console
+
+Set `ADMIN_TOKEN` in `.env`, then open `http://127.0.0.1:3000/admin` and
+log in with the token. The console provides source health monitoring and
+management (enable/disable/edit/test-fetch), the pipeline run ledger,
+manual refresh, and content moderation (hide/edit events). All
+`/api/admin/*` endpoints require the token; database mode is required.
+
 ## Scheduled Refresh
 
 `scripts/run_scheduled_refresh.sh` runs one crawl + pipeline pass with a lock
