@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from app.crawlers.base import stable_hash
 from app.models.domain import (
     DailyReport,
     EventCluster,
@@ -20,10 +21,21 @@ class PipelineRepository(Protocol):
     def upsert_raw_articles(self, articles: list[RawArticle]) -> Any:
         ...
 
+    def upsert_article_embedding(
+        self, raw_article_id: str, *, embedding_model: str, vector: list[float], source_hash: str
+    ) -> Any:
+        ...
+
     def upsert_processed_articles(self, processed_articles: list[ProcessedArticle]) -> Any:
         ...
 
-    def upsert_event_clusters(self, clusters: list[EventCluster]) -> Any:
+    def upsert_event_clusters(
+        self,
+        clusters: list[EventCluster],
+        *,
+        cluster_window_hours: int = 72,
+        similarity_threshold: float = 0.85,
+    ) -> Any:
         ...
 
     def upsert_daily_report(self, report: DailyReport) -> Any:
@@ -51,10 +63,29 @@ def persist_pipeline_result(
     *,
     sources: list[Source],
     result: PipelineResult,
+    cluster_window_hours: int = 72,
+    similarity_threshold: float = 0.85,
 ) -> PipelinePersistenceSummary:
     source_result = repository.upsert_sources(sources)
     raw_result = repository.upsert_raw_articles(result.raw_articles)
-    cluster_result = repository.upsert_event_clusters(result.event_clusters)
+
+    content_by_id = {article.id: article.content for article in result.raw_articles}
+    for raw_article_id, vector in result.embeddings.items():
+        repository.upsert_article_embedding(
+            raw_article_id,
+            embedding_model=result.embedding_model,
+            vector=vector,
+            source_hash=stable_hash(content_by_id.get(raw_article_id, "")),
+        )
+
+    # embeddings must be written first: the repository's cross-day merge
+    # looks up existing events' main-article embeddings while deciding
+    # whether an incoming cluster should join one instead of creating new
+    cluster_result = repository.upsert_event_clusters(
+        result.event_clusters,
+        cluster_window_hours=cluster_window_hours,
+        similarity_threshold=similarity_threshold,
+    )
     processed_result = repository.upsert_processed_articles(result.processed_articles)
     daily_result = repository.upsert_daily_report(result.daily_report)
     entries = [
@@ -103,6 +134,9 @@ def persist_pipeline_result_to_database(
     database_url: str,
     sources: list[Source],
     result: PipelineResult,
+    *,
+    cluster_window_hours: int = 72,
+    similarity_threshold: float = 0.85,
 ) -> PipelinePersistenceSummary:
     from app.db.session import build_session_factory, session_scope
     from app.repositories.radar_repository import RadarRepository
@@ -110,4 +144,10 @@ def persist_pipeline_result_to_database(
     session_factory = build_session_factory(database_url)
     with session_scope(session_factory) as session:
         repository = RadarRepository(session)
-        return persist_pipeline_result(repository, sources=sources, result=result)
+        return persist_pipeline_result(
+            repository,
+            sources=sources,
+            result=result,
+            cluster_window_hours=cluster_window_hours,
+            similarity_threshold=similarity_threshold,
+        )

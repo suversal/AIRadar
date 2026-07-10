@@ -128,3 +128,5 @@ class PipelineResult:
     event_clusters: list[EventCluster]
     daily_report: DailyReport
     skipped_reasons: dict[str, int]
+    embeddings: dict[str, list[float]] = field(default_factory=dict)
+    embedding_model: str = ""

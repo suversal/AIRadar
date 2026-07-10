@@ -171,7 +171,13 @@ def refresh_latest_report(
 
     persistence_summary = None
     if database_url:
-        persistence_summary = persist_pipeline_result_to_database(database_url, sources, result)
+        persistence_summary = persist_pipeline_result_to_database(
+            database_url,
+            sources,
+            result,
+            cluster_window_hours=_env_int("CLUSTER_WINDOW_HOURS", 72),
+            similarity_threshold=_env_float("CLUSTER_SIMILARITY_THRESHOLD", 0.85),
+        )
         _regenerate_period_reports(database_url, resolved_date, ai_provider)
 
     return {

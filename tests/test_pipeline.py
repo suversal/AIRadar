@@ -159,6 +159,10 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(len(strict.event_clusters), 2)
         self.assertEqual(len(lenient.event_clusters), 1)
         self.assertEqual(lenient.event_clusters[0].source_count, 2)
+        # embeddings computed for clustering must also flow out on the result
+        # so the persistence layer can save them for future cross-day matching
+        self.assertEqual(len(strict.embeddings), 2)
+        self.assertEqual(strict.embeddings[strict.raw_articles[0].id], vector_a)
 
     def test_pipeline_reuses_cached_results_without_ai_calls(self):
         source = Source(

@@ -104,6 +104,76 @@ class PipelinePersistenceTests(unittest.TestCase):
         )
 
 
+    def test_persist_pipeline_result_persists_embeddings_before_event_clusters(self):
+        # article_embeddings must exist before upsert_event_clusters runs, since
+        # the repository's cross-day merge looks up embeddings while deciding
+        # whether an incoming cluster should join an existing event.
+        repository = FakeRepository()
+        article = RawArticle(
+            id="a1",
+            source_id="openai_blog",
+            source_name="OpenAI Blog",
+            source_role="authority",
+            source_tier="T1",
+            source_url="https://openai.com/a",
+            title="OpenAI releases agent model",
+            content="AI model release",
+            author="OpenAI",
+            published_at=datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+            language="en",
+            raw_score={},
+            metadata={},
+            title_hash="title-a1",
+            url_hash="url-a1",
+        )
+        daily_report = DailyReport(
+            report_date=date(2026, 7, 1),
+            markdown="# report",
+            json_data={"report_date": "2026-07-01", "items": [], "article_count": 0},
+            article_count=0,
+        )
+        result = PipelineResult(
+            raw_articles=[article],
+            processed_articles=[],
+            event_clusters=[],
+            daily_report=daily_report,
+            skipped_reasons={},
+            embeddings={"a1": [0.1, 0.2]},
+            embedding_model="bge-small-zh-v1.5",
+        )
+
+        persist_pipeline_result(
+            repository,
+            sources=[],
+            result=result,
+            cluster_window_hours=168,
+            similarity_threshold=0.9,
+        )
+
+        self.assertEqual(
+            repository.calls,
+            [
+                "sources",
+                "raw_articles",
+                "article_embeddings",
+                "event_clusters",
+                "processed_articles",
+                "daily_report",
+                "daily_report_entries",
+                "pipeline_run",
+            ],
+        )
+        raw_article_id, embedding_model, vector, source_hash = repository.embeddings_written[0]
+        self.assertEqual(raw_article_id, "a1")
+        self.assertEqual(embedding_model, "bge-small-zh-v1.5")
+        self.assertEqual(vector, [0.1, 0.2])
+        self.assertTrue(source_hash)
+        self.assertEqual(
+            repository.event_cluster_kwargs,
+            {"cluster_window_hours": 168, "similarity_threshold": 0.9},
+        )
+
+
 class FakeWriteResult:
     def __init__(self, *, inserted=0, updated=0, skipped=0):
         self.inserted = inserted
@@ -115,6 +185,8 @@ class FakeRepository:
     def __init__(self):
         self.calls = []
         self.entries_written = None
+        self.embeddings_written = []
+        self.event_cluster_kwargs = None
 
     def upsert_sources(self, sources):
         self.calls.append("sources")
@@ -123,6 +195,10 @@ class FakeRepository:
     def upsert_raw_articles(self, articles):
         self.calls.append("raw_articles")
         return FakeWriteResult(inserted=len(articles))
+
+    def upsert_article_embedding(self, raw_article_id, *, embedding_model, vector, source_hash):
+        self.calls.append("article_embeddings")
+        self.embeddings_written.append((raw_article_id, embedding_model, vector, source_hash))
 
     def upsert_daily_report(self, report):
         self.calls.append("daily_report")
@@ -136,8 +212,9 @@ class FakeRepository:
         self.calls.append("processed_articles")
         return FakeWriteResult(inserted=len(processed_articles))
 
-    def upsert_event_clusters(self, clusters):
+    def upsert_event_clusters(self, clusters, **kwargs):
         self.calls.append("event_clusters")
+        self.event_cluster_kwargs = kwargs
         return FakeWriteResult(inserted=len(clusters))
 
     def record_pipeline_run(self, **kwargs):

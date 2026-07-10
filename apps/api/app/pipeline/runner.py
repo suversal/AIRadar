@@ -341,6 +341,10 @@ def _attach_github_readmes(
             article.metadata.update(readme_payload)
 
 
+def _embedding_model_name(ai_provider: Any) -> str:
+    return getattr(ai_provider, "model_name", None) or getattr(ai_provider, "embedding_model", None) or "unknown"
+
+
 def _translate_one_article(article: RawArticle, translate: Any) -> None:
     if not article.language.lower().startswith("en"):
         return
@@ -573,4 +577,6 @@ def run_pipeline(
         event_clusters=clusters,
         daily_report=report,
         skipped_reasons=dict(skipped),
+        embeddings=embeddings,
+        embedding_model=_embedding_model_name(ai_provider),
     )
