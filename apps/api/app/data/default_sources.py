@@ -17,8 +17,6 @@ def default_sources() -> list[Source]:
             allowed_domains=["openai.com"],
             fetch_interval_min=180,
             can_be_main_source=True,
-            # openai's feed items carry no body at all; fetch article pages
-            config={"fetch_full_content": True},
         ),
         Source(
             id="anthropic_news",
@@ -49,7 +47,6 @@ def default_sources() -> list[Source]:
             allowed_domains=["deepmind.google"],
             fetch_interval_min=240,
             can_be_main_source=True,
-            config={"fetch_full_content": True},
         ),
         Source(
             id="google_ai_blog",
@@ -141,8 +138,6 @@ def default_sources() -> list[Source]:
             allowed_domains=["huggingface.co"],
             fetch_interval_min=240,
             can_be_main_source=True,
-            # hf feed summaries are one-liners; fetch article pages
-            config={"fetch_full_content": True},
         ),
         Source(
             id="hacker_news",
@@ -322,7 +317,6 @@ def default_sources() -> list[Source]:
             fetch_interval_min=240,
             language="zh",
             can_be_main_source=True,
-            config={"fetch_full_content": True},
         ),
         Source(
             id="ifanr",
@@ -337,7 +331,6 @@ def default_sources() -> list[Source]:
             fetch_interval_min=240,
             language="zh",
             can_be_main_source=True,
-            config={"fetch_full_content": True},
         ),
         Source(
             id="kr36",
@@ -380,7 +373,6 @@ def default_sources() -> list[Source]:
             fetch_interval_min=240,
             language="zh",
             can_be_main_source=True,
-            config={"fetch_full_content": True},
         ),
         Source(
             id="ithome",

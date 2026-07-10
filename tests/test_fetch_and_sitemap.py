@@ -268,7 +268,9 @@ class RSSFullContentTests(unittest.TestCase):
 </channel></rss>
 """
 
-    def test_rss_crawler_fetches_full_page_for_thin_items_when_configured(self):
+    def test_rss_crawler_fetches_full_page_by_default_without_any_config(self):
+        # RSS 只用来发现文章，正文永远以原文页面为准——不再需要信源
+        # 逐个打开 fetch_full_content 开关，这是所有 RSS 信源的默认行为。
         import tempfile
 
         from app.crawlers.rss import RSSCrawler
@@ -284,7 +286,6 @@ class RSSFullContentTests(unittest.TestCase):
             url="https://openai.com/news/rss.xml",
             homepage="https://openai.com/news/",
             allowed_domains=["openai.com"],
-            config={"fetch_full_content": True},
         )
 
         def fake_fetch(url, **kwargs):
@@ -304,7 +305,47 @@ class RSSFullContentTests(unittest.TestCase):
         self.assertTrue(article.metadata.get("original_paragraphs"))
         self.assertEqual(article.metadata.get("content_origin"), "full_page")
 
-    def test_rss_crawler_keeps_feed_content_without_config(self):
+    def test_rss_crawler_prefers_full_page_even_when_feed_content_is_already_long(self):
+        # 阈值判断（"RSS 内容够长就不抓原文"）已经取消：RSS 摘要哪怕看起来
+        # 够长，也可能是失真摘要，正文永远以原文页面为准。
+        import tempfile
+
+        from app.crawlers.rss import RSSCrawler
+        from app.models.domain import Source
+
+        long_feed = self.FEED.replace(
+            "</item>",
+            f"<description>{'这是一段看起来很长但其实是失真摘要的内容。' * 40}</description></item>",
+        )
+        source = Source(
+            id="openai_blog",
+            name="OpenAI Blog",
+            source_role="authority",
+            tier="T1",
+            type="rss",
+            category="official",
+            url="https://openai.com/news/rss.xml",
+            homepage="https://openai.com/news/",
+            allowed_domains=["openai.com"],
+        )
+
+        def fake_fetch(url, **kwargs):
+            if url.endswith("rss.xml"):
+                return long_feed
+            return PAGE_HTML
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            crawler = RSSCrawler(source, page_cache_dir=Path(tmpdir))
+            with patch("app.crawlers.rss.fetch_url_text", side_effect=fake_fetch), patch(
+                "app.crawlers.page_content.fetch_url_text", side_effect=fake_fetch
+            ):
+                articles = crawler.fetch(limit=5)
+
+        self.assertIn("stronger reasoning", articles[0].content)
+        self.assertEqual(articles[0].metadata.get("content_origin"), "full_page")
+
+    def test_rss_crawler_falls_back_to_feed_content_when_full_page_fetch_fails(self):
+        # 原文页面抓不到时（反爬/网络问题），RSS 内容当兜底，文章不能变空。
         import tempfile
 
         from app.crawlers.rss import RSSCrawler
@@ -322,19 +363,20 @@ class RSSFullContentTests(unittest.TestCase):
             allowed_domains=["openai.com"],
         )
 
-        fetch_calls: list[str] = []
-
         def fake_fetch(url, **kwargs):
-            fetch_calls.append(url)
-            return self.FEED
+            if url.endswith("rss.xml"):
+                return self.FEED
+            raise TimeoutError("blocked")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             crawler = RSSCrawler(source, page_cache_dir=Path(tmpdir))
-            with patch("app.crawlers.rss.fetch_url_text", side_effect=fake_fetch):
+            with patch("app.crawlers.rss.fetch_url_text", side_effect=fake_fetch), patch(
+                "app.crawlers.page_content.fetch_url_text", side_effect=fake_fetch
+            ):
                 articles = crawler.fetch(limit=5)
 
-        self.assertEqual(len(fetch_calls), 1)  # feed only, no page fetches
-        self.assertEqual(articles[0].metadata.get("content_origin"), None)
+        self.assertIsNone(articles[0].metadata.get("content_origin"))
+        self.assertEqual(len(articles), 1)
 
 
 class SitemapCrawlerTests(unittest.TestCase):

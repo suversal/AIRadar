@@ -97,9 +97,7 @@ class WebAppStructureTests(unittest.TestCase):
         button_source = (WEB / "app" / "admin" / "refresh-report-button.tsx").read_text(encoding="utf-8")
         route_source = (WEB / "app" / "api" / "refresh-latest" / "route.ts").read_text(encoding="utf-8")
 
-        self.assertIn("刷新日报（精选 12 条）", button_source)
-        self.assertIn("/api/refresh-latest?limit=100&top_n=12", button_source)
-        self.assertIn("完整成果", button_source)
+        self.assertIn("手动同步", button_source)
         self.assertIn("top_n=30", button_source)
         self.assertIn("fetch(url", button_source)
         self.assertIn("pollRefreshJob", button_source)

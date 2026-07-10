@@ -149,10 +149,13 @@ def parse_rss(xml_text: str, source: Source, limit: int | None = None) -> list[R
     return articles
 
 
-FULL_CONTENT_MIN_CHARS = 600
-
-
 class RSSCrawler(BaseCrawler):
+    """RSS only discovers articles; the body always comes from the real
+    article page (RSS <description>/<summary> is frequently a lossy teaser,
+    not real content). The feed's own text is kept only as a fallback for
+    when the page fetch itself fails (blocked, network error, no
+    extractable content region)."""
+
     def __init__(self, source: Source, *, page_cache_dir: Path | None = None):
         super().__init__(source)
         self.page_cache_dir = page_cache_dir
@@ -160,14 +163,11 @@ class RSSCrawler(BaseCrawler):
     def fetch(self, limit: int | None = None) -> list[RawArticle]:
         xml_text = fetch_url_text(self.source.url)
         articles = parse_rss(xml_text, self.source, limit=limit)
-        if (self.source.config or {}).get("fetch_full_content"):
-            for article in articles:
-                self._fill_thin_article(article)
+        for article in articles:
+            self._prefer_full_page(article)
         return articles
 
-    def _fill_thin_article(self, article: RawArticle) -> None:
-        if len(article.content) >= FULL_CONTENT_MIN_CHARS:
-            return
+    def _prefer_full_page(self, article: RawArticle) -> None:
         from app.crawlers.page_content import DEFAULT_PAGE_CACHE_DIR, fetch_page_payload
 
         try:
