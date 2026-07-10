@@ -47,6 +47,41 @@ def _load_or_seed_sources(sources_path: Path) -> list[Source]:
     return load_sources(sources_path)
 
 
+def _load_sources(database_url: str | None, sources_path: Path) -> list[Source]:
+    """DB is the source of truth in database mode so admin edits take effect;
+    JSON stays the fallback for file-only deployments."""
+    if database_url:
+        from app.db.session import build_session_factory
+        from app.repositories.radar_repository import RadarRepository
+
+        session = build_session_factory(database_url)()
+        try:
+            repository = RadarRepository(session)
+            sources = repository.get_all_sources()
+            if not sources:
+                sources = default_sources()
+                repository.upsert_sources(sources)
+                session.commit()
+            return sources
+        finally:
+            session.close()
+    return _load_or_seed_sources(sources_path)
+
+
+def _persist_source_health(database_url: str | None, per_source: dict[str, Any]) -> None:
+    if not database_url:
+        return
+    from app.db.session import build_session_factory
+    from app.repositories.radar_repository import RadarRepository
+
+    session = build_session_factory(database_url)()
+    try:
+        RadarRepository(session).update_source_health(per_source)
+        session.commit()
+    finally:
+        session.close()
+
+
 def _env_int(name: str, default: int) -> int:
     try:
         return int(os.getenv(name, str(default)))
@@ -65,9 +100,10 @@ def refresh_latest_report(
     resolved_date = report_date or date.today()
     generated_at = datetime.now(timezone.utc)
     sources_path = data_dir / "sources.json"
-    sources = _load_or_seed_sources(sources_path)
+    sources = _load_sources(database_url, sources_path)
 
     raw_articles, crawl_report = crawl_sources(sources, limit=limit)
+    _persist_source_health(database_url, crawl_report.get("per_source", {}))
     crawl_dir = data_dir / "crawl_checks"
     raw_path = crawl_dir / f"{resolved_date.isoformat()}-refresh-raw.json"
     crawl_report_path = crawl_dir / f"{resolved_date.isoformat()}-refresh-crawl-report.json"

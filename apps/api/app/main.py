@@ -323,6 +323,21 @@ def create_app(
     def admin_ping() -> dict:
         return {"status": "ok"}
 
+    @app.get("/api/admin/overview", dependencies=[admin_guard])
+    def admin_overview() -> dict:
+        repository_context = report_repository_context()
+        if repository_context is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Admin overview requires database mode (set DATABASE_URL).",
+            )
+        with repository_context as repository:
+            return {
+                "runs": repository.get_recent_pipeline_runs(limit=20),
+                "sources": repository.list_sources_with_health(),
+                "counts": repository.get_table_counts(),
+            }
+
     @app.post("/api/admin/refresh-latest", dependencies=[admin_guard])
     def refresh_latest(limit: Optional[int] = None, top_n: Optional[int] = None) -> dict:
         try:

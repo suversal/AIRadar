@@ -1,4 +1,5 @@
 import { getApiBaseUrl } from "@/lib/api";
+import { getAdminToken } from "@/lib/admin-api";
 
 async function jsonFromResponse(response: Response) {
   const text = await response.text();
@@ -29,9 +30,11 @@ export async function POST(request: Request) {
   }
 
   try {
+    const token = await getAdminToken();
     const response = await fetch(refreshUrl.toString(), {
       method: "POST",
       cache: "no-store",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     const payload = await jsonFromResponse(response);
 
@@ -55,10 +58,12 @@ export async function GET(request: Request) {
   }
 
   try {
+    const token = await getAdminToken();
     const response = await fetch(
       `${getApiBaseUrl()}/api/admin/refresh-jobs/${encodeURIComponent(jobId)}`,
       {
         cache: "no-store",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       },
     );
     const payload = await jsonFromResponse(response);

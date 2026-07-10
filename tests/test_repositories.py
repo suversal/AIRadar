@@ -293,6 +293,82 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(stored.raw_metadata.get("original_markdown"), "# README")
         self.assertEqual(stored.status, "processed")
 
+    def test_source_health_updates_from_crawl_report(self):
+        from app.db.models import SourceModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            session.commit()
+
+            repository.update_source_health(
+                {"openai_blog": {"status": "ok", "article_count": 5, "duration_ms": 1200.0, "error": None}}
+            )
+            session.commit()
+            ok_row = session.get(SourceModel, "openai_blog")
+            first_rate = ok_row.success_rate
+            self.assertIsNotNone(ok_row.last_crawled_at)
+            self.assertIsNotNone(ok_row.last_success_at)
+            self.assertEqual(ok_row.error_count, 0)
+            self.assertGreater(first_rate, 0.5)
+
+            repository.update_source_health(
+                {"openai_blog": {"status": "skipped", "article_count": 0, "duration_ms": 100.0, "error": "HTTP 429"}}
+            )
+            session.commit()
+            failed_row = session.get(SourceModel, "openai_blog")
+
+        self.assertEqual(failed_row.error_count, 1)
+        self.assertLess(failed_row.success_rate, first_rate)
+        # last success timestamp survives the failure
+        self.assertIsNotNone(failed_row.last_success_at)
+
+    def test_get_all_sources_returns_domain_objects(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            session.commit()
+
+            sources = repository.get_all_sources()
+
+        self.assertEqual(len(sources), 1)
+        self.assertEqual(sources[0].id, "openai_blog")
+        self.assertEqual(sources[0].tier, "T1")
+        self.assertEqual(sources[0].config, {"priority": "high"})
+
+    def test_admin_overview_queries(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles(
+                [self._article(article_id="a1", title="t", url_hash="h1")]
+            )
+            repository.record_pipeline_run(
+                status="succeeded",
+                raw_count=10,
+                processed_count=8,
+                cluster_count=2,
+                skipped_reasons={"below_threshold": 2},
+            )
+            session.commit()
+
+            runs = repository.get_recent_pipeline_runs(limit=5)
+            sources = repository.list_sources_with_health()
+            counts = repository.get_table_counts()
+
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]["status"], "succeeded")
+        self.assertEqual(runs[0]["raw_count"], 10)
+        self.assertEqual(sources[0]["id"], "openai_blog")
+        self.assertIn("success_rate", sources[0])
+        self.assertEqual(counts["raw_articles"], 1)
+        self.assertEqual(counts["sources"], 1)
+
     def _processed(self, raw_article_id, *, final_score=88.0):
         from app.models.domain import ProcessedArticle, ScoreDimensions
 

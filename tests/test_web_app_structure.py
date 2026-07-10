@@ -19,7 +19,10 @@ class WebAppStructureTests(unittest.TestCase):
             "app/icon.svg",
             "app/page.tsx",
             "app/latest/page.tsx",
-            "app/latest/refresh-report-button.tsx",
+            "app/admin/refresh-report-button.tsx",
+            "app/admin/page.tsx",
+            "app/admin/login/page.tsx",
+            "middleware.ts",
             "app/api/refresh-latest/route.ts",
             "app/all/page.tsx",
             "app/search/page.tsx",
@@ -61,7 +64,6 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("/api/public/latest", api_source)
         self.assertIn("AI_RADAR_API_BASE_URL", api_source)
         self.assertIn("getLatestReport", latest_page)
-        self.assertIn("RefreshReportButton", latest_page)
         self.assertIn("推荐理由", latest_page)
         self.assertIn("当前热点", latest_page)
         self.assertIn("groupEventsByDate", latest_page)
@@ -90,8 +92,8 @@ class WebAppStructureTests(unittest.TestCase):
             self.assertIn(label, nav)
         self.assertIn('href: "/all"', nav)
 
-    def test_latest_page_exposes_refresh_report_button(self):
-        button_source = (WEB / "app" / "latest" / "refresh-report-button.tsx").read_text(encoding="utf-8")
+    def test_admin_dashboard_exposes_refresh_report_button(self):
+        button_source = (WEB / "app" / "admin" / "refresh-report-button.tsx").read_text(encoding="utf-8")
         route_source = (WEB / "app" / "api" / "refresh-latest" / "route.ts").read_text(encoding="utf-8")
 
         self.assertIn("刷新最新日报", button_source)

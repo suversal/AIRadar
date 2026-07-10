@@ -83,6 +83,28 @@ class AdminAuthTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
 
 
+class AdminOverviewTests(unittest.TestCase):
+    @unittest.skipIf(TestClient is None, "FastAPI is not installed in this environment")
+    def test_overview_returns_runs_sources_and_counts(self):
+        from app import main as module
+
+        with patch.dict("os.environ", {"ADMIN_TOKEN": "secret-token"}):
+            app = module.create_app(report_repository_factory=lambda: _FakeRepository())
+            client = TestClient(app)
+
+            denied = client.get("/api/admin/overview")
+            response = client.get(
+                "/api/admin/overview", headers={"Authorization": "Bearer secret-token"}
+            )
+
+        self.assertEqual(denied.status_code, 401)
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["runs"][0]["status"], "succeeded")
+        self.assertEqual(body["sources"][0]["id"], "openai_blog")
+        self.assertEqual(body["counts"]["raw_articles"], 42)
+
+
 class _FakeRepository:
     def get_latest_daily_report_payload(self):
         return None
@@ -98,6 +120,15 @@ class _FakeRepository:
 
     def get_event_item(self, event_id):
         return None
+
+    def get_recent_pipeline_runs(self, limit=20):
+        return [{"id": 1, "status": "succeeded", "raw_count": 10}]
+
+    def list_sources_with_health(self):
+        return [{"id": "openai_blog", "name": "OpenAI Blog", "success_rate": 1.0}]
+
+    def get_table_counts(self):
+        return {"raw_articles": 42, "sources": 27}
 
 
 if __name__ == "__main__":

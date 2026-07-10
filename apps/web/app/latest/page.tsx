@@ -4,7 +4,6 @@ import { eventHref } from "@/lib/events";
 import { CATEGORY_FILTER_OPTIONS, displayCategory } from "@/lib/taxonomy";
 import { RadarStatus } from "@/components/radar-status";
 import { Sidebar } from "@/components/sidebar";
-import { RefreshReportButton } from "./refresh-report-button";
 
 type LatestSearchParams = Promise<{
   category?: string | string[];

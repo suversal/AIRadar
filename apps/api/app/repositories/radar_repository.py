@@ -171,6 +171,92 @@ class RadarRepository:
         self.session.add(model)
         return WriteResult(inserted=1)
 
+    def update_source_health(self, per_source: dict[str, dict[str, Any]]) -> None:
+        now = datetime.now(timezone.utc)
+        for source_id, report in per_source.items():
+            model = self.session.get(SourceModel, source_id)
+            if model is None:
+                continue
+            ok = report.get("status") == "ok"
+            had_history = model.last_crawled_at is not None
+            model.last_crawled_at = now
+            if ok:
+                model.last_success_at = now
+                model.error_count = 0
+            else:
+                model.error_count = (model.error_count or 0) + 1
+            observation = 1.0 if ok else 0.0
+            if not had_history:
+                # first observation is authoritative
+                model.success_rate = observation
+            else:
+                # exponential moving average keeps the rate responsive
+                # without storing full history
+                previous = model.success_rate or 0.0
+                model.success_rate = round(0.8 * previous + 0.2 * observation, 4)
+
+    def get_all_sources(self) -> list[Source]:
+        models = self.session.scalars(select(SourceModel)).all()
+        return [_source_to_domain(model) for model in models]
+
+    def list_sources_with_health(self) -> list[dict[str, Any]]:
+        models = self.session.scalars(select(SourceModel)).all()
+        return [
+            {
+                "id": model.id,
+                "name": model.name,
+                "type": model.type,
+                "tier": model.tier,
+                "category": model.category,
+                "url": model.url,
+                "is_active": model.is_active,
+                "fetch_interval_min": model.fetch_interval_min,
+                "language": model.language,
+                "last_crawled_at": model.last_crawled_at.isoformat() if model.last_crawled_at else None,
+                "last_success_at": model.last_success_at.isoformat() if model.last_success_at else None,
+                "success_rate": model.success_rate,
+                "error_count": model.error_count,
+                "config": dict(model.config_json or {}),
+            }
+            for model in models
+        ]
+
+    def get_recent_pipeline_runs(self, limit: int = 20) -> list[dict[str, Any]]:
+        models = self.session.scalars(
+            select(PipelineRunModel).order_by(PipelineRunModel.id.desc()).limit(limit)
+        ).all()
+        return [
+            {
+                "id": model.id,
+                "started_at": model.started_at.isoformat() if model.started_at else None,
+                "finished_at": model.finished_at.isoformat() if model.finished_at else None,
+                "status": model.status,
+                "raw_count": model.raw_count,
+                "processed_count": model.processed_count,
+                "cluster_count": model.cluster_count,
+                "skipped_reasons": dict(model.skipped_reasons or {}),
+                "error": model.error,
+            }
+            for model in models
+        ]
+
+    def get_table_counts(self) -> dict[str, int]:
+        from sqlalchemy import func as sa_func
+
+        counts = {}
+        for name, model in (
+            ("sources", SourceModel),
+            ("raw_articles", RawArticleModel),
+            ("processed_articles", ProcessedArticleModel),
+            ("event_clusters", EventClusterModel),
+            ("daily_reports", DailyReportModel),
+            ("pipeline_runs", PipelineRunModel),
+        ):
+            counts[name] = int(
+                self.session.scalar(sa_func.count(model.id).select()) or 0
+            )
+        return counts
+
     CACHED_METADATA_KEYS = (
         "translated_paragraphs",
         "translated_blocks",
@@ -310,6 +396,28 @@ class RadarRepository:
             )
             is not None
         )
+
+
+def _source_to_domain(model: SourceModel) -> Source:
+    return Source(
+        id=model.id,
+        name=model.name,
+        source_role=model.source_role,
+        tier=model.tier,
+        type=model.type,
+        category=model.category,
+        url=model.url,
+        homepage=model.homepage,
+        allowed_domains=list(model.allowed_domains or []),
+        fetch_interval_min=model.fetch_interval_min,
+        language=model.language,
+        need_proxy=model.need_proxy,
+        need_browser=model.need_browser,
+        can_be_main_source=model.can_be_main_source,
+        affects_heat_score=model.affects_heat_score,
+        is_active=model.is_active,
+        config=dict(model.config_json or {}),
+    )
 
 
 def _source_to_model(source: Source) -> SourceModel:

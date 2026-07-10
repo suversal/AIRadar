@@ -2,18 +2,21 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
+from app.core.config import load_env_file
 from app.crawlers.run import crawl_sources
 from app.data.default_sources import default_sources
 from app.storage.json_store import load_sources, save_articles, save_sources, write_json
 
 
 def main() -> int:
+    load_env_file(ROOT / ".env")
     parser = argparse.ArgumentParser(description="Run one crawl pass and save raw articles.")
     parser.add_argument("--sources", default="data/sources.json")
     parser.add_argument("--output", default="data/raw_articles.json")
@@ -26,6 +29,21 @@ def main() -> int:
         save_sources(sources_path, default_sources())
     sources = load_sources(sources_path)
     articles, report = crawl_sources(sources, limit=args.limit)
+
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        try:
+            from app.db.session import build_session_factory
+            from app.repositories.radar_repository import RadarRepository
+
+            session = build_session_factory(database_url)()
+            try:
+                RadarRepository(session).update_source_health(report.get("per_source", {}))
+                session.commit()
+            finally:
+                session.close()
+        except Exception as exc:  # health写回失败不阻塞抓取
+            print(f"WARN source health persist failed: {exc}")
 
     output = ROOT / args.output
     save_articles(output, articles)
