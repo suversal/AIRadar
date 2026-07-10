@@ -731,6 +731,46 @@ class RepositoryTests(unittest.TestCase):
         self.assertTrue(hidden_item["hidden"])
         self.assertIsNone(detail)  # hidden events 404 publicly
 
+    def test_moderation_survives_a_later_ai_reprocessing_of_the_same_article(self):
+        # regression: processed_articles is AI-owned territory. Before
+        # editorial_overrides existed, update_event_moderation wrote hidden/
+        # title_zh/category/tags directly onto that row, so a later pipeline
+        # run that re-crawled and re-scored the same URL (upsert_processed_articles
+        # again for the same raw_article_id) would silently overwrite the
+        # human's moderation decision with the AI's fresh output.
+        from app.repositories.radar_repository import RadarRepository
+
+        article = self._article(article_id="a1", title="Moderated", url_hash="hash-a1")
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([article])
+            repository.upsert_processed_articles([self._processed("a1")])
+            session.commit()
+
+            repository.update_event_moderation(
+                "aa1", {"hidden": True, "title_zh": "人工改后的标题"}
+            )
+            session.commit()
+
+            # a later run re-scores the same article (e.g. RSS re-served the
+            # same URL); this must not resurrect it or revert the title
+            repository.upsert_processed_articles(
+                [self._processed("a1", final_score=95.0)]
+            )
+            session.commit()
+
+            detail = repository.get_event_item("aa1")
+            admin_items = repository.get_all_event_items_between(
+                date(2026, 6, 30), date(2026, 7, 2), include_hidden=True
+            )
+
+        self.assertIsNone(detail)
+        item = next(i for i in admin_items if i["event_id"] == "aa1")
+        self.assertTrue(item["hidden"])
+        self.assertEqual(item["title"], "人工改后的标题")
+
     def test_update_event_moderation_edits_and_restores(self):
         from app.repositories.radar_repository import RadarRepository
 

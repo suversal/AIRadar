@@ -147,6 +147,27 @@ class ProcessedArticleModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class EditorialOverrideModel(Base):
+    """Human moderation decisions, kept out of processed_articles so a later
+    pipeline run re-scoring the same article can never silently clobber them.
+    Only columns actually touched by an editor are non-null/true; everything
+    else keeps deferring to the AI-generated value on processed_articles."""
+
+    __tablename__ = "editorial_overrides"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    raw_article_id: Mapped[str] = mapped_column(
+        ForeignKey("raw_articles.id"), nullable=False, unique=True, index=True
+    )
+    hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    title_zh: Mapped[Optional[str]] = mapped_column(Text)
+    category: Mapped[Optional[str]] = mapped_column(String)
+    tags: Mapped[Optional[list]] = mapped_column(JSON)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class EventClusterModel(Base):
     __tablename__ = "event_clusters"
 

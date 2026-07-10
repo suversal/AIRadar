@@ -14,6 +14,7 @@ from app.db.models import (
     ArticleEmbeddingModel,
     DailyReportEntryModel,
     DailyReportModel,
+    EditorialOverrideModel,
     PeriodReportModel,
     EventClusterArticleModel,
     EventClusterModel,
@@ -147,10 +148,18 @@ class RadarRepository:
             if row is None:
                 continue
             processed, raw, source = row
-            if processed.status == "hidden":
+            override = self._get_override(processed.raw_article_id)
+            if override is not None and override.hidden:
                 continue
-            items.append(_event_item(processed, raw, source, include_content=True))
+            items.append(_event_item(processed, raw, source, include_content=True, override=override))
         return items
+
+    def _get_override(self, raw_article_id: str) -> Optional[EditorialOverrideModel]:
+        return self.session.scalar(
+            select(EditorialOverrideModel).where(
+                EditorialOverrideModel.raw_article_id == raw_article_id
+            )
+        )
 
     def _resolve_daily_report_payload(self, model: DailyReportModel) -> dict[str, Any]:
         payload = _daily_report_payload(model)
@@ -652,19 +661,25 @@ class RadarRepository:
         window_start = datetime.combine(start_date, time.min, tzinfo=timezone.utc)
         window_end = datetime.combine(end_date, time.max, tzinfo=timezone.utc)
         query = (
-            select(ProcessedArticleModel, RawArticleModel, SourceModel)
+            select(ProcessedArticleModel, RawArticleModel, SourceModel, EditorialOverrideModel)
             .join(RawArticleModel, ProcessedArticleModel.raw_article_id == RawArticleModel.id)
             .join(SourceModel, RawArticleModel.source_id == SourceModel.id)
+            .outerjoin(
+                EditorialOverrideModel,
+                EditorialOverrideModel.raw_article_id == ProcessedArticleModel.raw_article_id,
+            )
             .where(RawArticleModel.published_at >= window_start)
             .where(RawArticleModel.published_at <= window_end)
             .order_by(RawArticleModel.published_at.desc())
         )
         if not include_hidden:
-            query = query.where(ProcessedArticleModel.status != "hidden")
+            query = query.where(
+                (EditorialOverrideModel.hidden.is_(None)) | (EditorialOverrideModel.hidden.is_(False))
+            )
         rows = self.session.execute(query).all()
         return [
-            _event_item(processed, raw, source, include_content=False)
-            for processed, raw, source in rows
+            _event_item(processed, raw, source, include_content=False, override=override)
+            for processed, raw, source, override in rows
         ]
 
     def _resolve_processed_row(self, event_id: str):
@@ -688,23 +703,28 @@ class RadarRepository:
     EVENT_MODERATION_FIELDS = {"hidden", "title_zh", "category", "tags"}
 
     def update_event_moderation(self, event_id: str, fields: dict[str, Any]) -> bool:
+        """Editorial decisions live in editorial_overrides, never on
+        processed_articles: that row is AI-generated territory and a later
+        pipeline run re-scoring the same re-crawled article overwrites it
+        unconditionally, which would otherwise silently undo moderation."""
         row = self._resolve_processed_row(event_id)
         if row is None:
             return False
         processed, _raw, _source = row
+        override = self._get_override(processed.raw_article_id)
+        if override is None:
+            override = EditorialOverrideModel(raw_article_id=processed.raw_article_id)
+            self.session.add(override)
         for key, value in fields.items():
             if key not in self.EVENT_MODERATION_FIELDS:
                 continue
             if key == "hidden":
-                if value:
-                    processed.status = "hidden"
-                else:
-                    # restore to the status implied by the stored verdict
-                    processed.status = "rejected" if processed.rejection_reason else "processed"
+                override.hidden = bool(value)
             elif key == "tags":
-                processed.tags = [str(tag) for tag in (value or [])][:5]
+                override.tags = [str(tag) for tag in (value or [])][:5]
             else:
-                setattr(processed, key, str(value))
+                setattr(override, key, str(value))
+        self.session.flush()
         return True
 
     def get_event_item(self, event_id: str) -> Optional[dict[str, Any]]:
@@ -712,9 +732,10 @@ class RadarRepository:
         if row is None:
             return None
         processed, raw, source = row
-        if processed.status == "hidden":
+        override = self._get_override(processed.raw_article_id)
+        if override is not None and override.hidden:
             return None
-        return _event_item(processed, raw, source, include_content=True)
+        return _event_item(processed, raw, source, include_content=True, override=override)
 
     def get_daily_report_payloads_between(
         self, start_date: date, end_date: date
@@ -854,21 +875,26 @@ def _event_item(
     source: SourceModel,
     *,
     include_content: bool,
+    override: Optional[EditorialOverrideModel] = None,
 ) -> dict[str, Any]:
     metadata = dict(raw.raw_metadata or {})
     published_at = raw.published_at
     if published_at is not None and published_at.tzinfo is None:
         published_at = published_at.replace(tzinfo=timezone.utc)
+    title_zh = (override.title_zh if override and override.title_zh else None) or processed.title_zh
+    category = (override.category if override and override.category else None) or processed.category
+    tags = list(override.tags) if override and override.tags else list(processed.tags or [])
+    hidden = bool(override.hidden) if override else False
     item: dict[str, Any] = {
         "event_id": processed.event_cluster_id or f"a{raw.id[:12]}",
-        "title": processed.title_zh or raw.title,
-        "category": display_category(processed.category),
-        "category_label": category_label(processed.category),
-        "scoring_category": processed.category,
-        "tags": list(processed.tags or []),
+        "title": title_zh or raw.title,
+        "category": display_category(category),
+        "category_label": category_label(category),
+        "scoring_category": category,
+        "tags": tags,
         "final_score": processed.final_score,
         "selected": processed.status == "processed",
-        "hidden": processed.status == "hidden",
+        "hidden": hidden,
         "source_count": 1,
         "main_source": {"name": source.name, "url": raw.source_url, "tier": source.tier},
         "source_language": raw.language,

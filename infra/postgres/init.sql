@@ -57,6 +57,18 @@ CREATE TABLE IF NOT EXISTS article_embeddings (
 
 CREATE UNIQUE INDEX IF NOT EXISTS ix_article_embeddings_raw_article_id ON article_embeddings(raw_article_id);
 
+CREATE TABLE IF NOT EXISTS editorial_overrides (
+  id BIGSERIAL PRIMARY KEY,
+  raw_article_id TEXT NOT NULL REFERENCES raw_articles(id),
+  hidden BOOLEAN NOT NULL DEFAULT false,
+  title_zh TEXT,
+  category TEXT,
+  tags JSONB,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ix_editorial_overrides_raw_article_id ON editorial_overrides(raw_article_id);
+
 CREATE TABLE IF NOT EXISTS event_clusters (
   id TEXT PRIMARY KEY,
   main_article_id TEXT NOT NULL REFERENCES raw_articles(id),
