@@ -375,6 +375,10 @@ class RadarRepository:
         "readme_name",
         "readme_language",
         "readme_selection",
+        # 跨轮跳过已成功的 README 抓取（省 GitHub API 限额），
+        # zh_probe=failed 的自愈重试标记也要传到下一轮
+        "readme_status",
+        "readme_zh_probe",
     )
 
     def get_cached_results_by_url_hash(self, url_hashes: list[str]) -> dict[str, dict[str, Any]]:

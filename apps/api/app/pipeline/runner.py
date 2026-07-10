@@ -299,7 +299,11 @@ def _attach_github_readmes(
     for article in articles:
         if not _is_github_trending_article(article):
             continue
-        if article.metadata.get("readme_status") == "ok":
+        if article.metadata.get("readme_status") == "ok" and (
+            # zh_probe 为 ok/none 才是终态；failed（限流/网络中断）和
+            # 缺字段（修复前的老数据）都要重试，让中文优先自愈
+            article.metadata.get("readme_zh_probe") in ("ok", "none")
+        ):
             continue
 
         repo_path = str(article.metadata.get("repo") or "").strip()

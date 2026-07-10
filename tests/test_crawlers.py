@@ -1,5 +1,7 @@
+import io
 import sys
 import unittest
+import urllib.error
 from base64 import b64encode
 from datetime import datetime, timezone
 from pathlib import Path
@@ -503,6 +505,88 @@ class CrawlerTests(unittest.TestCase):
         self.assertEqual(payload["readme_language"], "en")
         self.assertEqual(payload["readme_selection"], "default_readme")
         self.assertIn("# English README", payload["original_markdown"])
+        # 中文版存在但这次没抓到，必须标记可重试，否则英文版会永久固化
+        self.assertEqual(payload["readme_zh_probe"], "failed")
+
+    def test_fetch_github_readme_marks_zh_probe_failed_when_rate_limited(self):
+        # GitHub 匿名 API 限流（60 次/小时）时 root contents 请求 403，
+        # 降级到默认英文 README 不能悄悄把结果当成终态——真实案例：
+        # TencentCloud 仓库有 README_CN.md 却永久存成了英文版。
+        default_payload = {
+            "name": "README.md",
+            "content": b64encode("# English README\n\nDefault docs.".encode("utf-8")).decode("ascii"),
+            "encoding": "base64",
+            "download_url": "https://raw.githubusercontent.com/tencent/example/main/README.md",
+            "html_url": "https://github.com/tencent/example/blob/main/README.md",
+        }
+
+        class FakeResponse:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return __import__("json").dumps(self.payload).encode("utf-8")
+
+        def fake_urlopen(request, timeout=20):
+            if request.full_url.endswith("/contents"):
+                raise urllib.error.HTTPError(
+                    request.full_url, 403, "rate limit exceeded", None, io.BytesIO(b"rate limit")
+                )
+            if request.full_url.endswith("/readme"):
+                return FakeResponse(default_payload)
+            raise AssertionError(f"unexpected request: {request.full_url}")
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            payload = fetch_github_readme("tencent/example")
+
+        self.assertEqual(payload["readme_status"], "ok")
+        self.assertEqual(payload["readme_selection"], "default_readme")
+        self.assertEqual(payload["readme_zh_probe"], "failed")
+
+    def test_fetch_github_readme_zh_probe_none_when_repo_has_no_chinese_readme(self):
+        root_payload = [
+            {"type": "file", "name": "README.md", "url": "https://api.github.com/repos/o/r/contents/README.md"}
+        ]
+        default_payload = {
+            "name": "README.md",
+            "content": b64encode("# English only\n\nDocs.".encode("utf-8")).decode("ascii"),
+            "encoding": "base64",
+            "download_url": "https://raw.githubusercontent.com/o/r/main/README.md",
+            "html_url": "https://github.com/o/r/blob/main/README.md",
+        }
+
+        class FakeResponse:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return __import__("json").dumps(self.payload).encode("utf-8")
+
+        def fake_urlopen(request, timeout=20):
+            if request.full_url.endswith("/contents"):
+                return FakeResponse(root_payload)
+            if request.full_url.endswith("/readme"):
+                return FakeResponse(default_payload)
+            raise AssertionError(f"unexpected request: {request.full_url}")
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            payload = fetch_github_readme("o/r")
+
+        self.assertEqual(payload["readme_status"], "ok")
+        # 确认过仓库确实没有中文 README，不需要重试
+        self.assertEqual(payload["readme_zh_probe"], "none")
 
     def test_fetch_github_readme_limits_original_markdown_size(self):
         readme = "# Agent Skills\n\n" + ("Long README paragraph.\n\n" * 6000)

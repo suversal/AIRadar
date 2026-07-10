@@ -340,6 +340,10 @@ def fetch_github_readme(repo_path: str, github_token: str | None = None) -> dict
     else:
         root_error = ""
 
+    # 中文优先探测结论：failed = 这次没探成（限流/超时），下轮要重试；
+    # none = 确认过仓库没有中文 README，结果是终态
+    zh_probe = "failed" if root_payload is None else "none"
+
     selected_readme = _selected_chinese_readme(root_payload)
     if selected_readme:
         selected_url = str(selected_readme.get("url") or "")
@@ -353,12 +357,18 @@ def fetch_github_readme(repo_path: str, github_token: str | None = None) -> dict
                     readme_selection="preferred_zh_readme",
                 )
                 if selected_result.get("readme_status") == "ok":
+                    selected_result["readme_zh_probe"] = "ok"
                     return selected_result
             except Exception:
                 pass
+        # 中文版明明存在却没抓成，同样要重试
+        zh_probe = "failed"
 
     try:
         result = _fetch_default_readme(repo_path, github_token)
+        if result.get("readme_status") == "ok":
+            result["readme_zh_probe"] = zh_probe
+        return result
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
         detail = f"GitHub README request failed: {exc.code} {body}"
@@ -370,7 +380,3 @@ def fetch_github_readme(repo_path: str, github_token: str | None = None) -> dict
         if root_error:
             detail = f"{detail}; root contents: {root_error}"
         return _readme_failure("failed", detail)
-
-    if root_error and result.get("readme_status") == "ok":
-        result.setdefault("readme_selection", "default_readme")
-    return result

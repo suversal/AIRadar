@@ -376,6 +376,61 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(len(translated), 12)
         self.assertNotIn("translation_status", article.metadata)
 
+    def test_readme_enrichment_retries_when_zh_probe_failed(self):
+        # 限流时降级存下的英文 README 会带 readme_zh_probe=failed 标记，
+        # 下一轮必须重试（限流窗口已过就能换成中文版），而不是永久固化英文。
+        from app.models.domain import RawArticle
+        from app.pipeline.runner import _attach_github_readmes
+
+        def github_article(article_id, repo, zh_probe):
+            return RawArticle(
+                id=article_id,
+                source_id="github_trending_ai",
+                source_name="GitHub Trending",
+                source_role="signal",
+                source_tier="T2",
+                source_url=f"https://github.com/{repo}",
+                title=f"GitHub Trending: {repo}",
+                content="desc",
+                author=None,
+                published_at=datetime(2026, 7, 10, tzinfo=timezone.utc),
+                language="en",
+                raw_score={},
+                metadata={
+                    "source_type": "github_trending",
+                    "repo": repo,
+                    "readme_status": "ok",
+                    "readme_language": "en",
+                    "readme_zh_probe": zh_probe,
+                },
+                title_hash=f"th-{article_id}",
+                url_hash=f"uh-{article_id}",
+            )
+
+        stale = github_article("g1", "tencent/example", "failed")
+        settled = github_article("g2", "other/repo", "none")
+        # 修复前入库的老数据没有 zh_probe 字段，同样要重试自愈
+        legacy = github_article("g3", "legacy/repo", "none")
+        del legacy.metadata["readme_zh_probe"]
+        fetched = []
+
+        def fake_fetch(repo_path, github_token=None):
+            fetched.append(repo_path)
+            return {
+                "readme_status": "ok",
+                "readme_language": "zh",
+                "readme_selection": "preferred_zh_readme",
+                "readme_zh_probe": "ok",
+            }
+
+        with patch("app.pipeline.runner.fetch_github_readme", side_effect=fake_fetch):
+            _attach_github_readmes(articles=[stale, settled, legacy])
+
+        self.assertEqual(fetched, ["tencent/example", "legacy/repo"])
+        self.assertEqual(stale.metadata["readme_language"], "zh")
+        self.assertEqual(settled.metadata["readme_language"], "en")
+        self.assertEqual(legacy.metadata["readme_language"], "zh")
+
     def test_readme_enrichment_covers_unselected_github_articles(self):
         source = Source(
             id="github_trending_ai",

@@ -163,6 +163,8 @@ class RepositoryTests(unittest.TestCase):
             article_id="a1", title="OpenAI releases agent model", url_hash="hash-a1"
         )
         article.metadata["translated_paragraphs"] = ["中文段落"]
+        article.metadata["readme_status"] = "ok"
+        article.metadata["readme_zh_probe"] = "failed"
         skipped = self._article(
             article_id="a2", title="Office lunch menu", url_hash="hash-a2"
         )
@@ -186,6 +188,10 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(hit["scoring"]["category"], "model_release")
         self.assertEqual(hit["scoring"]["dimensions"]["ai_relevance"], 9)
         self.assertEqual(hit["metadata"]["translated_paragraphs"], ["中文段落"])
+        # README 状态必须跨轮回填，否则每轮刷新都重抓全部 README（打光
+        # GitHub 匿名限额），限流自愈标记也传不到下一轮
+        self.assertEqual(hit["metadata"]["readme_status"], "ok")
+        self.assertEqual(hit["metadata"]["readme_zh_probe"], "failed")
         miss = cached[skipped.url_hash]
         self.assertIsNone(miss["scoring"])
         self.assertEqual(miss["skipped_reason"], "not_ai_related")
