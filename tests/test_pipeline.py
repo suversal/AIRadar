@@ -838,7 +838,7 @@ class PipelineTests(unittest.TestCase):
         self.assertGreater(provider.max_active, 1)
         self.assertEqual(result.daily_report.article_count, 4)
 
-    def test_pipeline_translates_only_selected_english_report_articles(self):
+    def test_pipeline_translates_all_processed_english_articles(self):
         english_source = Source(
             id="hn",
             name="Hacker News",
@@ -923,11 +923,29 @@ class PipelineTests(unittest.TestCase):
         )
 
         item = result.daily_report.json_data["items"][0]
-        self.assertEqual(provider.translation_calls, [["AI agents found security bugs.", "Developers verified the fixes."]])
+        # /all 页展示全部 processed 文章，未入选日报（top_n=1 之外）的英文
+        # 文章同样要有译文，而不是只翻译日报主文
+        self.assertEqual(
+            provider.translation_calls,
+            [
+                ["AI agents found security bugs.", "Developers verified the fixes."],
+                ["AI workflow update for builders."],
+            ],
+        )
         self.assertEqual(item["source_language"], "en")
         self.assertEqual(item["translated_paragraphs"], ["译文：AI agents found security bugs.", "译文：Developers verified the fixes."])
         self.assertEqual(item["translated_blocks"][1]["type"], "image")
         self.assertEqual(item["translated_blocks"][1]["url"], "https://example.com/audit.png")
+
+        unselected = next(
+            article
+            for article in result.raw_articles
+            if article.source_url == "https://example.com/second-agent"
+        )
+        self.assertEqual(
+            unselected.metadata["translated_paragraphs"],
+            ["译文：AI workflow update for builders."],
+        )
 
     def test_pipeline_attaches_readme_to_all_processed_github_articles(self):
         github_source = Source(

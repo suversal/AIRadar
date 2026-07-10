@@ -317,18 +317,19 @@ def _attach_github_readmes(
             article.metadata.update(readme_payload)
 
 
-def _translate_selected_report_articles(
+def _translate_processed_english_articles(
     *,
-    clusters,
-    articles_by_id: dict[str, RawArticle],
+    articles: list[RawArticle],
     ai_provider: Any,
 ) -> None:
+    """Translate every processed English article, not only report-selected
+    cluster mains: below-threshold articles stay browsable through /all and
+    the event detail page, where the 原文/译文 toggle needs a translation."""
     translate = getattr(ai_provider, "translate_paragraphs", None)
     if not callable(translate):
         return
 
-    for cluster in clusters:
-        article = articles_by_id[cluster.main_article_id]
+    for article in articles:
         if not article.language.lower().startswith("en"):
             continue
         if str(article.metadata.get("readme_language") or "").lower() == "zh":
@@ -488,16 +489,14 @@ def run_pipeline(
 
     processed_articles = list(processed_by_article.values())
     articles_by_id = {article.id: article for article in raw_articles}
-    _attach_github_readmes(
-        articles=[
-            articles_by_id[processed.raw_article_id]
-            for processed in processed_articles
-            if processed.raw_article_id in articles_by_id
-        ],
-    )
-    _translate_selected_report_articles(
-        clusters=clusters,
-        articles_by_id=articles_by_id,
+    displayable_articles = [
+        articles_by_id[processed.raw_article_id]
+        for processed in processed_articles
+        if processed.raw_article_id in articles_by_id
+    ]
+    _attach_github_readmes(articles=displayable_articles)
+    _translate_processed_english_articles(
+        articles=displayable_articles,
         ai_provider=ai_provider,
     )
     markdown = render_daily_markdown(
