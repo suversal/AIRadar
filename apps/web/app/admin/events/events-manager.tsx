@@ -178,7 +178,7 @@ export function EventsManager({
               添加
             </button>
             <button
-              className="rounded-md border border-signal bg-signal px-4 py-2 text-sm font-semibold text-canvas"
+              className="rounded-md border border-signal bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal-bright"
               type="submit"
             >
               搜索

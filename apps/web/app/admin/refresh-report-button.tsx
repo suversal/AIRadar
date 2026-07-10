@@ -95,7 +95,7 @@ export function RefreshReportButton() {
         type="button"
         onClick={() => refreshReport()}
         disabled={refreshState === "running"}
-        className="rounded-md border border-signal bg-signal px-4 py-2 text-sm font-semibold text-canvas disabled:cursor-not-allowed disabled:opacity-60"
+        className="rounded-md border border-signal bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal-bright disabled:cursor-not-allowed disabled:opacity-60"
       >
         {refreshState === "running" ? "同步中..." : "刷新数据"}
       </button>
