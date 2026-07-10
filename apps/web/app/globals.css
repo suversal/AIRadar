@@ -46,6 +46,7 @@ a {
 a,
 button,
 summary {
+  cursor: pointer;
   transition:
     color 0.18s ease,
     background-color 0.18s ease,
@@ -54,9 +55,6 @@ summary {
     transform 0.2s ease;
 }
 
-a,
-button,
-summary,
 [role="button"] {
   cursor: pointer;
 }
