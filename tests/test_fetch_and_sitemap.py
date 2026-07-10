@@ -183,6 +183,26 @@ class PageContentTests(unittest.TestCase):
 
         self.assertIsNone(payload)
 
+    def test_fetch_page_payload_falls_back_to_meta_description_without_main_region(self):
+        # video/preview pages (e.g. infoq.cn/video/...) have no <article>/<main>
+        # wrapper at all, but do carry a real meta description worth keeping
+        # instead of silently giving up and leaving the RSS's thin summary.
+        import tempfile
+
+        from app.crawlers.page_content import fetch_page_payload
+
+        video_page = (
+            "<html><head><title>预告：Agent 重新定义可观测性</title>"
+            '<meta name="description" content="Agent 正在重新定义可观测性的边界。">'
+            "</head><body><p>player nav junk</p></body></html>"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("app.crawlers.page_content.fetch_url_text", return_value=video_page):
+                payload = fetch_page_payload("https://x.example/video/1", cache_dir=Path(tmpdir))
+
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["content"], "Agent 正在重新定义可观测性的边界。")
+
 
 class RSSFullContentTests(unittest.TestCase):
     FEED = """<?xml version="1.0"?>

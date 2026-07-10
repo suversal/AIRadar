@@ -33,22 +33,27 @@ def fetch_page_payload(
             pass
 
     page_html = fetch_url_text(url, accept="text/html, */*")
-    region = main_content_region(page_html)
-    if not region:
-        return None
-    extracted = extract_article_content(region, base_url=url)
-    if not extracted["original_paragraphs"]:
-        return None
     title, description = extract_page_article(page_html)
-    payload = {
-        "title": title,
-        "content": extracted["original_text"] or description,
-        "metadata": {
-            "original_paragraphs": extracted["original_paragraphs"],
-            "original_images": extracted["original_images"],
-            "original_blocks": extracted["original_blocks"],
-        },
-    }
+    region = main_content_region(page_html)
+    extracted = extract_article_content(region, base_url=url) if region else None
+
+    if extracted and extracted["original_paragraphs"]:
+        payload = {
+            "title": title,
+            "content": extracted["original_text"] or description,
+            "metadata": {
+                "original_paragraphs": extracted["original_paragraphs"],
+                "original_images": extracted["original_images"],
+                "original_blocks": extracted["original_blocks"],
+            },
+        }
+    elif description:
+        # no <article>/<main> region (e.g. video/preview pages) but the page
+        # still carries a real meta description - better than nothing
+        payload = {"title": title, "content": description, "metadata": {}}
+    else:
+        return None
+
     try:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")

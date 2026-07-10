@@ -321,6 +321,7 @@ def default_sources() -> list[Source]:
             fetch_interval_min=240,
             language="zh",
             can_be_main_source=True,
+            config={"fetch_full_content": True},
         ),
         Source(
             id="ifanr",
@@ -335,6 +336,7 @@ def default_sources() -> list[Source]:
             fetch_interval_min=240,
             language="zh",
             can_be_main_source=True,
+            config={"fetch_full_content": True},
         ),
         Source(
             id="kr36",

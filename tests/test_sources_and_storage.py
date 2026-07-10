@@ -75,6 +75,15 @@ class SourcesAndStorageTests(unittest.TestCase):
         chinese_sources = [source for source in sources if source.language == "zh"]
         self.assertGreaterEqual(len(chinese_sources), 5)
 
+    def test_thin_feed_chinese_sources_fetch_full_page_content(self):
+        # infoq.cn / ifanr RSS <description> is always just a "点击查看原文>"
+        # link with no real body; without this flag every article from these
+        # sources is stuck at a few bytes of content.
+        by_id = {source.id: source for source in default_sources()}
+
+        self.assertTrue(by_id["infoq_cn"].config.get("fetch_full_content"))
+        self.assertTrue(by_id["ifanr"].config.get("fetch_full_content"))
+
     def test_sources_round_trip_to_json(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "sources.json"
