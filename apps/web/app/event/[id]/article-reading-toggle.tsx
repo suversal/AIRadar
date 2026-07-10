@@ -6,6 +6,7 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import type { OriginalBlock } from "@/lib/api";
+import { RichParagraph } from "@/components/rich-paragraph";
 
 type ArticleReadingToggleProps = {
   originalBlocks: OriginalBlock[];
@@ -178,9 +179,7 @@ function renderBlock(block: OriginalBlock, index: number) {
     );
   }
   return (
-    <p key={`${block.text.slice(0, 24)}-${index}`} className="text-[17px] leading-8 text-ink">
-      {block.text}
-    </p>
+    <RichParagraph key={`${block.text.slice(0, 24)}-${index}`} text={block.text} html={block.html} />
   );
 }
 

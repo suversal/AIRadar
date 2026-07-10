@@ -15,13 +15,22 @@ from app.models.domain import RawArticle, Source
 TRACKING_QUERY_PREFIXES = ("utm_",)
 TRACKING_QUERY_KEYS = {"fbclid", "gclid", "igshid", "mc_cid", "mc_eid", "ref"}
 
+# full browser profile: cloudflare fronts (e.g. openai.com) return 403 to
+# requests carrying crawler markers or missing fetch-metadata headers
 BROWSER_USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/126.0 Safari/537.36 SuversalAIRadar/0.1"
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/17.4 Safari/605.1.15"
 )
 FEED_ACCEPT_HEADER = (
     "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"
 )
+BROWSER_HEADERS = {
+    "User-Agent": BROWSER_USER_AGENT,
+    "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+}
 RETRYABLE_HTTP_STATUSES = {429, 500, 502, 503, 504}
 
 
@@ -34,10 +43,7 @@ def fetch_url_text(
     backoff_seconds: float = 3.0,
 ) -> str:
     for attempt in range(max_attempts):
-        request = Request(
-            url,
-            headers={"Accept": accept, "User-Agent": BROWSER_USER_AGENT},
-        )
+        request = Request(url, headers={"Accept": accept, **BROWSER_HEADERS})
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 return response.read().decode("utf-8", errors="replace")

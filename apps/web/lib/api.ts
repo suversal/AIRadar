@@ -14,6 +14,7 @@ export type OriginalBlock =
   | {
       type: "paragraph";
       text: string;
+      html?: string;
     }
   | {
       type: "image";

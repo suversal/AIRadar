@@ -53,7 +53,11 @@ def _clean_original_blocks(blocks: Any) -> list[dict[str, Any]]:
         if block_type == "paragraph":
             text = str(block.get("text") or "").strip()
             if text:
-                cleaned.append({"type": "paragraph", "text": text})
+                cleaned_block: dict[str, Any] = {"type": "paragraph", "text": text}
+                html = str(block.get("html") or "").strip()
+                if html:
+                    cleaned_block["html"] = html
+                cleaned.append(cleaned_block)
         elif block_type == "image":
             url = str(block.get("url") or "").strip()
             if url:

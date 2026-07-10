@@ -49,16 +49,32 @@ class RadarRepository:
 
     def upsert_raw_articles(self, articles: list[RawArticle]) -> WriteResult:
         inserted = 0
+        updated = 0
         skipped = 0
         seen_url_hashes: set[str] = set()
         for article in articles:
-            if article.url_hash in seen_url_hashes or self._raw_article_exists(article.url_hash):
+            if article.url_hash in seen_url_hashes:
                 skipped += 1
                 continue
             seen_url_hashes.add(article.url_hash)
-            self.session.add(_raw_article_to_model(article))
-            inserted += 1
-        return WriteResult(inserted=inserted, skipped=skipped)
+            existing = self.session.scalar(
+                select(RawArticleModel).where(RawArticleModel.url_hash == article.url_hash)
+            )
+            if existing is None:
+                self.session.add(_raw_article_to_model(article))
+                inserted += 1
+                continue
+            # later runs enrich articles in memory (README, full-page body,
+            # translations); merge that back instead of freezing the first crawl
+            merged = dict(existing.raw_metadata or {})
+            merged.update({"raw_score": article.raw_score, **article.metadata})
+            existing.raw_metadata = merged
+            if len(article.content) > len(existing.content or ""):
+                existing.content = article.content
+            existing.status = article.status
+            existing.skipped_reason = article.skipped_reason
+            updated += 1
+        return WriteResult(inserted=inserted, updated=updated, skipped=skipped)
 
     def upsert_daily_report(self, report: DailyReport) -> WriteResult:
         model = self.session.scalar(
@@ -159,6 +175,7 @@ class RadarRepository:
         "translated_paragraphs",
         "translated_blocks",
         "translation_source_language",
+        "translation_source_hash",
         "translation_target_language",
         "original_markdown",
         "readme_name",
@@ -373,9 +390,16 @@ def _event_item(
         item["original_images"] = images
     if include_content:
         paragraphs = metadata.get("original_paragraphs") or []
-        item["original_content"] = str(
+        content = str(
             metadata.get("original_text") or "\n\n".join(str(p) for p in paragraphs)
-        )
+        ).strip()
+        if not content:
+            # fall back to the crawled body (e.g. a repo description) so the
+            # detail page is never blank
+            content = str(raw.content or "").strip()
+            if content and not paragraphs:
+                paragraphs = [content]
+        item["original_content"] = content
         item["original_paragraphs"] = paragraphs
         item["original_blocks"] = metadata.get("original_blocks") or []
         for key in RadarRepository._EVENT_CONTENT_METADATA_KEYS:

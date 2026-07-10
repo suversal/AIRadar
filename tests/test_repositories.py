@@ -240,6 +240,59 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(detail["original_url"], "https://openai.com/a1")
         self.assertIn("original_blocks", detail)
 
+    def test_event_item_falls_back_to_raw_content_when_metadata_empty(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        article = self._article(
+            article_id="a1", title="GitHub Trending: x / y", url_hash="hash-a1"
+        )
+        article.content = "A tiny AI helper library."
+        article.metadata.clear()
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([article])
+            repository.upsert_processed_articles([self._processed("a1")])
+            session.commit()
+
+            detail = repository.get_event_item("aa1")
+
+        self.assertEqual(detail["original_content"], "A tiny AI helper library.")
+        self.assertEqual(
+            detail["original_paragraphs"], ["A tiny AI helper library."]
+        )
+
+    def test_upsert_raw_articles_updates_metadata_and_status_of_existing_rows(self):
+        from app.db.models import RawArticleModel
+        from app.repositories.radar_repository import RadarRepository
+
+        first = self._article(
+            article_id="a1", title="GitHub Trending: x / y", url_hash="hash-a1"
+        )
+
+        enriched = self._article(
+            article_id="a1", title="GitHub Trending: x / y", url_hash="hash-a1"
+        )
+        enriched.metadata["original_markdown"] = "# README"
+        enriched.metadata["readme_status"] = "ok"
+        enriched.status = "processed"
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([first])
+            session.commit()
+
+            result = repository.upsert_raw_articles([enriched])
+            session.commit()
+
+            stored = session.get(RawArticleModel, "a1")
+
+        self.assertEqual(result.updated, 1)
+        self.assertEqual(stored.raw_metadata.get("original_markdown"), "# README")
+        self.assertEqual(stored.status, "processed")
+
     def _processed(self, raw_article_id, *, final_score=88.0):
         from app.models.domain import ProcessedArticle, ScoreDimensions
 

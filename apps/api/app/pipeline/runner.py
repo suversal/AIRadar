@@ -198,6 +198,30 @@ def _safe_process_candidate_article(
         return None, None, "ai_error"
 
 
+def translation_source_hash(paragraphs: list[str]) -> str:
+    from app.crawlers.base import stable_hash
+
+    return stable_hash("\n".join(paragraphs))[:16]
+
+
+def _translation_paragraphs_for(article: RawArticle) -> list[str]:
+    text_blocks = _text_blocks_for_translation(article)
+    paragraphs: list[str] = []
+    used_chars = 0
+    for block in text_blocks[:TRANSLATION_PARAGRAPH_LIMIT]:
+        paragraph = str(block.get("text") or "").strip()
+        if not paragraph:
+            continue
+        if used_chars + len(paragraph) > TRANSLATION_CHAR_LIMIT:
+            remaining = TRANSLATION_CHAR_LIMIT - used_chars
+            if remaining <= 0:
+                break
+            paragraph = paragraph[:remaining].strip()
+        paragraphs.append(paragraph)
+        used_chars += len(paragraph)
+    return paragraphs
+
+
 def _text_blocks_for_translation(article: RawArticle) -> list[dict[str, Any]]:
     blocks = article.metadata.get("original_blocks") if article.metadata else None
     if isinstance(blocks, list):
@@ -264,11 +288,15 @@ def _is_github_trending_article(article: RawArticle) -> bool:
 
 def _attach_github_readmes(
     *,
-    clusters,
-    articles_by_id: dict[str, RawArticle],
+    articles: list[RawArticle],
 ) -> None:
-    for cluster in clusters:
-        article = articles_by_id[cluster.main_article_id]
+    """Enrich every processed GitHub trending article with its README.
+
+    Below-threshold articles are still browsable through /all and the
+    event detail API, so README enrichment must not depend on daily
+    report selection.
+    """
+    for article in articles:
         if not _is_github_trending_article(article):
             continue
         if article.metadata.get("readme_status") == "ok":
@@ -303,30 +331,20 @@ def _translate_selected_report_articles(
             continue
         if _is_github_trending_article(article) and str(article.metadata.get("original_markdown") or "").strip():
             continue
-        if article.metadata.get("translated_blocks") or article.metadata.get(
-            "translated_paragraphs"
-        ):
-            continue
 
-        text_blocks = _text_blocks_for_translation(article)
-        if not text_blocks:
-            continue
-
-        paragraphs: list[str] = []
-        used_chars = 0
-        for block in text_blocks[:TRANSLATION_PARAGRAPH_LIMIT]:
-            paragraph = str(block.get("text") or "").strip()
-            if not paragraph:
-                continue
-            if used_chars + len(paragraph) > TRANSLATION_CHAR_LIMIT:
-                remaining = TRANSLATION_CHAR_LIMIT - used_chars
-                if remaining <= 0:
-                    break
-                paragraph = paragraph[:remaining].strip()
-            paragraphs.append(paragraph)
-            used_chars += len(paragraph)
-
+        paragraphs = _translation_paragraphs_for(article)
         if not paragraphs:
+            continue
+
+        source_hash = translation_source_hash(paragraphs)
+        has_translation = bool(
+            article.metadata.get("translated_blocks")
+            or article.metadata.get("translated_paragraphs")
+        )
+        # a cached translation is only valid for the exact source text it was
+        # made from; content upgrades (e.g. full-page fetch replacing a thin
+        # feed summary) must trigger retranslation
+        if has_translation and article.metadata.get("translation_source_hash") == source_hash:
             continue
 
         try:
@@ -342,6 +360,7 @@ def _translate_selected_report_articles(
         article.metadata["translated_blocks"] = _translated_blocks_for(article, translated_paragraphs)
         article.metadata["translation_source_language"] = article.language
         article.metadata["translation_target_language"] = "zh"
+        article.metadata["translation_source_hash"] = source_hash
 
 
 def run_pipeline(
@@ -465,8 +484,11 @@ def run_pipeline(
     processed_articles = list(processed_by_article.values())
     articles_by_id = {article.id: article for article in raw_articles}
     _attach_github_readmes(
-        clusters=clusters,
-        articles_by_id=articles_by_id,
+        articles=[
+            articles_by_id[processed.raw_article_id]
+            for processed in processed_articles
+            if processed.raw_article_id in articles_by_id
+        ],
     )
     _translate_selected_report_articles(
         clusters=clusters,

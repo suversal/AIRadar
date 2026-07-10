@@ -200,6 +200,26 @@ class ReportAndAPITests(unittest.TestCase):
         self.assertEqual(item["scoring_category"], "model_release")
         self.assertEqual(list(daily_json["sections"].keys()), ["model"])
 
+    def test_daily_json_preserves_inline_html_on_paragraph_blocks(self):
+        self.article.metadata["original_blocks"] = [
+            {
+                "type": "paragraph",
+                "text": "Read the full paper for key results.",
+                "html": 'Read the <a href="https://example.com/p">full paper</a> for <strong>key results</strong>.',
+            },
+        ]
+        daily_json = build_daily_json(
+            report_date=date(2026, 7, 1),
+            clusters=[self.cluster],
+            processed_by_article={"a1": self.processed},
+            articles_by_id={"a1": self.article},
+            sources_by_id={"openai_blog": self.source},
+            generated_at=datetime(2026, 7, 7, 14, 30, tzinfo=timezone.utc),
+        )
+
+        block = daily_json["items"][0]["original_blocks"][0]
+        self.assertIn("<strong>key results</strong>", block["html"])
+
     def test_daily_json_exposes_translation_failure_status(self):
         self.article.metadata.pop("translated_paragraphs", None)
         self.article.metadata.pop("translated_blocks", None)

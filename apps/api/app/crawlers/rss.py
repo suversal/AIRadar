@@ -4,6 +4,7 @@ import email.utils
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+from pathlib import Path
 
 from app.crawlers.article_content import extract_article_content
 from app.crawlers.base import BaseCrawler, clean_text, fetch_url_text, normalize_article
@@ -148,7 +149,36 @@ def parse_rss(xml_text: str, source: Source, limit: int | None = None) -> list[R
     return articles
 
 
+FULL_CONTENT_MIN_CHARS = 600
+
+
 class RSSCrawler(BaseCrawler):
+    def __init__(self, source: Source, *, page_cache_dir: Path | None = None):
+        super().__init__(source)
+        self.page_cache_dir = page_cache_dir
+
     def fetch(self, limit: int | None = None) -> list[RawArticle]:
         xml_text = fetch_url_text(self.source.url)
-        return parse_rss(xml_text, self.source, limit=limit)
+        articles = parse_rss(xml_text, self.source, limit=limit)
+        if (self.source.config or {}).get("fetch_full_content"):
+            for article in articles:
+                self._fill_thin_article(article)
+        return articles
+
+    def _fill_thin_article(self, article: RawArticle) -> None:
+        if len(article.content) >= FULL_CONTENT_MIN_CHARS:
+            return
+        from app.crawlers.page_content import DEFAULT_PAGE_CACHE_DIR, fetch_page_payload
+
+        try:
+            payload = fetch_page_payload(
+                article.source_url,
+                cache_dir=self.page_cache_dir or DEFAULT_PAGE_CACHE_DIR,
+            )
+        except Exception:  # page fetch is best-effort; feed data still stands
+            return
+        if not payload:
+            return
+        article.content = payload["content"]
+        article.metadata.update(payload["metadata"])
+        article.metadata["content_origin"] = "full_page"

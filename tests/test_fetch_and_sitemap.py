@@ -105,6 +105,11 @@ class FetchUrlTextTests(unittest.TestCase):
         self.assertTrue(fake_sleep.called)
         user_agent = attempts[0].get_header("User-agent")
         self.assertTrue(user_agent.startswith("Mozilla/5.0"))
+        # cloudflare blocks requests carrying crawler markers or missing
+        # fetch-metadata headers (openai.com returned 403)
+        self.assertNotIn("Radar", user_agent)
+        self.assertEqual(attempts[0].get_header("Sec-fetch-mode"), "navigate")
+        self.assertIsNotNone(attempts[0].get_header("Accept-language"))
 
     def test_fetch_url_text_raises_after_exhausting_retries(self):
         def fake_urlopen(request, timeout=20):
@@ -140,6 +145,123 @@ class FetchUrlTextTests(unittest.TestCase):
                     fetch_url_text("https://example.com/feed")
 
         self.assertEqual(len(attempts), 1)
+
+
+class PageContentTests(unittest.TestCase):
+    def test_fetch_page_payload_extracts_and_caches(self):
+        import tempfile
+
+        from app.crawlers.page_content import fetch_page_payload
+
+        calls: list[str] = []
+
+        def fake_fetch(url, **kwargs):
+            calls.append(url)
+            return PAGE_HTML
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_dir = Path(tmpdir)
+            with patch("app.crawlers.page_content.fetch_url_text", side_effect=fake_fetch):
+                first = fetch_page_payload("https://www.anthropic.com/news/newer-post", cache_dir=cache_dir)
+                second = fetch_page_payload("https://www.anthropic.com/news/newer-post", cache_dir=cache_dir)
+
+        self.assertEqual(len(calls), 1)  # second call served from cache
+        self.assertEqual(first["title"], "Claude ships a new model")
+        self.assertIn("stronger reasoning", first["content"])
+        self.assertEqual(second["content"], first["content"])
+        self.assertTrue(first["metadata"]["original_paragraphs"])
+
+    def test_fetch_page_payload_returns_none_without_main_region(self):
+        import tempfile
+
+        from app.crawlers.page_content import fetch_page_payload
+
+        bare = "<html><head><title>t</title></head><body><p>nav junk</p></body></html>"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("app.crawlers.page_content.fetch_url_text", return_value=bare):
+                payload = fetch_page_payload("https://x.example/post", cache_dir=Path(tmpdir))
+
+        self.assertIsNone(payload)
+
+
+class RSSFullContentTests(unittest.TestCase):
+    FEED = """<?xml version="1.0"?>
+<rss version="2.0"><channel><title>OpenAI</title>
+<item>
+  <title>GPT-6 ships</title>
+  <link>https://openai.com/index/gpt-6</link>
+  <pubDate>Thu, 09 Jul 2026 13:00:00 GMT</pubDate>
+</item>
+</channel></rss>
+"""
+
+    def test_rss_crawler_fetches_full_page_for_thin_items_when_configured(self):
+        import tempfile
+
+        from app.crawlers.rss import RSSCrawler
+        from app.models.domain import Source
+
+        source = Source(
+            id="openai_blog",
+            name="OpenAI Blog",
+            source_role="authority",
+            tier="T1",
+            type="rss",
+            category="official",
+            url="https://openai.com/news/rss.xml",
+            homepage="https://openai.com/news/",
+            allowed_domains=["openai.com"],
+            config={"fetch_full_content": True},
+        )
+
+        def fake_fetch(url, **kwargs):
+            if url.endswith("rss.xml"):
+                return self.FEED
+            return PAGE_HTML
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            crawler = RSSCrawler(source, page_cache_dir=Path(tmpdir))
+            with patch("app.crawlers.rss.fetch_url_text", side_effect=fake_fetch), patch(
+                "app.crawlers.page_content.fetch_url_text", side_effect=fake_fetch
+            ):
+                articles = crawler.fetch(limit=5)
+
+        article = articles[0]
+        self.assertIn("stronger reasoning", article.content)
+        self.assertTrue(article.metadata.get("original_paragraphs"))
+        self.assertEqual(article.metadata.get("content_origin"), "full_page")
+
+    def test_rss_crawler_keeps_feed_content_without_config(self):
+        import tempfile
+
+        from app.crawlers.rss import RSSCrawler
+        from app.models.domain import Source
+
+        source = Source(
+            id="openai_blog",
+            name="OpenAI Blog",
+            source_role="authority",
+            tier="T1",
+            type="rss",
+            category="official",
+            url="https://openai.com/news/rss.xml",
+            homepage="https://openai.com/news/",
+            allowed_domains=["openai.com"],
+        )
+
+        fetch_calls: list[str] = []
+
+        def fake_fetch(url, **kwargs):
+            fetch_calls.append(url)
+            return self.FEED
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            crawler = RSSCrawler(source, page_cache_dir=Path(tmpdir))
+            with patch("app.crawlers.rss.fetch_url_text", side_effect=fake_fetch):
+                articles = crawler.fetch(limit=5)
+
+        self.assertEqual(len(fetch_calls), 1)  # feed only, no page fetches
+        self.assertEqual(articles[0].metadata.get("content_origin"), None)
 
 
 class SitemapCrawlerTests(unittest.TestCase):

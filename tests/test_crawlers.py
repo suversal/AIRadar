@@ -113,6 +113,36 @@ class CrawlerTests(unittest.TestCase):
         )
         self.assertEqual(content["original_images"][0]["url"], "https://www.ithome.com/images/demo.jpg")
 
+    def test_extract_article_content_preserves_inline_links_and_bold(self):
+        html = (
+            "<article>"
+            '<p>Read the <a href="https://example.com/paper">full paper</a> for '
+            "<strong>key results</strong> and <em>analysis</em> of <code>gpt-5</code>.</p>"
+            "<p>Plain paragraph without markup.</p>"
+            '<p>Ignore <a href="javascript:alert(1)">bad link</a> schemes '
+            'and <span onclick="x()">spans</span>.</p>'
+            "</article>"
+        )
+
+        result = extract_article_content(html, base_url="https://example.com/post")
+
+        rich = result["original_blocks"][0]
+        self.assertEqual(rich["type"], "paragraph")
+        self.assertIn("full paper", rich["text"])  # plain text always present
+        self.assertIn('<a href="https://example.com/paper">full paper</a>', rich["html"])
+        self.assertIn("<strong>key results</strong>", rich["html"])
+        self.assertIn("<em>analysis</em>", rich["html"])
+        self.assertIn("<code>gpt-5</code>", rich["html"])
+
+        plain = result["original_blocks"][1]
+        self.assertNotIn("html", plain)  # no markup -> no html payload
+
+        unsafe = result["original_blocks"][2]
+        html_payload = unsafe.get("html", "")
+        self.assertNotIn("javascript:", html_payload)
+        self.assertNotIn("onclick", html_payload)
+        self.assertNotIn("<span", html_payload)
+
     def test_parse_rss_preserves_original_text_blocks_and_images(self):
         source = Source(
             id="ithome",

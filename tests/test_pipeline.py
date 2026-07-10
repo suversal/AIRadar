@@ -147,7 +147,14 @@ class PipelineTests(unittest.TestCase):
                     "action_zh": "缓存动作。",
                 },
                 "skipped_reason": None,
-                "metadata": {"translated_paragraphs": ["缓存译文段落"]},
+                "metadata": {
+                    "translated_paragraphs": ["缓存译文段落"],
+                    # hash of the article body that was translated; matching
+                    # hash means the cached translation is still valid
+                    "translation_source_hash": __import__("app.pipeline.runner", fromlist=["translation_source_hash"]).translation_source_hash(
+                        ["OpenAI releases a new AI agent model for developers."]
+                    ),
+                },
             },
             noise_hash: {"scoring": None, "skipped_reason": "not_ai_related", "metadata": {}},
         }
@@ -285,6 +292,225 @@ class PipelineTests(unittest.TestCase):
         translated = article.metadata.get("translated_paragraphs") or []
         self.assertEqual(len(translated), 12)
         self.assertNotIn("translation_status", article.metadata)
+
+    def test_readme_enrichment_covers_unselected_github_articles(self):
+        source = Source(
+            id="github_trending_ai",
+            name="GitHub Trending AI",
+            source_role="signal",
+            tier="T2",
+            type="github",
+            category="community",
+            url="https://github.com/trending?since=daily",
+            homepage="https://github.com/trending",
+            allowed_domains=["github.com"],
+            can_be_main_source=True,
+        )
+        raw_items = [
+            {
+                "source_url": "https://github.com/example/hot-repo",
+                "title": "GitHub Trending: example / hot-repo",
+                "content": "An AI agent framework.",
+                "author": None,
+                "published_at": datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {"source_type": "github_trending", "repo": "example/hot-repo"},
+            },
+            {
+                "source_url": "https://github.com/example/small-repo",
+                "title": "GitHub Trending: example / small-repo",
+                "content": "A tiny AI helper library.",
+                "author": None,
+                "published_at": datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {"source_type": "github_trending", "repo": "example/small-repo"},
+            },
+        ]
+
+        class LowScoreProvider(FakeAIProvider):
+            """small-repo scores below every threshold so it is never selected."""
+
+            def score_article(self, title, content):
+                result = super().score_article(title, content)
+                if "small-repo" in title:
+                    from dataclasses import replace as dc_replace
+
+                    return dc_replace(
+                        result,
+                        dimensions=ScoreDimensions(3, 2, 2, 2, 2, 2),
+                    )
+                return result
+
+        fetched: list[str] = []
+
+        def fake_fetch_readme(repo_path):
+            fetched.append(repo_path)
+            return {
+                "readme_status": "ok",
+                "readme_language": "en",
+                "original_markdown": f"# {repo_path}",
+            }
+
+        from unittest.mock import patch as mock_patch
+
+        with mock_patch(
+            "app.pipeline.runner.fetch_github_readme", side_effect=fake_fetch_readme
+        ):
+            result = run_pipeline(
+                sources=[source],
+                raw_items_by_source={"github_trending_ai": raw_items},
+                ai_provider=LowScoreProvider(),
+                now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+                report_date=date(2026, 7, 1),
+                candidate_limit=10,
+                top_n=1,
+            )
+
+        # both repos get READMEs, including the low-score one outside the report
+        self.assertEqual(sorted(fetched), ["example/hot-repo", "example/small-repo"])
+        small = next(a for a in result.raw_articles if "small-repo" in a.title)
+        self.assertEqual(small.metadata.get("original_markdown"), "# example/small-repo")
+
+    def test_stale_cached_translation_is_replaced_when_content_upgrades(self):
+        source = Source(
+            id="openai_blog",
+            name="OpenAI Blog",
+            source_role="authority",
+            tier="T1",
+            type="rss",
+            category="official",
+            url="https://openai.com/rss.xml",
+            homepage="https://openai.com",
+            allowed_domains=["openai.com"],
+            can_be_main_source=True,
+        )
+        # fresh crawl now carries the full article body
+        raw_items = [
+            {
+                "source_url": "https://openai.com/index/big-news",
+                "title": "OpenAI ships new agent model",
+                "content": "Full body. " * 60,
+                "author": "OpenAI",
+                "published_at": datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {
+                    "original_blocks": [
+                        {"type": "paragraph", "text": f"AI paragraph {i} with details."}
+                        for i in range(6)
+                    ]
+                },
+            }
+        ]
+
+        from app.crawlers.base import canonicalize_url, stable_hash
+
+        url_hash = stable_hash(canonicalize_url("https://openai.com/index/big-news"))
+        cached_results = {
+            url_hash: {
+                "scoring": None,
+                "skipped_reason": None,
+                # translation of the OLD thin one-line description, no source hash
+                "metadata": {
+                    "translated_paragraphs": ["旧的单段译文。"],
+                    "translated_blocks": [{"type": "paragraph", "text": "旧的单段译文。"}],
+                },
+            }
+        }
+
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={"openai_blog": raw_items},
+            ai_provider=FakeAIProvider(),
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 1),
+            candidate_limit=10,
+            top_n=12,
+            cached_results=cached_results,
+        )
+
+        article = result.raw_articles[0]
+        translated = article.metadata.get("translated_paragraphs") or []
+        # stale single-paragraph translation must be replaced by a fresh
+        # translation covering the full body
+        self.assertEqual(len(translated), 6)
+        self.assertNotIn("旧的单段译文。", translated)
+        self.assertTrue(article.metadata.get("translation_source_hash"))
+
+    def test_cached_translation_with_matching_hash_is_reused(self):
+        source = Source(
+            id="openai_blog",
+            name="OpenAI Blog",
+            source_role="authority",
+            tier="T1",
+            type="rss",
+            category="official",
+            url="https://openai.com/rss.xml",
+            homepage="https://openai.com",
+            allowed_domains=["openai.com"],
+            can_be_main_source=True,
+        )
+        blocks = [
+            {"type": "paragraph", "text": f"AI paragraph {i} with details."} for i in range(3)
+        ]
+        raw_items = [
+            {
+                "source_url": "https://openai.com/index/same-news",
+                "title": "OpenAI ships new agent model",
+                "content": "Full body. " * 60,
+                "author": "OpenAI",
+                "published_at": datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {"original_blocks": blocks},
+            }
+        ]
+
+        from app.crawlers.base import canonicalize_url, stable_hash
+        from app.pipeline.runner import translation_source_hash
+
+        url_hash = stable_hash(canonicalize_url("https://openai.com/index/same-news"))
+        source_hash = translation_source_hash(
+            [str(b["text"]) for b in blocks]
+        )
+        cached_results = {
+            url_hash: {
+                "scoring": None,
+                "skipped_reason": None,
+                "metadata": {
+                    "translated_paragraphs": ["缓存译文一", "缓存译文二", "缓存译文三"],
+                    "translated_blocks": [
+                        {"type": "paragraph", "text": "缓存译文一"},
+                        {"type": "paragraph", "text": "缓存译文二"},
+                        {"type": "paragraph", "text": "缓存译文三"},
+                    ],
+                    "translation_source_hash": source_hash,
+                },
+            }
+        }
+
+        class NoTranslateProvider(FakeAIProvider):
+            def translate_paragraphs(self, paragraphs):
+                raise AssertionError("translation must not be called on hash match")
+
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={"openai_blog": raw_items},
+            ai_provider=NoTranslateProvider(),
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 1),
+            candidate_limit=10,
+            top_n=12,
+            cached_results=cached_results,
+        )
+
+        article = result.raw_articles[0]
+        self.assertEqual(
+            article.metadata.get("translated_paragraphs"),
+            ["缓存译文一", "缓存译文二", "缓存译文三"],
+        )
 
     def test_pipeline_isolates_single_article_ai_failures(self):
         source = Source(
@@ -565,7 +791,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(item["translated_blocks"][1]["type"], "image")
         self.assertEqual(item["translated_blocks"][1]["url"], "https://example.com/audit.png")
 
-    def test_pipeline_attaches_readme_only_for_selected_github_articles_before_translation(self):
+    def test_pipeline_attaches_readme_to_all_processed_github_articles(self):
         github_source = Source(
             id="github_trending_ai",
             name="GitHub Trending AI",
@@ -657,7 +883,12 @@ class PipelineTests(unittest.TestCase):
                 top_n=2,
             )
 
-        fetch_readme.assert_called_once_with("MadsLorentzen/ai-job-search")
+        # every processed github article gets a README (below-threshold ones
+        # are still browsable via /all), non-github articles never do
+        called_repos = sorted(call.args[0] for call in fetch_readme.call_args_list)
+        self.assertEqual(
+            called_repos, ["MadsLorentzen/ai-job-search", "example/unselected-agent"]
+        )
         github_item = next(
             item for item in result.daily_report.json_data["items"]
             if item["original_url"] == "https://github.com/MadsLorentzen/ai-job-search"

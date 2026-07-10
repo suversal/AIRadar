@@ -3,6 +3,7 @@ import type { LatestEvent, OriginalBlock } from "@/lib/api";
 import { getEventDetail, getLatestReport } from "@/lib/api";
 import { findEventById } from "@/lib/events";
 import { ArticleReadingToggle } from "./article-reading-toggle";
+import { RichParagraph } from "@/components/rich-paragraph";
 import { Sidebar } from "@/components/sidebar";
 
 type EventParams = Promise<{
@@ -107,9 +108,7 @@ function renderOriginalBlock(block: OriginalBlock, index: number) {
     );
   }
   return (
-    <p key={`${block.text.slice(0, 24)}-${index}`} className="text-[17px] leading-8 text-ink">
-      {block.text}
-    </p>
+    <RichParagraph key={`${block.text.slice(0, 24)}-${index}`} text={block.text} html={block.html} />
   );
 }
 
