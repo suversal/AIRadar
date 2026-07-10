@@ -53,7 +53,12 @@ class Settings:
     default_embedding_model: str = "text-embedding-3-small"
     daily_candidate_limit: int = 100
     daily_selected_limit: int = 12
-    cluster_similarity_threshold: float = 0.85
+    # 0.85 was too low for bge-small-zh-v1.5 (the local embedding model in
+    # actual use): a real-data check found completely unrelated AI-news
+    # articles scoring 0.79-0.89 cosine similarity against each other, so a
+    # 0.85 threshold merged unrelated events together. 0.93 sits clearly
+    # above that observed false-positive band.
+    cluster_similarity_threshold: float = 0.93
     cluster_window_hours: int = 72
 
     @classmethod
@@ -71,6 +76,6 @@ class Settings:
             ),
             daily_candidate_limit=int(os.getenv("DAILY_CANDIDATE_LIMIT", "100")),
             daily_selected_limit=int(os.getenv("DAILY_SELECTED_LIMIT", "12")),
-            cluster_similarity_threshold=float(os.getenv("CLUSTER_SIMILARITY_THRESHOLD", "0.85")),
+            cluster_similarity_threshold=float(os.getenv("CLUSTER_SIMILARITY_THRESHOLD", "0.93")),
             cluster_window_hours=int(os.getenv("CLUSTER_WINDOW_HOURS", "72")),
         )

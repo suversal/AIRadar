@@ -779,8 +779,19 @@ class RadarRepository:
                 EditorialOverrideModel,
                 EditorialOverrideModel.raw_article_id == ProcessedArticleModel.raw_article_id,
             )
+            .outerjoin(
+                EventClusterModel,
+                EventClusterModel.id == ProcessedArticleModel.event_cluster_id,
+            )
             .where(RawArticleModel.published_at >= window_start)
             .where(RawArticleModel.published_at <= window_end)
+            # an event with multiple source members must appear once, not
+            # once per member article - only its designated main article
+            # (or a standalone article with no cluster at all) passes through
+            .where(
+                (EventClusterModel.id.is_(None))
+                | (EventClusterModel.main_article_id == RawArticleModel.id)
+            )
             .order_by(RawArticleModel.published_at.desc())
         )
         if not include_hidden:

@@ -548,6 +548,43 @@ class RepositoryTests(unittest.TestCase):
         )
         self.assertEqual(detail["translation_status"], "completed")
 
+    def test_all_events_listing_shows_one_row_per_event_not_per_member_article(self):
+        # regression, found via real-data verification: once an event has
+        # multiple source members (cross-day multi-source aggregation), a
+        # naive per-processed-article listing shows the same event_id once
+        # per member - confirmed live on /api/public/events (duplicate
+        # event_id entries, each with a different member's own title).
+        from app.repositories.radar_repository import RadarRepository
+
+        main = self._article(article_id="a1", title="主报道", url_hash="hash-a1")
+        member = self._article(article_id="a2", title="另一家的报道", url_hash="hash-a2")
+        standalone = self._article(article_id="a3", title="独立文章", url_hash="hash-a3")
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([main, member, standalone])
+            cluster = self._cluster("e-multi", main_article_id="a1")
+            cluster.article_ids = ["a1", "a2"]
+            repository.upsert_event_clusters([cluster])
+            selected = self._processed("a1", final_score=88.0)
+            selected.event_cluster_id = "e-multi"
+            second = self._processed("a2", final_score=70.0)
+            second.event_cluster_id = "e-multi"
+            solo = self._processed("a3", final_score=60.0)
+            repository.upsert_processed_articles([selected, second, solo])
+            session.commit()
+
+            items = repository.get_all_event_items_between(date(2026, 6, 30), date(2026, 7, 2))
+
+        event_ids = [item["event_id"] for item in items]
+        self.assertEqual(len(event_ids), 2)  # one for the event, one standalone
+        self.assertEqual(event_ids.count("e-multi"), 1)
+        multi_item = next(item for item in items if item["event_id"] == "e-multi")
+        # the surviving row must be the main article's own processed record,
+        # not whichever member happened to be iterated
+        self.assertEqual(multi_item["final_score"], 88.0)
+
     def test_all_event_items_come_from_processed_articles_table(self):
         from app.repositories.radar_repository import RadarRepository
 

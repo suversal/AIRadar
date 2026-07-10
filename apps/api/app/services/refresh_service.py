@@ -149,7 +149,10 @@ def refresh_latest_report(
         top_n=top_n,
         ai_concurrency=_env_int("AI_PIPELINE_CONCURRENCY", 1),
         cached_results=cached_results,
-        cluster_similarity_threshold=_env_float("CLUSTER_SIMILARITY_THRESHOLD", 0.85),
+        # 0.85 was too low for bge-small-zh-v1.5: real-data verification
+        # found unrelated AI-news articles scoring 0.79-0.89 against each
+        # other, so a lower threshold merged unrelated events together
+        cluster_similarity_threshold=_env_float("CLUSTER_SIMILARITY_THRESHOLD", 0.93),
     )
 
     pipeline_dir = data_dir / "crawl_checks" / f"{resolved_date.isoformat()}-refresh-pipeline"
@@ -176,7 +179,7 @@ def refresh_latest_report(
             sources,
             result,
             cluster_window_hours=_env_int("CLUSTER_WINDOW_HOURS", 72),
-            similarity_threshold=_env_float("CLUSTER_SIMILARITY_THRESHOLD", 0.85),
+            similarity_threshold=_env_float("CLUSTER_SIMILARITY_THRESHOLD", 0.93),
         )
         _regenerate_period_reports(database_url, resolved_date, ai_provider)
 
