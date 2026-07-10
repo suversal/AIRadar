@@ -12,7 +12,7 @@
 | Phase 1 - 真实采集与质量闭环 | 进行中 | 源清单 27 个（实测 27/27 可抓取，135 篇/轮）；Anthropic 用 sitemap 爬虫，机器之心 RSS 已下线故移除，venturebeat 修正 308 地址；抓取层：浏览器 UA、429/5xx 退避重试、同域 6 秒礼貌间隔、跨域并行（默认 8 并发）、sitemap 页面 lastmod 缓存、10 秒超时——整轮抓取 118s→25s | 继续人工检查日报质量并调源权重 |
 | Phase 2 - OpenAI/Kimi/DeepSeek 接入、AI 总结与真实评分 | 进行中 | Kimi/Moonshot 和 DeepSeek chat provider 已接入环境变量；DeepSeek 20 并发 API smoke 和 20 条日报生成已跑通；OpenAI 边界保留；真实 key 不写入仓库 | 继续观察真实日报质量，并根据成本/稳定性调整默认并发 |
 | Phase 3 - PostgreSQL + pgvector 持久化 | 基本完成 | 全部 8 张表已投入使用：raw/processed/event_clusters/关联表/daily_reports/pipeline_runs 均由 pipeline 持久化；事件 ID 改为内容哈希（跨 run 稳定）；pipeline 按 url_hash 增量复用已缓存的 AI 评分与译文（实测 74s→17s，仅新文章产生 AI 调用） | 补 Alembic 迁移；article_embeddings 待接入真实 embedding API 后启用 pgvector 相似查询 |
-| Phase 4 - API 与日报服务化 | 进行中 | 本地 FastAPI 服务已启动并通过 HTTP smoke；latest/daily 从 DB 读到 12 条日报 | 等 API compose 网络问题恢复后补容器验证 |
+| Phase 4 - API 与日报服务化 | 进行中 | latest/daily/events/topics/period 全套公开 API 就绪；周期报告已期次化：period_reports 表持久化 AI 主线综述（每次日报刷新自动重生成当周/当月），/reports/weekly/2026-W28 可按 ISO 周号寻址，daily/weekly/monthly 均有归档端点 | 等 API compose 网络问题恢复后补容器验证 |
 | Phase 5 - 任务调度与稳定性 | 进行中 | 轻量调度已就绪：`scripts/run_scheduled_refresh.sh`（带锁防重入、日志落 data/logs/）+ launchd 配置 `infra/launchd/`，每 2 小时抓取+处理；安装命令见 README；Celery/Redis 队列后置 | 用户确认安装 launchd agent；观察若干天后再评估是否需要 Celery |
 | Phase 6 - 前端 MVP | 已完成（v1 收尾完成） | 分类统一为 全部/模型/产品/行业/论文/技巧 六类（后端 8 类评分→展示映射，AI prompt 已约束枚举）；主题页上线（公司与模型/技术方向/内容形态 三组，点击进入 `/all?topic=` 筛选流）；视觉重设计为"琥珀信号"体系（AI·RADAR 品牌、暖炭黑+琥珀金 token、等宽仪表读数、雷达状态条、共享 Sidebar）；Agent接入/关于/更新日志/反馈 四个静态页上线；全部 15 条路由 + 404/API宕机降级走查通过 | 收藏（v2）；移动端截图细调 |
 | Phase 7 - RSS/Public API/MCP | 未开始 | RSS/Public API 完整版和 MCP 暂缓 | 等 API 和数据质量稳定后启动 |
