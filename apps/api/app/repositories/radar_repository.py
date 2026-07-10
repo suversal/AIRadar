@@ -195,6 +195,35 @@ class RadarRepository:
                 previous = model.success_rate or 0.0
                 model.success_rate = round(0.8 * previous + 0.2 * observation, 4)
 
+    SOURCE_EDITABLE_FIELDS = {
+        "name",
+        "url",
+        "homepage",
+        "tier",
+        "category",
+        "source_role",
+        "type",
+        "language",
+        "fetch_interval_min",
+        "is_active",
+        "can_be_main_source",
+        "affects_heat_score",
+        "config",
+    }
+
+    def update_source_fields(self, source_id: str, fields: dict[str, Any]) -> bool:
+        model = self.session.get(SourceModel, source_id)
+        if model is None:
+            return False
+        for key, value in fields.items():
+            if key not in self.SOURCE_EDITABLE_FIELDS:
+                continue
+            if key == "config":
+                model.config_json = dict(value or {})
+            else:
+                setattr(model, key, value)
+        return True
+
     def get_all_sources(self) -> list[Source]:
         models = self.session.scalars(select(SourceModel)).all()
         return [_source_to_domain(model) for model in models]

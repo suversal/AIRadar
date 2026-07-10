@@ -369,6 +369,32 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(counts["raw_articles"], 1)
         self.assertEqual(counts["sources"], 1)
 
+    def test_update_source_fields_whitelists_keys(self):
+        from app.db.models import SourceModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            session.commit()
+
+            found = repository.update_source_fields(
+                "openai_blog",
+                {"is_active": False, "tier": "T2", "id": "hack", "success_rate": 9.9, "config": {"a": 1}},
+            )
+            missing = repository.update_source_fields("nope", {"is_active": False})
+            session.commit()
+
+            model = session.get(SourceModel, "openai_blog")
+
+        self.assertTrue(found)
+        self.assertFalse(missing)
+        self.assertFalse(model.is_active)
+        self.assertEqual(model.tier, "T2")
+        self.assertEqual(model.id, "openai_blog")  # id not editable
+        self.assertEqual(model.success_rate, 0.0)  # health not editable
+        self.assertEqual(model.config_json, {"a": 1})
+
     def _processed(self, raw_article_id, *, final_score=88.0):
         from app.models.domain import ProcessedArticle, ScoreDimensions
 

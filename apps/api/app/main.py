@@ -338,6 +338,93 @@ def create_app(
                 "counts": repository.get_table_counts(),
             }
 
+    def _admin_repository_context():
+        repository_context = report_repository_context()
+        if repository_context is None:
+            raise HTTPException(
+                status_code=503,
+                detail="This admin feature requires database mode (set DATABASE_URL).",
+            )
+        return repository_context
+
+    @app.get("/api/admin/sources", dependencies=[admin_guard])
+    def admin_sources() -> dict:
+        with _admin_repository_context() as repository:
+            return {"sources": repository.list_sources_with_health()}
+
+    @app.patch("/api/admin/sources/{source_id}", dependencies=[admin_guard])
+    def admin_update_source(source_id: str, payload: dict) -> dict:
+        editable = {
+            key: value
+            for key, value in (payload or {}).items()
+            if key in {
+                "name", "url", "homepage", "tier", "category", "source_role",
+                "type", "language", "fetch_interval_min", "is_active",
+                "can_be_main_source", "affects_heat_score", "config",
+            }
+        }
+        if not editable:
+            raise HTTPException(status_code=400, detail="No editable fields in payload")
+        with _admin_repository_context() as repository:
+            found = repository.update_source_fields(source_id, editable)
+            if not found:
+                raise HTTPException(status_code=404, detail="Source not found")
+            commit = getattr(getattr(repository, "session", None), "commit", None)
+            if callable(commit):
+                commit()
+        return {"status": "ok", "updated": sorted(editable)}
+
+    @app.post("/api/admin/sources", dependencies=[admin_guard])
+    def admin_create_source(payload: dict) -> dict:
+        from app.models.domain import Source as DomainSource
+
+        required = ["id", "name", "type", "url", "homepage", "tier", "category"]
+        missing = [key for key in required if not str((payload or {}).get(key) or "").strip()]
+        if missing:
+            raise HTTPException(status_code=400, detail=f"Missing fields: {', '.join(missing)}")
+        source = DomainSource(
+            id=str(payload["id"]).strip(),
+            name=str(payload["name"]).strip(),
+            source_role=str(payload.get("source_role") or "context"),
+            tier=str(payload["tier"]),
+            type=str(payload["type"]),
+            category=str(payload["category"]),
+            url=str(payload["url"]).strip(),
+            homepage=str(payload["homepage"]).strip(),
+            allowed_domains=list(payload.get("allowed_domains") or []),
+            fetch_interval_min=int(payload.get("fetch_interval_min") or 240),
+            language=str(payload.get("language") or "en"),
+            can_be_main_source=bool(payload.get("can_be_main_source", True)),
+            config=dict(payload.get("config") or {}),
+        )
+        with _admin_repository_context() as repository:
+            repository.upsert_sources([source])
+            commit = getattr(getattr(repository, "session", None), "commit", None)
+            if callable(commit):
+                commit()
+        return {"status": "ok", "id": source.id}
+
+    @app.post("/api/admin/sources/{source_id}/test", dependencies=[admin_guard])
+    def admin_test_source(source_id: str) -> dict:
+        from app.crawlers import registry as crawler_registry
+
+        with _admin_repository_context() as repository:
+            sources = {source.id: source for source in repository.get_all_sources()}
+        source = sources.get(source_id)
+        if source is None:
+            raise HTTPException(status_code=404, detail="Source not found")
+        try:
+            fetched = crawler_registry.crawler_for_source(source).fetch(limit=2)
+        except Exception as exc:
+            return {"status": "failed", "error": str(exc)[:300], "articles": []}
+        return {
+            "status": "ok",
+            "error": None,
+            "articles": [
+                {"title": article.title, "url": article.source_url} for article in fetched[:3]
+            ],
+        }
+
     @app.post("/api/admin/refresh-latest", dependencies=[admin_guard])
     def refresh_latest(limit: Optional[int] = None, top_n: Optional[int] = None) -> dict:
         try:
