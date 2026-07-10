@@ -152,6 +152,23 @@ class EventClusterArticleModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class PeriodReportModel(Base):
+    __tablename__ = "period_reports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    period_key: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    range_start: Mapped[date] = mapped_column(Date, nullable=False)
+    range_end: Mapped[date] = mapped_column(Date, nullable=False)
+    mainline_title: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    mainline_body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    theme_notes: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    article_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    report_dates: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    status: Mapped[str] = mapped_column(String, nullable=False, default="generated")
+
+
 class PipelineRunModel(Base):
     __tablename__ = "pipeline_runs"
 

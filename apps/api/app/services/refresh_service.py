@@ -151,6 +151,7 @@ def refresh_latest_report(
     persistence_summary = None
     if database_url:
         persistence_summary = persist_pipeline_result_to_database(database_url, sources, result)
+        _regenerate_period_reports(database_url, resolved_date, ai_provider)
 
     return {
         "status": "ok",
@@ -171,3 +172,42 @@ def refresh_latest_report(
         "raw_path": str(raw_path),
         "crawl_report_path": str(crawl_report_path),
     }
+
+
+def _regenerate_period_reports(database_url: str, anchor_date: date, ai_provider: Any) -> None:
+    """After the daily report lands, refresh the enclosing week/month reports
+    so their AI mainline always covers the newest day. Failures degrade to
+    the fallback summary inside build_period_report and never block."""
+    from app.db.session import build_session_factory
+    from app.repositories.radar_repository import RadarRepository
+    from app.services.period_summary_service import (
+        build_period_report,
+        period_key_for,
+        period_range_for_key,
+    )
+
+    session = build_session_factory(database_url)()
+    try:
+        repository = RadarRepository(session)
+        for kind in ("weekly", "monthly"):
+            key = period_key_for(kind, anchor_date)
+            range_start, range_end = period_range_for_key(kind, key)
+            items = repository.get_all_event_items_between(range_start, range_end)
+            report_dates = [
+                value
+                for value in repository.list_daily_report_dates()
+                if range_start.isoformat() <= value <= range_end.isoformat()
+            ]
+            report = build_period_report(
+                kind=kind,
+                anchor=anchor_date,
+                items=items,
+                report_dates=sorted(report_dates),
+                ai_provider=ai_provider,
+            )
+            repository.upsert_period_report(report)
+        session.commit()
+    except Exception:
+        session.rollback()
+    finally:
+        session.close()

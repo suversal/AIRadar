@@ -467,6 +467,60 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(item["selected"], False)
         self.assertFalse(missing)
 
+    def test_period_reports_upsert_get_and_archive(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        report = {
+            "kind": "weekly",
+            "period_key": "2026-W28",
+            "range_start": "2026-07-06",
+            "range_end": "2026-07-12",
+            "mainline_title": "智能体落地成为本周主线",
+            "mainline_body": "本周……",
+            "theme_notes": [{"label": "模型", "note": "多家更新"}],
+            "article_count": 12,
+            "report_dates": ["2026-07-09", "2026-07-10"],
+            "generated_at": "2026-07-10T08:00:00+00:00",
+            "status": "generated",
+        }
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            first = repository.upsert_period_report(report)
+            updated = dict(report, mainline_title="更新后的主线", article_count=15)
+            second = repository.upsert_period_report(updated)
+            repository.upsert_period_report(
+                dict(report, period_key="2026-W27", mainline_title="上周主线")
+            )
+            session.commit()
+
+            fetched = repository.get_period_report("weekly", "2026-W28")
+            missing = repository.get_period_report("weekly", "2026-W99")
+            archive = repository.list_period_reports("weekly")
+
+        self.assertEqual(first.inserted, 1)
+        self.assertEqual(second.updated, 1)
+        self.assertEqual(fetched["mainline_title"], "更新后的主线")
+        self.assertEqual(fetched["article_count"], 15)
+        self.assertEqual(fetched["theme_notes"], [{"label": "模型", "note": "多家更新"}])
+        self.assertIsNone(missing)
+        self.assertEqual(
+            [entry["period_key"] for entry in archive], ["2026-W28", "2026-W27"]
+        )
+
+    def test_list_daily_report_dates(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            for day in [10, 8, 9]:
+                repository.upsert_daily_report(self._report(date(2026, 7, day), article_count=1))
+            session.commit()
+
+            dates = repository.list_daily_report_dates()
+
+        self.assertEqual(dates, ["2026-07-10", "2026-07-09", "2026-07-08"])
+
     def _processed(self, raw_article_id, *, final_score=88.0):
         from app.models.domain import ProcessedArticle, ScoreDimensions
 

@@ -134,3 +134,19 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
   error TEXT
 );
 
+
+CREATE TABLE IF NOT EXISTS period_reports (
+  id BIGSERIAL PRIMARY KEY,
+  kind TEXT NOT NULL,
+  period_key TEXT NOT NULL,
+  range_start DATE NOT NULL,
+  range_end DATE NOT NULL,
+  mainline_title TEXT NOT NULL DEFAULT '',
+  mainline_body TEXT NOT NULL DEFAULT '',
+  theme_notes JSONB NOT NULL DEFAULT '[]',
+  article_count INTEGER NOT NULL DEFAULT 0,
+  report_dates JSONB NOT NULL DEFAULT '[]',
+  generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  status TEXT NOT NULL DEFAULT 'generated',
+  UNIQUE (kind, period_key)
+);

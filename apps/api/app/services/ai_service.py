@@ -10,6 +10,7 @@ from dataclasses import asdict
 from typing import Any
 
 from app.models.domain import PrefilterResult, ScoreDimensions, ScoringResult
+from app.services.period_summary_service import parse_period_summary_payload
 
 AI_KEYWORDS = {
     "ai",
@@ -175,6 +176,18 @@ def scoring_system_prompt() -> str:
     )
 
 
+def period_summary_prompt(kind: str, range_label: str) -> str:
+    label = "周" if kind == "weekly" else "月"
+    return (
+        f"You are the editor of a Chinese AI intelligence {kind} report covering {range_label}. "
+        "Given the interval's top AI events, write the mainline narrative. "
+        "Return strict JSON: {\"mainline_title\": \"一句话概括本" + label + "主线（20字内）\", "
+        "\"mainline_body\": \"150-220字的中文综述，归纳2-4条真实主线（如模型迭代/智能体落地/安全事件/融资基建），引用具体事件名\", "
+        "\"theme_notes\": [{\"label\": \"主题名\", \"note\": \"30字内该主题动向\"}]}. "
+        "Base every claim on the provided events only; no speculation."
+    )
+
+
 _JSON_FENCE_RE = re.compile(r"^```[a-zA-Z]*\s*|\s*```$", re.MULTILINE)
 
 
@@ -257,6 +270,20 @@ class FakeAIProvider:
             paragraph if any("\u4e00" <= char <= "\u9fff" for char in paragraph) else f"译文：{paragraph}"
             for paragraph in paragraphs
         ]
+
+    def summarize_period(
+        self, items: list[dict[str, Any]], kind: str, range_label: str
+    ) -> dict[str, Any]:
+        label = "本周" if kind == "weekly" else "本月"
+        top = items[0]["title"] if items else "AI 动态"
+        return {
+            "mainline_title": f"{label}主线：{top[:16]}",
+            "mainline_body": (
+                f"{label}（{range_label}）共 {len(items)} 条重点动态，主线围绕「{top}」等事件展开，"
+                "模型能力迭代与智能体落地并进。（fake 确定性综述）"
+            ),
+            "theme_notes": [{"label": "模型", "note": "多家模型更新"}],
+        }
 
     def embed_text(self, text: str, dimensions: int = 64) -> list[float]:
         digest = hashlib.sha256(text.lower().encode("utf-8")).digest()
@@ -368,6 +395,24 @@ class OpenAIProvider:
         content = response["choices"][0]["message"]["content"]
         return parse_translation_payload(parse_chat_json(content))
 
+    def summarize_period(
+        self, items: list[dict[str, Any]], kind: str, range_label: str
+    ) -> dict[str, Any]:
+        payload = {
+            "model": self.scoring_model,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": period_summary_prompt(kind, range_label)},
+                {
+                    "role": "user",
+                    "content": json.dumps({"events": items}, ensure_ascii=False)[:8000],
+                },
+            ],
+        }
+        response = self._post_json("https://api.openai.com/v1/chat/completions", payload)
+        content = response["choices"][0]["message"]["content"]
+        return parse_period_summary_payload(parse_chat_json(content))
+
 
 class KimiProvider:
     """Kimi/Moonshot chat provider with local deterministic embeddings."""
@@ -462,6 +507,24 @@ class KimiProvider:
         response = self._post_json(f"{self.base_url}/chat/completions", payload)
         content = response["choices"][0]["message"]["content"]
         return parse_translation_payload(parse_chat_json(content))
+
+    def summarize_period(
+        self, items: list[dict[str, Any]], kind: str, range_label: str
+    ) -> dict[str, Any]:
+        payload = {
+            "model": self.model,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": period_summary_prompt(kind, range_label)},
+                {
+                    "role": "user",
+                    "content": json.dumps({"events": items}, ensure_ascii=False)[:8000],
+                },
+            ],
+        }
+        response = self._post_json(f"{self.base_url}/chat/completions", payload)
+        content = response["choices"][0]["message"]["content"]
+        return parse_period_summary_payload(parse_chat_json(content))
 
 
 class DeepSeekProvider:
@@ -566,6 +629,22 @@ class DeepSeekProvider:
         response = self._post_json(f"{self.base_url}/chat/completions", payload)
         content = response["choices"][0]["message"]["content"]
         return parse_translation_payload(parse_chat_json(content))
+
+    def summarize_period(
+        self, items: list[dict[str, Any]], kind: str, range_label: str
+    ) -> dict[str, Any]:
+        payload = self._chat_payload(
+            [
+                {"role": "system", "content": period_summary_prompt(kind, range_label)},
+                {
+                    "role": "user",
+                    "content": json.dumps({"events": items}, ensure_ascii=False)[:8000],
+                },
+            ]
+        )
+        response = self._post_json(f"{self.base_url}/chat/completions", payload)
+        content = response["choices"][0]["message"]["content"]
+        return parse_period_summary_payload(parse_chat_json(content))
 
 
 def _env_int(name: str, default: int) -> int:

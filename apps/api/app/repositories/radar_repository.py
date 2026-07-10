@@ -12,6 +12,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard for lo
 
 from app.db.models import (
     DailyReportModel,
+    PeriodReportModel,
     EventClusterArticleModel,
     EventClusterModel,
     PipelineRunModel,
@@ -170,6 +171,59 @@ class RadarRepository:
             model.finished_at = finished_at
         self.session.add(model)
         return WriteResult(inserted=1)
+
+    def upsert_period_report(self, report: dict[str, Any]) -> WriteResult:
+        model = self.session.scalar(
+            select(PeriodReportModel).where(
+                PeriodReportModel.kind == report["kind"],
+                PeriodReportModel.period_key == report["period_key"],
+            )
+        )
+        inserted = 0
+        updated = 0
+        if model is None:
+            model = PeriodReportModel(kind=report["kind"], period_key=report["period_key"])
+            self.session.add(model)
+            inserted = 1
+        else:
+            updated = 1
+        model.range_start = date.fromisoformat(report["range_start"])
+        model.range_end = date.fromisoformat(report["range_end"])
+        model.mainline_title = report["mainline_title"]
+        model.mainline_body = report["mainline_body"]
+        model.theme_notes = list(report.get("theme_notes") or [])
+        model.article_count = int(report.get("article_count") or 0)
+        model.report_dates = list(report.get("report_dates") or [])
+        model.status = report.get("status") or "generated"
+        return WriteResult(inserted=inserted, updated=updated)
+
+    def get_period_report(self, kind: str, period_key: str) -> Optional[dict[str, Any]]:
+        model = self.session.scalar(
+            select(PeriodReportModel).where(
+                PeriodReportModel.kind == kind,
+                PeriodReportModel.period_key == period_key,
+            )
+        )
+        if model is None:
+            return None
+        return _period_report_payload(model)
+
+    def list_period_reports(self, kind: str, limit: int = 24) -> list[dict[str, Any]]:
+        models = self.session.scalars(
+            select(PeriodReportModel)
+            .where(PeriodReportModel.kind == kind)
+            .order_by(PeriodReportModel.period_key.desc())
+            .limit(limit)
+        ).all()
+        return [_period_report_payload(model) for model in models]
+
+    def list_daily_report_dates(self, limit: int = 90) -> list[str]:
+        models = self.session.scalars(
+            select(DailyReportModel.report_date)
+            .order_by(DailyReportModel.report_date.desc())
+            .limit(limit)
+        ).all()
+        return [value.isoformat() for value in models]
 
     def update_source_health(self, per_source: dict[str, dict[str, Any]]) -> None:
         now = datetime.now(timezone.utc)
@@ -454,6 +508,22 @@ class RadarRepository:
             )
             is not None
         )
+
+
+def _period_report_payload(model: PeriodReportModel) -> dict[str, Any]:
+    return {
+        "kind": model.kind,
+        "period_key": model.period_key,
+        "range_start": model.range_start.isoformat(),
+        "range_end": model.range_end.isoformat(),
+        "mainline_title": model.mainline_title,
+        "mainline_body": model.mainline_body,
+        "theme_notes": list(model.theme_notes or []),
+        "article_count": model.article_count,
+        "report_dates": list(model.report_dates or []),
+        "generated_at": model.generated_at.isoformat() if model.generated_at else None,
+        "status": model.status,
+    }
 
 
 def _source_to_domain(model: SourceModel) -> Source:
