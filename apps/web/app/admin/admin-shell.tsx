@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 const adminNav = [
   { id: "dashboard", label: "仪表盘", href: "/admin" },
   { id: "sources", label: "信源管理", href: "/admin/sources" },
-  { id: "events", label: "内容修正", href: "/admin/events" },
+  { id: "events", label: "内容管理", href: "/admin/events" },
 ];
 
 export function AdminShell({

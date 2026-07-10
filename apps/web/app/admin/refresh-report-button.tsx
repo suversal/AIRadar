@@ -97,7 +97,7 @@ export function RefreshReportButton() {
         disabled={refreshState === "running"}
         className="rounded-md border border-signal bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal-bright disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {refreshState === "running" ? "同步中..." : "刷新数据"}
+        {refreshState === "running" ? "同步中..." : "手动同步"}
       </button>
       <p className="min-h-5 text-sm text-ink-mid" aria-live="polite">
         {message}
