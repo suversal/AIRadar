@@ -88,14 +88,20 @@ export function SchedulePanel({ initialConfig }: { initialConfig: ScheduleConfig
 
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+        <div className="min-w-0">
           <div>
             <h2 className="text-base font-semibold text-ink">自动同步</h2>
             <p className="mt-1 text-xs text-ink-dim">
               按固定间隔自动触发数据同步，使用当前环境默认抓取与日报条数配置
             </p>
           </div>
+          <p className="mt-3 text-xs text-ink-dim" aria-live="polite">
+            上次触发：{formatTime(config.last_triggered_at)} · 预计下次：
+            {nextRunEstimate(config)}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 lg:justify-end">
           <span
             className={
               config.enabled
@@ -116,8 +122,6 @@ export function SchedulePanel({ initialConfig }: { initialConfig: ScheduleConfig
             />
             分钟
           </label>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => void save(config.enabled)}
@@ -136,9 +140,6 @@ export function SchedulePanel({ initialConfig }: { initialConfig: ScheduleConfig
           </button>
         </div>
       </div>
-      <p className="mt-2 text-xs text-ink-dim" aria-live="polite">
-        上次触发：{formatTime(config.last_triggered_at)} · 预计下次：{nextRunEstimate(config)}
-      </p>
       {message ? <p className="mt-1 text-sm text-ink-mid">{message}</p> : null}
     </div>
   );
