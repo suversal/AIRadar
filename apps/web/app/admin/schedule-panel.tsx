@@ -87,10 +87,15 @@ export function SchedulePanel({ initialConfig }: { initialConfig: ScheduleConfig
   }
 
   return (
-    <div className="rounded-md border border-line bg-canvas/70 px-4 py-3">
+    <div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm font-semibold text-ink">自动同步</span>
+          <div>
+            <h2 className="text-base font-semibold text-ink">自动同步</h2>
+            <p className="mt-1 text-xs text-ink-dim">
+              按固定间隔自动触发数据同步，使用当前环境默认抓取与日报条数配置
+            </p>
+          </div>
           <span
             className={
               config.enabled
@@ -103,12 +108,11 @@ export function SchedulePanel({ initialConfig }: { initialConfig: ScheduleConfig
           <label className="flex items-center gap-2 text-xs text-ink-dim">
             同步间隔
             <input
-              type="number"
-              min={5}
-              max={1440}
+              inputMode="numeric"
+              type="text"
               value={intervalInput}
               onChange={(event) => setIntervalInput(event.target.value)}
-              className="readout w-20 rounded-md border border-line bg-panel px-2 py-1 text-sm text-ink outline-none focus:border-signal/50"
+              className="readout w-20 rounded-md border border-line bg-canvas px-2 py-1 text-sm text-ink outline-none focus:border-signal/50"
             />
             分钟
           </label>
@@ -118,7 +122,7 @@ export function SchedulePanel({ initialConfig }: { initialConfig: ScheduleConfig
             type="button"
             onClick={() => void save(config.enabled)}
             disabled={saving}
-            className="rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-ink-mid hover:border-signal/40 hover:text-signal disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-md border border-signal bg-signal px-3 py-1.5 text-xs font-semibold text-canvas hover:bg-signal-bright disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? "保存中..." : "保存间隔"}
           </button>
@@ -126,11 +130,7 @@ export function SchedulePanel({ initialConfig }: { initialConfig: ScheduleConfig
             type="button"
             onClick={() => void save(!config.enabled)}
             disabled={saving}
-            className={
-              config.enabled
-                ? "rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-ink-mid hover:border-red-300/40 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-60"
-                : "rounded-md border border-signal bg-signal px-3 py-1.5 text-xs font-semibold text-canvas hover:bg-signal-bright disabled:cursor-not-allowed disabled:opacity-60"
-            }
+            className="rounded-md border border-signal bg-signal px-3 py-1.5 text-xs font-semibold text-canvas hover:bg-signal-bright disabled:cursor-not-allowed disabled:opacity-60"
           >
             {config.enabled ? "关闭自动同步" : "开启自动同步"}
           </button>

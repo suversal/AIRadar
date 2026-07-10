@@ -133,6 +133,10 @@ export default async function AdminDashboardPage() {
           </section>
 
           <section className="rounded-md border border-line bg-panel p-5">
+            <SchedulePanel initialConfig={scheduleConfig} />
+          </section>
+
+          <section className="rounded-md border border-line bg-panel p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <h2 className="text-base font-semibold text-ink">运行台账</h2>
@@ -141,9 +145,6 @@ export default async function AdminDashboardPage() {
                 </p>
               </div>
               <RefreshReportButton />
-            </div>
-            <div className="mt-4">
-              <SchedulePanel initialConfig={scheduleConfig} />
             </div>
             <div className="mt-5 overflow-x-auto">
               <table className="w-full text-left text-sm">
