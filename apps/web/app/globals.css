@@ -54,6 +54,18 @@ summary {
     transform 0.2s ease;
 }
 
+a,
+button,
+summary,
+[role="button"] {
+  cursor: pointer;
+}
+
+button:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
 ::selection {
   background: color-mix(in srgb, var(--color-signal) 32%, transparent);
 }
