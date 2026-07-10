@@ -6,6 +6,7 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import type { OriginalBlock } from "@/lib/api";
+import { proxiedImageUrl } from "@/lib/images";
 import { RichParagraph } from "@/components/rich-paragraph";
 
 type ArticleReadingToggleProps = {
@@ -131,17 +132,18 @@ const markdownComponents: Components = {
   td({ node: _node, ...props }) {
     return <td className="border-b border-line px-3 py-2 align-top" {...cleanTableElementProps(props)} />;
   },
-  img({ node: _node, alt, ...props }) {
+  img({ node: _node, alt, src, ...props }) {
     return (
       <img
         alt={alt ?? ""}
         className={readmeImageClassName({
-          src: typeof props.src === "string" ? props.src : undefined,
+          src: typeof src === "string" ? src : undefined,
           width: props.width,
           height: props.height,
         })}
         loading="lazy"
         referrerPolicy="no-referrer"
+        src={proxiedImageUrl(typeof src === "string" ? src : undefined)}
         {...props}
       />
     );
@@ -158,7 +160,7 @@ function renderBlock(block: OriginalBlock, index: number) {
       return (
         <img
           key={`${block.url}-${index}`}
-          src={block.url}
+          src={proxiedImageUrl(block.url)}
           alt={block.alt ?? ""}
           className={imageClassName}
           loading="lazy"
@@ -169,7 +171,7 @@ function renderBlock(block: OriginalBlock, index: number) {
     return (
       <figure key={`${block.url}-${index}`} className="my-8">
         <img
-          src={block.url}
+          src={proxiedImageUrl(block.url)}
           alt={block.alt ?? ""}
           className={imageClassName}
           loading="lazy"

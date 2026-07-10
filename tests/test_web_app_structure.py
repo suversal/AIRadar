@@ -124,25 +124,26 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("/api/admin/schedule", dashboard_page)
         self.assertIn("export async function PUT", proxy_route)
 
-    def test_article_images_never_send_referer(self):
-        # 中文媒体 CDN（如 infoq 的 static001.geekbang.org）开了防盗链：
-        # 带站外 Referer 的图片请求一律 403，不带 Referer 则正常返回。
-        # 文章里的每个 <img> 都必须声明 no-referrer，否则图片全部裂图。
+    def test_article_images_are_proxied_against_hotlink_protection(self):
+        # 中文媒体 CDN 防盗链分两派：infoq（无 Referer 放行）和 qbitai
+        # （白名单制，无 Referer 也 403）。浏览器无法伪造 Referer，所以
+        # 文章图片统一走服务端代理，代理请求带图片自身 origin 作 Referer
+        # （三家 CDN 实测均放行）。
         toggle = (WEB / "app" / "event" / "[id]" / "article-reading-toggle.tsx").read_text(
             encoding="utf-8"
         )
         detail = (WEB / "app" / "event" / "[id]" / "page.tsx").read_text(encoding="utf-8")
+        proxy_route = (WEB / "app" / "api" / "image-proxy" / "route.ts").read_text(
+            encoding="utf-8"
+        )
+        helper = (WEB / "lib" / "images.ts").read_text(encoding="utf-8")
 
+        self.assertIn("proxiedImageUrl", helper)
+        self.assertIn("/api/image-proxy", helper)
+        self.assertIn("Referer", proxy_route)
+        self.assertIn("image/", proxy_route)
         for source, name in [(toggle, "article-reading-toggle"), (detail, "event detail page")]:
-            image_tags = source.count("<img")
-            referrer_opts = source.count('referrerPolicy="no-referrer"')
-            self.assertEqual(
-                image_tags,
-                referrer_opts,
-                f"{name}: {image_tags} <img> tags but only {referrer_opts} no-referrer policies",
-            )
-        self.assertIn('referrerPolicy="no-referrer"', toggle)
-        self.assertIn('referrerPolicy="no-referrer"', detail)
+            self.assertIn("proxiedImageUrl", source, name)
 
     def test_latest_page_supports_category_filter_links(self):
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")

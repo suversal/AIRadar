@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import type { LatestEvent, OriginalBlock } from "@/lib/api";
 import { getEventDetail, getLatestReport } from "@/lib/api";
 import { findEventById } from "@/lib/events";
+import { proxiedImageUrl } from "@/lib/images";
 import { ArticleReadingToggle } from "./article-reading-toggle";
 import { RichParagraph } from "@/components/rich-paragraph";
 import { Sidebar } from "@/components/sidebar";
@@ -97,7 +98,7 @@ function renderOriginalBlock(block: OriginalBlock, index: number) {
     return (
       <figure key={`${block.url}-${index}`} className="my-8">
         <img
-          src={block.url}
+          src={proxiedImageUrl(block.url)}
           alt={block.alt ?? ""}
           className="max-h-[520px] w-full rounded-md border border-line object-contain"
           referrerPolicy="no-referrer"
