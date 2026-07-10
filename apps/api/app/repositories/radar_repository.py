@@ -550,6 +550,7 @@ def _event_item(
         "reason": processed.reason_zh,
         "action": processed.action_zh,
         "published_at": published_at.isoformat() if published_at else None,
+        "crawled_at": raw.crawled_at.isoformat() if raw.crawled_at else None,
         "original_url": raw.source_url,
     }
     images = metadata.get("original_images")

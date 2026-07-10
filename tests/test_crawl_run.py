@@ -181,6 +181,45 @@ class CrawlRunTests(unittest.TestCase):
         self.assertEqual(report["per_source"]["first"]["article_count"], 1)
         self.assertEqual(report["per_source"]["second"]["article_count"], 0)
 
+    def test_per_source_crawl_limit_config_overrides_default(self):
+        def make_source(source_id: str, domain: str, config=None) -> Source:
+            return Source(
+                id=source_id,
+                name=source_id,
+                source_role="context",
+                tier="T2",
+                type="rss",
+                category="media",
+                url=f"https://{domain}/feed.xml",
+                homepage=f"https://{domain}",
+                allowed_domains=[domain],
+                config=config or {},
+            )
+
+        received: dict[str, int] = {}
+
+        class RecordingCrawler:
+            def __init__(self, source_id):
+                self.source_id = source_id
+
+            def fetch(self, limit=None):
+                received[self.source_id] = limit
+                return []
+
+        sources = [
+            make_source("boosted", "one.example", {"crawl_limit": 20}),
+            make_source("default", "two.example"),
+        ]
+
+        crawl_sources(
+            sources,
+            limit=10,  # default per-source = 10 // 2 = 5
+            crawler_factory=lambda source: RecordingCrawler(source.id),
+        )
+
+        self.assertEqual(received["boosted"], 20)
+        self.assertEqual(received["default"], 5)
+
     def test_crawl_sources_waits_between_same_domain_sources(self):
         def make_reddit_source(source_id: str, path: str) -> Source:
             return Source(

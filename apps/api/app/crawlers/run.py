@@ -21,6 +21,15 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _source_limit(source: Source, default_limit: int) -> int:
+    """Admin-configurable per-source crawl size (config.crawl_limit)."""
+    try:
+        configured = int((source.config or {}).get("crawl_limit") or 0)
+    except (TypeError, ValueError):
+        configured = 0
+    return configured if configured > 0 else default_limit
+
+
 def _crawl_domain_group(
     group: list[Source],
     *,
@@ -38,7 +47,9 @@ def _crawl_domain_group(
         previous_fetch = time.monotonic()
         source_started = time.perf_counter()
         try:
-            fetched = crawler_factory(source).fetch(limit=per_source_limit)
+            fetched = crawler_factory(source).fetch(
+                limit=_source_limit(source, per_source_limit)
+            )
         except Exception as exc:  # keep one source failure from blocking the full pass
             results[source.id] = {
                 "status": "skipped",

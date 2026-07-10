@@ -426,16 +426,34 @@ def create_app(
         }
 
     @app.get("/api/admin/events", dependencies=[admin_guard])
-    def admin_events(days: int = 30) -> dict:
+    def admin_events(
+        days: int = 30,
+        q: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> dict:
         if days < 1 or days > 90:
             raise HTTPException(status_code=400, detail="days must be between 1 and 90")
+        if limit < 1 or limit > 200:
+            raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
+        if offset < 0:
+            raise HTTPException(status_code=400, detail="offset must be non-negative")
+        from app.api.public import _item_matches
+
         end_date = date.today()
         start_date = end_date - timedelta(days=days - 1)
         with _admin_repository_context() as repository:
             items = repository.get_all_event_items_between(
                 start_date, end_date, include_hidden=True
             )
-        return {"items": items, "total": len(items)}
+        if q:
+            items = [item for item in items if _item_matches(item, category=None, q=q)]
+        return {
+            "items": items[offset : offset + limit],
+            "total": len(items),
+            "limit": limit,
+            "offset": offset,
+        }
 
     @app.patch("/api/admin/events/{event_id}", dependencies=[admin_guard])
     def admin_moderate_event(event_id: str, payload: dict) -> dict:

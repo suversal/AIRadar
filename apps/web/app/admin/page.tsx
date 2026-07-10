@@ -93,7 +93,8 @@ export default async function AdminDashboardPage() {
             <div className="flex flex-wrap items-center justify-between gap-4">
               <h2 className="text-base font-semibold text-ink">手动刷新</h2>
               <span className="text-xs text-ink-dim">
-                触发一轮抓取 + AI 处理 + 日报生成（增量缓存生效，仅新文章产生 AI 调用）
+                两种模式都会抓取全部信源并 AI 处理至多 100 篇候选（增量缓存生效，仅新文章产生 AI
+                调用）；区别只在日报收录条数——日报 12 条，完整刷新 30 条
               </span>
             </div>
             <div className="mt-4 max-w-md">

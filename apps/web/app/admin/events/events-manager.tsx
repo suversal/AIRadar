@@ -13,6 +13,7 @@ export type AdminEvent = {
   selected?: boolean;
   hidden?: boolean;
   published_at?: string;
+  crawled_at?: string;
   main_source?: { name: string };
   original_url?: string;
 };
@@ -30,6 +31,19 @@ const CATEGORY_OPTIONS = [
 
 type Filter = "all" | "selected" | "hidden";
 
+function formatStamp(value?: string) {
+  if (!value) return "--";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(parsed);
+}
+
 async function api(path: string, init?: RequestInit) {
   const response = await fetch(`/api/admin-proxy/${path}`, {
     ...init,
@@ -42,7 +56,19 @@ async function api(path: string, init?: RequestInit) {
   return payload;
 }
 
-export function EventsManager({ initialEvents }: { initialEvents: AdminEvent[] }) {
+export function EventsManager({
+  initialEvents,
+  page,
+  totalPages,
+  total,
+  q,
+}: {
+  initialEvents: AdminEvent[];
+  page: number;
+  totalPages: number;
+  total: number;
+  q: string;
+}) {
   const router = useRouter();
   const [filter, setFilter] = useState<Filter>("all");
   const [busy, setBusy] = useState<string | null>(null);
@@ -98,13 +124,34 @@ export function EventsManager({ initialEvents }: { initialEvents: AdminEvent[] }
 
   return (
     <div className="space-y-4">
+      <form action="/admin/events" className="flex flex-wrap items-center gap-3" method="get">
+        <input
+          className="min-w-64 rounded-md border border-line bg-canvas px-4 py-2 text-sm text-ink outline-none placeholder:text-ink-dim focus:border-signal/60"
+          defaultValue={q}
+          name="q"
+          placeholder="搜索标题/摘要/标签/来源…"
+          type="search"
+        />
+        <button
+          className="rounded-md border border-signal/40 bg-signal/10 px-4 py-2 text-sm font-semibold text-signal hover:bg-signal/15"
+          type="submit"
+        >
+          搜索
+        </button>
+        {q ? (
+          <a className="text-sm text-ink-dim hover:text-ink" href="/admin/events">
+            清除
+          </a>
+        ) : null}
+      </form>
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-1 rounded-md border border-line bg-panel p-1 text-sm font-semibold">
           {(
             [
-              ["all", `全部 ${initialEvents.length}`],
-              ["selected", `精选 ${initialEvents.filter((event) => event.selected).length}`],
-              ["hidden", `已隐藏 ${initialEvents.filter((event) => event.hidden).length}`],
+              ["all", `本页全部 ${initialEvents.length}`],
+              ["selected", `本页精选 ${initialEvents.filter((event) => event.selected).length}`],
+              ["hidden", `本页已隐藏 ${initialEvents.filter((event) => event.hidden).length}`],
             ] as const
           ).map(([key, label]) => (
             <button
@@ -153,9 +200,17 @@ export function EventsManager({ initialEvents }: { initialEvents: AdminEvent[] }
                 </span>
               </div>
               <div className={`mt-1 truncate text-sm font-semibold ${event.hidden ? "text-ink-dim line-through" : "text-ink"}`}>
-                {event.title}
+                <a
+                  className="hover:text-signal"
+                  href={`/event/${encodeURIComponent(event.event_id)}`}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  {event.title}
+                </a>
               </div>
-              <div className="mt-0.5 truncate text-xs text-ink-dim">
+              <div className="readout mt-0.5 truncate text-xs text-ink-dim">
+                发布 {formatStamp(event.published_at)} · 抓取 {formatStamp(event.crawled_at)} ·{" "}
                 {event.main_source?.name} · {(event.tags ?? []).join(" / ") || "无标签"}
               </div>
             </div>
@@ -185,6 +240,32 @@ export function EventsManager({ initialEvents }: { initialEvents: AdminEvent[] }
         {events.length === 0 ? (
           <div className="px-4 py-8 text-sm text-ink-dim">当前筛选下没有事件。</div>
         ) : null}
+      </div>
+
+      <div className="flex items-center justify-between text-sm text-ink-mid">
+        <span className="readout text-xs text-ink-dim">
+          共 {total} 篇 · 第 {page}/{totalPages} 页
+        </span>
+        <div className="flex gap-2">
+          <a
+            aria-disabled={page <= 1}
+            className={`rounded border border-line px-4 py-1.5 ${
+              page <= 1 ? "pointer-events-none opacity-40" : "hover:border-signal/40 hover:text-signal"
+            }`}
+            href={`/admin/events?page=${page - 1}${q ? `&q=${encodeURIComponent(q)}` : ""}`}
+          >
+            上一页
+          </a>
+          <a
+            aria-disabled={page >= totalPages}
+            className={`rounded border border-line px-4 py-1.5 ${
+              page >= totalPages ? "pointer-events-none opacity-40" : "hover:border-signal/40 hover:text-signal"
+            }`}
+            href={`/admin/events?page=${page + 1}${q ? `&q=${encodeURIComponent(q)}` : ""}`}
+          >
+            下一页
+          </a>
+        </div>
       </div>
 
       {editing ? (

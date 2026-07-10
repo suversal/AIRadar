@@ -106,7 +106,7 @@ export function RefreshReportButton() {
           disabled={refreshState === "running"}
           className="w-full rounded-md border border-signal bg-signal px-3 py-2 text-sm font-semibold text-canvas disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {refreshState === "running" && activeMode === "digest" ? "刷新中..." : "刷新最新日报"}
+          {refreshState === "running" && activeMode === "digest" ? "刷新中..." : "刷新日报（精选 12 条）"}
         </button>
         <button
           type="button"
@@ -114,7 +114,7 @@ export function RefreshReportButton() {
           disabled={refreshState === "running"}
           className="w-full rounded-md border border-line px-3 py-2 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {refreshState === "running" && activeMode === "complete" ? "生成中..." : "刷新完整成果"}
+          {refreshState === "running" && activeMode === "complete" ? "生成中..." : "完整刷新（精选 30 条）"}
         </button>
       </div>
       <p className="mt-2 min-h-5 text-sm text-ink-mid" aria-live="polite">

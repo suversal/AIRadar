@@ -223,6 +223,7 @@ class RepositoryTests(unittest.TestCase):
 
         self.assertEqual(len(items), 2)  # rejected articles are visible in /all
         selected_item = next(item for item in items if item["event_id"] == "e-abc123")
+        self.assertIn("crawled_at", selected_item)
         # scoring category model_release surfaces as the display taxonomy
         self.assertEqual(selected_item["category"], "model")
         self.assertEqual(selected_item["category_label"], "模型")

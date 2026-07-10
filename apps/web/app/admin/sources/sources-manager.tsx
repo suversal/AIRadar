@@ -16,6 +16,7 @@ export type AdminSource = {
   last_success_at: string | null;
   success_rate: number;
   error_count: number;
+  config?: Record<string, unknown>;
 };
 
 type TestResult = {
@@ -88,12 +89,20 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
 
   async function saveEdit(form: FormData) {
     if (!editing) return;
+    const crawlLimit = Number(form.get("crawl_limit") ?? 0);
     const payload = {
       name: String(form.get("name") ?? "").trim(),
       url: String(form.get("url") ?? "").trim(),
       tier: String(form.get("tier") ?? "T2"),
       fetch_interval_min: Number(form.get("fetch_interval_min") ?? 240),
+      config: {
+        ...(editing.config ?? {}),
+        ...(crawlLimit > 0 ? { crawl_limit: crawlLimit } : { crawl_limit: undefined }),
+      },
     };
+    if (crawlLimit <= 0 && payload.config) {
+      delete (payload.config as Record<string, unknown>).crawl_limit;
+    }
     await run(editing.id, async () => {
       await api(`sources/${editing.id}`, {
         method: "PATCH",
@@ -239,6 +248,15 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
                   className="readout mt-1 w-full rounded border border-line bg-canvas px-3 py-2 text-sm text-ink"
                   defaultValue={editing.fetch_interval_min}
                   name="fetch_interval_min"
+                  type="number"
+                />
+              </label>
+              <label className="block text-xs text-ink-dim">
+                每轮抓取条数（留空/0 = 全局均分）
+                <input
+                  className="readout mt-1 w-full rounded border border-line bg-canvas px-3 py-2 text-sm text-ink"
+                  defaultValue={Number(editing.config?.crawl_limit ?? "") || ""}
+                  name="crawl_limit"
                   type="number"
                 />
               </label>

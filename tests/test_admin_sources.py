@@ -144,6 +144,24 @@ class AdminEventsApiTests(unittest.TestCase):
         self.assertEqual(body["items"][0]["event_id"], "aa1")
         self.assertTrue(self.repository.admin_listed_with_hidden)
 
+    def test_admin_events_supports_search_and_pagination(self):
+        client = self._client()
+        self.repository.event_items = [
+            {"event_id": f"a{i}", "title": f"OpenAI story {i}", "hidden": False, "published_at": f"2026-07-{10-i:02d}T00:00:00+00:00"}
+            for i in range(5)
+        ] + [{"event_id": "b1", "title": "Claude update", "hidden": False, "published_at": "2026-07-01T00:00:00+00:00"}]
+
+        searched = client.get("/api/admin/events?q=claude", headers=AUTH)
+        paged = client.get("/api/admin/events?limit=2&offset=2", headers=AUTH)
+
+        self.assertEqual(searched.status_code, 200)
+        body = searched.json()
+        self.assertEqual(body["total"], 1)
+        self.assertEqual(body["items"][0]["event_id"], "b1")
+        pbody = paged.json()
+        self.assertEqual(pbody["total"], 6)
+        self.assertEqual(len(pbody["items"]), 2)
+
     def test_patch_event_moderation_validates_category(self):
         client = self._client()
 
@@ -205,8 +223,12 @@ class _FakeSourceRepository:
     admin_listed_with_hidden = False
     moderations: list = []
 
+    event_items = None
+
     def get_all_event_items_between(self, start_date, end_date, include_hidden=False):
         self.admin_listed_with_hidden = include_hidden
+        if self.event_items is not None:
+            return list(self.event_items)
         return [{"event_id": "aa1", "title": "t", "hidden": False}]
 
     def update_event_moderation(self, event_id, fields):
