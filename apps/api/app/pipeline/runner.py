@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
@@ -68,10 +69,15 @@ def _translate_in_chunks(
     def translate_with_retry(batch: list[str]) -> list[str]:
         # long articles now split into many chunks; one transient provider
         # hiccup ("Chat response content is empty" and similar) should not
-        # void translation of the entire article
+        # void translation of the entire article. Real-world evidence: 3
+        # articles in one refresh all failed with the identical error,
+        # which points to load/rate-limiting rather than a random one-off -
+        # a bare immediate retry would likely hit the same limit window, so
+        # back off briefly first.
         try:
             return translate(batch)
         except Exception:
+            time.sleep(2.0)
             return translate(batch)
 
     def flush() -> None:

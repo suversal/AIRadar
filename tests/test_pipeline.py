@@ -335,9 +335,12 @@ class PipelineTests(unittest.TestCase):
                 raise RuntimeError("Chat response content is empty")
             return [f"译:{p}" for p in paragraphs]
 
-        translated = _translate_in_chunks(
-            translate, ["first chunk", "second chunk"], chunk_char_limit=20
-        )
+        from unittest.mock import patch as mock_patch
+
+        with mock_patch("app.pipeline.runner.time.sleep"):
+            translated = _translate_in_chunks(
+                translate, ["first chunk", "second chunk"], chunk_char_limit=20
+            )
 
         self.assertEqual(translated, ["译:first chunk", "译:second chunk"])
         self.assertEqual(len(attempts), 3)  # chunk1, chunk2 (fails), chunk2 retry
@@ -346,8 +349,33 @@ class PipelineTests(unittest.TestCase):
         def translate(paragraphs):
             raise RuntimeError("Chat response content is empty")
 
-        with self.assertRaises(RuntimeError):
-            _translate_in_chunks(translate, ["only chunk"], chunk_char_limit=20)
+        from unittest.mock import patch as mock_patch
+
+        with mock_patch("app.pipeline.runner.time.sleep"):
+            with self.assertRaises(RuntimeError):
+                _translate_in_chunks(translate, ["only chunk"], chunk_char_limit=20)
+
+    def test_translate_in_chunks_backs_off_before_retrying(self):
+        # 真实案例：一次刷新里 3 篇长文章的翻译全都撞上同一个
+        # "Chat response content is empty"，说明大概率是短时间内大量顺序
+        # 调用触发的限流/过载，立即重试大概率还是会撞上同一限流窗口；
+        # 重试前应该先等一下，而不是无延迟立刻打第二次请求。
+        from unittest.mock import patch as mock_patch
+
+        def translate(paragraphs):
+            if not translate.failed_once:
+                translate.failed_once = True
+                raise RuntimeError("Chat response content is empty")
+            return [f"译:{p}" for p in paragraphs]
+
+        translate.failed_once = False
+
+        with mock_patch("app.pipeline.runner.time.sleep") as mock_sleep:
+            translated = _translate_in_chunks(translate, ["only chunk"], chunk_char_limit=20)
+
+        self.assertEqual(translated, ["译:only chunk"])
+        mock_sleep.assert_called_once()
+        self.assertGreater(mock_sleep.call_args[0][0], 0)
 
     def test_pipeline_translates_long_articles_through_chunked_calls(self):
         source = Source(
