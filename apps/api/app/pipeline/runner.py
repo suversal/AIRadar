@@ -298,6 +298,9 @@ def _is_github_trending_article(article: RawArticle) -> bool:
     return (
         article.metadata.get("source_type") == "github_trending"
         or article.source_id == "github_trending_ai"
+        # any source (HN, RSS, etc.) can link directly to a GitHub repo;
+        # README enrichment shouldn't depend on which crawler discovered it
+        or bool(repo_path_from_github_url(article.source_url))
     )
 
 
