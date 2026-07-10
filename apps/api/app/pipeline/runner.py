@@ -22,8 +22,14 @@ from app.services.clustering_service import cluster_articles
 from app.services.daily_report_service import build_daily_json, render_daily_markdown
 from app.services.scoring_service import select_processed_article
 
-TRANSLATION_PARAGRAPH_LIMIT = 12
-TRANSLATION_CHAR_LIMIT = 6000
+# Total translation budget per article. Real full-page content now commonly
+# runs 3000-14000 chars (HF/bair/venturebeat observed up to ~14000), so this
+# needs to comfortably cover a complete long-form article, not just a feed
+# summary. There is deliberately no separate paragraph-count cap: capping at
+# a fixed number of paragraphs (the old TRANSLATION_PARAGRAPH_LIMIT=12) cuts
+# long articles off after a handful of headings, leaving the real body
+# untranslated regardless of how much char budget remains.
+TRANSLATION_CHAR_LIMIT = 20000
 # Chinese output tokens roughly track input chars, so keep each provider call
 # well under the smallest chat max_tokens (2048) to avoid truncated JSON.
 TRANSLATION_CHUNK_CHAR_LIMIT = 1600
@@ -208,7 +214,7 @@ def _translation_paragraphs_for(article: RawArticle) -> list[str]:
     text_blocks = _text_blocks_for_translation(article)
     paragraphs: list[str] = []
     used_chars = 0
-    for block in text_blocks[:TRANSLATION_PARAGRAPH_LIMIT]:
+    for block in text_blocks:
         paragraph = str(block.get("text") or "").strip()
         if not paragraph:
             continue

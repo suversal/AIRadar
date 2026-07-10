@@ -376,6 +376,53 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(len(translated), 12)
         self.assertNotIn("translation_status", article.metadata)
 
+    def test_translation_is_not_capped_at_twelve_paragraphs_for_long_articles(self):
+        # 真实案例：HuggingFace 一篇 97 段的长文章之前只有前 12 段（大多是
+        # 小标题）译文，正文完全没翻译。段落数上限已经和字符总量控制重复，
+        # 应该只用字符总量约束，不应该再叠加一个段落数硬上限。
+        source = Source(
+            id="huggingface_blog",
+            name="Hugging Face Blog",
+            source_role="authority",
+            tier="T1",
+            type="rss",
+            category="official",
+            url="https://huggingface.co/blog/feed.xml",
+            homepage="https://huggingface.co/blog",
+            allowed_domains=["huggingface.co"],
+            can_be_main_source=True,
+        )
+        # 40 段短段落（每段远小于字符上限），总量远低于 TRANSLATION_CHAR_LIMIT
+        many_short_blocks = [
+            {"type": "paragraph", "text": f"Paragraph {index} about attention profiling."}
+            for index in range(40)
+        ]
+        raw_items = [
+            {
+                "source_url": "https://huggingface.co/blog/torch-attention-profile",
+                "title": "Profiling in PyTorch (Part 3)",
+                "content": "profiling article",
+                "author": "hf",
+                "published_at": datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {"original_blocks": many_short_blocks},
+            }
+        ]
+
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={"huggingface_blog": raw_items},
+            ai_provider=TranslatingAIProvider(),
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 1),
+            candidate_limit=10,
+            top_n=12,
+        )
+
+        translated = result.raw_articles[0].metadata.get("translated_paragraphs") or []
+        self.assertEqual(len(translated), 40)
+
     def test_readme_enrichment_retries_when_zh_probe_failed(self):
         # 限流时降级存下的英文 README 会带 readme_zh_probe=failed 标记，
         # 下一轮必须重试（限流窗口已过就能换成中文版），而不是永久固化英文。
