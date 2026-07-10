@@ -1047,6 +1047,55 @@ class PipelineTests(unittest.TestCase):
         self.assertGreater(provider.max_active, 1)
         self.assertEqual(result.daily_report.article_count, 4)
 
+    def test_translation_phase_runs_concurrently_like_scoring(self):
+        # 真实案例：一次刷新耗时 26 分钟——打分阶段有 ai_concurrency 并发，
+        # 翻译阶段是纯顺序 for 循环。现在每篇 processed 文章都要翻译（不只
+        # 日报入选的12篇），文章数量和单篇上限都提高后，顺序执行是主要
+        # 耗时来源，应该复用同一个 ai_concurrency 并发。
+        source = Source(
+            id="hn",
+            name="Hacker News",
+            source_role="signal",
+            tier="T2",
+            type="api",
+            category="community",
+            url="https://hn.algolia.com/api/v1/search",
+            homepage="https://news.ycombinator.com",
+            allowed_domains=["news.ycombinator.com"],
+        )
+        raw_items = [
+            {
+                "source_url": f"https://example.com/translate-concurrent-{index}",
+                "title": f"AI agent concurrent update {index}",
+                "content": "AI agent workflow update for builders with plenty of detail.",
+                "author": None,
+                "published_at": datetime(2026, 7, 1, 8 + index, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {},
+            }
+            for index in range(4)
+        ]
+        provider = SlowConcurrentTranslateOnlyProvider()
+
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={"hn": raw_items},
+            ai_provider=provider,
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 1),
+            candidate_limit=10,
+            top_n=4,
+            ai_concurrency=4,
+        )
+
+        # isolates the translation phase specifically (scoring/prefilter are
+        # instant in this provider) so this can't pass just because scoring
+        # already happens to be concurrent
+        self.assertGreater(provider.max_active, 1)
+        for article in result.raw_articles:
+            self.assertTrue(article.metadata.get("translated_paragraphs"))
+
     def test_pipeline_translates_all_processed_english_articles(self):
         english_source = Source(
             id="hn",
@@ -1419,6 +1468,30 @@ class SlowConcurrentAIProvider(FakeAIProvider):
     def score_article(self, title: str, content: str) -> ScoringResult:
         self._enter_call()
         return super().score_article(title, content)
+
+    def translate_paragraphs(self, paragraphs: list[str]) -> list[str]:
+        self._enter_call()
+        return super().translate_paragraphs(paragraphs)
+
+
+class SlowConcurrentTranslateOnlyProvider(FakeAIProvider):
+    """Only translate_paragraphs is slow/tracked; prefilter and scoring are
+    instant, isolating the translation phase's own concurrency signal from
+    the scoring phase's (already-proven) concurrency."""
+
+    def __init__(self):
+        self.active = 0
+        self.max_active = 0
+        self.lock = threading.Lock()
+
+    def translate_paragraphs(self, paragraphs: list[str]) -> list[str]:
+        with self.lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+        time.sleep(0.03)
+        with self.lock:
+            self.active -= 1
+        return super().translate_paragraphs(paragraphs)
 
 
 class TranslatingAIProvider(FakeAIProvider):

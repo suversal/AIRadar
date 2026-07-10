@@ -341,55 +341,74 @@ def _attach_github_readmes(
             article.metadata.update(readme_payload)
 
 
+def _translate_one_article(article: RawArticle, translate: Any) -> None:
+    if not article.language.lower().startswith("en"):
+        return
+    if str(article.metadata.get("readme_language") or "").lower() == "zh":
+        return
+    if _is_github_trending_article(article) and str(article.metadata.get("original_markdown") or "").strip():
+        return
+
+    paragraphs = _translation_paragraphs_for(article)
+    if not paragraphs:
+        return
+
+    source_hash = translation_source_hash(paragraphs)
+    has_translation = bool(
+        article.metadata.get("translated_blocks")
+        or article.metadata.get("translated_paragraphs")
+    )
+    # a cached translation is only valid for the exact source text it was
+    # made from; content upgrades (e.g. full-page fetch replacing a thin
+    # feed summary) must trigger retranslation
+    if has_translation and article.metadata.get("translation_source_hash") == source_hash:
+        return
+
+    try:
+        translated_paragraphs = _translate_in_chunks(translate, paragraphs)
+    except Exception as exc:
+        article.metadata["translation_status"] = "failed"
+        article.metadata["translation_error"] = str(exc)[:200]
+        return
+    if not translated_paragraphs:
+        return
+
+    article.metadata["translated_paragraphs"] = translated_paragraphs
+    article.metadata["translated_blocks"] = _translated_blocks_for(article, translated_paragraphs)
+    article.metadata["translation_source_language"] = article.language
+    article.metadata["translation_target_language"] = "zh"
+    article.metadata["translation_source_hash"] = source_hash
+
+
 def _translate_processed_english_articles(
     *,
     articles: list[RawArticle],
     ai_provider: Any,
+    ai_concurrency: int = 1,
 ) -> None:
     """Translate every processed English article, not only report-selected
     cluster mains: below-threshold articles stay browsable through /all and
-    the event detail page, where the 原文/译文 toggle needs a translation."""
+    the event detail page, where the 原文/译文 toggle needs a translation.
+
+    Each article's translation is independent (own metadata dict, own AI
+    calls), so this mirrors the scoring phase's ThreadPoolExecutor pattern -
+    translating every processed article sequentially was the dominant cost
+    once every article (not just the report's top N) needed full-length
+    translation."""
     translate = getattr(ai_provider, "translate_paragraphs", None)
     if not callable(translate):
         return
 
-    for article in articles:
-        if not article.language.lower().startswith("en"):
-            continue
-        if str(article.metadata.get("readme_language") or "").lower() == "zh":
-            continue
-        if _is_github_trending_article(article) and str(article.metadata.get("original_markdown") or "").strip():
-            continue
+    max_workers = max(1, ai_concurrency)
+    if max_workers == 1:
+        for article in articles:
+            _translate_one_article(article, translate)
+        return
 
-        paragraphs = _translation_paragraphs_for(article)
-        if not paragraphs:
-            continue
-
-        source_hash = translation_source_hash(paragraphs)
-        has_translation = bool(
-            article.metadata.get("translated_blocks")
-            or article.metadata.get("translated_paragraphs")
-        )
-        # a cached translation is only valid for the exact source text it was
-        # made from; content upgrades (e.g. full-page fetch replacing a thin
-        # feed summary) must trigger retranslation
-        if has_translation and article.metadata.get("translation_source_hash") == source_hash:
-            continue
-
-        try:
-            translated_paragraphs = _translate_in_chunks(translate, paragraphs)
-        except Exception as exc:
-            article.metadata["translation_status"] = "failed"
-            article.metadata["translation_error"] = str(exc)[:200]
-            continue
-        if not translated_paragraphs:
-            continue
-
-        article.metadata["translated_paragraphs"] = translated_paragraphs
-        article.metadata["translated_blocks"] = _translated_blocks_for(article, translated_paragraphs)
-        article.metadata["translation_source_language"] = article.language
-        article.metadata["translation_target_language"] = "zh"
-        article.metadata["translation_source_hash"] = source_hash
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(_translate_one_article, article, translate) for article in articles]
+        for future in as_completed(futures):
+            future.result()
 
 
 def run_pipeline(
@@ -522,6 +541,7 @@ def run_pipeline(
     _translate_processed_english_articles(
         articles=displayable_articles,
         ai_provider=ai_provider,
+        ai_concurrency=ai_concurrency,
     )
     markdown = render_daily_markdown(
         report_date=report_date,
