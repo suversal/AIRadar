@@ -65,10 +65,19 @@ def _translate_in_chunks(
     chunk: list[str] = []
     chunk_chars = 0
 
+    def translate_with_retry(batch: list[str]) -> list[str]:
+        # long articles now split into many chunks; one transient provider
+        # hiccup ("Chat response content is empty" and similar) should not
+        # void translation of the entire article
+        try:
+            return translate(batch)
+        except Exception:
+            return translate(batch)
+
     def flush() -> None:
         nonlocal chunk, chunk_chars
         if chunk:
-            translated.extend(translate(chunk))
+            translated.extend(translate_with_retry(chunk))
             chunk = []
             chunk_chars = 0
 
@@ -80,7 +89,7 @@ def _translate_in_chunks(
             pieces = _split_long_paragraph(paragraph, chunk_char_limit)
             translated_pieces: list[str] = []
             for piece in pieces:
-                translated_pieces.extend(translate([piece]))
+                translated_pieces.extend(translate_with_retry([piece]))
             translated.append("".join(translated_pieces))
             continue
         if chunk and chunk_chars + len(paragraph) > chunk_char_limit:

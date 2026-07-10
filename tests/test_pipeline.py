@@ -323,6 +323,32 @@ class PipelineTests(unittest.TestCase):
 
         self.assertEqual(len(translated), 1)
 
+    def test_translate_in_chunks_retries_a_transiently_failing_chunk_once(self):
+        # 真实案例：正文变长后一篇长文章要拆成十几次调用，其中一次偶发
+        # "Chat response content is empty" 就会让全篇翻译作废。单次瞬时
+        # 失败应该重试一次，而不是让整篇长文章白翻译。
+        attempts: list[list[str]] = []
+
+        def translate(paragraphs):
+            attempts.append(paragraphs)
+            if len(attempts) == 2:  # second chunk's first attempt fails
+                raise RuntimeError("Chat response content is empty")
+            return [f"译:{p}" for p in paragraphs]
+
+        translated = _translate_in_chunks(
+            translate, ["first chunk", "second chunk"], chunk_char_limit=20
+        )
+
+        self.assertEqual(translated, ["译:first chunk", "译:second chunk"])
+        self.assertEqual(len(attempts), 3)  # chunk1, chunk2 (fails), chunk2 retry
+
+    def test_translate_in_chunks_gives_up_after_retry_still_fails(self):
+        def translate(paragraphs):
+            raise RuntimeError("Chat response content is empty")
+
+        with self.assertRaises(RuntimeError):
+            _translate_in_chunks(translate, ["only chunk"], chunk_char_limit=20)
+
     def test_pipeline_translates_long_articles_through_chunked_calls(self):
         source = Source(
             id="anthropic_news",
