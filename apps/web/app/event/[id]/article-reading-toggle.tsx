@@ -141,6 +141,7 @@ const markdownComponents: Components = {
           height: props.height,
         })}
         loading="lazy"
+        referrerPolicy="no-referrer"
         {...props}
       />
     );
@@ -161,6 +162,7 @@ function renderBlock(block: OriginalBlock, index: number) {
           alt={block.alt ?? ""}
           className={imageClassName}
           loading="lazy"
+          referrerPolicy="no-referrer"
         />
       );
     }
@@ -171,6 +173,7 @@ function renderBlock(block: OriginalBlock, index: number) {
           alt={block.alt ?? ""}
           className={imageClassName}
           loading="lazy"
+          referrerPolicy="no-referrer"
         />
         {block.caption ? (
           <figcaption className="mt-2 text-center text-sm text-ink-mid">{block.caption}</figcaption>

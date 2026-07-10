@@ -100,6 +100,7 @@ function renderOriginalBlock(block: OriginalBlock, index: number) {
           src={block.url}
           alt={block.alt ?? ""}
           className="max-h-[520px] w-full rounded-md border border-line object-contain"
+          referrerPolicy="no-referrer"
         />
         {block.caption ? (
           <figcaption className="mt-2 text-center text-sm text-ink-mid">{block.caption}</figcaption>
