@@ -150,3 +150,11 @@ CREATE TABLE IF NOT EXISTS period_reports (
   status TEXT NOT NULL DEFAULT 'generated',
   UNIQUE (kind, period_key)
 );
+
+CREATE TABLE IF NOT EXISTS refresh_schedule (
+  id BIGSERIAL PRIMARY KEY,
+  enabled BOOLEAN NOT NULL DEFAULT false,
+  interval_minutes INTEGER NOT NULL DEFAULT 120,
+  last_triggered_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

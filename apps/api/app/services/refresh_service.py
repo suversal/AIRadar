@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -87,6 +87,19 @@ def _env_int(name: str, default: int) -> int:
         return int(os.getenv(name, str(default)))
     except ValueError:
         return default
+
+
+def should_trigger_refresh(config: dict[str, Any], now: datetime) -> bool:
+    """Pure decision function for the in-process scheduler: whether a
+    refresh is due given the persisted schedule config and the current time."""
+    if not config.get("enabled"):
+        return False
+    last_triggered_at = config.get("last_triggered_at")
+    if not last_triggered_at:
+        return True
+    last = datetime.fromisoformat(last_triggered_at)
+    interval_minutes = int(config.get("interval_minutes") or 0)
+    return now - last >= timedelta(minutes=interval_minutes)
 
 
 def refresh_latest_report(

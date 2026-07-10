@@ -18,6 +18,7 @@ from app.db.models import (
     PipelineRunModel,
     ProcessedArticleModel,
     RawArticleModel,
+    RefreshScheduleModel,
     SourceModel,
 )
 from app.models.domain import DailyReport, EventCluster, ProcessedArticle, RawArticle, Source
@@ -224,6 +225,30 @@ class RadarRepository:
             .limit(limit)
         ).all()
         return [value.isoformat() for value in models]
+
+    def _get_or_create_schedule_row(self) -> RefreshScheduleModel:
+        model = self.session.scalar(select(RefreshScheduleModel).order_by(RefreshScheduleModel.id).limit(1))
+        if model is None:
+            model = RefreshScheduleModel()
+            self.session.add(model)
+            self.session.flush()
+        return model
+
+    def get_schedule_config(self) -> dict[str, Any]:
+        model = self._get_or_create_schedule_row()
+        return _schedule_config_payload(model)
+
+    def update_schedule_config(self, *, enabled: bool, interval_minutes: int) -> dict[str, Any]:
+        model = self._get_or_create_schedule_row()
+        model.enabled = enabled
+        model.interval_minutes = interval_minutes
+        self.session.flush()
+        return _schedule_config_payload(model)
+
+    def record_schedule_triggered(self, triggered_at: datetime) -> None:
+        model = self._get_or_create_schedule_row()
+        model.last_triggered_at = triggered_at
+        self.session.flush()
 
     def update_source_health(self, per_source: dict[str, dict[str, Any]]) -> None:
         now = datetime.now(timezone.utc)
@@ -523,6 +548,25 @@ def _period_report_payload(model: PeriodReportModel) -> dict[str, Any]:
         "report_dates": list(model.report_dates or []),
         "generated_at": model.generated_at.isoformat() if model.generated_at else None,
         "status": model.status,
+    }
+
+
+def _as_utc_isoformat(value: Optional[datetime]) -> Optional[str]:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        # sqlite (unit tests) drops tzinfo on round-trip; Postgres TIMESTAMPTZ
+        # always returns aware datetimes, so naive here always means UTC
+        value = value.replace(tzinfo=timezone.utc)
+    return value.isoformat()
+
+
+def _schedule_config_payload(model: RefreshScheduleModel) -> dict[str, Any]:
+    return {
+        "enabled": model.enabled,
+        "interval_minutes": model.interval_minutes,
+        "last_triggered_at": _as_utc_isoformat(model.last_triggered_at),
+        "updated_at": _as_utc_isoformat(model.updated_at),
     }
 
 

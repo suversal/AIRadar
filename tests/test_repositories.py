@@ -521,6 +521,42 @@ class RepositoryTests(unittest.TestCase):
 
         self.assertEqual(dates, ["2026-07-10", "2026-07-09", "2026-07-08"])
 
+    def test_schedule_config_defaults_then_updates(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+
+            defaults = repository.get_schedule_config()
+            session.commit()
+
+        self.assertEqual(defaults["enabled"], False)
+        self.assertEqual(defaults["interval_minutes"], 120)
+        self.assertIsNone(defaults["last_triggered_at"])
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.update_schedule_config(enabled=True, interval_minutes=30)
+            session.commit()
+
+            updated = repository.get_schedule_config()
+
+        self.assertEqual(updated["enabled"], True)
+        self.assertEqual(updated["interval_minutes"], 30)
+
+    def test_schedule_config_records_trigger_time(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        triggered_at = datetime(2026, 7, 10, 12, 0, tzinfo=timezone.utc)
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.record_schedule_triggered(triggered_at)
+            session.commit()
+
+            config = repository.get_schedule_config()
+
+        self.assertEqual(config["last_triggered_at"], triggered_at.isoformat())
+
     def _processed(self, raw_article_id, *, final_score=88.0):
         from app.models.domain import ProcessedArticle, ScoreDimensions
 

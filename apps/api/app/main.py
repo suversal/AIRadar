@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import threading
 import uuid
-from contextlib import contextmanager, nullcontext
+from contextlib import asynccontextmanager, contextmanager, nullcontext
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
@@ -104,6 +105,35 @@ def open_database_report_repository(database_url: str) -> Iterator[Any]:
         session.close()
 
 
+def run_scheduler_tick(
+    repository: Any,
+    *,
+    now: datetime,
+    is_refresh_running: Callable[[], bool],
+    trigger_refresh: Callable[[], None],
+) -> bool:
+    """One evaluation of the in-process scheduler: checks the persisted
+    schedule config, and if a refresh is due and none is already running,
+    records the trigger time and kicks off the refresh. Returns whether it
+    triggered, for observability/testing."""
+    from app.services.refresh_service import should_trigger_refresh
+
+    config = repository.get_schedule_config()
+    if not should_trigger_refresh(config, now):
+        return False
+    if is_refresh_running():
+        return False
+    repository.record_schedule_triggered(now)
+    commit = getattr(getattr(repository, "session", None), "commit", None)
+    if callable(commit):
+        commit()
+    trigger_refresh()
+    return True
+
+
+SCHEDULER_POLL_SECONDS = 60
+
+
 def create_app(
     *,
     report_repository_factory: Callable[[], Any] | None = None,
@@ -116,7 +146,80 @@ def create_app(
     except ModuleNotFoundError as exc:
         raise RuntimeError("FastAPI is not installed. Install requirements.txt first.") from exc
 
-    app = FastAPI(title="Suversal AI Radar API", version="0.1.0")
+    refresh_jobs: dict[str, dict[str, Any]] = {}
+    refresh_jobs_lock = threading.Lock()
+
+    def is_refresh_running() -> bool:
+        with refresh_jobs_lock:
+            return any(job.get("status") == "running" for job in refresh_jobs.values())
+
+    def trigger_refresh_job(resolved_limit: int, resolved_top_n: int) -> dict[str, Any]:
+        job_id = uuid.uuid4().hex
+        with refresh_jobs_lock:
+            refresh_jobs[job_id] = {
+                "job_id": job_id,
+                "status": "running",
+                "created_at": _utc_now_iso(),
+                "started_at": _utc_now_iso(),
+                "finished_at": None,
+                "limit": resolved_limit,
+                "top_n": resolved_top_n,
+                "result": None,
+                "error": None,
+            }
+
+        def worker() -> None:
+            try:
+                result = run_refresh(resolved_limit, resolved_top_n)
+                with refresh_jobs_lock:
+                    refresh_jobs[job_id].update(
+                        {
+                            "status": "succeeded",
+                            "finished_at": _utc_now_iso(),
+                            "result": result,
+                        }
+                    )
+            except Exception as exc:  # pragma: no cover - exercised through integration
+                with refresh_jobs_lock:
+                    refresh_jobs[job_id].update(
+                        {
+                            "status": "failed",
+                            "finished_at": _utc_now_iso(),
+                            "error": str(exc),
+                        }
+                    )
+
+        threading.Thread(target=worker, daemon=True).start()
+        with refresh_jobs_lock:
+            return dict(refresh_jobs[job_id])
+
+    async def scheduler_loop() -> None:
+        database_url = os.getenv("DATABASE_URL")
+        if not database_url:
+            return
+        while True:
+            await asyncio.sleep(SCHEDULER_POLL_SECONDS)
+            try:
+                resolved_limit, resolved_top_n = resolve_refresh_params(None, None)
+                with open_database_report_repository(database_url) as repository:
+                    run_scheduler_tick(
+                        repository,
+                        now=datetime.now(timezone.utc),
+                        is_refresh_running=is_refresh_running,
+                        trigger_refresh=lambda: trigger_refresh_job(resolved_limit, resolved_top_n),
+                    )
+            except Exception:  # pragma: no cover - defensive: scheduler must never die
+                continue
+
+    @asynccontextmanager
+    async def lifespan(app):
+        task = asyncio.create_task(scheduler_loop())
+        try:
+            yield
+        finally:
+            task.cancel()
+
+    app = FastAPI(title="Suversal AI Radar API", version="0.1.0", lifespan=lifespan)
 
     def require_admin(
         authorization: Optional[str] = Header(default=None),
@@ -139,8 +242,6 @@ def create_app(
             raise HTTPException(status_code=401, detail="Invalid admin token")
 
     admin_guard = Depends(require_admin)
-    refresh_jobs: dict[str, dict[str, Any]] = {}
-    refresh_jobs_lock = threading.Lock()
 
     def report_repository_context():
         if report_repository_factory is not None:
@@ -576,44 +677,7 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        job_id = uuid.uuid4().hex
-        with refresh_jobs_lock:
-            refresh_jobs[job_id] = {
-                "job_id": job_id,
-                "status": "running",
-                "created_at": _utc_now_iso(),
-                "started_at": _utc_now_iso(),
-                "finished_at": None,
-                "limit": resolved_limit,
-                "top_n": resolved_top_n,
-                "result": None,
-                "error": None,
-            }
-
-        def worker() -> None:
-            try:
-                result = run_refresh(resolved_limit, resolved_top_n)
-                with refresh_jobs_lock:
-                    refresh_jobs[job_id].update(
-                        {
-                            "status": "succeeded",
-                            "finished_at": _utc_now_iso(),
-                            "result": result,
-                        }
-                    )
-            except Exception as exc:  # pragma: no cover - exercised through integration
-                with refresh_jobs_lock:
-                    refresh_jobs[job_id].update(
-                        {
-                            "status": "failed",
-                            "finished_at": _utc_now_iso(),
-                            "error": str(exc),
-                        }
-                    )
-
-        threading.Thread(target=worker, daemon=True).start()
-        with refresh_jobs_lock:
-            return dict(refresh_jobs[job_id])
+        return trigger_refresh_job(resolved_limit, resolved_top_n)
 
     @app.get("/api/admin/refresh-jobs/{job_id}", dependencies=[admin_guard])
     def refresh_job(job_id: str) -> dict:
@@ -622,6 +686,34 @@ def create_app(
             if job is None:
                 raise HTTPException(status_code=404, detail="Refresh job not found")
             return dict(job)
+
+    @app.get("/api/admin/schedule", dependencies=[admin_guard])
+    def get_schedule() -> dict:
+        with _admin_repository_context() as repository:
+            return repository.get_schedule_config()
+
+    @app.put("/api/admin/schedule", dependencies=[admin_guard])
+    def update_schedule(payload: dict) -> dict:
+        enabled = bool((payload or {}).get("enabled", False))
+        interval_minutes = (payload or {}).get("interval_minutes")
+        try:
+            interval_minutes = _resolve_refresh_int(
+                name="interval_minutes",
+                value=interval_minutes,
+                default=120,
+                minimum=5,
+                maximum=1440,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        with _admin_repository_context() as repository:
+            result = repository.update_schedule_config(
+                enabled=enabled, interval_minutes=interval_minutes
+            )
+            commit = getattr(getattr(repository, "session", None), "commit", None)
+            if callable(commit):
+                commit()
+            return result
 
     return app
 

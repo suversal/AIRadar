@@ -181,3 +181,15 @@ class PipelineRunModel(Base):
     cluster_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     skipped_reasons: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     error: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class RefreshScheduleModel(Base):
+    __tablename__ = "refresh_schedule"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=120)
+    last_triggered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

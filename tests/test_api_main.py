@@ -137,5 +137,83 @@ class FakeRepository:
         return self.payloads.get(report_date)
 
 
+class FakeScheduleRepository:
+    def __init__(self, config):
+        self.config = config
+        self.triggered_at = None
+        self.committed = False
+
+    def get_schedule_config(self):
+        return self.config
+
+    def record_schedule_triggered(self, triggered_at):
+        self.triggered_at = triggered_at
+        self.config = dict(self.config, last_triggered_at=triggered_at.isoformat())
+
+    @property
+    def session(self):
+        return self
+
+    def commit(self):
+        self.committed = True
+
+
+class SchedulerTickTests(unittest.TestCase):
+    def test_tick_skips_when_not_due(self):
+        module = importlib.import_module("app.main")
+        from datetime import datetime, timezone
+
+        repository = FakeScheduleRepository({"enabled": False, "interval_minutes": 120, "last_triggered_at": None})
+        triggered = []
+
+        result = module.run_scheduler_tick(
+            repository,
+            now=datetime(2026, 7, 10, 12, 0, tzinfo=timezone.utc),
+            is_refresh_running=lambda: False,
+            trigger_refresh=lambda: triggered.append(True),
+        )
+
+        self.assertFalse(result)
+        self.assertEqual(triggered, [])
+        self.assertIsNone(repository.triggered_at)
+
+    def test_tick_skips_when_refresh_already_running(self):
+        module = importlib.import_module("app.main")
+        from datetime import datetime, timezone
+
+        repository = FakeScheduleRepository({"enabled": True, "interval_minutes": 120, "last_triggered_at": None})
+        triggered = []
+
+        result = module.run_scheduler_tick(
+            repository,
+            now=datetime(2026, 7, 10, 12, 0, tzinfo=timezone.utc),
+            is_refresh_running=lambda: True,
+            trigger_refresh=lambda: triggered.append(True),
+        )
+
+        self.assertFalse(result)
+        self.assertEqual(triggered, [])
+
+    def test_tick_triggers_and_records_when_due(self):
+        module = importlib.import_module("app.main")
+        from datetime import datetime, timezone
+
+        repository = FakeScheduleRepository({"enabled": True, "interval_minutes": 120, "last_triggered_at": None})
+        triggered = []
+        now = datetime(2026, 7, 10, 12, 0, tzinfo=timezone.utc)
+
+        result = module.run_scheduler_tick(
+            repository,
+            now=now,
+            is_refresh_running=lambda: False,
+            trigger_refresh=lambda: triggered.append(True),
+        )
+
+        self.assertTrue(result)
+        self.assertEqual(triggered, [True])
+        self.assertEqual(repository.triggered_at, now)
+        self.assertTrue(repository.committed)
+
+
 if __name__ == "__main__":
     unittest.main()
