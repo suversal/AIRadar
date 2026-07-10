@@ -423,6 +423,56 @@ class PipelineTests(unittest.TestCase):
         translated = result.raw_articles[0].metadata.get("translated_paragraphs") or []
         self.assertEqual(len(translated), 40)
 
+    def test_below_threshold_article_with_only_title_as_content_still_gets_translated(self):
+        # 真实案例：一篇 Hacker News 链接帖，抓取时没提取到 original_blocks/
+        # original_paragraphs（HN 链接类帖子常见），content 字段只有标题
+        # 本身。这篇文章分数不够进日报（被拒绝），但仍应该在 /all 和详情页
+        # 可见，翻译理应覆盖到它——之前发现这类文章完全没有译文。
+        source = Source(
+            id="hacker_news",
+            name="Hacker News",
+            source_role="signal",
+            tier="T2",
+            type="api",
+            category="community",
+            url="https://hn.algolia.com/api/v1/search",
+            homepage="https://news.ycombinator.com",
+            allowed_domains=["news.ycombinator.com"],
+            language="en",
+        )
+        raw_items = [
+            {
+                "source_url": "https://ploy.ai/blog/ai-web-design-with-opus-and-sol",
+                "title": "AI Web Design (Opus vs. Sol)",
+                "content": "AI Web Design (Opus vs. Sol)",
+                "author": "hn",
+                "published_at": datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {"points": 1, "comments": 1},
+                "metadata": {"hn_object_id": "1"},
+            },
+        ]
+
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={"hacker_news": raw_items},
+            ai_provider=LowScoreAIProvider(),
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 1),
+            candidate_limit=10,
+            top_n=1,
+        )
+
+        low_scorer = next(
+            article
+            for article in result.raw_articles
+            if article.source_url.endswith("ai-web-design-with-opus-and-sol")
+        )
+        self.assertEqual(
+            low_scorer.metadata.get("translated_paragraphs"),
+            ["译文：AI Web Design (Opus vs. Sol)"],
+        )
+
     def test_readme_enrichment_retries_when_zh_probe_failed(self):
         # 限流时降级存下的英文 README 会带 readme_zh_probe=failed 标记，
         # 下一轮必须重试（限流窗口已过就能换成中文版），而不是永久固化英文。
