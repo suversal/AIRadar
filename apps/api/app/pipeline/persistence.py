@@ -100,15 +100,25 @@ def persist_pipeline_result(
         ]
     processed_result = repository.upsert_processed_articles(processed_articles)
     daily_result = repository.upsert_daily_report(result.daily_report)
-    entries = [
-        {
-            "event_id": redirects.get(item["event_id"], item["event_id"]),
-            "raw_article_id": item["raw_article_id"],
-            "reason": item.get("reason", ""),
-            "final_score": item.get("final_score", 0.0),
-        }
-        for item in result.daily_report.json_data.get("items", [])
-    ]
+    entries: list[dict[str, Any]] = []
+    seen_event_ids: set[str] = set()
+    for item in result.daily_report.json_data.get("items", []):
+        event_id = redirects.get(item["event_id"], item["event_id"])
+        # two different in-run items can independently redirect into the same
+        # pre-existing event; the masthead must still show that event only
+        # once (items already arrive ranked highest-score-first, so the
+        # first one seen per event_id wins the slot)
+        if event_id in seen_event_ids:
+            continue
+        seen_event_ids.add(event_id)
+        entries.append(
+            {
+                "event_id": event_id,
+                "raw_article_id": item["raw_article_id"],
+                "reason": item.get("reason", ""),
+                "final_score": item.get("final_score", 0.0),
+            }
+        )
     repository.replace_daily_report_entries(result.daily_report.report_date, entries)
     run_result = repository.record_pipeline_run(
         status="succeeded",

@@ -245,6 +245,43 @@ class PipelinePersistenceTests(unittest.TestCase):
         self.assertEqual(repository.processed_articles_written[0].event_cluster_id, "c-existing")
         self.assertEqual(repository.entries_written[1][0]["event_id"], "c-existing")
 
+    def test_persist_pipeline_result_dedupes_masthead_entries_that_merge_into_the_same_event(self):
+        # regression, found via real-data verification: two DIFFERENT
+        # in-run clusters ("c-new-1" and "c-new-2", covering two genuinely
+        # different articles) can each independently redirect into the same
+        # pre-existing event during the cross-day merge. Remapping alone
+        # then leaves the daily report masthead with the same event twice.
+        repository = FakeRepository()
+        repository.cluster_redirects = {"c-new-1": "c-existing", "c-new-2": "c-existing"}
+        daily_report = DailyReport(
+            report_date=date(2026, 7, 1),
+            markdown="# report",
+            json_data={
+                "report_date": "2026-07-01",
+                "items": [
+                    {"event_id": "c-new-1", "raw_article_id": "a1", "reason": "x", "final_score": 90.0},
+                    {"event_id": "c-new-2", "raw_article_id": "a2", "reason": "y", "final_score": 80.0},
+                ],
+                "article_count": 2,
+            },
+            article_count=2,
+        )
+        result = PipelineResult(
+            raw_articles=[],
+            processed_articles=[],
+            event_clusters=[],
+            daily_report=daily_report,
+            skipped_reasons={},
+        )
+
+        persist_pipeline_result(repository, sources=[], result=result)
+
+        entries = repository.entries_written[1]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["event_id"], "c-existing")
+        # the higher-scoring of the two merged-away items wins the slot
+        self.assertEqual(entries[0]["raw_article_id"], "a1")
+
 
 class FakeWriteResult:
     def __init__(self, *, inserted=0, updated=0, skipped=0, redirects=None):
