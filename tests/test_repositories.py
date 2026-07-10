@@ -492,6 +492,58 @@ class RepositoryTests(unittest.TestCase):
         self.assertIsNone(miss["scoring"])
         self.assertEqual(miss["skipped_reason"], "not_ai_related")
 
+    def test_translation_output_is_not_stored_in_raw_metadata(self):
+        # architectural split: translation is AI output, not crawl data, so
+        # it must live in its own table rather than raw_articles.raw_metadata
+        from app.repositories.radar_repository import RadarRepository
+        from app.db.models import RawArticleModel
+
+        article = self._article(article_id="a1", title="t", url_hash="hash-a1")
+        article.metadata["translated_paragraphs"] = ["中文段落"]
+        article.metadata["translated_blocks"] = [{"type": "paragraph", "text": "中文段落"}]
+        article.metadata["translation_source_hash"] = "abc123"
+        article.metadata["original_paragraphs"] = ["English paragraph"]
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([article])
+            session.commit()
+
+            stored = session.get(RawArticleModel, "a1")
+            translation = repository.get_article_translation("a1")
+
+        self.assertNotIn("translated_paragraphs", stored.raw_metadata)
+        self.assertNotIn("translated_blocks", stored.raw_metadata)
+        self.assertNotIn("translation_source_hash", stored.raw_metadata)
+        # crawl-domain metadata must be unaffected by the split
+        self.assertEqual(stored.raw_metadata["original_paragraphs"], ["English paragraph"])
+        self.assertEqual(translation["translated_paragraphs"], ["中文段落"])
+        self.assertEqual(translation["source_hash"], "abc123")
+
+    def test_event_detail_includes_translation_from_its_own_table(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        article = self._article(article_id="a1", title="t", url_hash="hash-a1")
+        article.metadata["translated_paragraphs"] = ["中文段落"]
+        article.metadata["translated_blocks"] = [{"type": "paragraph", "text": "中文段落"}]
+        article.metadata["translation_status"] = "completed"
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([article])
+            repository.upsert_processed_articles([self._processed("a1")])
+            session.commit()
+
+            detail = repository.get_event_item("aa1")
+
+        self.assertEqual(detail["translated_paragraphs"], ["中文段落"])
+        self.assertEqual(
+            detail["translated_blocks"], [{"type": "paragraph", "text": "中文段落"}]
+        )
+        self.assertEqual(detail["translation_status"], "completed")
+
     def test_all_event_items_come_from_processed_articles_table(self):
         from app.repositories.radar_repository import RadarRepository
 

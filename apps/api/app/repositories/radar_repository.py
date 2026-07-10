@@ -12,6 +12,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard for lo
 
 from app.db.models import (
     ArticleEmbeddingModel,
+    ArticleTranslationModel,
     DailyReportEntryModel,
     DailyReportModel,
     EditorialOverrideModel,
@@ -34,6 +35,25 @@ class WriteResult:
     inserted: int = 0
     updated: int = 0
     skipped: int = 0
+
+
+# translation is AI output, not crawl data: these keys never get merged into
+# raw_articles.raw_metadata, they go to article_translations instead
+TRANSLATION_METADATA_KEYS = frozenset(
+    {
+        "translated_paragraphs",
+        "translated_blocks",
+        "translation_source_language",
+        "translation_target_language",
+        "translation_source_hash",
+        "translation_status",
+        "translation_error",
+    }
+)
+
+
+def _crawl_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in metadata.items() if key not in TRANSLATION_METADATA_KEYS}
 
 
 class RadarRepository:
@@ -69,18 +89,88 @@ class RadarRepository:
             if existing is None:
                 self.session.add(_raw_article_to_model(article))
                 inserted += 1
+                self._sync_translation_from_metadata(article)
                 continue
-            # later runs enrich articles in memory (README, full-page body,
-            # translations); merge that back instead of freezing the first crawl
+            # later runs enrich articles in memory (README, full-page body);
+            # merge that back instead of freezing the first crawl. Translation
+            # output is synced to article_translations below, never merged here.
             merged = dict(existing.raw_metadata or {})
-            merged.update({"raw_score": article.raw_score, **article.metadata})
+            merged.update({"raw_score": article.raw_score, **_crawl_metadata(article.metadata)})
             existing.raw_metadata = merged
             if len(article.content) > len(existing.content or ""):
                 existing.content = article.content
             existing.status = article.status
             existing.skipped_reason = article.skipped_reason
             updated += 1
+            self._sync_translation_from_metadata(article)
         return WriteResult(inserted=inserted, updated=updated, skipped=skipped)
+
+    def _sync_translation_from_metadata(self, article: RawArticle) -> None:
+        metadata = article.metadata
+        has_translation = bool(
+            metadata.get("translated_paragraphs")
+            or metadata.get("translated_blocks")
+            or metadata.get("translation_status")
+        )
+        if not has_translation:
+            return
+        self.upsert_article_translation(
+            article.id,
+            translated_paragraphs=metadata.get("translated_paragraphs") or [],
+            translated_blocks=metadata.get("translated_blocks") or [],
+            source_language=metadata.get("translation_source_language"),
+            target_language=metadata.get("translation_target_language") or "zh",
+            source_hash=metadata.get("translation_source_hash") or "",
+            status=metadata.get("translation_status") or "completed",
+            error=metadata.get("translation_error"),
+        )
+
+    def upsert_article_translation(
+        self,
+        raw_article_id: str,
+        *,
+        translated_paragraphs: list[str],
+        translated_blocks: list[dict[str, Any]],
+        source_language: Optional[str],
+        target_language: str = "zh",
+        source_hash: str,
+        status: str = "completed",
+        error: Optional[str] = None,
+    ) -> None:
+        model = self.session.scalar(
+            select(ArticleTranslationModel).where(
+                ArticleTranslationModel.raw_article_id == raw_article_id
+            )
+        )
+        if model is None:
+            model = ArticleTranslationModel(raw_article_id=raw_article_id)
+            self.session.add(model)
+        model.translated_paragraphs = translated_paragraphs
+        model.translated_blocks = translated_blocks
+        model.source_language = source_language
+        model.target_language = target_language
+        model.source_hash = source_hash
+        model.status = status
+        model.error = error
+        self.session.flush()
+
+    def get_article_translation(self, raw_article_id: str) -> Optional[dict[str, Any]]:
+        model = self.session.scalar(
+            select(ArticleTranslationModel).where(
+                ArticleTranslationModel.raw_article_id == raw_article_id
+            )
+        )
+        if model is None:
+            return None
+        return {
+            "translated_paragraphs": list(model.translated_paragraphs or []),
+            "translated_blocks": list(model.translated_blocks or []),
+            "source_language": model.source_language,
+            "target_language": model.target_language,
+            "source_hash": model.source_hash,
+            "status": model.status,
+            "error": model.error,
+        }
 
     def upsert_daily_report(self, report: DailyReport) -> WriteResult:
         model = self.session.scalar(
@@ -151,13 +241,25 @@ class RadarRepository:
             override = self._get_override(processed.raw_article_id)
             if override is not None and override.hidden:
                 continue
-            items.append(_event_item(processed, raw, source, include_content=True, override=override))
+            translation = self._get_translation_model(processed.raw_article_id)
+            items.append(
+                _event_item(
+                    processed, raw, source, include_content=True, override=override, translation=translation
+                )
+            )
         return items
 
     def _get_override(self, raw_article_id: str) -> Optional[EditorialOverrideModel]:
         return self.session.scalar(
             select(EditorialOverrideModel).where(
                 EditorialOverrideModel.raw_article_id == raw_article_id
+            )
+        )
+
+    def _get_translation_model(self, raw_article_id: str) -> Optional[ArticleTranslationModel]:
+        return self.session.scalar(
+            select(ArticleTranslationModel).where(
+                ArticleTranslationModel.raw_article_id == raw_article_id
             )
         )
 
@@ -580,11 +682,6 @@ class RadarRepository:
         return counts
 
     CACHED_METADATA_KEYS = (
-        "translated_paragraphs",
-        "translated_blocks",
-        "translation_source_language",
-        "translation_source_hash",
-        "translation_target_language",
         "original_markdown",
         "readme_name",
         "readme_language",
@@ -599,22 +696,32 @@ class RadarRepository:
         if not url_hashes:
             return {}
         rows = self.session.execute(
-            select(RawArticleModel, ProcessedArticleModel)
+            select(RawArticleModel, ProcessedArticleModel, ArticleTranslationModel)
             .join(
                 ProcessedArticleModel,
                 ProcessedArticleModel.raw_article_id == RawArticleModel.id,
                 isouter=True,
             )
+            .outerjoin(
+                ArticleTranslationModel,
+                ArticleTranslationModel.raw_article_id == RawArticleModel.id,
+            )
             .where(RawArticleModel.url_hash.in_(url_hashes))
         ).all()
         cached: dict[str, dict[str, Any]] = {}
-        for raw, processed in rows:
+        for raw, processed, translation in rows:
             raw_metadata = dict(raw.raw_metadata or {})
             metadata = {
                 key: raw_metadata[key]
                 for key in self.CACHED_METADATA_KEYS
                 if raw_metadata.get(key)
             }
+            if translation is not None and translation.translated_paragraphs:
+                metadata["translated_paragraphs"] = translation.translated_paragraphs
+                metadata["translated_blocks"] = translation.translated_blocks
+                metadata["translation_source_language"] = translation.source_language
+                metadata["translation_target_language"] = translation.target_language
+                metadata["translation_source_hash"] = translation.source_hash
             scoring = None
             if processed is not None:
                 scoring = {
@@ -645,11 +752,6 @@ class RadarRepository:
         "original_paragraphs",
         "original_blocks",
         "original_markdown",
-        "translated_paragraphs",
-        "translated_blocks",
-        "translated_content",
-        "translation_status",
-        "translation_error",
         "readme_name",
         "readme_language",
         "readme_selection",
@@ -735,7 +837,10 @@ class RadarRepository:
         override = self._get_override(processed.raw_article_id)
         if override is not None and override.hidden:
             return None
-        return _event_item(processed, raw, source, include_content=True, override=override)
+        translation = self._get_translation_model(processed.raw_article_id)
+        return _event_item(
+            processed, raw, source, include_content=True, override=override, translation=translation
+        )
 
     def get_daily_report_payloads_between(
         self, start_date: date, end_date: date
@@ -863,7 +968,7 @@ def _raw_article_to_model(article: RawArticle) -> RawArticleModel:
         published_at=article.published_at,
         title_hash=article.title_hash,
         url_hash=article.url_hash,
-        raw_metadata={"raw_score": article.raw_score, **article.metadata},
+        raw_metadata={"raw_score": article.raw_score, **_crawl_metadata(article.metadata)},
         status=article.status,
         skipped_reason=article.skipped_reason,
     )
@@ -876,6 +981,7 @@ def _event_item(
     *,
     include_content: bool,
     override: Optional[EditorialOverrideModel] = None,
+    translation: Optional[ArticleTranslationModel] = None,
 ) -> dict[str, Any]:
     metadata = dict(raw.raw_metadata or {})
     published_at = raw.published_at
@@ -927,6 +1033,15 @@ def _event_item(
             value = metadata.get(key)
             if value:
                 item[key] = value
+        if translation is not None:
+            if translation.translated_paragraphs:
+                item["translated_paragraphs"] = translation.translated_paragraphs
+            if translation.translated_blocks:
+                item["translated_blocks"] = translation.translated_blocks
+            if translation.status:
+                item["translation_status"] = translation.status
+            if translation.error:
+                item["translation_error"] = translation.error
     return item
 
 

@@ -116,6 +116,30 @@ class DailyReportEntryModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ArticleTranslationModel(Base):
+    """AI-generated translation output for one article, kept out of
+    raw_articles.raw_metadata (crawl domain) so the two never need a
+    hand-maintained key whitelist to stay apart. source_hash lets the
+    pipeline detect that the original content changed and a stale
+    translation needs regenerating, without re-translating unchanged
+    articles on every run."""
+
+    __tablename__ = "article_translations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    raw_article_id: Mapped[str] = mapped_column(
+        ForeignKey("raw_articles.id"), nullable=False, unique=True, index=True
+    )
+    translated_paragraphs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    translated_blocks: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    source_language: Mapped[Optional[str]] = mapped_column(String)
+    target_language: Mapped[str] = mapped_column(String, nullable=False, default="zh")
+    source_hash: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="completed")
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class ProcessedArticleModel(Base):
     __tablename__ = "processed_articles"
 

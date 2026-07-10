@@ -57,6 +57,21 @@ CREATE TABLE IF NOT EXISTS article_embeddings (
 
 CREATE UNIQUE INDEX IF NOT EXISTS ix_article_embeddings_raw_article_id ON article_embeddings(raw_article_id);
 
+CREATE TABLE IF NOT EXISTS article_translations (
+  id BIGSERIAL PRIMARY KEY,
+  raw_article_id TEXT NOT NULL REFERENCES raw_articles(id),
+  translated_paragraphs JSONB NOT NULL DEFAULT '[]',
+  translated_blocks JSONB NOT NULL DEFAULT '[]',
+  source_language TEXT,
+  target_language TEXT NOT NULL DEFAULT 'zh',
+  source_hash TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'completed',
+  error TEXT,
+  generated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ix_article_translations_raw_article_id ON article_translations(raw_article_id);
+
 CREATE TABLE IF NOT EXISTS editorial_overrides (
   id BIGSERIAL PRIMARY KEY,
   raw_article_id TEXT NOT NULL REFERENCES raw_articles(id),
