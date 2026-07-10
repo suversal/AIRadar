@@ -50,9 +50,12 @@ CREATE TABLE IF NOT EXISTS article_embeddings (
   id BIGSERIAL PRIMARY KEY,
   raw_article_id TEXT NOT NULL REFERENCES raw_articles(id),
   embedding_model TEXT NOT NULL,
-  content_vector vector(1536),
+  content_vector vector(512),
+  source_hash TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS ix_article_embeddings_raw_article_id ON article_embeddings(raw_article_id);
 
 CREATE TABLE IF NOT EXISTS event_clusters (
   id TEXT PRIMARY KEY,
@@ -77,6 +80,7 @@ CREATE TABLE IF NOT EXISTS event_cluster_articles (
   similarity_score DOUBLE PRECISION NOT NULL DEFAULT 0,
   is_main BOOLEAN NOT NULL DEFAULT false,
   source_priority INTEGER NOT NULL DEFAULT 0,
+  joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

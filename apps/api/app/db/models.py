@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Optional
+from typing import Any, Optional
 
 try:
     from sqlalchemy import (
@@ -20,6 +20,11 @@ try:
     from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard for local stdlib tests
     raise RuntimeError("SQLAlchemy is required for database models.") from exc
+
+try:
+    from pgvector.sqlalchemy import Vector
+except ModuleNotFoundError:  # pragma: no cover - lightweight stdlib test env may omit pgvector
+    Vector = None
 
 
 class Base(DeclarativeBase):
@@ -171,6 +176,33 @@ class EventClusterArticleModel(Base):
     similarity_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     is_main: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     source_priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # when this article joined the event - distinct from the event's own
+    # first_seen_at/last_seen_at, needed to compute a sliding-window "how
+    # many sources covered this in the last N hours" heat count that decays
+    # instead of only ever accumulating
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ArticleEmbeddingModel(Base):
+    """One semantic embedding per article, used to detect the same real-
+    world event reported by different sources on different days. Every
+    article keeps its own row regardless of similarity to others - this
+    table never deduplicates content, it only powers the similarity lookup
+    that decides which event an article's coverage belongs to."""
+
+    __tablename__ = "article_embeddings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    raw_article_id: Mapped[str] = mapped_column(
+        ForeignKey("raw_articles.id"), nullable=False, unique=True, index=True
+    )
+    embedding_model: Mapped[str] = mapped_column(String, nullable=False)
+    # bge-small-zh-v1.5 is 512-dim; the vector width is tied to whichever
+    # local embedding model app.services.ai_service.LocalEmbeddingProvider
+    # wraps, so this column must be resized if that model ever changes
+    content_vector: Mapped[Any] = mapped_column(Vector(512), nullable=False)
+    source_hash: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
