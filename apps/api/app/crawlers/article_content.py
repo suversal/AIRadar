@@ -15,6 +15,16 @@ _INLINE_CANONICAL = {"b": "strong", "i": "em"}
 SAFE_HREF_SCHEMES = ("http://", "https://")
 MAX_BLOCKS = 120
 MAX_IMAGES = 30
+# User-avatar widgets (upvoters, commenters) sit inside the same <article>/
+# <main> region as the real post on some sites (e.g. HuggingFace's "who
+# liked this" avatar stack) - these are never article content regardless
+# of which site hosts them.
+_AVATAR_HOST_MARKERS = (
+    "cdn-avatars.",
+    "avatars.githubusercontent.com",
+    "gravatar.com",
+    "/avatars/",
+)
 
 
 class ArticleContentParser(HTMLParser):
@@ -121,6 +131,8 @@ class ArticleContentParser(HTMLParser):
             return
         url = urljoin(self.base_url or "", src)
         if not url or url in self._seen_images or len(self.images) >= MAX_IMAGES:
+            return
+        if any(marker in url for marker in _AVATAR_HOST_MARKERS):
             return
         self._flush_text_block()
         image = {

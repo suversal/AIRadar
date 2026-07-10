@@ -115,6 +115,34 @@ class CrawlerTests(unittest.TestCase):
         )
         self.assertEqual(content["original_images"][0]["url"], "https://www.ithome.com/images/demo.jpg")
 
+    def test_extract_article_content_skips_avatar_cdn_images(self):
+        # 真实案例：HuggingFace 博客页把"点赞用户头像"小组件跟正文放在
+        # 同一个 <main> 容器里，之前会把这些头像当成正文插图存下来。
+        html = """
+        <article>
+          <p>第一段正文。</p>
+          <img src="https://cdn-avatars.huggingface.co/v1/production/uploads/abc.jpeg" alt="sayakpaul">
+          <img src="https://huggingface.co/avatars/212fbe902f134e1c516976f33c2a35a7.svg" alt="anon">
+          <p><img src="https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/fig1.png"></p>
+          <p>第二段正文。</p>
+        </article>
+        """
+
+        content = extract_article_content(html, base_url="https://huggingface.co/blog/example")
+
+        image_urls = [img["url"] for img in content["original_images"]]
+        self.assertNotIn(
+            "https://cdn-avatars.huggingface.co/v1/production/uploads/abc.jpeg", image_urls
+        )
+        self.assertNotIn(
+            "https://huggingface.co/avatars/212fbe902f134e1c516976f33c2a35a7.svg", image_urls
+        )
+        self.assertIn(
+            "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/fig1.png",
+            image_urls,
+        )
+        self.assertEqual(content["original_paragraphs"], ["第一段正文。", "第二段正文。"])
+
     def test_extract_article_content_preserves_inline_links_and_bold(self):
         html = (
             "<article>"
