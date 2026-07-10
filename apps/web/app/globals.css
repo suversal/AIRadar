@@ -37,9 +37,15 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+/* unlayered CSS always outranks Tailwind's utility layer regardless of
+   selector order/specificity, so this reset must live in @layer base -
+   otherwise no `underline` utility on any <a> anywhere can ever take
+   effect (confirmed: it silently defeated every underline link site-wide) */
+@layer base {
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
 }
 
 /* interactive elements ease between states instead of snapping */

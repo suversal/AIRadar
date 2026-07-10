@@ -321,6 +321,24 @@ class WebAppStructureTests(unittest.TestCase):
 
         self.assertIn('@import "tailwindcss";', globals_css)
 
+    def test_global_link_reset_is_layered_so_underline_utility_still_wins(self):
+        # unlayered CSS always outranks Tailwind v4's utility layer regardless
+        # of selector order - an un-@layer'd `a { text-decoration: none }`
+        # silently defeats every `underline` utility class on every <a> site-
+        # wide (confirmed with a real browser: computed text-decoration-line
+        # stayed "none" despite the underline class being present).
+        globals_css = (WEB / "app" / "globals.css").read_text(encoding="utf-8")
+
+        import re
+
+        match = re.search(r"a\s*\{[^}]*text-decoration:\s*none", globals_css)
+        self.assertIsNotNone(match, "expected the global <a> text-decoration reset")
+        preceding = globals_css[: match.start()]
+        # nearest unclosed @layer before this rule must be "base"
+        layer_opens = list(re.finditer(r"@layer\s+(\w+)\s*\{", preceding))
+        self.assertTrue(layer_opens, "the <a> reset must be wrapped in @layer base")
+        self.assertEqual(layer_opens[-1].group(1), "base")
+
 
 if __name__ == "__main__":
     unittest.main()
