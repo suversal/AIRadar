@@ -375,6 +375,7 @@ def run_pipeline(
     ai_concurrency: int = 1,
     skip_prefilter: bool = False,
     cached_results: dict[str, dict[str, Any]] | None = None,
+    cluster_similarity_threshold: float = 0.85,
 ) -> PipelineResult:
     source_by_id = {source.id: source for source in sources}
     cached_results = cached_results or {}
@@ -462,7 +463,7 @@ def run_pipeline(
     clusters = cluster_articles(
         selected_articles,
         embeddings,
-        threshold=0.85,
+        threshold=cluster_similarity_threshold,
         sources=source_by_id,
         final_scores=final_scores,
     )

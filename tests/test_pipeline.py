@@ -77,6 +77,89 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result.skipped_reasons["candidate_limit"], 1)
         self.assertEqual(result.skipped_reasons["not_ai_related"], 1)
 
+    def test_cluster_similarity_threshold_is_configurable(self):
+        source_a = Source(
+            id="openai_blog",
+            name="OpenAI Blog",
+            source_role="authority",
+            tier="T1",
+            type="rss",
+            category="official",
+            url="https://openai.com/rss.xml",
+            homepage="https://openai.com",
+            allowed_domains=["openai.com"],
+            can_be_main_source=True,
+        )
+        source_b = Source(
+            id="anthropic_blog",
+            name="Anthropic Blog",
+            source_role="authority",
+            tier="T1",
+            type="rss",
+            category="official",
+            url="https://anthropic.com/rss.xml",
+            homepage="https://anthropic.com",
+            allowed_domains=["anthropic.com"],
+            can_be_main_source=True,
+        )
+        raw_items_by_source = {
+            "openai_blog": [
+                {
+                    "source_url": "https://openai.com/marker-a",
+                    "title": "marker-a story",
+                    "content": "marker-a coverage of an AI model release.",
+                    "author": "OpenAI",
+                    "published_at": datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+                    "language": "en",
+                    "raw_score": {},
+                    "metadata": {},
+                }
+            ],
+            "anthropic_blog": [
+                {
+                    "source_url": "https://anthropic.com/marker-b",
+                    "title": "marker-b story",
+                    "content": "marker-b coverage of the same AI model release.",
+                    "author": "Anthropic",
+                    "published_at": datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+                    "language": "en",
+                    "raw_score": {},
+                    "metadata": {},
+                }
+            ],
+        }
+        # vectors pinned to an exact cosine similarity of 0.7
+        vector_a = [1.0] + [0.0] * 63
+        vector_b = [0.7, 0.7141428429, 0.0] + [0.0] * 61
+        provider = FixedVectorAIProvider(
+            {"marker-a": vector_a, "marker-b": vector_b}
+        )
+
+        strict = run_pipeline(
+            sources=[source_a, source_b],
+            raw_items_by_source=raw_items_by_source,
+            ai_provider=provider,
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 1),
+            candidate_limit=10,
+            top_n=12,
+            cluster_similarity_threshold=0.9,
+        )
+        lenient = run_pipeline(
+            sources=[source_a, source_b],
+            raw_items_by_source=raw_items_by_source,
+            ai_provider=provider,
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 1),
+            candidate_limit=10,
+            top_n=12,
+            cluster_similarity_threshold=0.5,
+        )
+
+        self.assertEqual(len(strict.event_clusters), 2)
+        self.assertEqual(len(lenient.event_clusters), 1)
+        self.assertEqual(lenient.event_clusters[0].source_count, 2)
+
     def test_pipeline_reuses_cached_results_without_ai_calls(self):
         source = Source(
             id="openai_blog",
@@ -971,6 +1054,37 @@ class PipelineTests(unittest.TestCase):
         self.assertNotIn("translated_paragraphs", github_item)
         self.assertNotIn("translated_blocks", github_item)
         self.assertEqual(provider.translation_calls, [])
+
+
+class FixedVectorAIProvider(FakeAIProvider):
+    """Returns caller-specified embeddings keyed by a substring of the input
+    text, so tests can pin an exact cosine similarity between two articles.
+    Always marks content AI-related with a fixed score so selection into the
+    report is deterministic regardless of the fixture title/content wording."""
+
+    def __init__(self, vectors_by_marker: dict[str, list[float]]):
+        self.vectors_by_marker = vectors_by_marker
+
+    def embed_text(self, text: str, dimensions: int = 64) -> list[float]:
+        for marker, vector in self.vectors_by_marker.items():
+            if marker in text:
+                return vector
+        raise AssertionError(f"no fixture vector for text: {text!r}")
+
+    def prefilter(self, text: str) -> PrefilterResult:
+        return PrefilterResult(is_ai_related=True, confidence=0.9, reason="fixture")
+
+    def score_article(self, title: str, content: str) -> ScoringResult:
+        return ScoringResult(
+            dimensions=ScoreDimensions(9, 8, 8, 7, 7, 6),
+            category="model_release",
+            tags=["AI"],
+            title_zh=title,
+            one_line_summary=f"{title}。",
+            summary_zh=f"{title}。{content}",
+            reason_zh="固定测试评分。",
+            action_zh="阅读原文。",
+        )
 
 
 class LowScoreAIProvider(FakeAIProvider):

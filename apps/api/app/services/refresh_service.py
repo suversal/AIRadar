@@ -89,6 +89,13 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
 def should_trigger_refresh(config: dict[str, Any], now: datetime) -> bool:
     """Pure decision function for the in-process scheduler: whether a
     refresh is due given the persisted schedule config and the current time."""
@@ -142,6 +149,7 @@ def refresh_latest_report(
         top_n=top_n,
         ai_concurrency=_env_int("AI_PIPELINE_CONCURRENCY", 1),
         cached_results=cached_results,
+        cluster_similarity_threshold=_env_float("CLUSTER_SIMILARITY_THRESHOLD", 0.85),
     )
 
     pipeline_dir = data_dir / "crawl_checks" / f"{resolved_date.isoformat()}-refresh-pipeline"

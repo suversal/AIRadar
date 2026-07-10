@@ -297,6 +297,31 @@ class FakeAIProvider:
         return values
 
 
+class LocalEmbeddingProvider:
+    """Real semantic embeddings via a local BAAI/bge-small-zh-v1.5 ONNX model
+    (fastembed). Runs on-machine with no external API calls or per-call cost;
+    replaces the SHA-256 hash pseudo-vectors FakeAIProvider produces, which
+    carry no semantic information and cannot detect same-event articles
+    reported with different wording."""
+
+    _model = None  # class-level singleton: loading is the expensive part
+
+    def __init__(self, model_name: str = "BAAI/bge-small-zh-v1.5"):
+        self.model_name = model_name
+
+    def _get_model(self):
+        if LocalEmbeddingProvider._model is None:
+            from fastembed import TextEmbedding
+
+            LocalEmbeddingProvider._model = TextEmbedding(model_name=self.model_name)
+        return LocalEmbeddingProvider._model
+
+    def embed_text(self, text: str, dimensions: int | None = None) -> list[float]:
+        model = self._get_model()
+        vector = next(iter(model.embed([text])))
+        return [float(value) for value in vector]
+
+
 class OpenAIProvider:
     def __init__(
         self,
@@ -415,7 +440,7 @@ class OpenAIProvider:
 
 
 class KimiProvider:
-    """Kimi/Moonshot chat provider with local deterministic embeddings."""
+    """Kimi/Moonshot chat provider with local real (bge-small-zh) embeddings."""
 
     def __init__(
         self,
@@ -427,7 +452,7 @@ class KimiProvider:
         self.api_key = api_key
         self.model = model
         self.base_url = base_url.rstrip("/")
-        self._embedding_provider = FakeAIProvider()
+        self._embedding_provider = LocalEmbeddingProvider()
 
     def _post_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
         request = urllib.request.Request(
@@ -528,7 +553,7 @@ class KimiProvider:
 
 
 class DeepSeekProvider:
-    """DeepSeek OpenAI-compatible chat provider with local deterministic embeddings."""
+    """DeepSeek OpenAI-compatible chat provider with local real (bge-small-zh) embeddings."""
 
     def __init__(
         self,
@@ -544,7 +569,7 @@ class DeepSeekProvider:
         self.base_url = base_url.rstrip("/")
         self.user_id = user_id
         self.max_tokens = max_tokens
-        self._embedding_provider = FakeAIProvider()
+        self._embedding_provider = LocalEmbeddingProvider()
 
     def _post_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
         request = urllib.request.Request(

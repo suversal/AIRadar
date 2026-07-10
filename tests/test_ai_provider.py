@@ -203,11 +203,13 @@ class AIProviderTests(unittest.TestCase):
         self.assertEqual(calls[0][1]["model"], "kimi-k2.7-code")
         self.assertEqual(calls[0][1]["response_format"], {"type": "json_object"})
 
-    def test_kimi_provider_uses_local_deterministic_embedding_fallback(self):
+    def test_kimi_provider_uses_local_real_embedding_model(self):
         provider = KimiProvider("test-key")
 
         self.assertEqual(provider.embed_text("same text"), provider.embed_text("same text"))
-        self.assertEqual(len(provider.embed_text("same text", dimensions=16)), 16)
+        # real bge-small-zh embeddings are fixed at 512 dims; the dimensions
+        # param no longer reshapes output the way the old hash fallback did
+        self.assertEqual(len(provider.embed_text("same text")), 512)
 
     def test_deepseek_provider_scores_article_via_openai_compatible_chat_completion(self):
         provider = DeepSeekProvider("test-key", user_id="ai-radar-test", max_tokens=1234)
@@ -255,11 +257,13 @@ class AIProviderTests(unittest.TestCase):
         self.assertEqual(calls[0][1]["user_id"], "ai-radar-test")
         self.assertEqual(calls[0][1]["max_tokens"], 1234)
 
-    def test_deepseek_provider_uses_local_deterministic_embedding_fallback(self):
+    def test_deepseek_provider_uses_local_real_embedding_model(self):
         provider = DeepSeekProvider("test-key")
 
         self.assertEqual(provider.embed_text("same text"), provider.embed_text("same text"))
-        self.assertEqual(len(provider.embed_text("same text", dimensions=16)), 16)
+        # real bge-small-zh embeddings are fixed at 512 dims; the dimensions
+        # param no longer reshapes output the way the old hash fallback did
+        self.assertEqual(len(provider.embed_text("same text")), 512)
 
     def test_provider_from_env_selects_kimi_without_committing_secrets(self):
         with patch.dict(
