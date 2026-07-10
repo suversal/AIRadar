@@ -77,7 +77,7 @@ export function SchedulePanel({ initialConfig }: { initialConfig: ScheduleConfig
         throw new Error(payload.detail ?? "保存失败");
       }
       setConfig(payload);
-      setMessage(nextEnabled ? "定时任务已开启。" : "定时任务已关闭。");
+      setMessage("");
       router.refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "保存失败");
