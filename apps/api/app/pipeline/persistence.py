@@ -29,6 +29,9 @@ class PipelineRepository(Protocol):
     def upsert_daily_report(self, report: DailyReport) -> Any:
         ...
 
+    def replace_daily_report_entries(self, report_date: Any, entries: list[dict[str, Any]]) -> Any:
+        ...
+
     def record_pipeline_run(self, **kwargs: Any) -> Any:
         ...
 
@@ -54,6 +57,16 @@ def persist_pipeline_result(
     cluster_result = repository.upsert_event_clusters(result.event_clusters)
     processed_result = repository.upsert_processed_articles(result.processed_articles)
     daily_result = repository.upsert_daily_report(result.daily_report)
+    entries = [
+        {
+            "event_id": item["event_id"],
+            "raw_article_id": item["raw_article_id"],
+            "reason": item.get("reason", ""),
+            "final_score": item.get("final_score", 0.0),
+        }
+        for item in result.daily_report.json_data.get("items", [])
+    ]
+    repository.replace_daily_report_entries(result.daily_report.report_date, entries)
     run_result = repository.record_pipeline_run(
         status="succeeded",
         raw_count=len(result.raw_articles),

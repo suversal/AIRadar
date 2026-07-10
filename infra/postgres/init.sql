@@ -151,6 +151,20 @@ CREATE TABLE IF NOT EXISTS period_reports (
   UNIQUE (kind, period_key)
 );
 
+CREATE TABLE IF NOT EXISTS daily_report_entries (
+  id BIGSERIAL PRIMARY KEY,
+  report_date DATE NOT NULL,
+  position INTEGER NOT NULL,
+  event_id TEXT NOT NULL,
+  raw_article_id TEXT NOT NULL REFERENCES raw_articles(id),
+  reason_snapshot TEXT NOT NULL DEFAULT '',
+  score_at_selection DOUBLE PRECISION NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (report_date, position)
+);
+
+CREATE INDEX IF NOT EXISTS ix_daily_report_entries_report_date ON daily_report_entries(report_date);
+
 CREATE TABLE IF NOT EXISTS refresh_schedule (
   id BIGSERIAL PRIMARY KEY,
   enabled BOOLEAN NOT NULL DEFAULT false,

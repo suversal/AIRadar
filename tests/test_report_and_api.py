@@ -161,6 +161,9 @@ class ReportAndAPITests(unittest.TestCase):
         self.assertEqual(latest["updated_at"], "2026-07-07T14:30:00+00:00")
         self.assertEqual(daily["latest_published_at"], "2026-07-01T09:00:00+00:00")
         self.assertEqual(latest["items"][0]["event_id"], "c1")
+        # entries resolution (daily_report_entries) needs this to resolve
+        # items live instead of trusting the frozen snapshot
+        self.assertEqual(latest["items"][0]["raw_article_id"], "a1")
         self.assertEqual(latest["items"][0]["main_source"]["name"], "OpenAI Blog")
         self.assertEqual(
             latest["items"][0]["original_paragraphs"],

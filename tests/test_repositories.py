@@ -87,6 +87,108 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(latest_payload["report_date"], "2026-07-02")
         self.assertEqual(latest_payload["article_count"], 3)
 
+    def test_daily_report_resolves_items_live_from_entries_when_present(self):
+        # 去快照化核心行为：有 daily_report_entries 时，精选/日报的 items
+        # 必须是当前实时数据（含后台治理结果），而不是生成当天固化的快照。
+        from app.repositories.radar_repository import RadarRepository
+
+        report_date = date(2026, 7, 1)
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([self._article(article_id="a1", title="旧标题快照")])
+            repository.upsert_processed_articles([self._processed("a1")])
+            repository.upsert_daily_report(self._report(report_date, article_count=1))
+            repository.replace_daily_report_entries(
+                report_date,
+                [
+                    {
+                        "event_id": "aa1",
+                        "raw_article_id": "a1",
+                        "reason": "生成当天的推荐理由快照",
+                        "final_score": 88.0,
+                    }
+                ],
+            )
+            session.commit()
+
+            # 后台把标题改了——实时数据应该反映这个修改，快照里的旧标题不应该出现
+            repository.update_event_moderation("aa1", {"title_zh": "治理后的新标题"})
+            session.commit()
+
+            payload = repository.get_daily_report_payload(report_date)
+
+        self.assertEqual(len(payload["items"]), 1)
+        item = payload["items"][0]
+        self.assertEqual(item["title"], "治理后的新标题")
+        # 当日推荐语是编辑决策，来自 entries 快照而不是 processed_articles 当前值
+        self.assertEqual(item["reason"], "生成当天的推荐理由快照")
+        self.assertEqual(payload["article_count"], 1)
+        self.assertEqual(payload["sections"]["model"][0]["title"], "治理后的新标题")
+
+    def test_daily_report_hides_moderated_article_immediately(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        report_date = date(2026, 7, 1)
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([self._article(article_id="a1", title="将被隐藏")])
+            repository.upsert_processed_articles([self._processed("a1")])
+            repository.upsert_daily_report(self._report(report_date, article_count=1))
+            repository.replace_daily_report_entries(
+                report_date,
+                [{"event_id": "aa1", "raw_article_id": "a1", "reason": "理由", "final_score": 88.0}],
+            )
+            session.commit()
+
+            repository.update_event_moderation("aa1", {"hidden": True})
+            session.commit()
+
+            payload = repository.get_daily_report_payload(report_date)
+
+        self.assertEqual(payload["items"], [])
+        self.assertEqual(payload["article_count"], 0)
+
+    def test_daily_report_falls_back_to_snapshot_without_entries(self):
+        # 历史数据（Phase A 之前生成的日报）没有 entries 行，必须继续能读。
+        from app.repositories.radar_repository import RadarRepository
+
+        report_date = date(2026, 7, 1)
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_daily_report(self._report(report_date, article_count=2))
+            session.commit()
+
+            payload = repository.get_daily_report_payload(report_date)
+
+        self.assertEqual(payload["items"][0]["title"], "精选 2")
+
+    def test_get_event_items_by_ids_preserves_order_and_skips_hidden(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles(
+                [
+                    self._article(article_id="a1", title="第一篇", url_hash="u1"),
+                    self._article(article_id="a2", title="第二篇", url_hash="u2"),
+                    self._article(article_id="a3", title="第三篇", url_hash="u3"),
+                ]
+            )
+            repository.upsert_processed_articles(
+                [self._processed("a1"), self._processed("a2"), self._processed("a3")]
+            )
+            session.commit()
+            repository.update_event_moderation("aa2", {"hidden": True})
+            session.commit()
+
+            items = repository.get_event_items_by_ids(["aa3", "aa2", "aa1", "unknown-id"])
+
+        # a2 隐藏被剔除，unknown-id 解析不到被跳过，顺序按传入顺序保留
+        self.assertEqual([item["event_id"] for item in items], ["aa3", "aa1"])
+
     def test_daily_report_payloads_between_returns_range_in_ascending_order(self):
         from app.repositories.radar_repository import RadarRepository
 

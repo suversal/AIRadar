@@ -5,12 +5,13 @@ from datetime import date, datetime, time, timezone
 from typing import Any, Optional
 
 try:
-    from sqlalchemy import select
+    from sqlalchemy import delete, select
     from sqlalchemy.orm import Session
 except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard for local stdlib tests
     raise RuntimeError("SQLAlchemy is required for database repositories.") from exc
 
 from app.db.models import (
+    DailyReportEntryModel,
     DailyReportModel,
     PeriodReportModel,
     EventClusterArticleModel,
@@ -95,7 +96,85 @@ class RadarRepository:
         )
         if model is None:
             return None
-        return _daily_report_payload(model)
+        return self._resolve_daily_report_payload(model)
+
+    def replace_daily_report_entries(self, report_date: date, entries: list[dict[str, Any]]) -> None:
+        """Persist the masthead (which events, in what order, with what
+        recommendation text) for a report date. Content is never stored here -
+        it is always resolved live at read time via get_event_items_by_ids."""
+        self.session.execute(
+            delete(DailyReportEntryModel).where(DailyReportEntryModel.report_date == report_date)
+        )
+        for position, entry in enumerate(entries):
+            self.session.add(
+                DailyReportEntryModel(
+                    report_date=report_date,
+                    position=position,
+                    event_id=str(entry["event_id"]),
+                    raw_article_id=str(entry["raw_article_id"]),
+                    reason_snapshot=str(entry.get("reason") or ""),
+                    score_at_selection=float(entry.get("final_score") or 0.0),
+                )
+            )
+        self.session.flush()
+
+    def get_daily_report_entries(self, report_date: date) -> list[dict[str, Any]]:
+        models = self.session.scalars(
+            select(DailyReportEntryModel)
+            .where(DailyReportEntryModel.report_date == report_date)
+            .order_by(DailyReportEntryModel.position)
+        ).all()
+        return [
+            {
+                "event_id": model.event_id,
+                "raw_article_id": model.raw_article_id,
+                "reason_snapshot": model.reason_snapshot,
+                "score_at_selection": model.score_at_selection,
+            }
+            for model in models
+        ]
+
+    def get_event_items_by_ids(self, event_ids: list[str]) -> list[dict[str, Any]]:
+        """Batch-resolve events to their current live content, preserving
+        the given order. Hidden or unresolvable ids are silently skipped -
+        callers (report masthead resolution) treat a shorter result as
+        normal, not an error."""
+        items = []
+        for event_id in event_ids:
+            row = self._resolve_processed_row(event_id)
+            if row is None:
+                continue
+            processed, raw, source = row
+            if processed.status == "hidden":
+                continue
+            items.append(_event_item(processed, raw, source, include_content=True))
+        return items
+
+    def _resolve_daily_report_payload(self, model: DailyReportModel) -> dict[str, Any]:
+        payload = _daily_report_payload(model)
+        entries = self.get_daily_report_entries(model.report_date)
+        if not entries:
+            return payload
+
+        reason_by_event = {entry["event_id"]: entry["reason_snapshot"] for entry in entries}
+        items = self.get_event_items_by_ids([entry["event_id"] for entry in entries])
+        # note: an empty result here is not a signal to fall back - it can
+        # legitimately mean every selected article is currently hidden, and
+        # showing stale snapshot content instead would defeat the whole
+        # point of resolving live (a moderated-away article must disappear)
+        for item in items:
+            snapshot_reason = reason_by_event.get(item["event_id"])
+            if snapshot_reason:
+                item["reason"] = snapshot_reason
+
+        sections: dict[str, list[dict[str, Any]]] = {}
+        for item in items:
+            sections.setdefault(item["category"], []).append(item)
+
+        payload["items"] = items
+        payload["sections"] = sections
+        payload["article_count"] = len(items)
+        return payload
 
     def upsert_processed_articles(self, processed_articles: list[ProcessedArticle]) -> WriteResult:
         inserted = 0
@@ -520,7 +599,7 @@ class RadarRepository:
             .where(DailyReportModel.report_date <= end_date)
             .order_by(DailyReportModel.report_date.asc())
         )
-        return [_daily_report_payload(model) for model in models]
+        return [self._resolve_daily_report_payload(model) for model in models]
 
     def get_latest_daily_report_payload(self) -> Optional[dict[str, Any]]:
         model = self.session.scalar(
@@ -528,7 +607,7 @@ class RadarRepository:
         )
         if model is None:
             return None
-        return _daily_report_payload(model)
+        return self._resolve_daily_report_payload(model)
 
     def _raw_article_exists(self, url_hash: str) -> bool:
         return (

@@ -43,8 +43,19 @@ class PipelinePersistenceTests(unittest.TestCase):
         daily_report = DailyReport(
             report_date=date(2026, 7, 1),
             markdown="# report",
-            json_data={"report_date": "2026-07-01", "items": [], "article_count": 0},
-            article_count=0,
+            json_data={
+                "report_date": "2026-07-01",
+                "items": [
+                    {
+                        "event_id": "c1",
+                        "raw_article_id": "a1",
+                        "reason": "推荐理由",
+                        "final_score": 88.0,
+                    }
+                ],
+                "article_count": 1,
+            },
+            article_count=1,
         )
         result = PipelineResult(
             raw_articles=[article],
@@ -66,14 +77,31 @@ class PipelinePersistenceTests(unittest.TestCase):
                 "event_clusters",
                 "processed_articles",
                 "daily_report",
+                "daily_report_entries",
                 "pipeline_run",
             ],
         )
         self.assertEqual(summary.sources.inserted, 1)
         self.assertEqual(summary.raw_articles.inserted, 1)
-        self.assertEqual(summary.daily_report.updated, 1)
+        self.assertEqual(summary.daily_report.updated, 2)
         self.assertIsNotNone(summary.processed_articles)
         self.assertIsNotNone(summary.event_clusters)
+        # masthead entries are derived from the report's own items, not
+        # re-fetched separately - keeps write side and content in lockstep
+        self.assertEqual(
+            repository.entries_written,
+            (
+                date(2026, 7, 1),
+                [
+                    {
+                        "event_id": "c1",
+                        "raw_article_id": "a1",
+                        "reason": "推荐理由",
+                        "final_score": 88.0,
+                    }
+                ],
+            ),
+        )
 
 
 class FakeWriteResult:
@@ -86,6 +114,7 @@ class FakeWriteResult:
 class FakeRepository:
     def __init__(self):
         self.calls = []
+        self.entries_written = None
 
     def upsert_sources(self, sources):
         self.calls.append("sources")
@@ -98,6 +127,10 @@ class FakeRepository:
     def upsert_daily_report(self, report):
         self.calls.append("daily_report")
         return FakeWriteResult(updated=report.article_count + 1)
+
+    def replace_daily_report_entries(self, report_date, entries):
+        self.calls.append("daily_report_entries")
+        self.entries_written = (report_date, entries)
 
     def upsert_processed_articles(self, processed_articles):
         self.calls.append("processed_articles")

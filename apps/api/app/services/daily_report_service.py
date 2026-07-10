@@ -146,6 +146,7 @@ def build_daily_json(
         items.append(
             {
                 "event_id": cluster.id,
+                "raw_article_id": article.id,
                 "title": processed.title_zh,
                 "category": display_category(processed.category),
                 "category_label": category_label(processed.category),
