@@ -1,7 +1,5 @@
-import { getDailyReport, getLatestReport } from "@/lib/api";
+import { getDailyArchive, getDailyReport, getLatestReport } from "@/lib/api";
 import { eventHref } from "@/lib/events";
-import { CopyMarkdownButton } from "./copy-markdown-button";
-import { buildDailyMarkdown } from "@/lib/markdown";
 import { buildDailyDigest, latestToDailyReport } from "../reports/report-data";
 import { ReportShell } from "../reports/report-shell";
 
@@ -17,14 +15,6 @@ async function loadReport() {
   }
 }
 
-function formatArchiveMonth(reportDate: string) {
-  const parsed = new Date(`${reportDate}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) {
-    return "日报归档";
-  }
-  return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long" }).format(parsed);
-}
-
 function formatChineseDate(reportDate: string) {
   const parsed = new Date(`${reportDate}T00:00:00`);
   if (Number.isNaN(parsed.getTime())) {
@@ -38,31 +28,51 @@ function formatChineseDate(reportDate: string) {
   }).format(parsed);
 }
 
+function groupDatesByMonth(dates: string[]) {
+  const groups = new Map<string, string[]>();
+  for (const value of dates) {
+    const month = value.slice(0, 7);
+    groups.set(month, [...(groups.get(month) ?? []), value]);
+  }
+  return Array.from(groups.entries());
+}
+
 export default async function DailyPage() {
-  const report = await loadReport();
+  const [report, archiveDates] = await Promise.all([loadReport(), getDailyArchive()]);
+  const monthGroups = groupDatesByMonth(archiveDates);
   const digest = buildDailyDigest(report);
-  const markdown = buildDailyMarkdown(report);
 
   return (
     <ReportShell
       activeMode="daily"
       secondary={
         <div className="mt-6">
-          <div className="text-sm font-semibold text-ink-mid">
-            {formatArchiveMonth(report.report_date)}
-          </div>
-          <a
-            className="mt-3 grid grid-cols-[36px_1fr] gap-3 rounded-md bg-signal/10 px-3 py-3 text-sm text-signal-bright"
-            href="/daily"
-          >
-            <span>{report.report_date.slice(-2)} 日</span>
-            <span className="line-clamp-2">{report.items[0]?.title ?? "最新 AI 日报"}</span>
-          </a>
-          <div className="mt-5 border-t border-line pt-4 text-sm text-ink-dim">
-            <a className="hover:text-ink" href="/daily">
-              全部日报
-            </a>
-          </div>
+          {monthGroups.length === 0 ? (
+            <p className="text-xs leading-5 text-ink-dim">日报归档随每日生成自动积累</p>
+          ) : (
+            monthGroups.map(([month, dates]) => (
+              <div key={month} className="mb-5">
+                <div className="readout text-xs font-semibold text-ink-dim">
+                  {month.replace("-", " 年 ")} 月
+                </div>
+                <div className="mt-2 space-y-1">
+                  {dates.map((value) => (
+                    <a
+                      key={value}
+                      className={`block rounded-md px-3 py-2 text-sm transition ${
+                        value === report.report_date
+                          ? "bg-signal/10 text-signal-bright"
+                          : "text-ink-mid hover:bg-panel-soft hover:text-ink"
+                      }`}
+                      href={`/daily/${value}`}
+                    >
+                      <span className="readout">{value.slice(-2)} 日</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       }
     >
@@ -79,12 +89,32 @@ export default async function DailyPage() {
             <span className="text-ink">AI</span>
             <span className="text-signal">·RADAR</span> 日报
           </h1>
-          <div className="mt-8 grid items-center gap-4 text-sm text-ink-mid md:grid-cols-[auto_1fr_auto_auto]">
+          <div className="mt-8 grid items-center gap-4 text-sm text-ink-mid md:grid-cols-[auto_1fr_auto]">
             <span>{formatChineseDate(report.report_date)}</span>
             <span className="hidden h-px bg-panel-soft md:block" />
             <span>DAILY · 每日八时</span>
-            <CopyMarkdownButton markdown={markdown} />
           </div>
+          {(() => {
+            const index = archiveDates.indexOf(report.report_date);
+            const newer = index > 0 ? archiveDates[index - 1] : null;
+            const older =
+              index >= 0 && index < archiveDates.length - 1 ? archiveDates[index + 1] : null;
+            if (!newer && !older) return null;
+            return (
+              <div className="readout mt-4 flex gap-4 text-xs text-ink-dim">
+                {older ? (
+                  <a className="hover:text-signal" href={`/daily/${older}`}>
+                    ← 前一日 {older}
+                  </a>
+                ) : null}
+                {newer ? (
+                  <a className="hover:text-signal" href={`/daily/${newer}`}>
+                    后一日 {newer} →
+                  </a>
+                ) : null}
+              </div>
+            );
+          })()}
         </header>
 
         <section className="rounded-md border border-line bg-panel p-5">

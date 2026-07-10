@@ -82,18 +82,29 @@ function resolveRange(period: PeriodReport) {
   return `${today} ~ ${today}`;
 }
 
-function mainlineFor(highlights: ReportHighlight[], mode: PeriodMode) {
+function mainlineFor(
+  period: PeriodReport,
+  highlights: ReportHighlight[],
+  mode: PeriodMode,
+) {
+  // the AI-written interval summary is the whole point of a period report;
+  // fall back to a template only when it has not been generated yet
+  if (period.generated && period.mainline_title && period.mainline_body) {
+    return { title: period.mainline_title, body: period.mainline_body, ai: true };
+  }
+  const prefix = mode === "weekly" ? "本周" : "本月";
   const top = highlights[0];
   if (!top) {
     return {
-      title: mode === "weekly" ? "本周 AI 动态等待生成" : "本月 AI 动态等待生成",
-      body: "当前还没有足够事件形成主线。刷新日报后，这里会自动聚合本期主线。",
+      title: `${prefix} AI 动态等待生成`,
+      body: "当前还没有足够事件形成主线。刷新日报后，本期 AI 综述将自动生成。",
+      ai: false,
     };
   }
-  const prefix = mode === "weekly" ? "本周" : "本月";
   return {
     title: `${top.label}成为${prefix}主线`,
-    body: `${prefix} AI 动态围绕“${top.label}”集中展开，代表事件包括“${top.title}”。系统从当前可读事件中抽取主题、评分、标签和来源信号，形成这份周期综述。`,
+    body: `${prefix} AI 动态围绕“${top.label}”集中展开，代表事件包括“${top.title}”。本期 AI 综述将在下次日报刷新后生成。`,
+    ai: false,
   };
 }
 
@@ -102,7 +113,7 @@ export function buildPeriodDigest(period: PeriodReport, mode: PeriodMode) {
   const highlights = summarizeCategoryHighlights(items, mode === "monthly" ? 5 : 6);
   const uniqueTags = new Set(items.flatMap((item) => item.tags ?? []));
   const range = resolveRange(period);
-  const mainline = mainlineFor(highlights, mode);
+  const mainline = mainlineFor(period, highlights, mode);
   const selectedCount = items.filter((item) => (item.final_score ?? 0) >= 65).length;
   const coveredDays = Math.max(period.report_dates.length, 1);
 
@@ -110,10 +121,11 @@ export function buildPeriodDigest(period: PeriodReport, mode: PeriodMode) {
     mode,
     title: mode === "weekly" ? "AI·RADAR 周报" : "AI·RADAR 月报",
     label: mode === "weekly" ? "WEEKLY" : "MONTHLY",
-    issueMeta:
-      mode === "weekly"
-        ? `VOL.${range.slice(0, 4)}-W · ${items.length} STORIES · AI RADAR WEEKLY`
-        : `VOL.${range.slice(0, 7)} · ${items.length} STORIES · AI RADAR MONTHLY`,
+    issueMeta: `VOL.${period.period_key ?? range.slice(0, 7)} · ${items.length} STORIES · AI RADAR ${
+      mode === "weekly" ? "WEEKLY" : "MONTHLY"
+    }`,
+    periodKey: period.period_key ?? "",
+    themeNotes: period.theme_notes ?? [],
     range,
     mainline,
     highlights,

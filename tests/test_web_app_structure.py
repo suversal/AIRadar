@@ -131,11 +131,12 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("/api/public/daily/", api_source)
         self.assertIn("getDailyReport", api_source)
         self.assertIn("getLatestReport", daily_index)
+        self.assertIn("getDailyArchive", daily_index)
         self.assertIn("AI·RADAR 日报", daily_index)
         self.assertIn("今日看点", daily_index)
         self.assertIn("ReportShell", daily_index)
         self.assertIn("buildDailyDigest", daily_index)
-        self.assertIn("CopyMarkdownButton", daily_index)
+        self.assertNotIn("CopyMarkdownButton", daily_index)  # moved off the daily view
         self.assertNotIn("redirect", daily_index)
         self.assertIn("params", daily_date)
         self.assertIn("DailyReportView", daily_date)

@@ -118,6 +118,12 @@ export type AllEventsPayload = {
 
 export type PeriodReport = {
   mode: "weekly" | "monthly";
+  period_key?: string;
+  generated?: boolean;
+  mainline_title?: string;
+  mainline_body?: string;
+  theme_notes?: { label: string; note: string }[];
+  summary_status?: string;
   range_start: string;
   range_end: string;
   report_dates: string[];
@@ -125,6 +131,14 @@ export type PeriodReport = {
   article_count: number;
   items: LatestEvent[];
   error?: string | null;
+};
+
+export type PeriodArchiveEntry = {
+  period_key: string;
+  range_start: string;
+  range_end: string;
+  mainline_title: string;
+  article_count: number;
 };
 
 function emptyAllEvents(error: string): AllEventsPayload {
@@ -176,9 +190,15 @@ function emptyPeriodReport(mode: "weekly" | "monthly", error: string): PeriodRep
   };
 }
 
-export async function getPeriodReport(mode: "weekly" | "monthly"): Promise<PeriodReport> {
+export async function getPeriodReport(
+  mode: "weekly" | "monthly",
+  periodKey?: string,
+): Promise<PeriodReport> {
+  const path = periodKey
+    ? `/api/public/reports/${mode}/${encodeURIComponent(periodKey)}`
+    : `/api/public/reports/${mode}`;
   try {
-    const response = await fetch(`${getApiBaseUrl()}/api/public/reports/${mode}`, {
+    const response = await fetch(`${getApiBaseUrl()}${path}`, {
       cache: "no-store",
     });
     if (!response.ok) {
@@ -226,6 +246,36 @@ export async function getTopics(): Promise<TopicsPayload> {
     return { ...payload, error: null };
   } catch (error) {
     return { groups: [], article_count: 0, error: latestLoadErrorMessage(error) };
+  }
+}
+
+export async function getPeriodArchive(
+  mode: "weekly" | "monthly",
+): Promise<PeriodArchiveEntry[]> {
+  try {
+    const response = await fetch(`${getApiBaseUrl()}/api/public/reports/${mode}/archive`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return [];
+    }
+    return ((await response.json()).entries ?? []) as PeriodArchiveEntry[];
+  } catch {
+    return [];
+  }
+}
+
+export async function getDailyArchive(): Promise<string[]> {
+  try {
+    const response = await fetch(`${getApiBaseUrl()}/api/public/reports/daily/archive`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return [];
+    }
+    return ((await response.json()).dates ?? []) as string[];
+  } catch {
+    return [];
   }
 }
 
