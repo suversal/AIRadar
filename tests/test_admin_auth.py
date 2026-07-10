@@ -62,10 +62,9 @@ class AdminAuthTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
 
     def test_admin_routes_disabled_without_configured_token(self):
-        with patch.dict("os.environ", {}, clear=False):
-            import os
-
-            os.environ.pop("ADMIN_TOKEN", None)
+        # empty string survives load_env_file's setdefault semantics, unlike
+        # popping the key (create_app reloads .env which now defines it)
+        with patch.dict("os.environ", {"ADMIN_TOKEN": ""}):
             client = self._client()
 
             response = client.get(
