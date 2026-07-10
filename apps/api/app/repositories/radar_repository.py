@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Optional
 
 try:
@@ -11,6 +11,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard for lo
     raise RuntimeError("SQLAlchemy is required for database repositories.") from exc
 
 from app.db.models import (
+    ArticleEmbeddingModel,
     DailyReportEntryModel,
     DailyReportModel,
     PeriodReportModel,
@@ -23,6 +24,7 @@ from app.db.models import (
     SourceModel,
 )
 from app.models.domain import DailyReport, EventCluster, ProcessedArticle, RawArticle, Source
+from app.services.clustering_service import cosine_similarity
 from app.services.taxonomy import category_label, display_category
 
 
@@ -194,34 +196,158 @@ class RadarRepository:
             _apply_processed_article(model, processed)
         return WriteResult(inserted=inserted, updated=updated)
 
-    def upsert_event_clusters(self, clusters: list[EventCluster]) -> WriteResult:
+    def upsert_article_embedding(
+        self,
+        raw_article_id: str,
+        *,
+        embedding_model: str,
+        vector: list[float],
+        source_hash: str,
+    ) -> None:
+        model = self.session.scalar(
+            select(ArticleEmbeddingModel).where(
+                ArticleEmbeddingModel.raw_article_id == raw_article_id
+            )
+        )
+        if model is None:
+            model = ArticleEmbeddingModel(raw_article_id=raw_article_id)
+            self.session.add(model)
+        model.embedding_model = embedding_model
+        model.content_vector = vector
+        model.source_hash = source_hash
+        self.session.flush()
+
+    def get_article_embedding_source_hash(self, raw_article_id: str) -> Optional[str]:
+        model = self.session.scalar(
+            select(ArticleEmbeddingModel).where(
+                ArticleEmbeddingModel.raw_article_id == raw_article_id
+            )
+        )
+        return model.source_hash if model else None
+
+    def _get_embedding_vector(self, raw_article_id: str) -> Optional[list[float]]:
+        model = self.session.scalar(
+            select(ArticleEmbeddingModel).where(
+                ArticleEmbeddingModel.raw_article_id == raw_article_id
+            )
+        )
+        if model is None or model.content_vector is None:
+            return None
+        return list(model.content_vector)
+
+    def find_similar_recent_event(
+        self, vector: list[float], *, since: datetime, threshold: float = 0.85
+    ) -> Optional[str]:
+        """Cross-day multi-source aggregation: is there an already-published
+        event whose main article is close enough to this vector within the
+        sliding window? Similarity is computed in Python (not pgvector's
+        Postgres-only <=> operator) so this stays testable against the
+        SQLite-based test suite; correctness matters far more here than
+        pushing the comparison into SQL."""
+        candidates = self.session.execute(
+            select(
+                EventClusterModel.id,
+                EventClusterModel.last_seen_at,
+                ArticleEmbeddingModel.content_vector,
+            ).join(
+                ArticleEmbeddingModel,
+                ArticleEmbeddingModel.raw_article_id == EventClusterModel.main_article_id,
+            )
+        ).all()
+        best_id: Optional[str] = None
+        best_score = threshold
+        for event_id, last_seen_at, candidate_vector in candidates:
+            if candidate_vector is None or _ensure_utc(last_seen_at) < _ensure_utc(since):
+                continue
+            score = cosine_similarity(vector, list(candidate_vector))
+            if score >= best_score:
+                best_score = score
+                best_id = event_id
+        return best_id
+
+    def _count_distinct_sources(self, event_cluster_id: str) -> int:
+        rows = self.session.execute(
+            select(RawArticleModel.source_id)
+            .join(
+                EventClusterArticleModel,
+                EventClusterArticleModel.raw_article_id == RawArticleModel.id,
+            )
+            .where(EventClusterArticleModel.event_cluster_id == event_cluster_id)
+            .distinct()
+        ).all()
+        return len(rows)
+
+    def upsert_event_clusters(
+        self,
+        clusters: list[EventCluster],
+        *,
+        cluster_window_hours: int = 72,
+        similarity_threshold: float = 0.85,
+    ) -> WriteResult:
         inserted = 0
         updated = 0
         for cluster in clusters:
             model = self.session.get(EventClusterModel, cluster.id)
+            target_id = cluster.id
+
             if model is None:
-                model = EventClusterModel(id=cluster.id)
+                main_vector = self._get_embedding_vector(cluster.main_article_id)
+                if main_vector is not None:
+                    since = cluster.last_seen_at - timedelta(hours=cluster_window_hours)
+                    matched_id = self.find_similar_recent_event(
+                        main_vector, since=since, threshold=similarity_threshold
+                    )
+                    if matched_id is not None:
+                        target_id = matched_id
+                        model = self.session.get(EventClusterModel, target_id)
+
+            if model is None:
+                model = EventClusterModel(id=target_id)
                 self.session.add(model)
                 inserted += 1
+                _apply_event_cluster(model, cluster)
             else:
                 updated += 1
-            _apply_event_cluster(model, cluster)
+                # a lower-scoring later bucket must not steal the main-article
+                # slot or overwrite the title/summary of the existing event
+                if cluster.final_score > model.final_score:
+                    _apply_event_cluster(model, cluster)
+                else:
+                    model.last_seen_at = max(
+                        _ensure_utc(model.last_seen_at), _ensure_utc(cluster.last_seen_at)
+                    )
+
             existing_memberships = self.session.scalars(
                 select(EventClusterArticleModel).where(
-                    EventClusterArticleModel.event_cluster_id == cluster.id
+                    EventClusterArticleModel.event_cluster_id == target_id
                 )
             ).all()
-            for membership in existing_memberships:
-                self.session.delete(membership)
-            for priority, article_id in enumerate(cluster.article_ids):
+            existing_article_ids = {membership.raw_article_id for membership in existing_memberships}
+            next_priority = len(existing_memberships)
+            # never delete-and-recreate memberships here: that would reset
+            # joined_at for every pre-existing member on every later merge
+            for article_id in cluster.article_ids:
+                if article_id in existing_article_ids:
+                    continue
                 self.session.add(
                     EventClusterArticleModel(
-                        event_cluster_id=cluster.id,
+                        event_cluster_id=target_id,
                         raw_article_id=article_id,
-                        is_main=article_id == cluster.main_article_id,
-                        source_priority=priority,
+                        is_main=False,
+                        source_priority=next_priority,
                     )
                 )
+                next_priority += 1
+
+            all_memberships = self.session.scalars(
+                select(EventClusterArticleModel).where(
+                    EventClusterArticleModel.event_cluster_id == target_id
+                )
+            ).all()
+            for membership in all_memberships:
+                membership.is_main = membership.raw_article_id == model.main_article_id
+
+            model.source_count = self._count_distinct_sources(target_id)
         self.session.flush()
         return WriteResult(inserted=inserted, updated=updated)
 
@@ -637,11 +763,15 @@ def _period_report_payload(model: PeriodReportModel) -> dict[str, Any]:
 def _as_utc_isoformat(value: Optional[datetime]) -> Optional[str]:
     if value is None:
         return None
+    return _ensure_utc(value).isoformat()
+
+
+def _ensure_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         # sqlite (unit tests) drops tzinfo on round-trip; Postgres TIMESTAMPTZ
         # always returns aware datetimes, so naive here always means UTC
-        value = value.replace(tzinfo=timezone.utc)
-    return value.isoformat()
+        return value.replace(tzinfo=timezone.utc)
+    return value
 
 
 def _schedule_config_payload(model: RefreshScheduleModel) -> dict[str, Any]:

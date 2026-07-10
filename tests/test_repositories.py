@@ -258,6 +258,200 @@ class RepositoryTests(unittest.TestCase):
             self.assertEqual(run.status, "succeeded")
             self.assertEqual(run.skipped_reasons, {"below_threshold": 3})
 
+    def test_upsert_article_embedding_stores_and_retrieves_source_hash(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([self._article(article_id="a1", title="t")])
+            repository.upsert_article_embedding(
+                "a1", embedding_model="bge-small-zh-v1.5", vector=self._vec([1.0]), source_hash="h1"
+            )
+            session.commit()
+
+            source_hash = repository.get_article_embedding_source_hash("a1")
+
+        self.assertEqual(source_hash, "h1")
+
+    def test_new_cluster_merges_into_existing_recent_event_via_embedding_similarity(self):
+        # 跨天多源聚合核心行为：今天新抓到的文章和 3 天前已有事件的主文
+        # 向量高度相似 → 应该合并进那个已有事件，而不是新建一个。
+        from app.repositories.radar_repository import RadarRepository
+        from app.db.models import EventClusterArticleModel, EventClusterModel
+        from app.models.domain import RawArticle
+
+        old_seen = datetime(2026, 7, 8, 9, tzinfo=timezone.utc)
+        new_seen = datetime(2026, 7, 11, 9, tzinfo=timezone.utc)
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source(), self._other_source()])
+            repository.upsert_raw_articles(
+                [
+                    self._article(article_id="old1", title="旧事件主文", url_hash="u-old"),
+                    RawArticle(
+                        id="new1",
+                        source_id="techcrunch",
+                        source_name="TechCrunch",
+                        source_role="signal",
+                        source_tier="T2",
+                        source_url="https://techcrunch.com/new1",
+                        title="今天的新报道",
+                        content="AI model release",
+                        author="TechCrunch",
+                        published_at=new_seen,
+                        language="en",
+                        raw_score={"score": 1},
+                        metadata={"origin": "fixture"},
+                        title_hash="title-new1",
+                        url_hash="u-new",
+                    ),
+                ]
+            )
+            repository.upsert_article_embedding(
+                "old1", embedding_model="m", vector=self._vec([1.0, 0.0]), source_hash="h-old"
+            )
+            repository.upsert_article_embedding(
+                "new1", embedding_model="m", vector=self._vec([0.99, 0.01]), source_hash="h-new"
+            )
+            existing_cluster = self._cluster("e-old", main_article_id="old1")
+            existing_cluster.first_seen_at = old_seen
+            existing_cluster.last_seen_at = old_seen
+            repository.upsert_event_clusters([existing_cluster])
+            session.commit()
+            old_membership = session.scalar(
+                select(EventClusterArticleModel).where(
+                    EventClusterArticleModel.raw_article_id == "old1"
+                )
+            )
+            original_joined_at = old_membership.joined_at
+
+            new_cluster = self._cluster("e-new-bucket", main_article_id="new1")
+            new_cluster.article_ids = ["new1"]
+            new_cluster.final_score = 50.0  # lower than existing event's 88.0
+            new_cluster.first_seen_at = new_seen
+            new_cluster.last_seen_at = new_seen
+            result = repository.upsert_event_clusters(
+                [new_cluster], cluster_window_hours=168, similarity_threshold=0.9
+            )
+            session.commit()
+
+            all_clusters = session.scalars(select(EventClusterModel)).all()
+            merged = session.get(EventClusterModel, "e-old")
+            memberships = session.scalars(
+                select(EventClusterArticleModel).where(
+                    EventClusterArticleModel.event_cluster_id == "e-old"
+                )
+            ).all()
+            old_membership_after = session.scalar(
+                select(EventClusterArticleModel).where(
+                    EventClusterArticleModel.raw_article_id == "old1"
+                )
+            )
+
+        self.assertEqual(len(all_clusters), 1)  # no new event_clusters row created
+        self.assertEqual(result.inserted, 0)
+        self.assertEqual(result.updated, 1)
+        self.assertEqual({m.raw_article_id for m in memberships}, {"old1", "new1"})
+        self.assertEqual(merged.source_count, 2)
+        # lower-scoring new article must not steal the main slot
+        self.assertEqual(merged.main_article_id, "old1")
+        self.assertEqual(merged.last_seen_at.replace(tzinfo=timezone.utc), new_seen)
+        # pre-existing member's joined_at is never reset by a later merge
+        self.assertEqual(old_membership_after.joined_at, original_joined_at)
+
+    def test_new_cluster_adopts_main_when_it_outscores_existing_event(self):
+        from app.repositories.radar_repository import RadarRepository
+        from app.db.models import EventClusterModel
+        from app.models.domain import RawArticle
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source(), self._other_source()])
+            repository.upsert_raw_articles(
+                [
+                    self._article(article_id="old1", title="旧主文", url_hash="u-old"),
+                    RawArticle(
+                        id="new1",
+                        source_id="techcrunch",
+                        source_name="TechCrunch",
+                        source_role="signal",
+                        source_tier="T2",
+                        source_url="https://techcrunch.com/new1",
+                        title="更高分的新报道",
+                        content="AI model release",
+                        author="TechCrunch",
+                        published_at=datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+                        language="en",
+                        raw_score={"score": 1},
+                        metadata={"origin": "fixture"},
+                        title_hash="title-new1",
+                        url_hash="u-new",
+                    ),
+                ]
+            )
+            repository.upsert_article_embedding(
+                "old1", embedding_model="m", vector=self._vec([1.0, 0.0]), source_hash="h-old"
+            )
+            repository.upsert_article_embedding(
+                "new1", embedding_model="m", vector=self._vec([0.99, 0.01]), source_hash="h-new"
+            )
+            repository.upsert_event_clusters([self._cluster("e-old", main_article_id="old1")])
+            session.commit()
+
+            new_cluster = self._cluster("e-new-bucket", main_article_id="new1")
+            new_cluster.article_ids = ["new1"]
+            new_cluster.final_score = 99.0  # higher than existing event's 88.0
+            new_cluster.event_title = "更高分的新报道标题"
+            repository.upsert_event_clusters(
+                [new_cluster], cluster_window_hours=168, similarity_threshold=0.9
+            )
+            session.commit()
+
+            merged = session.get(EventClusterModel, "e-old")
+
+        self.assertEqual(merged.main_article_id, "new1")
+        self.assertEqual(merged.event_title, "更高分的新报道标题")
+        self.assertEqual(merged.final_score, 99.0)
+
+    def test_new_cluster_stays_separate_without_similar_recent_event(self):
+        from app.repositories.radar_repository import RadarRepository
+        from app.db.models import EventClusterModel
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles(
+                [
+                    self._article(article_id="old1", title="不相关的旧事件", url_hash="u-old"),
+                    self._article(article_id="new1", title="全新的事件", url_hash="u-new"),
+                ]
+            )
+            repository.upsert_article_embedding(
+                "old1", embedding_model="m", vector=self._vec([1.0, 0.0]), source_hash="h-old"
+            )
+            repository.upsert_article_embedding(
+                "new1", embedding_model="m", vector=self._vec([0.0, 1.0]), source_hash="h-new"
+            )
+            repository.upsert_event_clusters([self._cluster("e-old", main_article_id="old1")])
+            session.commit()
+
+            new_cluster = self._cluster("e-new-bucket", main_article_id="new1")
+            new_cluster.article_ids = ["new1"]
+            result = repository.upsert_event_clusters(
+                [new_cluster], cluster_window_hours=168, similarity_threshold=0.9
+            )
+            session.commit()
+
+            all_clusters = session.scalars(select(EventClusterModel)).all()
+
+        self.assertEqual(len(all_clusters), 2)
+        self.assertEqual(result.inserted, 1)
+
+    def _vec(self, leading_dims: list[float]) -> list[float]:
+        return list(leading_dims) + [0.0] * (512 - len(leading_dims))
+
     def test_cached_results_by_url_hash_return_scoring_and_metadata(self):
         from app.repositories.radar_repository import RadarRepository
 
@@ -715,6 +909,21 @@ class RepositoryTests(unittest.TestCase):
             allowed_domains=["openai.com"],
             can_be_main_source=True,
             config={"priority": "high"},
+        )
+
+    def _other_source(self):
+        return Source(
+            id="techcrunch",
+            name="TechCrunch",
+            source_role="signal",
+            tier="T2",
+            type="rss",
+            category="news",
+            url="https://techcrunch.com/rss.xml",
+            homepage="https://techcrunch.com",
+            allowed_domains=["techcrunch.com"],
+            can_be_main_source=True,
+            config={},
         )
 
     def _article(self, *, article_id: str, title: str, url_hash: str = "same-url"):
