@@ -20,6 +20,7 @@ class WebAppStructureTests(unittest.TestCase):
             "app/page.tsx",
             "app/latest/page.tsx",
             "app/admin/refresh-report-button.tsx",
+            "app/admin/schedule-panel.tsx",
             "app/admin/page.tsx",
             "app/admin/login/page.tsx",
             "middleware.ts",
@@ -108,6 +109,20 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("/api/admin/refresh-latest-async", route_source)
         self.assertIn("export async function GET", route_source)
         self.assertIn("searchParams", route_source)
+
+    def test_admin_dashboard_exposes_schedule_panel(self):
+        panel_source = (WEB / "app" / "admin" / "schedule-panel.tsx").read_text(encoding="utf-8")
+        dashboard_page = (WEB / "app" / "admin" / "page.tsx").read_text(encoding="utf-8")
+        proxy_route = (
+            WEB / "app" / "api" / "admin-proxy" / "[...path]" / "route.ts"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("定时任务", panel_source)
+        self.assertIn("/api/admin-proxy/schedule", panel_source)
+        self.assertIn("interval_minutes", panel_source)
+        self.assertIn("SchedulePanel", dashboard_page)
+        self.assertIn("/api/admin/schedule", dashboard_page)
+        self.assertIn("export async function PUT", proxy_route)
 
     def test_latest_page_supports_category_filter_links(self):
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")

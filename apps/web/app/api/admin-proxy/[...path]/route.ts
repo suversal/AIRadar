@@ -54,3 +54,7 @@ export async function POST(request: Request, { params }: Params) {
 export async function PATCH(request: Request, { params }: Params) {
   return forward(request, (await params).path, "PATCH");
 }
+
+export async function PUT(request: Request, { params }: Params) {
+  return forward(request, (await params).path, "PUT");
+}

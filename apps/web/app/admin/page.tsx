@@ -1,6 +1,7 @@
 import { adminFetch } from "@/lib/admin-api";
 import { AdminShell } from "./admin-shell";
 import { RefreshReportButton } from "./refresh-report-button";
+import { SchedulePanel } from "./schedule-panel";
 
 export const metadata = {
   title: "仪表盘 · AI·RADAR 管理后台",
@@ -65,8 +66,12 @@ function healthTone(source: SourceHealth) {
 }
 
 export default async function AdminDashboardPage() {
-  const response = await adminFetch("/api/admin/overview");
+  const [response, scheduleResponse] = await Promise.all([
+    adminFetch("/api/admin/overview"),
+    adminFetch("/api/admin/schedule"),
+  ]);
   const overview: Overview | null = response.ok ? await response.json() : null;
+  const scheduleConfig = scheduleResponse.ok ? await scheduleResponse.json() : null;
 
   return (
     <AdminShell
@@ -88,6 +93,8 @@ export default async function AdminDashboardPage() {
               </div>
             ))}
           </section>
+
+          <SchedulePanel initialConfig={scheduleConfig} />
 
           <section className="rounded-md border border-line bg-panel p-5">
             <div className="flex flex-wrap items-center justify-between gap-4">
