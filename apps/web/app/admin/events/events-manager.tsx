@@ -62,24 +62,24 @@ export function EventsManager({
   pageSize,
   totalPages,
   total,
-  q,
+  title,
+  category,
 }: {
   initialEvents: AdminEvent[];
   page: number;
   pageSize: number;
   totalPages: number;
   total: number;
-  q: string;
+  title: string;
+  category: string;
 }) {
   const router = useRouter();
   const [filter, setFilter] = useState<Filter>("all");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [editing, setEditing] = useState<AdminEvent | null>(null);
-  const [searchInput, setSearchInput] = useState("");
-  const [searchTerms, setSearchTerms] = useState(() =>
-    q.split(/\s+/).map((term) => term.trim()).filter(Boolean),
-  );
+  const [titleInput, setTitleInput] = useState(title);
+  const [categoryInput, setCategoryInput] = useState(category);
 
   const events = useMemo(() => {
     if (filter === "selected") return initialEvents.filter((event) => event.selected);
@@ -128,23 +128,16 @@ export function EventsManager({
     });
   }
 
-  function addSearchTerm() {
-    const term = searchInput.trim();
-    if (!term || searchTerms.includes(term)) {
-      setSearchInput("");
-      return;
-    }
-    setSearchTerms((prev) => [...prev, term]);
-    setSearchInput("");
-  }
-
   function queryHref(nextPage: number, nextPageSize = pageSize) {
     const params = new URLSearchParams({
       page: String(nextPage),
       page_size: String(nextPageSize),
     });
-    if (q) {
-      params.set("q", q);
+    if (title) {
+      params.set("title", title);
+    }
+    if (category) {
+      params.set("category", category);
     }
     return `/admin/events?${params.toString()}`;
   }
@@ -155,62 +148,49 @@ export function EventsManager({
         <form action="/admin/events" className="space-y-3" method="get">
           <input name="page" type="hidden" value="1" />
           <input name="page_size" type="hidden" value={pageSize} />
-          <input name="q" type="hidden" value={searchTerms.join(" ")} />
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              className="min-w-64 flex-1 rounded-md border border-line bg-canvas px-4 py-2 text-sm text-ink outline-none placeholder:text-ink-dim focus:border-signal/60"
-              onChange={(event) => setSearchInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  addSearchTerm();
-                }
-              }}
-              placeholder="输入关键词后点击添加，可添加多个"
-              type="search"
-              value={searchInput}
-            />
-            <button
-              className="rounded-md border border-line px-4 py-2 text-sm font-semibold text-ink-mid hover:border-signal/40 hover:text-signal"
-              onClick={addSearchTerm}
-              type="button"
-            >
-              添加
-            </button>
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_auto_auto] md:items-end">
+            <label className="block text-xs font-semibold text-ink-dim">
+              标题
+              <input
+                className="mt-1 w-full rounded-md border border-line bg-canvas px-4 py-2 text-sm font-normal text-ink outline-none placeholder:text-ink-dim focus:border-signal/60"
+                name="title"
+                onChange={(event) => setTitleInput(event.target.value)}
+                placeholder="按标题关键词搜索，可用空格分隔多个词"
+                type="search"
+                value={titleInput}
+              />
+            </label>
+            <label className="block text-xs font-semibold text-ink-dim">
+              分类
+              <select
+                className="mt-1 w-full rounded-md border border-line bg-canvas px-4 py-2 text-sm font-normal text-ink outline-none focus:border-signal/60"
+                name="category"
+                onChange={(event) => setCategoryInput(event.target.value)}
+                value={categoryInput}
+              >
+                <option value="">全部分类</option>
+                {CATEGORY_OPTIONS.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button
               className="rounded-md border border-signal bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal-bright"
               type="submit"
             >
               搜索
             </button>
-            {q || searchTerms.length ? (
-              <a className="px-2 text-sm text-ink-dim hover:text-ink" href="/admin/events">
+            {title || category ? (
+              <a className="px-2 py-2 text-sm text-ink-dim hover:text-ink" href="/admin/events">
                 清除
               </a>
             ) : null}
           </div>
-          <div className="flex min-h-8 flex-wrap items-center gap-2">
-            {searchTerms.length ? (
-              searchTerms.map((term) => (
-                <span
-                  key={term}
-                  className="inline-flex items-center gap-2 rounded-md border border-line bg-canvas px-2.5 py-1 text-xs text-ink-mid"
-                >
-                  {term}
-                  <button
-                    aria-label={`移除 ${term}`}
-                    className="text-ink-dim hover:text-red-300"
-                    onClick={() => setSearchTerms((prev) => prev.filter((item) => item !== term))}
-                    type="button"
-                  >
-                    ×
-                  </button>
-                </span>
-              ))
-            ) : (
-              <span className="text-xs text-ink-dim">未添加关键词时显示近 30 天全部内容</span>
-            )}
-          </div>
+          <p className="text-xs text-ink-dim">
+            标题和分类会同时生效；未填写条件时显示近 30 天全部内容。
+          </p>
         </form>
       </section>
 
@@ -317,7 +297,8 @@ export function EventsManager({
         </span>
         <div className="flex flex-wrap items-center gap-2">
           <form action="/admin/events" className="flex items-center gap-2 text-xs text-ink-dim" method="get">
-            <input name="q" type="hidden" value={q} />
+            <input name="title" type="hidden" value={title} />
+            <input name="category" type="hidden" value={category} />
             <input name="page" type="hidden" value="1" />
             每页
             <select
@@ -334,7 +315,8 @@ export function EventsManager({
             </select>
           </form>
           <form action="/admin/events" className="flex items-center gap-2 text-xs text-ink-dim" method="get">
-            <input name="q" type="hidden" value={q} />
+            <input name="title" type="hidden" value={title} />
+            <input name="category" type="hidden" value={category} />
             <input name="page_size" type="hidden" value={pageSize} />
             跳至
             <input

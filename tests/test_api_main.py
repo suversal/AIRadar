@@ -119,10 +119,42 @@ class APIMainTests(unittest.TestCase):
         self.assertEqual(job_payload["result"]["article_count"], 9)
         self.assertEqual(job_payload["result"]["limit"], 20)
 
+    @unittest.skipIf(TestClient is None, "FastAPI is not installed in this environment")
+    def test_admin_events_filters_by_title_and_category(self):
+        module = importlib.import_module("app.main")
+        repository = FakeRepository(
+            {},
+            admin_items=[
+                {"event_id": "evt-1", "title": "Open model benchmark", "category": "research"},
+                {"event_id": "evt-2", "title": "Open model ships", "category": "model_release"},
+                {"event_id": "evt-3", "title": "Vision benchmark", "category": "research"},
+            ],
+        )
+
+        import os
+        from unittest.mock import patch as env_patch
+
+        env = env_patch.dict(os.environ, {"ADMIN_TOKEN": "test-admin"})
+        env.start()
+        self.addCleanup(env.stop)
+        client = TestClient(module.create_app(report_repository_factory=lambda: repository))
+        client.headers.update({"Authorization": "Bearer test-admin"})
+
+        response = client.get("/api/admin/events?title=open&category=research")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(payload["items"][0]["event_id"], "evt-1")
+
+        legacy_response = client.get("/api/admin/events?q=vision")
+        self.assertEqual(legacy_response.json()["items"][0]["event_id"], "evt-3")
+
 
 class FakeRepository:
-    def __init__(self, payloads):
+    def __init__(self, payloads, admin_items=None):
         self.payloads = payloads
+        self.admin_items = admin_items or []
         self.calls = []
 
     def get_latest_daily_report_payload(self):
@@ -135,6 +167,10 @@ class FakeRepository:
     def get_daily_report_payload(self, report_date):
         self.calls.append(f"daily:{report_date.isoformat()}")
         return self.payloads.get(report_date)
+
+    def get_all_event_items_between(self, start_date, end_date, *, include_hidden=False):
+        self.calls.append(f"events:{start_date.isoformat()}:{end_date.isoformat()}")
+        return list(self.admin_items)
 
 
 class FakeScheduleRepository:

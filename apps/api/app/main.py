@@ -605,6 +605,8 @@ def create_app(
     def admin_events(
         days: int = 30,
         q: Optional[str] = None,
+        title: Optional[str] = None,
+        category: Optional[str] = None,
         limit: int = 20,
         offset: int = 0,
     ) -> dict:
@@ -622,8 +624,24 @@ def create_app(
             items = repository.get_all_event_items_between(
                 start_date, end_date, include_hidden=True
             )
-        if q:
-            items = [item for item in items if _item_matches(item, category=None, q=q)]
+        title_query = (title or q or "").strip()
+        selected_category = (category or "").strip()
+        if selected_category:
+            items = [
+                item
+                for item in items
+                if _item_matches(item, category=selected_category, q=None)
+            ]
+        if title_query:
+            title_needles = [part for part in title_query.lower().split() if part]
+            items = [
+                item
+                for item in items
+                if all(
+                    needle in str(item.get("title") or "").lower()
+                    for needle in title_needles
+                )
+            ]
         return {
             "items": items[offset : offset + limit],
             "total": len(items),
