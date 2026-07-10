@@ -133,18 +133,6 @@ export default async function AdminDashboardPage() {
           </section>
 
           <section className="rounded-md border border-line bg-panel p-5">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <h2 className="text-base font-semibold text-ink">手动同步</h2>
-              <span className="text-xs text-ink-dim">
-                抓取全部启用信源，最多处理 100 篇候选，生成最多 30 条日报结果
-              </span>
-            </div>
-            <div className="mt-4">
-              <RefreshReportButton />
-            </div>
-          </section>
-
-          <section className="rounded-md border border-line bg-panel p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <h2 className="text-base font-semibold text-ink">运行台账</h2>
@@ -152,9 +140,12 @@ export default async function AdminDashboardPage() {
                   记录每次数据同步的抓取、AI 处理、聚类和跳过情况
                 </p>
               </div>
+              <RefreshReportButton />
+            </div>
+            <div className="mt-4">
               <SchedulePanel initialConfig={scheduleConfig} />
             </div>
-            <div className="mt-4 overflow-x-auto">
+            <div className="mt-5 overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-line text-xs text-ink-dim">

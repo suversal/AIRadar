@@ -87,39 +87,54 @@ export function SchedulePanel({ initialConfig }: { initialConfig: ScheduleConfig
   }
 
   return (
-    <div className="rounded-md border border-line bg-canvas px-3 py-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="text-sm font-semibold text-ink">自动同步</span>
-        <label className="flex items-center gap-2 text-sm text-ink-mid">
-          <input
-            className="accent-[var(--color-signal)]"
-            type="checkbox"
-            checked={config.enabled}
-            onChange={(event) => void save(event.target.checked)}
+    <div className="rounded-md border border-line bg-canvas/70 px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm font-semibold text-ink">自动同步</span>
+          <span
+            className={
+              config.enabled
+                ? "rounded border border-green-400/30 bg-green-400/10 px-2 py-1 text-xs font-semibold text-green-300"
+                : "rounded border border-line bg-panel px-2 py-1 text-xs font-semibold text-ink-dim"
+            }
+          >
+            {config.enabled ? "已开启" : "已关闭"}
+          </span>
+          <label className="flex items-center gap-2 text-xs text-ink-dim">
+            同步间隔
+            <input
+              type="number"
+              min={5}
+              max={1440}
+              value={intervalInput}
+              onChange={(event) => setIntervalInput(event.target.value)}
+              className="readout w-20 rounded-md border border-line bg-panel px-2 py-1 text-sm text-ink outline-none focus:border-signal/50"
+            />
+            分钟
+          </label>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void save(config.enabled)}
             disabled={saving}
-          />
-          {config.enabled ? "已开启" : "已关闭"}
-        </label>
-        <label className="flex items-center gap-2 text-xs text-ink-dim">
-          间隔
-          <input
-            type="number"
-            min={5}
-            max={1440}
-            value={intervalInput}
-            onChange={(event) => setIntervalInput(event.target.value)}
-            className="readout w-20 rounded-md border border-line bg-panel px-2 py-1 text-sm text-ink"
-          />
-          分钟
-        </label>
-        <button
-          type="button"
-          onClick={() => void save(config.enabled)}
-          disabled={saving}
-          className="rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-ink-mid hover:border-signal/40 hover:text-signal disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {saving ? "保存中..." : "保存"}
-        </button>
+            className="rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-ink-mid hover:border-signal/40 hover:text-signal disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {saving ? "保存中..." : "保存间隔"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void save(!config.enabled)}
+            disabled={saving}
+            className={
+              config.enabled
+                ? "rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-ink-mid hover:border-red-300/40 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-60"
+                : "rounded-md border border-signal bg-signal px-3 py-1.5 text-xs font-semibold text-canvas hover:bg-signal-bright disabled:cursor-not-allowed disabled:opacity-60"
+            }
+          >
+            {config.enabled ? "关闭自动同步" : "开启自动同步"}
+          </button>
+        </div>
       </div>
       <p className="mt-2 text-xs text-ink-dim" aria-live="polite">
         上次触发：{formatTime(config.last_triggered_at)} · 预计下次：{nextRunEstimate(config)}
