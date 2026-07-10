@@ -285,39 +285,114 @@ def create_app(
                     return item
         raise HTTPException(status_code=404, detail="Event not found")
 
-    def period_report(mode: str, range_start: date, range_end: date) -> dict:
+    def period_report(mode: str, period_key: str, range_start: date, range_end: date) -> dict:
         payloads = load_payloads_between(range_start, range_end)
-        return build_period_payload(
+        payload = build_period_payload(
             payloads, mode=mode, range_start=range_start, range_end=range_end
         )
+        payload["period_key"] = period_key
+        payload["generated"] = False
+        payload["theme_notes"] = []
+        repository_context = report_repository_context()
+        if repository_context is not None:
+            with repository_context as repository:
+                persisted = getattr(repository, "get_period_report", lambda *a: None)(
+                    mode, period_key
+                )
+            if persisted:
+                payload.update(
+                    {
+                        "generated": True,
+                        "mainline_title": persisted["mainline_title"],
+                        "mainline_body": persisted["mainline_body"],
+                        "theme_notes": persisted.get("theme_notes") or [],
+                        "report_dates": persisted.get("report_dates") or payload["report_dates"],
+                        "summary_status": persisted.get("status"),
+                        "summary_generated_at": persisted.get("generated_at"),
+                    }
+                )
+        return payload
+
+    def _resolve_period_key(kind: str, raw_key: str) -> str:
+        from app.services.period_summary_service import period_key_for, period_range_for_key
+
+        try:
+            period_range_for_key(kind, raw_key)
+            return raw_key
+        except ValueError:
+            pass
+        try:
+            anchor = date.fromisoformat(raw_key)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid {kind} key") from exc
+        return period_key_for(kind, anchor)
+
+    def _serve_period(kind: str, raw_key: Optional[str]) -> dict:
+        from app.services.period_summary_service import period_key_for, period_range_for_key
+
+        key = (
+            _resolve_period_key(kind, raw_key)
+            if raw_key
+            else period_key_for(kind, date.today())
+        )
+        range_start, range_end = period_range_for_key(kind, key)
+        return period_report(kind, key, range_start, range_end)
+
+    def _period_archive(kind: str) -> dict:
+        repository_context = report_repository_context()
+        entries: list[dict] = []
+        if repository_context is not None:
+            with repository_context as repository:
+                entries = getattr(repository, "list_period_reports", lambda *a, **k: [])(kind)
+        return {
+            "entries": [
+                {
+                    "period_key": entry["period_key"],
+                    "range_start": entry["range_start"],
+                    "range_end": entry["range_end"],
+                    "mainline_title": entry["mainline_title"],
+                    "article_count": entry["article_count"],
+                }
+                for entry in entries
+            ]
+        }
+
+    @app.get("/api/public/reports/daily/archive")
+    def daily_archive() -> dict:
+        repository_context = report_repository_context()
+        if repository_context is not None:
+            with repository_context as repository:
+                dates = getattr(repository, "list_daily_report_dates", lambda **k: [])()
+            return {"dates": dates}
+        reports_dir = data_dir / "reports"
+        dates = sorted(
+            (path.stem for path in reports_dir.glob("*.json")), reverse=True
+        ) if reports_dir.exists() else []
+        return {"dates": list(dates)}
 
     @app.get("/api/public/reports/weekly")
     def weekly_latest() -> dict:
-        range_start, range_end = week_range(date.today())
-        return period_report("weekly", range_start, range_end)
+        return _serve_period("weekly", None)
 
-    @app.get("/api/public/reports/weekly/{report_date}")
-    def weekly(report_date: str) -> dict:
-        try:
-            anchor = date.fromisoformat(report_date)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Invalid report date") from exc
-        range_start, range_end = week_range(anchor)
-        return period_report("weekly", range_start, range_end)
+    @app.get("/api/public/reports/weekly/archive")
+    def weekly_archive() -> dict:
+        return _period_archive("weekly")
+
+    @app.get("/api/public/reports/weekly/{report_key}")
+    def weekly(report_key: str) -> dict:
+        return _serve_period("weekly", report_key)
 
     @app.get("/api/public/reports/monthly")
     def monthly_latest() -> dict:
-        range_start, range_end = month_range(date.today())
-        return period_report("monthly", range_start, range_end)
+        return _serve_period("monthly", None)
 
-    @app.get("/api/public/reports/monthly/{month}")
-    def monthly(month: str) -> dict:
-        try:
-            anchor = datetime.strptime(month, "%Y-%m").date()
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Invalid month, expected YYYY-MM") from exc
-        range_start, range_end = month_range(anchor)
-        return period_report("monthly", range_start, range_end)
+    @app.get("/api/public/reports/monthly/archive")
+    def monthly_archive() -> dict:
+        return _period_archive("monthly")
+
+    @app.get("/api/public/reports/monthly/{report_key}")
+    def monthly(report_key: str) -> dict:
+        return _serve_period("monthly", report_key)
 
     @app.get("/api/admin/ping", dependencies=[admin_guard])
     def admin_ping() -> dict:

@@ -238,8 +238,10 @@ class PublicEventRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["mode"], "weekly")
-        self.assertEqual(body["range_start"], "2026-07-02")
-        self.assertEqual(body["range_end"], "2026-07-08")
+        # a date key resolves to its ISO calendar week (matching VOL.YYYY-Www)
+        self.assertEqual(body["period_key"], "2026-W28")
+        self.assertEqual(body["range_start"], "2026-07-06")
+        self.assertEqual(body["range_end"], "2026-07-12")
         self.assertEqual(body["article_count"], 1)
 
     def test_monthly_route_accepts_year_month(self):
@@ -301,6 +303,69 @@ class PublicEventRouteTests(unittest.TestCase):
         self.assertEqual(body["total"], 1)
         self.assertEqual(body["items"][0]["event_id"], "evt-2")
 
+    def test_weekly_route_serves_persisted_report_by_key_and_date(self):
+        client, repository = self._client(
+            {
+                date(2026, 7, 8): make_daily_payload(
+                    "2026-07-08", [make_item("evt-1"), make_item("evt-2")]
+                )
+            }
+        )
+        repository.period_reports[("weekly", "2026-W28")] = {
+            "kind": "weekly",
+            "period_key": "2026-W28",
+            "range_start": "2026-07-06",
+            "range_end": "2026-07-12",
+            "mainline_title": "AI 综述标题",
+            "mainline_body": "AI 综述正文……",
+            "theme_notes": [{"label": "模型", "note": "多家更新"}],
+            "article_count": 12,
+            "report_dates": ["2026-07-08"],
+            "generated_at": "2026-07-10T08:00:00+00:00",
+            "status": "generated",
+        }
+
+        by_key = client.get("/api/public/reports/weekly/2026-W28")
+        by_date = client.get("/api/public/reports/weekly/2026-07-08")
+
+        self.assertEqual(by_key.status_code, 200)
+        body = by_key.json()
+        self.assertTrue(body["generated"])
+        self.assertEqual(body["period_key"], "2026-W28")
+        self.assertEqual(body["mainline_title"], "AI 综述标题")
+        self.assertEqual(len(body["items"]), 2)  # live items still attached
+        self.assertEqual(by_date.json()["period_key"], "2026-W28")
+
+    def test_weekly_route_falls_back_when_no_persisted_report(self):
+        client, _ = self._client(
+            {
+                date(2026, 7, 8): make_daily_payload(
+                    "2026-07-08", [make_item("evt-1")]
+                )
+            }
+        )
+
+        response = client.get("/api/public/reports/weekly/2026-W28")
+
+        body = response.json()
+        self.assertFalse(body["generated"])
+        self.assertEqual(body["period_key"], "2026-W28")
+        self.assertEqual(body["article_count"], 1)
+
+    def test_period_archive_routes(self):
+        client, repository = self._client({})
+        repository.period_archive["weekly"] = [
+            {"period_key": "2026-W28", "range_start": "2026-07-06", "range_end": "2026-07-12", "mainline_title": "标题", "article_count": 12},
+        ]
+        repository.daily_dates = ["2026-07-10", "2026-07-09"]
+
+        weekly = client.get("/api/public/reports/weekly/archive")
+        daily = client.get("/api/public/reports/daily/archive")
+
+        self.assertEqual(weekly.status_code, 200)
+        self.assertEqual(weekly.json()["entries"][0]["period_key"], "2026-W28")
+        self.assertEqual(daily.json()["dates"], ["2026-07-10", "2026-07-09"])
+
     def test_monthly_route_rejects_bad_month(self):
         client, _ = self._client({})
 
@@ -313,6 +378,9 @@ class FakeRepository:
     def __init__(self, payloads):
         self.payloads = payloads
         self.calls = []
+        self.period_reports = {}
+        self.period_archive = {}
+        self.daily_dates = []
 
     def get_latest_daily_report_payload(self):
         self.calls.append("latest")
@@ -346,6 +414,19 @@ class FakeRepository:
         if event_id == "evt-known":
             return make_item("evt-known")
         return None
+
+    period_reports: dict = {}
+    period_archive: dict = {}
+    daily_dates: list = []
+
+    def get_period_report(self, kind, period_key):
+        return self.period_reports.get((kind, period_key))
+
+    def list_period_reports(self, kind, limit=24):
+        return list(self.period_archive.get(kind, []))
+
+    def list_daily_report_dates(self, limit=90):
+        return list(self.daily_dates)
 
 
 if __name__ == "__main__":
