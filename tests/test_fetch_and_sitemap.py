@@ -78,6 +78,9 @@ PAGE_HTML = """<!DOCTYPE html>
 <h1>Claude ships a new model</h1>
 <p>Today we announce a new model with stronger reasoning.</p>
 <p>The model is available to all developers starting today.</p>
+<p>It improves coding, analysis, and long-context comprehension across the board,
+while keeping latency comparable to the previous generation. Early testers report
+meaningfully better results on agentic workflows and multi-step tool use.</p>
 <img src="/images/model-card.png" alt="Model card" />
 </article>
 <footer><p>Copyright Anthropic</p></footer>
@@ -182,6 +185,56 @@ class PageContentTests(unittest.TestCase):
                 payload = fetch_page_payload("https://x.example/post", cache_dir=Path(tmpdir))
 
         self.assertIsNone(payload)
+
+    def test_main_content_region_skips_short_sidebar_article_for_main(self):
+        # HuggingFace 博客页有多个 <article>：第一个是侧栏模型卡片（几十字），
+        # 真正文在 <main> 里。region 选择必须看文本量，不能盲取第一个 article。
+        from app.crawlers.sitemap import main_content_region
+
+        body = "正文段落。" * 100
+        page = (
+            "<html><body>"
+            "<article><div>model-card/tiny-link Updated 4 days ago</div></article>"
+            f"<main><h1>标题</h1><p>{body}</p></main>"
+            "</body></html>"
+        )
+
+        region = main_content_region(page)
+
+        self.assertIsNotNone(region)
+        self.assertIn("正文段落。", region)
+
+    def test_main_content_region_still_prefers_substantial_article_over_main(self):
+        from app.crawlers.sitemap import main_content_region
+
+        body = "article body text. " * 30
+        page = (
+            "<html><body><main><nav>site nav junk</nav>"
+            f"<article><p>{body}</p></article>"
+            "<footer>footer junk</footer></main></body></html>"
+        )
+
+        region = main_content_region(page)
+
+        self.assertTrue(region.startswith("<article"))
+        self.assertNotIn("footer junk", region)
+
+    def test_main_content_region_falls_back_to_wordpress_article_div(self):
+        # qbitai（WordPress 主题）没有 <article>/<main>，正文在 <div class="article">。
+        from app.crawlers.sitemap import main_content_region
+
+        body = "量子位正文内容。" * 60
+        page = (
+            "<html><body><div class=\"content\">"
+            f"<div class=\"article\"><h1>标题</h1><p>{body}</p></div>"
+            "<div class=\"content_right\">sidebar</div>"
+            "</div></body></html>"
+        )
+
+        region = main_content_region(page)
+
+        self.assertIsNotNone(region)
+        self.assertIn("量子位正文内容。", region)
 
     def test_fetch_page_payload_falls_back_to_meta_description_without_main_region(self):
         # video/preview pages (e.g. infoq.cn/video/...) have no <article>/<main>
@@ -352,7 +405,7 @@ class SitemapCrawlerTests(unittest.TestCase):
         self.assertNotIn("Careers", first.content)
         self.assertNotIn("Copyright", first.content)
         paragraphs = first.metadata["original_paragraphs"]
-        self.assertEqual(len(paragraphs), 3)  # h1 + two paragraphs
+        self.assertEqual(len(paragraphs), 4)  # h1 + three paragraphs
         images = first.metadata["original_images"]
         self.assertEqual(
             images[0]["url"],

@@ -49,6 +49,7 @@ def default_sources() -> list[Source]:
             allowed_domains=["deepmind.google"],
             fetch_interval_min=240,
             can_be_main_source=True,
+            config={"fetch_full_content": True},
         ),
         Source(
             id="google_ai_blog",
@@ -379,6 +380,7 @@ def default_sources() -> list[Source]:
             fetch_interval_min=240,
             language="zh",
             can_be_main_source=True,
+            config={"fetch_full_content": True},
         ),
         Source(
             id="ithome",

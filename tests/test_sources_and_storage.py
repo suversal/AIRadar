@@ -83,6 +83,9 @@ class SourcesAndStorageTests(unittest.TestCase):
 
         self.assertTrue(by_id["infoq_cn"].config.get("fetch_full_content"))
         self.assertTrue(by_id["ifanr"].config.get("fetch_full_content"))
+        # deepmind RSS 的 description 是空的，qbitai 的只有标题重复
+        self.assertTrue(by_id["deepmind_blog"].config.get("fetch_full_content"))
+        self.assertTrue(by_id["qbitai"].config.get("fetch_full_content"))
 
     def test_sources_round_trip_to_json(self):
         with tempfile.TemporaryDirectory() as tmpdir:

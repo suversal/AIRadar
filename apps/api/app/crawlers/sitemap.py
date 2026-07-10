@@ -23,6 +23,17 @@ DEFAULT_PAGE_CACHE_DIR = Path("data") / "page_cache"
 
 _ARTICLE_REGION_RE = re.compile(r"<article\b.*?</article>", re.IGNORECASE | re.DOTALL)
 _MAIN_REGION_RE = re.compile(r"<main\b.*?</main>", re.IGNORECASE | re.DOTALL)
+# WordPress 常见正文容器（如 qbitai 的 <div class="article">），页面没有
+# 语义化 article/main 标签时的最后回退；贪婪到最后一个 </div>，噪音由
+# 后续段落提取过滤
+_WP_ARTICLE_DIV_RE = re.compile(
+    r'<div\b[^>]*class="[^"]*\b(?:article|entry-content|post-content|article-content)\b[^"]*".*</div>',
+    re.IGNORECASE | re.DOTALL,
+)
+_TAG_STRIP_RE = re.compile(r"<[^>]+>")
+
+# 低于这个纯文本量的候选区域视为卡片/导航而不是正文
+REGION_MIN_TEXT_CHARS = 200
 
 _TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 _META_RE = re.compile(
@@ -71,12 +82,27 @@ def parse_sitemap_entries(
     return entries
 
 
+def _region_text_length(fragment: str) -> int:
+    return len(_TAG_STRIP_RE.sub(" ", fragment).strip())
+
+
 def main_content_region(html_text: str) -> str | None:
-    match = _ARTICLE_REGION_RE.search(html_text)
-    if match:
-        return match.group(0)
+    """Pick the page region most likely to hold the article body.
+
+    Pages can carry multiple <article> tags where the first is a sidebar
+    card (HuggingFace blog), so candidates are ranked by stripped text
+    volume instead of document order: substantial <article> first, then
+    <main>, then WordPress-style content divs (qbitai has no semantic
+    tags at all)."""
+    articles = _ARTICLE_REGION_RE.findall(html_text)
+    substantial = [a for a in articles if _region_text_length(a) >= REGION_MIN_TEXT_CHARS]
+    if substantial:
+        return max(substantial, key=_region_text_length)
     match = _MAIN_REGION_RE.search(html_text)
-    if match:
+    if match and _region_text_length(match.group(0)) >= REGION_MIN_TEXT_CHARS:
+        return match.group(0)
+    match = _WP_ARTICLE_DIV_RE.search(html_text)
+    if match and _region_text_length(match.group(0)) >= REGION_MIN_TEXT_CHARS:
         return match.group(0)
     return None
 
