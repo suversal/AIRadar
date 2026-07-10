@@ -6,8 +6,8 @@ import time
 import urllib.request
 from datetime import datetime, timezone
 from typing import Any
-from urllib.error import HTTPError
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 from urllib.request import Request
 
 from app.models.domain import RawArticle, Source
@@ -32,6 +32,10 @@ BROWSER_HEADERS = {
     "Sec-Fetch-Site": "none",
 }
 RETRYABLE_HTTP_STATUSES = {429, 500, 502, 503, 504}
+# Python's urllib.request.HTTPRedirectHandler only auto-follows 301/302/303/307;
+# 308 (Permanent Redirect) is a documented gap and surfaces as a raw HTTPError
+MANUAL_REDIRECT_STATUSES = {308}
+MAX_REDIRECTS = 5
 
 
 def fetch_url_text(
@@ -41,6 +45,7 @@ def fetch_url_text(
     timeout: int = 10,
     max_attempts: int = 3,
     backoff_seconds: float = 3.0,
+    _redirects_followed: int = 0,
 ) -> str:
     for attempt in range(max_attempts):
         request = Request(url, headers={"Accept": accept, **BROWSER_HEADERS})
@@ -48,7 +53,25 @@ def fetch_url_text(
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 return response.read().decode("utf-8", errors="replace")
         except HTTPError as error:
+            if error.code in MANUAL_REDIRECT_STATUSES:
+                location = error.headers.get("Location") if error.headers else None
+                if not location or _redirects_followed >= MAX_REDIRECTS:
+                    raise
+                return fetch_url_text(
+                    urljoin(url, location),
+                    accept=accept,
+                    timeout=timeout,
+                    max_attempts=max_attempts,
+                    backoff_seconds=backoff_seconds,
+                    _redirects_followed=_redirects_followed + 1,
+                )
             if error.code not in RETRYABLE_HTTP_STATUSES or attempt == max_attempts - 1:
+                raise
+            time.sleep(backoff_seconds * (attempt + 1))
+        except URLError:
+            # transient network failures (SSL handshake timeout, DNS hiccup,
+            # connection reset) deserve the same retry chance as a 5xx
+            if attempt == max_attempts - 1:
                 raise
             time.sleep(backoff_seconds * (attempt + 1))
     raise RuntimeError(f"unreachable retry loop for {url}")  # pragma: no cover

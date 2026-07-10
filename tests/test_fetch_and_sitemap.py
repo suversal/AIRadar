@@ -149,6 +149,62 @@ class FetchUrlTextTests(unittest.TestCase):
 
         self.assertEqual(len(attempts), 1)
 
+    def test_fetch_url_text_follows_308_permanent_redirect(self):
+        # 真实案例：google_ai_blog 全文抓取撞上 308 Permanent Redirect —
+        # Python 标准库的 HTTPRedirectHandler 不处理 301/302/303/307，
+        # 直接抛出 HTTPError 而不是跟随跳转。
+        import email.message
+
+        attempts = []
+
+        def fake_urlopen(request, timeout=20):
+            attempts.append(request.full_url)
+            if request.full_url == "https://blog.google/old-path":
+                headers = email.message.Message()
+                headers["Location"] = "https://blog.google/new-path"
+                raise HTTPError(request.full_url, 308, "Permanent Redirect", headers, None)
+            return FakeResponse(b"<html>real content</html>")
+
+        with patch("app.crawlers.base.urllib.request.urlopen", side_effect=fake_urlopen):
+            text = fetch_url_text("https://blog.google/old-path")
+
+        self.assertEqual(text, "<html>real content</html>")
+        self.assertEqual(attempts, ["https://blog.google/old-path", "https://blog.google/new-path"])
+
+    def test_fetch_url_text_retries_transient_network_errors(self):
+        # microsoft_research 的 RSS 请求撞上过 SSL 握手超时
+        # (urllib.error.URLError)，这类瞬时网络错误之前完全不重试。
+        from socket import timeout as socket_timeout
+        from urllib.error import URLError
+
+        attempts = []
+
+        def fake_urlopen(request, timeout=20):
+            attempts.append(request)
+            if len(attempts) == 1:
+                raise URLError(socket_timeout("The handshake operation timed out"))
+            return FakeResponse(b"<rss>ok</rss>")
+
+        with patch("app.crawlers.base.urllib.request.urlopen", side_effect=fake_urlopen):
+            with patch("app.crawlers.base.time.sleep") as fake_sleep:
+                text = fetch_url_text("https://www.microsoft.com/en-us/research/feed/")
+
+        self.assertEqual(text, "<rss>ok</rss>")
+        self.assertEqual(len(attempts), 2)
+        self.assertTrue(fake_sleep.called)
+
+    def test_fetch_url_text_raises_after_exhausting_network_error_retries(self):
+        from socket import timeout as socket_timeout
+        from urllib.error import URLError
+
+        def fake_urlopen(request, timeout=20):
+            raise URLError(socket_timeout("timed out"))
+
+        with patch("app.crawlers.base.urllib.request.urlopen", side_effect=fake_urlopen):
+            with patch("app.crawlers.base.time.sleep"):
+                with self.assertRaises(URLError):
+                    fetch_url_text("https://example.com/feed", max_attempts=3)
+
 
 class PageContentTests(unittest.TestCase):
     def test_fetch_page_payload_extracts_and_caches(self):
