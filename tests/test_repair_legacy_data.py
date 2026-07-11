@@ -282,6 +282,60 @@ class RepairLegacyDataTests(unittest.TestCase):
         self.assertEqual(translation.translated_paragraphs, ["译:Real body text follows."])
         self.assertEqual(translation.source_hash, stable_hash("Real body text follows."))
 
+    def test_reextract_article_content_survives_one_flaky_translation_call(self):
+        # 一次 AI 调用异常（如实测的空响应）不能打断整批修复；内容/元数据
+        # 修复必须成功落库，译文保留旧值并标记失败，而不是让整个脚本崩溃
+        from app.db.models import ArticleTranslationModel, RawArticleModel
+
+        with self.Session() as session:
+            self._seed_event(session, drift_link=False)
+            row = session.get(RawArticleModel, "a1")
+            row.raw_metadata = {
+                **row.raw_metadata,
+                "original_paragraphs": ["OpenAI releases agent model", "Real body text follows."],
+                "original_images": [],
+            }
+            session.add(
+                ArticleTranslationModel(
+                    raw_article_id="a1",
+                    translated_paragraphs=["旧译文"],
+                    translated_blocks=[],
+                    source_language="en",
+                    target_language="zh",
+                    source_hash="stale-hash",
+                    status="completed",
+                )
+            )
+            session.commit()
+
+            payload = {
+                "title": "OpenAI releases agent model",
+                "content": "Real body text follows.",
+                "metadata": {
+                    "original_paragraphs": ["Real body text follows."],
+                    "original_images": [],
+                    "original_blocks": [],
+                },
+            }
+
+            def flaky_translate(paragraphs):
+                raise ValueError("Chat response content is empty")
+
+            fixed = repair_legacy_data.reextract_article_content(
+                session, "a1", fetch_payload=lambda url: payload, translate=flaky_translate
+            )
+            session.commit()
+
+            stored = session.get(RawArticleModel, "a1")
+            translation = session.scalar(
+                select(ArticleTranslationModel).where(ArticleTranslationModel.raw_article_id == "a1")
+            )
+
+        self.assertTrue(fixed)
+        self.assertEqual(stored.content, "Real body text follows.")
+        self.assertEqual(translation.translated_paragraphs, ["旧译文"])
+        self.assertEqual(translation.status, "failed")
+
 
 if __name__ == "__main__":
     unittest.main()

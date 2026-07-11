@@ -162,9 +162,13 @@ def reextract_article_content(
         )
         if translation is not None:
             paragraphs = payload["metadata"].get("original_paragraphs") or [row.content]
-            translation.translated_paragraphs = translate(paragraphs)
-            translation.translated_blocks = []
-            translation.source_hash = stable_hash("\n".join(paragraphs))
+            try:
+                translation.translated_paragraphs = translate(paragraphs)
+                translation.translated_blocks = []
+                translation.source_hash = stable_hash("\n".join(paragraphs))
+            except Exception as exc:  # one flaky AI response must not kill the whole repair run
+                translation.status = "failed"
+                translation.error = str(exc)[:200]
     return True
 
 
