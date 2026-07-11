@@ -318,7 +318,15 @@ def _report_progress(
 def _regenerate_period_reports(database_url: str, anchor_date: date, ai_provider: Any) -> None:
     """After the daily report lands, refresh the enclosing week/month reports
     so their AI mainline always covers the newest day. Failures degrade to
-    the fallback summary inside build_period_report and never block."""
+    the fallback summary inside build_period_report and never block.
+
+    Items come from the days' actual published daily reports (same
+    build_period_payload merge the public read-path fallback uses), not a
+    fresh query over every scored event in the date range - a period report
+    is a rollup of daily reports, not an independent re-selection. Otherwise
+    events that were scored/clustered but never made any day's daily report
+    would leak into the weekly/monthly snapshot."""
+    from app.api.public import build_period_payload
     from app.db.session import build_session_factory
     from app.repositories.radar_repository import RadarRepository
     from app.services.period_summary_service import (
@@ -333,17 +341,15 @@ def _regenerate_period_reports(database_url: str, anchor_date: date, ai_provider
         for kind in ("weekly", "monthly"):
             key = period_key_for(kind, anchor_date)
             range_start, range_end = period_range_for_key(kind, key)
-            items = repository.get_all_event_items_between(range_start, range_end)
-            report_dates = [
-                value
-                for value in repository.list_daily_report_dates()
-                if range_start.isoformat() <= value <= range_end.isoformat()
-            ]
+            daily_payloads = repository.get_daily_report_payloads_between(range_start, range_end)
+            merged = build_period_payload(
+                daily_payloads, mode=kind, range_start=range_start, range_end=range_end
+            )
             report = build_period_report(
                 kind=kind,
                 anchor=anchor_date,
-                items=items,
-                report_dates=sorted(report_dates),
+                items=merged["items"],
+                report_dates=sorted(merged["report_dates"]),
                 ai_provider=ai_provider,
             )
             repository.upsert_period_report(report)

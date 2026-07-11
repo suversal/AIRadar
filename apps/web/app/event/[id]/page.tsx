@@ -1,10 +1,13 @@
 import { notFound } from "next/navigation";
+import { ExternalLink } from "lucide-react";
 import type { LatestEvent, OriginalBlock } from "@/lib/api";
 import { getEventDetail, getLatestReport } from "@/lib/api";
 import { findEventById } from "@/lib/events";
 import { proxiedImageUrl } from "@/lib/images";
+import { formatRelativeTime } from "@/lib/time";
 import { ArticleReadingToggle } from "./article-reading-toggle";
 import { RichParagraph } from "@/components/rich-paragraph";
+import { BookmarkButton } from "@/components/bookmark-button";
 import { Sidebar } from "@/components/sidebar";
 
 type EventParams = Promise<{
@@ -117,7 +120,11 @@ function renderOriginalBlock(block: OriginalBlock, index: number) {
 export default async function EventDetailPage({ params }: { params: EventParams }) {
   const { id } = await params;
   const report = await getLatestReport();
-  const event = findEventById(report.items, id) ?? (await getEventDetail(id));
+  // getEventDetail is the only path that resolves full article content and
+  // per-source coverage (report.items is a lightweight list-view payload) -
+  // it must win whenever it resolves; the list match is just a fallback for
+  // when there's no database repository configured at all.
+  const event = (await getEventDetail(id)) ?? findEventById(report.items, id);
 
   if (!event) {
     notFound();
@@ -136,50 +143,49 @@ export default async function EventDetailPage({ params }: { params: EventParams 
         <section className="px-5 py-8 md:py-12">
           <div className="mx-auto max-w-4xl">
             <header>
-              <div className="flex flex-wrap items-center justify-end gap-3">
-                <span className="rounded-full border border-signal/60 bg-signal/15 px-3 py-1 text-sm font-semibold text-signal-bright">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <span className="rounded-full border border-signal/60 bg-signal/15 px-2.5 py-1 text-xs font-semibold text-signal-bright">
                   精选
                 </span>
-                <span className="readout rounded-full border border-signal/40 px-3 py-1 text-sm font-semibold text-signal">
+                <span className="readout rounded-full border border-signal/40 px-2.5 py-1 text-xs font-semibold text-signal">
                   {formatScore(event.final_score)}
                 </span>
+                <BookmarkButton eventId={event.event_id} labeled />
               </div>
 
-              <div className="mt-10 flex items-start gap-4">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-line-strong bg-panel text-sm font-semibold text-signal-bright">
-                  {(event.main_source?.name ?? "AI").slice(0, 2)}
-                </div>
+              <div className="mt-8">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-mid">
                     <span className="font-semibold text-ink">{event.main_source?.name ?? "未知来源"}</span>
                     <span>{formatDateTime(event.published_at)}</span>
                     <span>{event.category_label ?? event.category ?? "未分类"}</span>
                   </div>
-                  <h1 className="mt-4 text-3xl font-semibold leading-tight tracking-normal text-ink md:text-4xl">
+                  <h1 className="mt-3 text-2xl font-semibold leading-tight tracking-normal text-ink md:text-3xl">
                     {event.title}
                   </h1>
                   {originalUrl ? (
                     <a
-                      className="mt-6 inline-flex items-center gap-2 text-base font-medium text-signal hover:text-signal-bright"
+                      className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-signal hover:text-signal-bright"
                       href={originalUrl}
                       rel="noreferrer"
                       target="_blank"
                     >
-                      阅读原文{originalHost ? ` · ${originalHost}` : ""}
+                      <ExternalLink aria-hidden className="h-4 w-4" strokeWidth={2} />
+                      阅读原文{originalHost ? <span className="text-ink-dim"> · {originalHost}</span> : null}
                     </a>
                   ) : null}
                 </div>
               </div>
             </header>
 
-            <section className="mt-8 rounded-md border border-signal/30 bg-signal/5 p-5">
-              <h2 className="text-sm font-semibold text-signal-bright">推荐理由</h2>
-              <p className="mt-3 text-base leading-7 text-ink-mid">{event.reason ?? "暂无推荐理由。"}</p>
+            <section className="mt-6 rounded-md border border-signal/30 bg-signal/5 p-4">
+              <h2 className="text-xs font-semibold text-signal-bright">推荐理由</h2>
+              <p className="mt-2 text-sm leading-6 text-ink-mid">{event.reason ?? "暂无推荐理由。"}</p>
             </section>
 
-            <section className="mt-6 rounded-md border border-line-strong bg-panel p-5">
-              <h2 className="text-sm font-semibold text-signal">AI 摘要</h2>
-              <p className="mt-3 text-base leading-7 text-ink-mid">
+            <section className="mt-4 rounded-md border border-line-strong bg-panel p-4">
+              <h2 className="text-xs font-semibold text-signal">AI 摘要</h2>
+              <p className="mt-2 text-sm leading-6 text-ink-mid">
                 {event.summary ?? event.one_line_summary ?? "暂无摘要。"}
               </p>
             </section>
@@ -198,11 +204,11 @@ export default async function EventDetailPage({ params }: { params: EventParams 
             )}
 
             {event.tags?.length ? (
-              <section className="mt-10 flex flex-wrap gap-3" aria-label="标签">
+              <section className="mt-8 flex flex-wrap gap-2" aria-label="标签">
                 {event.tags.map((tag) => (
                   <span
                     key={tag}
-                    className="rounded-md border border-line-strong bg-panel px-3 py-2 text-sm text-ink-mid"
+                    className="rounded-md border border-line-strong bg-panel px-2.5 py-1 text-xs text-ink-mid"
                   >
                     {tag}
                   </span>
@@ -212,13 +218,46 @@ export default async function EventDetailPage({ params }: { params: EventParams 
 
             {originalUrl ? (
               <a
-                className="mt-10 inline-flex rounded-md border border-line-strong bg-panel px-5 py-3 text-base font-semibold text-ink-mid hover:border-signal/50 hover:text-signal-bright"
+                className="mt-8 inline-flex items-center gap-2 rounded-md border border-signal/50 bg-panel px-4 py-2.5 text-sm font-semibold text-signal transition hover:border-signal hover:text-signal-bright"
                 href={originalUrl}
                 rel="noreferrer"
                 target="_blank"
               >
-                阅读原文{originalHost ? ` · ${originalHost}` : ""}
+                阅读原文
+                <ExternalLink aria-hidden className="h-4 w-4" strokeWidth={2} />
+                {originalHost ? <span className="text-ink-dim">{originalHost}</span> : null}
               </a>
+            ) : null}
+
+            {event.coverage && event.coverage.length > 1 ? (
+              <section className="mt-8 rounded-md border border-line bg-panel p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="text-base font-semibold text-signal">
+                    同一事件 · {event.coverage.length} 家报道
+                  </h2>
+                  <span className="text-sm text-ink-dim">按发布时间排序</span>
+                </div>
+                <div className="mt-3 divide-y divide-line">
+                  {event.coverage.map((member) => (
+                    <a
+                      key={member.raw_article_id}
+                      className="grid gap-1 py-3 text-sm transition hover:bg-panel-soft/60 md:grid-cols-[100px_1fr]"
+                      href={member.source_url ?? "#"}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      <span className="readout text-ink-dim">{formatRelativeTime(member.published_at)}</span>
+                      <span>
+                        <span className="font-semibold text-ink">{member.title}</span>
+                        <span className="ml-2 text-ink-dim">
+                          {member.source_name}
+                          {member.is_main ? " · 主要来源" : ""}
+                        </span>
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              </section>
             ) : null}
           </div>
         </section>

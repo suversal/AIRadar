@@ -16,13 +16,25 @@ from app.services.period_summary_service import (
 from app.services.ai_service import FakeAIProvider
 
 
-def make_item(title, *, category="model", score=80.0, summary="一句话摘要。"):
+def make_item(
+    title,
+    *,
+    category="model",
+    score=80.0,
+    summary="一句话摘要。",
+    source_count=1,
+    source_id="src-a",
+    category_label=None,
+):
     return {
         "event_id": f"e-{title[:6]}",
         "title": title,
         "category": category,
+        "category_label": category_label or category,
         "one_line_summary": summary,
         "final_score": score,
+        "source_count": source_count,
+        "main_source": {"id": source_id, "name": source_id, "url": "", "tier": "core"},
     }
 
 
@@ -87,6 +99,52 @@ class PeriodSummaryTests(unittest.TestCase):
         self.assertTrue(report["mainline_title"])
         self.assertTrue(report["mainline_body"])
         self.assertEqual(report["status"], "generated")
+
+    def test_build_period_report_freezes_entries_snapshot_ordered_by_score(self):
+        items = [
+            make_item("事件A", score=70.0),
+            make_item("事件B", score=95.0),
+            make_item("事件C", score=80.0),
+        ]
+
+        report = build_period_report(
+            kind="weekly",
+            anchor=date(2026, 7, 10),
+            items=items,
+            report_dates=["2026-07-10"],
+            ai_provider=FakeAIProvider(),
+        )
+
+        self.assertEqual(
+            [entry["event_id"] for entry in report["entries"]],
+            ["e-事件B", "e-事件C", "e-事件A"],
+        )
+        self.assertEqual(report["entries"][0]["score_at_selection"], 95.0)
+        # content fields must never be frozen into the entries snapshot -
+        # they are always resolved live from event_id at read time
+        for entry in report["entries"]:
+            self.assertNotIn("title", entry)
+            self.assertNotIn("summary", entry)
+
+    def test_build_period_report_computes_stats_snapshot(self):
+        items = [
+            make_item("事件A", score=90, source_count=3, source_id="src-a", category_label="模型"),
+            make_item("事件B", score=80, source_count=1, source_id="src-b", category_label="模型"),
+            make_item("事件C", score=70, source_count=1, source_id="src-a", category_label="产品"),
+        ]
+
+        report = build_period_report(
+            kind="weekly",
+            anchor=date(2026, 7, 10),
+            items=items,
+            report_dates=["2026-07-10"],
+            ai_provider=FakeAIProvider(),
+        )
+
+        stats = report["stats"]
+        self.assertEqual(stats["source_coverage_count"], 2)
+        self.assertAlmostEqual(stats["multi_source_ratio"], 1 / 3)
+        self.assertEqual(stats["category_distribution"], {"模型": 2, "产品": 1})
 
     def test_build_period_report_marks_fallback_on_provider_failure(self):
         class BoomProvider(FakeAIProvider):

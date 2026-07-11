@@ -18,41 +18,41 @@ export default async function TopicsPage() {
         <Sidebar activeNavId="topics" />
 
         <section className="px-5 py-6 md:px-9">
-          <header className="rounded-md border border-line bg-panel p-6 shadow-[0_20px_80px_rgba(0,0,0,0.25)]">
-            <h1 className="text-3xl font-semibold text-ink">主题</h1>
-            <p className="mt-2 text-sm text-ink-mid">
+          <header className="rounded-md border border-line bg-panel p-5 shadow-[0_20px_80px_rgba(0,0,0,0.25)]">
+            <h1 className="text-2xl font-semibold text-ink">主题</h1>
+            <p className="mt-1.5 text-sm text-ink-mid">
               按公司、技术方向和内容形态浏览近 30 天的 AI 动态
               {payload.article_count > 0 ? ` · 覆盖 ${payload.article_count} 条` : ""}
             </p>
           </header>
 
           {payload.error ? (
-            <div className="mt-5 rounded-md border border-red-400/40 bg-red-400/10 p-4 text-sm leading-6 text-red-200">
+            <div className="mt-4 rounded-md border border-red-400/40 bg-red-400/10 p-4 text-sm leading-6 text-red-200">
               {payload.error}
             </div>
           ) : null}
 
-          <div className="mt-8 space-y-12">
+          <div className="mt-6 space-y-8">
             {payload.groups.map((group) => (
               <section key={group.id}>
                 <div className="flex items-end justify-between gap-4">
-                  <h2 className="text-xl font-semibold text-ink">{group.name}</h2>
+                  <h2 className="text-lg font-semibold text-ink">{group.name}</h2>
                   <span className="text-sm text-ink-dim">{group.description}</span>
                 </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                <div className="mt-3 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                   {group.topics.map((topic) => (
                     <a
                       key={topic.id}
-                      className="group card-hover rounded-md border border-line bg-panel p-5"
+                      className="group card-hover rounded-md border border-line bg-panel p-4"
                       href={topicHref(topic.id)}
                     >
                       <div className="flex items-baseline justify-between gap-3">
-                        <span className="text-base font-semibold text-ink group-hover:text-signal">
+                        <span className="text-sm font-semibold text-ink group-hover:text-signal">
                           {topic.name}
                         </span>
-                        <span className="text-sm tabular-nums text-ink-mid">{topic.count}</span>
+                        <span className="text-xs tabular-nums text-ink-mid">{topic.count}</span>
                       </div>
-                      <div className="mt-2 text-xs text-ink-dim">查看 {topic.count} 条动态</div>
+                      <div className="mt-1.5 text-xs text-ink-dim">查看 {topic.count} 条动态</div>
                     </a>
                   ))}
                 </div>

@@ -220,6 +220,60 @@ class CrawlRunTests(unittest.TestCase):
         self.assertEqual(received["boosted"], 20)
         self.assertEqual(received["default"], 5)
 
+    def test_trusted_curated_source_has_reserved_budget_outside_general_limit(self):
+        def source(source_id, *, trusted=False):
+            return Source(
+                id=source_id,
+                name=source_id,
+                source_role="aggregator" if trusted else "context",
+                tier="T3" if trusted else "T2",
+                type="rss",
+                category="media",
+                url=f"https://{source_id}.example/feed.xml",
+                homepage=f"https://{source_id}.example",
+                allowed_domains=[f"{source_id}.example"],
+                can_be_main_source=not trusted,
+                config={
+                    "crawl_limit": 2,
+                    **({"selection_policy": "trusted_curated"} if trusted else {}),
+                },
+            )
+
+        def article(article_id, source_id):
+            return RawArticle(
+                id=article_id,
+                source_id=source_id,
+                source_name=source_id,
+                source_role="aggregator" if source_id == "curated" else "context",
+                source_tier="T3" if source_id == "curated" else "T2",
+                source_url=f"https://example.com/{article_id}",
+                title=article_id,
+                content="AI content",
+                author=None,
+                published_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+                language="zh",
+                raw_score={},
+                metadata={},
+                title_hash=f"t-{article_id}",
+                url_hash=f"u-{article_id}",
+            )
+
+        sources = [source("normal"), source("curated", trusted=True)]
+        fetched = {
+            "normal": [article("n1", "normal"), article("n2", "normal")],
+            "curated": [article("c1", "curated"), article("c2", "curated")],
+        }
+
+        articles, report = crawl_sources(
+            sources,
+            limit=1,
+            crawler_factory=lambda item: FakeCrawler(fetched[item.id]),
+        )
+
+        self.assertEqual([item.id for item in articles], ["n1", "c1", "c2"])
+        self.assertEqual(report["general_article_count"], 1)
+        self.assertEqual(report["reserved_article_count"], 2)
+
     def test_crawl_sources_waits_between_same_domain_sources(self):
         def make_reddit_source(source_id: str, path: str) -> Source:
             return Source(

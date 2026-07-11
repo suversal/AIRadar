@@ -192,7 +192,11 @@ def period_summary_prompt(kind: str, range_label: str) -> str:
         f"You are the editor of a Chinese AI intelligence {kind} report covering {range_label}. "
         "Given the interval's top AI events, write the mainline narrative. "
         "Return strict JSON: {\"mainline_title\": \"一句话概括本" + label + "主线（20字内）\", "
-        "\"mainline_body\": \"150-220字的中文综述，归纳2-4条真实主线（如模型迭代/智能体落地/安全事件/融资基建），引用具体事件名\", "
+        "\"mainline_body\": \"总长度严格在360-440字之间（不少于360字，不超过440字，两者都视为不合格），"
+        "归纳2-3条真实主线（如模型迭代/智能体落地/安全事件/融资基建/开源生态等，挑最重要的几条，"
+        "其余舍弃），每条主线独立成一段、控制在150-190字、用2-3句话点出关键事件、数据或参数、"
+        "以及为什么重要，不要写背景铺垫或空泛总结，引用具体事件名和公司/项目名。写完后自行数字数并调整，"
+        "确保总字数落在360-440字区间。段落之间用换行符 \\n\\n 分隔，返回的 JSON 字符串里必须包含真实换行\", "
         "\"theme_notes\": [{\"label\": \"主题名\", \"note\": \"30字内该主题动向\"}]}. "
         "Base every claim on the provided events only; no speculation."
     )
@@ -621,12 +625,14 @@ class DeepSeekProvider:
             body = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"DeepSeek request failed: {exc.code} {body}") from exc
 
-    def _chat_payload(self, messages: list[dict[str, str]]) -> dict[str, Any]:
+    def _chat_payload(
+        self, messages: list[dict[str, str]], *, max_tokens: int | None = None
+    ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": self.model,
             "response_format": {"type": "json_object"},
             "messages": messages,
-            "max_tokens": self.max_tokens,
+            "max_tokens": max_tokens or self.max_tokens,
         }
         if self.user_id:
             payload["user_id"] = self.user_id
@@ -691,6 +697,11 @@ class DeepSeekProvider:
     def summarize_period(
         self, items: list[dict[str, Any]], kind: str, range_label: str
     ) -> dict[str, Any]:
+        # this model spends hidden reasoning_tokens before it emits the
+        # visible JSON answer; the default max_tokens budget is tuned for
+        # single-article scoring calls and is too tight for this longer
+        # narrative task - it can exhaust the budget on reasoning alone and
+        # return empty content with finish_reason=length
         payload = self._chat_payload(
             [
                 {"role": "system", "content": period_summary_prompt(kind, range_label)},
@@ -698,7 +709,8 @@ class DeepSeekProvider:
                     "role": "user",
                     "content": json.dumps({"events": items}, ensure_ascii=False)[:8000],
                 },
-            ]
+            ],
+            max_tokens=max(self.max_tokens, 8192),
         )
         response = self._post_json(f"{self.base_url}/chat/completions", payload)
         content = response["choices"][0]["message"]["content"]

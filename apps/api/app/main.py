@@ -405,31 +405,57 @@ def create_app(
         raise HTTPException(status_code=404, detail="Event not found")
 
     def period_report(mode: str, period_key: str, range_start: date, range_end: date) -> dict:
-        payloads = load_payloads_between(range_start, range_end)
-        payload = build_period_payload(
-            payloads, mode=mode, range_start=range_start, range_end=range_end
-        )
-        payload["period_key"] = period_key
-        payload["generated"] = False
-        payload["theme_notes"] = []
+        # Prefer the persisted masthead (which events, in what order) hydrated
+        # to their current live content - same event_id/live-resolve pattern
+        # as daily reports. Only fall back to recomputing the period from
+        # scratch when no snapshot exists yet (e.g. the period is still in
+        # progress and hasn't had a pipeline run persist one, or there is no
+        # database repository configured at all).
         repository_context = report_repository_context()
+        persisted: Optional[dict[str, Any]] = None
+        hydrated_items: Optional[list[dict[str, Any]]] = None
         if repository_context is not None:
             with repository_context as repository:
                 persisted = getattr(repository, "get_period_report", lambda *a: None)(
                     mode, period_key
                 )
-            if persisted:
-                payload.update(
-                    {
-                        "generated": True,
-                        "mainline_title": persisted["mainline_title"],
-                        "mainline_body": persisted["mainline_body"],
-                        "theme_notes": persisted.get("theme_notes") or [],
-                        "report_dates": persisted.get("report_dates") or payload["report_dates"],
-                        "summary_status": persisted.get("status"),
-                        "summary_generated_at": persisted.get("generated_at"),
-                    }
-                )
+                entries = persisted.get("entries") if persisted else None
+                if entries:
+                    event_ids = [entry["event_id"] for entry in entries if entry.get("event_id")]
+                    hydrated_items = repository.get_event_items_by_ids(event_ids)
+
+        if hydrated_items is not None:
+            payload = {
+                "mode": mode,
+                "range_start": range_start.isoformat(),
+                "range_end": range_end.isoformat(),
+                "report_dates": persisted.get("report_dates") or [],
+                "updated_at": persisted.get("generated_at"),
+                "article_count": len(hydrated_items),
+                "items": hydrated_items,
+            }
+        else:
+            payloads = load_payloads_between(range_start, range_end)
+            payload = build_period_payload(
+                payloads, mode=mode, range_start=range_start, range_end=range_end
+            )
+
+        payload["period_key"] = period_key
+        payload["generated"] = False
+        payload["theme_notes"] = []
+        if persisted:
+            payload.update(
+                {
+                    "generated": True,
+                    "mainline_title": persisted["mainline_title"],
+                    "mainline_body": persisted["mainline_body"],
+                    "theme_notes": persisted.get("theme_notes") or [],
+                    "report_dates": persisted.get("report_dates") or payload["report_dates"],
+                    "summary_status": persisted.get("status"),
+                    "summary_generated_at": persisted.get("generated_at"),
+                    "stats": persisted.get("stats") or {},
+                }
+            )
         return payload
 
     def _resolve_period_key(kind: str, raw_key: str) -> str:

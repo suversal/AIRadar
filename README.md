@@ -109,7 +109,7 @@ python3 scripts/check_db_once.py
 To persist one fake-AI pipeline run into the local Docker Postgres from the host:
 
 ```bash
-.venv/bin/python scripts/run_pipeline_once.py --limit 20 --top-n 12 --fake-ai --persist-db --database-url postgresql+psycopg://radar:radar@localhost:5432/radar --date 2026-07-02
+.venv/bin/python scripts/run_pipeline_once.py --limit 20 --fake-ai --persist-db --database-url postgresql+psycopg://radar:radar@localhost:5432/radar --date 2026-07-02
 ```
 
 To build and run the API container after the base database stack is healthy:
@@ -136,16 +136,15 @@ The API exposes:
 `POST /api/admin/refresh-latest` accepts optional query parameters:
 
 - `limit`: candidate crawl/pipeline limit, default `DAILY_CANDIDATE_LIMIT` or `100`.
-- `top_n`: report item count, default `DAILY_SELECTED_LIMIT` or `12`.
+- 精选数量动态等于满足来源信任或评分阈值、并完成事件去重后的结果，不设固定条数。
 - AI scoring concurrency is controlled by `AI_PIPELINE_CONCURRENCY`, default `1`.
 
-The `/latest` web page exposes two refresh actions: the normal digest generates
-12 items, while "刷新完整成果" requests `top_n=30`. Web refreshes start a
-background API job and poll it, so slow Kimi runs no longer hit the Next.js
-single-request timeout. The report `updated_at` field is the report generation
-time; `latest_published_at` records the newest source article time. When real
-model scoring is stricter than the threshold, the report fills remaining slots
-from the highest-scoring candidates while keeping `selected_count` separate.
+The refresh endpoint uses the candidate budget only; selected report size is
+dynamic. Web refreshes start a background API job and poll it, so slow Kimi
+runs no longer hit the Next.js single-request timeout. The report `updated_at`
+field is the report generation time; `latest_published_at` records the newest
+source article time. Reports include every deduplicated event selected by a
+trusted curated source or the normal score threshold, with no low-score fill.
 
 Event detail pages read structured original article fields from the daily JSON
 payload. RSS feeds that include article HTML, such as IT之家 RSS, are parsed into

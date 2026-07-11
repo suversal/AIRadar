@@ -22,7 +22,7 @@ async function jsonFromResponse(response: Response) {
 export async function POST(request: Request) {
   const requestUrl = new URL(request.url);
   const refreshUrl = new URL(`${getApiBaseUrl()}/api/admin/refresh-latest-async`);
-  for (const name of ["limit", "top_n"]) {
+  for (const name of ["limit"]) {
     const value = requestUrl.searchParams.get(name);
     if (value) {
       refreshUrl.searchParams.set(name, value);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type RefreshState = "idle" | "running" | "done" | "failed";
 type RefreshJob = {
@@ -25,6 +25,12 @@ function sleep(ms: number) {
   });
 }
 
+function formatElapsed(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
 async function readJson(response: Response) {
   const text = await response.text();
   if (!text) {
@@ -40,12 +46,28 @@ async function readJson(response: Response) {
 export function RefreshReportButton() {
   const router = useRouter();
   const [refreshState, setRefreshState] = useState<RefreshState>("idle");
-  const [message, setMessage] = useState("");
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [resultCount, setResultCount] = useState<number | null>(null);
+  const [errorDetail, setErrorDetail] = useState("");
+  const startedAt = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (refreshState !== "running" || startedAt.current === null) return;
+    const update = () => {
+      setElapsedSeconds(Math.floor((Date.now() - (startedAt.current ?? Date.now())) / 1000));
+    };
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [refreshState]);
 
   async function refreshReport() {
-    const url = "/api/refresh-latest?limit=100&top_n=30";
+    const url = "/api/refresh-latest?limit=100";
+    startedAt.current = Date.now();
+    setElapsedSeconds(0);
+    setResultCount(null);
+    setErrorDetail("");
     setRefreshState("running");
-    setMessage("正在启动数据同步...");
     try {
       const response = await fetch(url, { method: "POST" });
       const payload: RefreshJob = await readJson(response);
@@ -55,18 +77,15 @@ export function RefreshReportButton() {
       if (!payload.job_id) {
         throw new Error("刷新任务没有返回 job_id。");
       }
-      setMessage("刷新任务已启动，正在等待结果...");
       const result = await pollRefreshJob(payload.job_id);
+      setElapsedSeconds(Math.floor((Date.now() - (startedAt.current ?? Date.now())) / 1000));
+      setResultCount(result.article_count ?? result.selected_count ?? 0);
       setRefreshState("done");
-      setMessage(
-        `已刷新 ${result.report_date}，展示 ${result.article_count ?? 0} 条，入选 ${
-          result.selected_count ?? 0
-        } 条。`,
-      );
       router.refresh();
     } catch (error) {
+      setElapsedSeconds(Math.floor((Date.now() - (startedAt.current ?? Date.now())) / 1000));
+      setErrorDetail(error instanceof Error ? error.message : "刷新失败");
       setRefreshState("failed");
-      setMessage(error instanceof Error ? error.message : "刷新失败");
     }
   }
 
@@ -84,24 +103,29 @@ export function RefreshReportButton() {
       if (payload.status === "succeeded" && payload.result) {
         return payload.result;
       }
-      setMessage(`刷新任务运行中，已等待 ${(attempt + 1) * 3} 秒...`);
     }
     throw new Error("刷新任务超时，请稍后查看页面或重新刷新。");
   }
 
+  const label =
+    refreshState === "running"
+      ? `同步中 ${formatElapsed(elapsedSeconds)}`
+      : refreshState === "done"
+        ? `完成 · ${resultCount ?? 0} 条 · ${formatElapsed(elapsedSeconds)}`
+        : refreshState === "failed"
+          ? `失败 · ${formatElapsed(elapsedSeconds)}`
+          : "手动同步";
+
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <button
-        type="button"
-        onClick={() => refreshReport()}
-        disabled={refreshState === "running"}
-        className="rounded-md border border-signal bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal-bright disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {refreshState === "running" ? "同步中..." : "手动同步"}
-      </button>
-      <p className="min-h-5 text-sm text-ink-mid" aria-live="polite">
-        {message}
-      </p>
-    </div>
+    <button
+      type="button"
+      title={errorDetail || undefined}
+      aria-live="polite"
+      onClick={() => refreshReport()}
+      disabled={refreshState === "running"}
+      className="min-w-40 rounded-md border border-signal bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal-bright disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {label}
+    </button>
   );
 }

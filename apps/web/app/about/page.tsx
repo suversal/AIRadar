@@ -11,7 +11,7 @@ export default function AboutPage() {
       title="关于 AI·RADAR"
       subtitle="为创作者和开发者准备的 AI 情报雷达"
     >
-      <section className="rounded-md border border-line bg-panel p-6 text-sm leading-7 text-ink-mid">
+      <section className="rounded-md border border-line bg-panel p-5 text-sm leading-7 text-ink-mid">
         <p>
           AI·RADAR 持续监听 27 个高信噪比信源——各大实验室官方博客、arXiv、GitHub
           Trending、Hacker News、Reddit 社区与中英文科技媒体——用 AI
@@ -28,7 +28,7 @@ export default function AboutPage() {
         </p>
       </section>
 
-      <section className="rounded-md border border-line bg-panel p-6 text-sm leading-7 text-ink-mid">
+      <section className="rounded-md border border-line bg-panel p-5 text-sm leading-7 text-ink-mid">
         <h2 className="text-base font-semibold text-ink">数据口径</h2>
         <ul className="mt-3 list-disc space-y-2 pl-5">
           <li>抓取频率：可配置，默认每 2 小时一轮</li>

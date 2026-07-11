@@ -115,7 +115,7 @@ class _FakeRepository:
     def get_daily_report_payloads_between(self, start_date, end_date):
         return []
 
-    def get_all_event_items_between(self, start_date, end_date):
+    def get_all_event_items_between(self, start_date, end_date, **kwargs):
         return []
 
     def get_event_item(self, event_id):

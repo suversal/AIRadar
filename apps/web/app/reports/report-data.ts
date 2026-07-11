@@ -11,6 +11,15 @@ export type ReportHighlight = {
 
 export type PeriodMode = "weekly" | "monthly";
 
+// AI mainline copy separates its 2-3 threads with blank lines; render each
+// as its own paragraph instead of one dense block of text.
+export function splitParagraphs(body: string): string[] {
+  return body
+    .split(/\n+/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+}
+
 export function categoryDisplayName(key: string, item?: LatestEvent) {
   return item?.category_label ?? categoryLabel(key);
 }

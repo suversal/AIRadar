@@ -1,6 +1,7 @@
 import type { DailyReport, LatestEvent } from "@/lib/api";
 import { eventHref } from "@/lib/events";
 import { buildDailyMarkdown, getDailySections } from "@/lib/markdown";
+import { BookmarkButton } from "@/components/bookmark-button";
 import { CopyMarkdownButton } from "./copy-markdown-button";
 
 function formatScore(score?: number) {
@@ -42,7 +43,7 @@ export function DailyReportView({ report }: { report: DailyReport }) {
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-5 py-6 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-sm text-ink-mid">Suversal AI Radar</p>
-            <h1 className="mt-2 text-3xl font-semibold">{report.title}</h1>
+            <h1 className="mt-2 text-2xl font-semibold">{report.title}</h1>
           </div>
           <a className="text-sm text-signal underline" href="/latest">
             最新情报
@@ -54,15 +55,15 @@ export function DailyReportView({ report }: { report: DailyReport }) {
         <aside className="border-b border-line pb-5 lg:border-b-0 lg:border-r lg:pr-5">
           <div className="grid grid-cols-3 gap-3 lg:grid-cols-1">
             <div>
-              <div className="text-2xl font-semibold">{report.article_count}</div>
+              <div className="text-xl font-semibold">{report.article_count}</div>
               <div className="text-sm text-ink-mid">精选事件</div>
             </div>
             <div>
-              <div className="text-2xl font-semibold">{sections.length}</div>
+              <div className="text-xl font-semibold">{sections.length}</div>
               <div className="text-sm text-ink-mid">分类</div>
             </div>
             <div>
-              <div className="text-2xl font-semibold">
+              <div className="text-xl font-semibold">
                 {new Set(report.items.flatMap((item) => item.tags ?? [])).size}
               </div>
               <div className="text-sm text-ink-mid">标签信号</div>
@@ -102,15 +103,15 @@ export function DailyReportView({ report }: { report: DailyReport }) {
           {sections.length > 0 ? (
             sections.map((section) => (
               <section key={section.key}>
-                <h2 className="text-xl font-semibold">{section.label}</h2>
-                <div className="mt-4 divide-y divide-line border-y border-line">
+                <h2 className="text-lg font-semibold">{section.label}</h2>
+                <div className="mt-3 divide-y divide-line border-y border-line">
                   {section.items.map((item) => (
-                    <article key={item.event_id} className="grid gap-3 py-5 md:grid-cols-[1fr_170px]">
+                    <article key={item.event_id} className="grid gap-2 py-4 md:grid-cols-[1fr_170px]">
                       <div>
-                        <div className="text-sm text-signal-dim">
+                        <div className="text-xs text-signal-dim">
                           {section.label} · {formatScore(item.final_score)}
                         </div>
-                        <h3 className="mt-2 text-xl font-semibold">
+                        <h3 className="mt-1.5 text-base font-semibold">
                           <a className="hover:text-signal" href={eventHref(item)}>{item.title}</a>
                         </h3>
                         <p className="mt-3 text-sm leading-6 text-ink-mid">
@@ -126,7 +127,10 @@ export function DailyReportView({ report }: { report: DailyReport }) {
                         </p>
                       </div>
                       <div className="text-sm text-ink-mid md:text-right">
-                        <div>相关来源 {item.source_count ?? 1} 个</div>
+                        <div className="md:flex md:justify-end">
+                          <BookmarkButton eventId={item.event_id} />
+                        </div>
+                        <div className="mt-3">相关来源 {item.source_count ?? 1} 个</div>
                         <div className="mt-3">{renderSource(item)}</div>
                         <div className="mt-3">{(item.tags ?? []).join(" / ")}</div>
                       </div>
@@ -137,7 +141,7 @@ export function DailyReportView({ report }: { report: DailyReport }) {
             ))
           ) : (
             <section className="border-y border-line py-8">
-              <h2 className="text-xl font-semibold">暂无日报</h2>
+              <h2 className="text-lg font-semibold">暂无日报</h2>
               <p className="mt-3 text-sm text-ink-mid">这个日期还没有生成可展示的日报。</p>
             </section>
           )}

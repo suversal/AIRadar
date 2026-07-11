@@ -22,6 +22,7 @@ from app.services.ai_service import FakeAIProvider, embedding_input
 from app.services.clustering_service import cluster_articles
 from app.services.daily_report_service import build_daily_json, render_daily_markdown
 from app.services.scoring_service import select_processed_article
+from app.services.source_policy import is_trusted_curated_source
 
 # Total translation budget per article. Real full-page content now commonly
 # runs 3000-14000 chars (HF/bair/venturebeat observed up to ~14000), so this
@@ -167,13 +168,15 @@ def _process_candidate_article(
         article.skipped_reason = "no_content"
         return None, None, "no_content"
 
+    source = source_by_id[article.source_id]
+    trusted_curated = is_trusted_curated_source(source)
     scoring = _cached_scoring_result(cached)
     if scoring is None and cached and cached.get("skipped_reason") == "not_ai_related":
         article.status = "skipped"
         article.skipped_reason = "not_ai_related"
         return None, None, "not_ai_related"
 
-    if scoring is None and not skip_prefilter:
+    if scoring is None and not skip_prefilter and not trusted_curated:
         prefilter = ai_provider.prefilter(f"{article.title}\n{article.content[:500]}")
         if not prefilter.is_ai_related:
             article.status = "skipped"
@@ -181,8 +184,13 @@ def _process_candidate_article(
             return None, None, "not_ai_related"
 
     if scoring is None:
-        scoring = ai_provider.score_article(article.title, article.content)
-    source = source_by_id[article.source_id]
+        try:
+            scoring = ai_provider.score_article(article.title, article.content)
+        except Exception:
+            if not trusted_curated:
+                raise
+            scoring = _trusted_curated_fallback_scoring(article)
+            article.metadata["ai_fallback"] = "score_error"
     processed = select_processed_article(
         article=article,
         source=source,
@@ -199,9 +207,48 @@ def _process_candidate_article(
         now=now,
         source_count=1,
     )
-    embedding = ai_provider.embed_text(embedding_input(article.title, article.content))
+    if trusted_curated:
+        processed = replace(
+            processed,
+            selected=True,
+            status="processed",
+            rejection_reason=None,
+            selection_origin="curated_source",
+            selection_reason=f"trusted_curated:{source.id}",
+        )
+    try:
+        embedding = ai_provider.embed_text(embedding_input(article.title, article.content))
+    except Exception:
+        if not trusted_curated:
+            raise
+        embedding = None
+        article.metadata["ai_fallback"] = "embedding_error"
     skipped_reason = None if processed.selected else "below_threshold"
     return processed, embedding, skipped_reason
+
+
+def _trusted_curated_fallback_scoring(article: RawArticle) -> ScoringResult:
+    category_map = {
+        "AI 产品": "product_release",
+        "模型发布": "model_release",
+        "开源项目": "open_source",
+        "论文": "research",
+        "研究": "research",
+        "技巧观点": "opinion",
+        "行业动态": "industry",
+    }
+    feed_category = str(article.metadata.get("feed_category") or "").strip()
+    summary = (article.content or article.title).strip()
+    return ScoringResult(
+        dimensions=ScoreDimensions(8, 5, 5, 5, 4, 4),
+        category=category_map.get(feed_category, "industry"),
+        tags=[tag for tag in [feed_category, "AI HOT"] if tag],
+        title_zh=article.title,
+        one_line_summary=summary[:120],
+        summary_zh=summary[:500],
+        reason_zh="来自 AI HOT 每日精编候选池，模型处理失败后保留原始信息。",
+        action_zh="阅读原文并核对一手来源。",
+    )
 
 
 def _safe_process_candidate_article(
@@ -433,7 +480,7 @@ def run_pipeline(
     now: datetime,
     report_date: date,
     candidate_limit: int = 100,
-    top_n: int = 12,
+    top_n: int | None = None,
     ai_concurrency: int = 1,
     skip_prefilter: bool = False,
     cached_results: dict[str, dict[str, Any]] | None = None,
@@ -450,6 +497,13 @@ def run_pipeline(
             article = normalize_article(source=source, **item)
             cached = cached_results.get(article.url_hash)
             if cached:
+                # URL hash is the database uniqueness boundary. A historical
+                # row can have an id derived from an older source URL while a
+                # fresh crawl derives a new id for the same canonical URL.
+                # Every downstream FK must reuse the persisted identity.
+                persisted_id = str(cached.get("raw_article_id") or "").strip()
+                if persisted_id:
+                    article.id = persisted_id
                 # reuse expensive AI artifacts (translations, README selection)
                 # from earlier runs; freshly crawled metadata still wins
                 for key, value in (cached.get("metadata") or {}).items():
@@ -457,9 +511,16 @@ def run_pipeline(
             raw_articles.append(article)
 
     raw_articles = dedupe_articles(raw_articles)
-    candidate_articles = raw_articles[:candidate_limit]
-    if len(raw_articles) > candidate_limit:
-        skipped["candidate_limit"] += len(raw_articles) - candidate_limit
+    candidate_articles: list[RawArticle] = []
+    general_count = 0
+    for article in raw_articles:
+        if is_trusted_curated_source(source_by_id[article.source_id]):
+            candidate_articles.append(article)
+        elif general_count < candidate_limit:
+            candidate_articles.append(article)
+            general_count += 1
+        else:
+            skipped["candidate_limit"] += 1
 
     processed_articles: list[ProcessedArticle] = []
     embeddings: dict[str, list[float]] = {}
@@ -513,27 +574,12 @@ def run_pipeline(
     final_scores = {
         processed.raw_article_id: processed.final_score for processed in processed_articles
     }
-    # cluster EVERY selected article, not just the report candidates: the
-    # event table is the full rolling event graph (product decision
-    # 2026-07-11), and the daily report picks its top_n at the EVENT level
-    # inside build_daily_json - so merged coverage can no longer shrink the
-    # masthead below target
-    selected_ids = {
-        processed.raw_article_id for processed in processed_articles if processed.selected
-    }
-    # weak news days keep their long-standing fill behavior: the best
-    # below-threshold candidates (up to top_n) still enter the event graph
-    # so the report is never blank just because nothing crossed the bar
-    fill_ids = {
-        processed.raw_article_id
-        for processed in sorted(
-            processed_articles,
-            key=lambda item: (item.selected, item.final_score),
-            reverse=True,
-        )[:top_n]
-    }
-    clusterable_ids = selected_ids | fill_ids
-    clusterable_articles = [article for article in raw_articles if article.id in clusterable_ids]
+    # Cluster every genuinely selected article. There is no fixed report size
+    # and no low-score fill path: the event graph is the selection boundary.
+    processed_ids = {processed.raw_article_id for processed in processed_articles}
+    # Cluster all scored articles so a trusted-curated member can select an
+    # event whose preferred main article is an official/original source.
+    clusterable_articles = [article for article in raw_articles if article.id in processed_ids]
     clusters = cluster_articles(
         clusterable_articles,
         embeddings,
@@ -575,7 +621,6 @@ def run_pipeline(
         processed_by_article=processed_by_article,
         articles_by_id=articles_by_id,
         sources_by_id=source_by_id,
-        top_n=top_n,
         generated_at=now,
     )
     json_data = build_daily_json(
@@ -584,7 +629,6 @@ def run_pipeline(
         processed_by_article=processed_by_article,
         articles_by_id=articles_by_id,
         sources_by_id=source_by_id,
-        top_n=top_n,
         generated_at=now,
     )
     report = DailyReport(

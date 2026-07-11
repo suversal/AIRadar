@@ -31,7 +31,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Searc
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-5 py-6 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-sm text-ink-mid">Suversal AI Radar</p>
-            <h1 className="mt-2 text-3xl font-semibold">搜索</h1>
+            <h1 className="mt-2 text-2xl font-semibold">搜索</h1>
           </div>
           <nav className="flex flex-wrap gap-3 text-sm text-signal" aria-label="页面导航">
             <a className="underline" href="/latest">
@@ -66,7 +66,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Searc
 
         <div className="mt-6 flex flex-col gap-2 border-b border-line pb-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <h2 className="text-xl font-semibold">搜索结果</h2>
+            <h2 className="text-lg font-semibold">搜索结果</h2>
             <p className="mt-2 text-sm text-ink-mid">
               {query.trim() ? `关键词：${query.trim()}` : "未输入关键词时展示全部当前事件。"}
             </p>
@@ -77,12 +77,12 @@ export default async function SearchPage({ searchParams }: { searchParams: Searc
         <div className="divide-y divide-line border-b border-line">
           {results.length > 0 ? (
             results.map((item) => (
-              <article key={item.event_id} className="grid gap-3 py-5 md:grid-cols-[1fr_180px]">
+              <article key={item.event_id} className="grid gap-2 py-4 md:grid-cols-[1fr_180px]">
                 <div>
-                  <div className="text-sm text-signal-dim">
+                  <div className="text-xs text-signal-dim">
                     {item.category_label ?? item.category ?? "未分类"}
                   </div>
-                  <h3 className="mt-2 text-xl font-semibold">
+                  <h3 className="mt-1.5 text-base font-semibold">
                     <a className="hover:text-signal" href={eventHref(item)}>{item.title}</a>
                   </h3>
                   <p className="mt-3 text-sm leading-6 text-ink-mid">

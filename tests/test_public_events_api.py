@@ -336,6 +336,47 @@ class PublicEventRouteTests(unittest.TestCase):
         self.assertEqual(len(body["items"]), 2)  # live items still attached
         self.assertEqual(by_date.json()["period_key"], "2026-W28")
 
+    def test_weekly_route_hydrates_persisted_entries_to_live_content(self):
+        client, repository = self._client({})
+        repository.period_reports[("weekly", "2026-W28")] = {
+            "kind": "weekly",
+            "period_key": "2026-W28",
+            "range_start": "2026-07-06",
+            "range_end": "2026-07-12",
+            "mainline_title": "AI 综述标题",
+            "mainline_body": "AI 综述正文……",
+            "theme_notes": [],
+            "article_count": 2,
+            "report_dates": ["2026-07-08"],
+            "entries": [
+                {"event_id": "evt-2", "score_at_selection": 95.0},
+                {"event_id": "evt-1", "score_at_selection": 80.0},
+                {"event_id": "evt-hidden", "score_at_selection": 70.0},
+            ],
+            "stats": {"source_coverage_count": 2, "multi_source_ratio": 0.5},
+            "generated_at": "2026-07-10T08:00:00+00:00",
+            "status": "generated",
+        }
+        # live content differs from whatever was true at generation time -
+        # the snapshot only froze order/ids, not this title
+        repository.event_items_by_id = {
+            "evt-2": make_item("evt-2", title="标题已被后续更新"),
+            "evt-1": make_item("evt-1"),
+            # evt-hidden intentionally absent: simulates a moderated-away
+            # event that the live resolver silently drops
+        }
+
+        response = client.get("/api/public/reports/weekly/2026-W28")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["generated"])
+        # order frozen at generation time is preserved, hidden entry dropped
+        self.assertEqual([item["event_id"] for item in body["items"]], ["evt-2", "evt-1"])
+        self.assertEqual(body["items"][0]["title"], "标题已被后续更新")
+        self.assertEqual(body["article_count"], 2)
+        self.assertEqual(body["stats"]["source_coverage_count"], 2)
+
     def test_weekly_route_falls_back_when_no_persisted_report(self):
         client, _ = self._client(
             {
@@ -381,6 +422,7 @@ class FakeRepository:
         self.period_reports = {}
         self.period_archive = {}
         self.daily_dates = []
+        self.event_items_by_id = {}
 
     def get_latest_daily_report_payload(self):
         self.calls.append("latest")
@@ -414,6 +456,16 @@ class FakeRepository:
         if event_id == "evt-known":
             return make_item("evt-known")
         return None
+
+    def get_event_items_by_ids(self, event_ids):
+        self.calls.append(f"items_by_ids:{','.join(event_ids)}")
+        # mirrors the real repository: preserve order, silently skip
+        # ids that don't resolve (hidden or gone)
+        return [
+            self.event_items_by_id[event_id]
+            for event_id in event_ids
+            if event_id in self.event_items_by_id
+        ]
 
     period_reports: dict = {}
     period_archive: dict = {}

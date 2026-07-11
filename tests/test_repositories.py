@@ -759,6 +759,83 @@ class RepositoryTests(unittest.TestCase):
         listed_counts = {item["event_id"]: item["source_count"] for item in listed}
         self.assertEqual(listed_counts["e-multi"], 2)
 
+    def test_event_item_includes_coverage_from_every_clustered_source(self):
+        # 事件详情页"同一事件·N家报道"板块的数据来源：event_cluster_articles
+        # 里的每个成员都要出现，隐藏的成员要被排除，且不是 dedup 用途。
+        from dataclasses import replace as dc_replace
+
+        from app.models.domain import RawArticle
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source(), self._other_source()])
+            repository.upsert_raw_articles(
+                [
+                    self._article(article_id="a1", title="主文", url_hash="u1"),
+                    RawArticle(
+                        id="b1",
+                        source_id="techcrunch",
+                        source_name="TechCrunch",
+                        source_role="signal",
+                        source_tier="T2",
+                        source_url="https://techcrunch.com/b1",
+                        title="同一事件的另一来源报道",
+                        content="AI model release",
+                        author="TechCrunch",
+                        published_at=datetime(2026, 7, 1, 11, tzinfo=timezone.utc),
+                        language="en",
+                        raw_score={"score": 1},
+                        metadata={"origin": "fixture"},
+                        title_hash="title-b1",
+                        url_hash="u2",
+                    ),
+                    RawArticle(
+                        id="c1",
+                        source_id="techcrunch",
+                        source_name="TechCrunch",
+                        source_role="signal",
+                        source_tier="T2",
+                        source_url="https://techcrunch.com/c1",
+                        title="将被隐藏的第三家报道",
+                        content="AI model release",
+                        author="TechCrunch",
+                        published_at=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+                        language="en",
+                        raw_score={"score": 1},
+                        metadata={"origin": "fixture"},
+                        title_hash="title-c1",
+                        url_hash="u3",
+                    ),
+                ]
+            )
+            repository.upsert_processed_articles(
+                [
+                    dc_replace(self._processed("a1"), event_cluster_id="e-multi"),
+                    dc_replace(self._processed("b1"), event_cluster_id="e-multi"),
+                    dc_replace(self._processed("c1"), event_cluster_id="e-multi"),
+                ]
+            )
+            cluster = self._cluster("e-multi", main_article_id="a1")
+            cluster.article_ids = ["a1", "b1", "c1"]
+            repository.upsert_event_clusters([cluster])
+            session.commit()
+
+            from app.db.models import EditorialOverrideModel
+
+            session.add(EditorialOverrideModel(raw_article_id="c1", hidden=True))
+            session.commit()
+
+            detail = repository.get_event_item("e-multi")
+
+        coverage = detail["coverage"]
+        # c1 is hidden and must not appear; b1 (11:00) sorts before a1 (09:00
+        # per _article() fixture default published_at)
+        self.assertEqual([c["raw_article_id"] for c in coverage], ["b1", "a1"])
+        self.assertTrue(coverage[1]["is_main"])
+        self.assertFalse(coverage[0]["is_main"])
+        self.assertEqual(coverage[0]["source_name"], "TechCrunch")
+
     def test_moderation_can_clear_tags_with_empty_list(self):
         # 编辑把标签清空是一个真实的治理动作：tags=[] 必须覆盖掉机器标签，
         # 只有从未动过标签（override.tags 为 NULL）才回退到机器值。
@@ -1511,6 +1588,8 @@ class RepositoryTests(unittest.TestCase):
             "theme_notes": [{"label": "模型", "note": "多家更新"}],
             "article_count": 12,
             "report_dates": ["2026-07-09", "2026-07-10"],
+            "entries": [{"event_id": "c-event-1", "score_at_selection": 92.5}],
+            "stats": {"source_coverage_count": 4, "multi_source_ratio": 0.5},
             "generated_at": "2026-07-10T08:00:00+00:00",
             "status": "generated",
         }
@@ -1534,10 +1613,64 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(fetched["mainline_title"], "更新后的主线")
         self.assertEqual(fetched["article_count"], 15)
         self.assertEqual(fetched["theme_notes"], [{"label": "模型", "note": "多家更新"}])
+        self.assertEqual(
+            fetched["entries"], [{"event_id": "c-event-1", "score_at_selection": 92.5}]
+        )
+        self.assertEqual(fetched["stats"]["source_coverage_count"], 4)
         self.assertIsNone(missing)
         self.assertEqual(
             [entry["period_key"] for entry in archive], ["2026-W28", "2026-W27"]
         )
+
+    def test_regenerate_period_reports_only_includes_published_daily_entries(self):
+        """A period report is a rollup of the days' actual daily reports, not
+        an independent re-selection - an article that was scored/clustered
+        but never made any day's daily report must not leak into the
+        weekly/monthly snapshot just because it falls in the date window."""
+        import app.db.session as db_session_module
+        from app.repositories.radar_repository import RadarRepository
+        from app.services.ai_service import FakeAIProvider
+        from app.services.refresh_service import _regenerate_period_reports
+
+        report_date = date(2026, 7, 11)
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles(
+                [
+                    self._article(article_id="a1", title="发布过的日报事件", url_hash="u1"),
+                    self._article(article_id="a2", title="评分过但从未上过日报", url_hash="u2"),
+                ]
+            )
+            repository.upsert_processed_articles(
+                [self._processed("a1"), self._processed("a2", final_score=90.0)]
+            )
+            repository.upsert_event_clusters([self._cluster("e-orphan", main_article_id="a2")])
+            repository.upsert_daily_report(self._report(report_date, article_count=1))
+            repository.replace_daily_report_entries(
+                report_date,
+                [{"event_id": "aa1", "raw_article_id": "a1", "reason": "入选理由", "final_score": 88.0}],
+            )
+            session.commit()
+
+        # _regenerate_period_reports opens its own session via
+        # build_session_factory(database_url) - point it at this test's
+        # in-memory engine instead of a real database
+        original_build_session_factory = db_session_module.build_session_factory
+        db_session_module.build_session_factory = lambda url: self.Session
+        try:
+            _regenerate_period_reports("sqlite://unused", report_date, FakeAIProvider())
+        finally:
+            db_session_module.build_session_factory = original_build_session_factory
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            weekly = repository.get_period_report("weekly", "2026-W28")
+
+        self.assertIsNotNone(weekly)
+        self.assertEqual(len(weekly["entries"]), 1)
+        self.assertEqual(weekly["entries"][0]["event_id"], "aa1")
+        self.assertEqual(weekly["article_count"], 1)
 
     def test_list_daily_report_dates(self):
         from app.repositories.radar_repository import RadarRepository

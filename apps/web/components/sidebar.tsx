@@ -1,31 +1,30 @@
-import { navGroupItems, navMarker } from "./nav";
+import { navGroupItems } from "./nav";
 
 export function Sidebar({ activeNavId }: { activeNavId: string }) {
   return (
-    <aside className="border-b border-line bg-panel px-4 py-5 lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
-      <a className="block rounded-md border border-line bg-panel px-5 py-6" href="/latest">
-        <div aria-label="AI·RADAR" className="text-2xl font-semibold tracking-[0.2em] text-ink">
+    <aside className="border-b border-line bg-panel px-3 py-4 lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
+      <a className="block rounded-md border border-line bg-panel px-4 py-4" href="/latest">
+        <div aria-label="AI·RADAR" className="text-lg font-semibold tracking-[0.15em] text-ink">
           AI<span className="text-signal">·RADAR</span>
         </div>
       </a>
 
-      <nav className="mt-6 space-y-6" aria-label="主导航">
+      <nav className="mt-5 space-y-5" aria-label="主导航">
         {(["内容", "接入", "更多"] as const).map((group) => (
           <section key={group}>
-            <div className="px-3 text-xs font-semibold text-ink-dim">{group}</div>
-            <div className="mt-2 space-y-1">
+            <div className="px-3 text-[11px] font-semibold text-ink-dim">{group}</div>
+            <div className="mt-1.5 space-y-0.5">
               {navGroupItems(group).map((item) => {
                 const active = item.id === activeNavId;
-                const className = `flex items-center gap-3 rounded-md px-4 py-3 text-sm font-semibold ${
+                const Icon = item.icon;
+                const className = `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium ${
                   active
                     ? "border border-signal/40 bg-signal/10 text-signal"
                     : "text-ink-mid hover:bg-panel-soft hover:text-ink"
                 }`;
                 const content = (
                   <>
-                    <span className="flex h-6 w-6 items-center justify-center rounded-md border border-line-strong text-xs">
-                      {navMarker(item.label)}
-                    </span>
+                    <Icon aria-hidden className="h-4 w-4 shrink-0" strokeWidth={1.75} />
                     {item.label}
                   </>
                 );

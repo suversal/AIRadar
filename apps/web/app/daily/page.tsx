@@ -47,31 +47,41 @@ export default async function DailyPage() {
       activeMode="daily"
       secondary={
         <div className="mt-6">
+          <div className="text-sm font-semibold text-ink-mid">往期 AI 日报</div>
           {monthGroups.length === 0 ? (
-            <p className="text-xs leading-5 text-ink-dim">日报归档随每日生成自动积累</p>
+            <p className="mt-3 text-xs leading-5 text-ink-dim">日报归档随每日生成自动积累</p>
           ) : (
-            monthGroups.map(([month, dates]) => (
-              <div key={month} className="mb-5">
-                <div className="readout text-xs font-semibold text-ink-dim">
-                  {month.replace("-", " 年 ")} 月
-                </div>
-                <div className="mt-2 space-y-1">
-                  {dates.map((value) => (
-                    <a
-                      key={value}
-                      className={`block rounded-md px-3 py-2 text-sm transition ${
-                        value === report.report_date
-                          ? "bg-signal/10 text-signal-bright"
-                          : "text-ink-mid hover:bg-panel-soft hover:text-ink"
-                      }`}
-                      href={`/daily/${value}`}
-                    >
-                      <span className="readout">{value.slice(-2)} 日</span>
-                    </a>
-                  ))}
-                </div>
-              </div>
-            ))
+            <div className="mt-3 divide-y divide-line">
+              {monthGroups.map(([month, dates], index) => {
+                const activeMonth = dates.includes(report.report_date);
+                return (
+                  <details key={month} className="group py-1" open={index === 0 || activeMonth}>
+                    <summary className="flex cursor-pointer list-none items-center justify-between rounded-md px-3 py-2.5 text-sm font-semibold text-ink-mid transition hover:bg-panel-soft hover:text-ink">
+                      <span className="flex items-center gap-2">
+                        <span className="text-ink-dim transition group-open:rotate-90">›</span>
+                        {month.replace("-", " 年 ")} 月
+                      </span>
+                      <span className="readout text-xs text-ink-dim">{dates.length}</span>
+                    </summary>
+                    <div className="mt-1 space-y-1 pb-2 pl-4">
+                      {dates.map((value) => (
+                        <a
+                          key={value}
+                          className={`block rounded-md px-3 py-2 text-sm transition ${
+                            value === report.report_date
+                              ? "bg-signal/10 text-signal-bright"
+                              : "text-ink-mid hover:bg-panel-soft hover:text-ink"
+                          }`}
+                          href={`/daily/${value}`}
+                        >
+                          <span className="readout">{value.slice(-2)} 日</span>
+                        </a>
+                      ))}
+                    </div>
+                  </details>
+                );
+              })}
+            </div>
           )}
         </div>
       }
@@ -84,12 +94,12 @@ export default async function DailyPage() {
           </div>
           <h1
             aria-label="AI·RADAR 日报"
-            className="mt-8 text-5xl font-semibold leading-none tracking-tight text-ink md:text-7xl"
+            className="mt-6 text-4xl font-semibold leading-none tracking-tight text-ink md:text-5xl"
           >
             <span className="text-ink">AI</span>
             <span className="text-signal">·RADAR</span> 日报
           </h1>
-          <div className="mt-8 grid items-center gap-4 text-sm text-ink-mid md:grid-cols-[auto_1fr_auto]">
+          <div className="mt-6 grid items-center gap-4 text-sm text-ink-mid md:grid-cols-[auto_1fr_auto]">
             <span>{formatChineseDate(report.report_date)}</span>
             <span className="hidden h-px bg-panel-soft md:block" />
             <span>DAILY · 每日八时</span>
@@ -117,22 +127,22 @@ export default async function DailyPage() {
           })()}
         </header>
 
-        <section className="rounded-md border border-line bg-panel p-5">
+        <section className="rounded-md border border-line bg-panel p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-base font-semibold text-ink">今日看点</h2>
             <div className="text-sm text-ink-dim">{report.article_count} 篇报道</div>
           </div>
-          <div className="mt-4 divide-y divide-line">
+          <div className="mt-3 divide-y divide-line">
             {digest.highlights.map((highlight, index) => (
               <a
                 key={highlight.label}
-                className="grid gap-2 rounded-md px-2 py-3 text-sm transition hover:bg-panel-soft/60 md:grid-cols-[36px_1fr_40px]"
+                className="grid gap-2 rounded-md px-2 py-2.5 text-sm transition hover:bg-panel-soft/60 md:grid-cols-[36px_1fr_40px]"
                 href={eventHref(highlight.items[0])}
               >
                 <span className="font-semibold text-signal">{String(index + 1).padStart(2, "0")}</span>
                 <span>
                   <span className="block font-semibold text-ink">{highlight.label}</span>
-                  <span className="mt-1 block text-ink-mid">{highlight.title}</span>
+                  <span className="mt-0.5 block text-ink-mid">{highlight.title}</span>
                 </span>
                 <span className="text-ink-dim md:text-right">{highlight.count}</span>
               </a>
@@ -140,21 +150,21 @@ export default async function DailyPage() {
           </div>
         </section>
 
-        <div className="mt-6 grid gap-3 md:grid-cols-4">
+        <div className="mt-5 grid gap-3 md:grid-cols-4">
           {digest.stats.map((stat) => (
-            <div key={stat.label} className="rounded-md border border-line bg-panel p-4 text-center">
-              <div className="text-2xl font-semibold text-ink">{stat.value}</div>
+            <div key={stat.label} className="rounded-md border border-line bg-panel p-3 text-center">
+              <div className="text-xl font-semibold text-ink">{stat.value}</div>
               <div className="mt-1 text-xs text-ink-dim">{stat.label}</div>
             </div>
           ))}
         </div>
 
-        <div className="mt-10 space-y-12">
+        <div className="mt-8 space-y-8">
           {digest.sections.map((section, sectionIndex) => (
             <section key={section.key}>
               <div className="flex items-end justify-between gap-4">
-                <h2 className="text-3xl font-semibold text-ink">
-                  <span className="mr-4 text-5xl text-signal">
+                <h2 className="text-xl font-semibold text-ink">
+                  <span className="mr-3 text-3xl text-signal">
                     {String(sectionIndex + 1).padStart(2, "0")}
                   </span>
                   {section.label}
@@ -162,19 +172,19 @@ export default async function DailyPage() {
                 <span className="text-sm font-semibold text-signal">{section.items.length} 篇</span>
               </div>
 
-              <div className="mt-6 grid gap-5">
+              <div className="mt-4 grid gap-3">
                 {section.items.map((item) => (
-                  <article key={item.event_id} className="card-hover rounded-md border border-line bg-panel p-5">
-                    <div className="text-sm text-signal-bright">
+                  <article key={item.event_id} className="card-hover rounded-md border border-line bg-panel p-4">
+                    <div className="text-xs text-signal-bright">
                       {item.main_source?.name ?? "未知来源"} · {item.source_count ?? 1} 个来源
                     </div>
-                    <h3 className="mt-3 text-xl font-semibold leading-8 text-ink">
+                    <h3 className="mt-1.5 text-base font-semibold leading-6 text-ink">
                       <a className="hover:text-signal" href={eventHref(item)}>{item.title}</a>
                     </h3>
-                    <p className="mt-4 text-[15px] leading-7 text-ink-mid">
+                    <p className="mt-3 text-sm leading-6 text-ink-mid">
                       {item.summary ?? item.one_line_summary ?? "暂无摘要。"}
                     </p>
-                    <p className="mt-4 rounded-md bg-signal/10 px-4 py-3 text-[15px] leading-7 text-signal-bright">
+                    <p className="mt-3 rounded-md bg-signal/10 px-3 py-2.5 text-sm leading-6 text-signal-bright">
                       <span className="font-semibold">为什么重要：</span>
                       {item.reason ?? "暂无推荐理由。"}
                     </p>

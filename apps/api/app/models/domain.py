@@ -94,6 +94,8 @@ class ProcessedArticle:
     selected: bool
     status: str
     rejection_reason: str | None = None
+    selection_origin: str = "score"
+    selection_reason: str | None = None
 
 
 @dataclass

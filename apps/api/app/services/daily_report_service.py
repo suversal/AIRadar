@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.models.domain import EventCluster, RawArticle, Source
 from app.services.taxonomy import category_label, display_category
@@ -11,9 +12,34 @@ from app.services.taxonomy import category_label, display_category
 def selected_clusters(
     clusters: list[EventCluster],
     *,
-    top_n: int = 12,
+    processed_by_article: dict[str, Any] | None = None,
+    report_date: date | None = None,
+    top_n: int | None = None,
 ) -> list[EventCluster]:
-    return sorted(clusters, key=lambda item: item.final_score, reverse=True)[:top_n]
+    selected = clusters
+    if processed_by_article is not None:
+        selected = [
+            cluster
+            for cluster in selected
+            if any(
+                bool(getattr(processed_by_article.get(article_id), "selected", False))
+                for article_id in cluster.article_ids
+            )
+        ]
+    if report_date is not None:
+        shanghai = ZoneInfo("Asia/Shanghai")
+        selected = [
+            cluster
+            for cluster in selected
+            if cluster.last_seen_at.astimezone(shanghai).date() == report_date
+        ]
+    # top_n is intentionally ignored as a temporary call-site compatibility
+    # shim. Selection is dynamic; pagination belongs to read APIs, not reports.
+    return sorted(
+        selected,
+        key=lambda item: (item.final_score, item.source_count, item.last_seen_at),
+        reverse=True,
+    )
 
 
 def _iso_utc(value: datetime) -> str:
@@ -134,11 +160,16 @@ def build_daily_json(
     processed_by_article: dict[str, Any],
     articles_by_id: dict[str, RawArticle],
     sources_by_id: dict[str, Source],
-    top_n: int = 12,
+    top_n: int | None = None,
     generated_at: datetime | None = None,
 ) -> dict[str, Any]:
     items = []
-    for cluster in selected_clusters(clusters, top_n=top_n):
+    for cluster in selected_clusters(
+        clusters,
+        processed_by_article=processed_by_article,
+        report_date=report_date,
+        top_n=top_n,
+    ):
         article = articles_by_id[cluster.main_article_id]
         processed = processed_by_article[cluster.main_article_id]
         source = sources_by_id[article.source_id]
@@ -192,7 +223,7 @@ def render_daily_markdown(
     processed_by_article: dict[str, Any],
     articles_by_id: dict[str, RawArticle],
     sources_by_id: dict[str, Source],
-    top_n: int = 12,
+    top_n: int | None = None,
     generated_at: datetime | None = None,
 ) -> str:
     daily = build_daily_json(

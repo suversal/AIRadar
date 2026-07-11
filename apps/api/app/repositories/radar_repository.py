@@ -699,6 +699,8 @@ class RadarRepository:
         model.theme_notes = list(report.get("theme_notes") or [])
         model.article_count = int(report.get("article_count") or 0)
         model.report_dates = list(report.get("report_dates") or [])
+        model.entries = list(report.get("entries") or [])
+        model.stats = dict(report.get("stats") or {})
         model.status = report.get("status") or "generated"
         return WriteResult(inserted=inserted, updated=updated)
 
@@ -1125,7 +1127,7 @@ class RadarRepository:
         ):
             return None
         translation = self._get_translation_model(processed.raw_article_id)
-        return _event_item(
+        item = _event_item(
             processed,
             raw,
             source,
@@ -1136,6 +1138,43 @@ class RadarRepository:
             source_count=cluster.source_count if cluster else 1,
             event_id=cluster.id if cluster else None,
         )
+        if cluster is not None:
+            item["coverage"] = self.get_event_cluster_coverage(cluster.id)
+        return item
+
+    def get_event_cluster_coverage(self, event_cluster_id: str) -> list[dict[str, Any]]:
+        """Every source article clustered into this event - the "同一事件·N家
+        报道" panel. A hidden member is dropped the same way a hidden main
+        article would be; this is display-only, never used for dedup."""
+        rows = self.session.execute(
+            select(EventClusterArticleModel, RawArticleModel, SourceModel, ProcessedArticleModel, EditorialOverrideModel)
+            .join(RawArticleModel, EventClusterArticleModel.raw_article_id == RawArticleModel.id)
+            .join(SourceModel, RawArticleModel.source_id == SourceModel.id)
+            .outerjoin(
+                ProcessedArticleModel, ProcessedArticleModel.raw_article_id == RawArticleModel.id
+            )
+            .outerjoin(
+                EditorialOverrideModel, EditorialOverrideModel.raw_article_id == RawArticleModel.id
+            )
+            .where(EventClusterArticleModel.event_cluster_id == event_cluster_id)
+            .order_by(RawArticleModel.published_at.desc())
+        ).all()
+        coverage = []
+        for membership, raw, source, processed, override in rows:
+            if override is not None and override.hidden:
+                continue
+            title = (processed.title_zh if processed and processed.title_zh else None) or raw.title
+            coverage.append(
+                {
+                    "raw_article_id": raw.id,
+                    "title": title,
+                    "source_name": source.name,
+                    "source_url": raw.source_url,
+                    "published_at": _as_utc_isoformat(raw.published_at),
+                    "is_main": membership.is_main,
+                }
+            )
+        return coverage
 
     def get_daily_report_payloads_between(
         self, start_date: date, end_date: date
@@ -1176,6 +1215,8 @@ def _period_report_payload(model: PeriodReportModel) -> dict[str, Any]:
         "theme_notes": list(model.theme_notes or []),
         "article_count": model.article_count,
         "report_dates": list(model.report_dates or []),
+        "entries": list(model.entries or []),
+        "stats": dict(model.stats or {}),
         "generated_at": model.generated_at.isoformat() if model.generated_at else None,
         "status": model.status,
     }

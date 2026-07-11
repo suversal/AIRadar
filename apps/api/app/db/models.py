@@ -335,6 +335,15 @@ class PeriodReportModel(Base):
     theme_notes: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     article_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     report_dates: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    # frozen masthead: which events were selected, in what order, and their
+    # score at generation time. Content (title/summary/reason/tags/...) is
+    # never stored here - it is always resolved live from event_id via
+    # get_event_items_by_ids, same as daily_report_entries.
+    entries: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    # aggregate counts computed once at generation time (source coverage,
+    # multi-source ratio, category breakdown) so they stop changing once the
+    # period has rolled over, instead of being recomputed on every read
+    stats: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     # lineage: the pipeline run that last (re)generated this report
     pipeline_run_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pipeline_runs.id"))
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

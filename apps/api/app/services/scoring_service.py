@@ -154,5 +154,8 @@ def select_processed_article(
         selected=selected,
         status="processed" if selected else "rejected",
         rejection_reason=None if selected else f"below_threshold:{threshold}",
+        selection_origin="score",
+        selection_reason=(
+            f"final_score:{final_score}>=threshold:{threshold}" if selected else None
+        ),
     )
-

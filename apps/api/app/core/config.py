@@ -52,7 +52,6 @@ class Settings:
     default_summary_model: str = "gpt-4.1-mini"
     default_embedding_model: str = "text-embedding-3-small"
     daily_candidate_limit: int = 100
-    daily_selected_limit: int = 12
     # 0.85 was too low for bge-small-zh-v1.5 (the local embedding model in
     # actual use): a real-data check found completely unrelated AI-news
     # articles scoring 0.79-0.89 cosine similarity against each other, so a
@@ -77,7 +76,6 @@ class Settings:
                 "DEFAULT_EMBEDDING_MODEL", "text-embedding-3-small"
             ),
             daily_candidate_limit=int(os.getenv("DAILY_CANDIDATE_LIMIT", "100")),
-            daily_selected_limit=int(os.getenv("DAILY_SELECTED_LIMIT", "12")),
             cluster_similarity_threshold=float(os.getenv("CLUSTER_SIMILARITY_THRESHOLD", "0.93")),
             cluster_window_hours=int(os.getenv("CLUSTER_WINDOW_HOURS", "24")),
         )

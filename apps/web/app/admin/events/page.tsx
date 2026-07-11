@@ -16,6 +16,7 @@ export default async function AdminEventsPage({
     q?: string;
     title?: string;
     category?: string;
+    source_id?: string;
     page?: string;
     page_size?: string;
   }>;
@@ -23,6 +24,7 @@ export default async function AdminEventsPage({
   const params = await searchParams;
   const title = (params.title ?? params.q ?? "").trim();
   const category = (params.category ?? "").trim();
+  const sourceId = (params.source_id ?? "").trim();
   const requestedPageSize = Number(params.page_size ?? DEFAULT_PAGE_SIZE) || DEFAULT_PAGE_SIZE;
   const pageSize = PAGE_SIZE_OPTIONS.includes(requestedPageSize as (typeof PAGE_SIZE_OPTIONS)[number])
     ? requestedPageSize
@@ -37,8 +39,15 @@ export default async function AdminEventsPage({
   if (category) {
     query.set("category", category);
   }
-  const response = await adminFetch(`/api/admin/events?${query}`);
+  if (sourceId) {
+    query.set("source_id", sourceId);
+  }
+  const [response, sourcesResponse] = await Promise.all([
+    adminFetch(`/api/admin/events?${query}`),
+    adminFetch("/api/admin/sources"),
+  ]);
   const payload = response.ok ? await response.json() : { items: [], total: 0 };
+  const sourcesPayload = sourcesResponse.ok ? await sourcesResponse.json() : { sources: [] };
   const events: AdminEvent[] = payload.items ?? [];
   const total: number = payload.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -62,6 +71,11 @@ export default async function AdminEventsPage({
           total={total}
           title={title}
           category={category}
+          sourceId={sourceId}
+          sources={(sourcesPayload.sources ?? []).map((source: { id: string; name: string }) => ({
+            id: source.id,
+            name: source.name,
+          }))}
         />
       )}
     </AdminShell>

@@ -198,6 +198,40 @@ def build_latest_payload_from_repository(repository: Any) -> dict[str, Any]:
     return build_latest_payload(daily_report_json)
 
 
+def build_latest_selected_payload_from_repository(
+    repository: Any,
+    *,
+    end_date: date,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    start_date = end_date - timedelta(days=6)
+    items = repository.get_all_event_items_between(
+        start_date,
+        end_date,
+        selected_only=True,
+    )
+    items = sorted(
+        items,
+        key=lambda item: (
+            item.get("published_at") or "",
+            float(item.get("final_score") or 0),
+            int(item.get("source_count") or 1),
+        ),
+        reverse=True,
+    )
+    page = items[offset : offset + limit]
+    return {
+        "report_date": end_date.isoformat(),
+        "updated_at": page[0].get("published_at") if page else None,
+        "article_count": len(page),
+        "total": len(items),
+        "limit": limit,
+        "offset": offset,
+        "items": page,
+    }
+
+
 def build_daily_payload_from_repository(repository: Any, report_date: date) -> dict[str, Any]:
     daily_report_json = repository.get_daily_report_payload(report_date)
     if daily_report_json is None:

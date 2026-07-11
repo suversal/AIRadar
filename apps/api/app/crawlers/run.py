@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from app.crawlers.base import BaseCrawler
 from app.crawlers.registry import crawler_for_source
 from app.models.domain import RawArticle, Source
+from app.services.source_policy import is_trusted_curated_source
 
 CrawlerFactory = Callable[[Source], BaseCrawler]
 
@@ -111,6 +112,8 @@ def crawl_sources(
     # apply the global limit deterministically in configured source order,
     # regardless of which domain group finished first
     articles: list[RawArticle] = []
+    general_count = 0
+    reserved_count = 0
     skipped = Counter()
     per_source: dict[str, dict] = {}
     for source in active_sources:
@@ -125,8 +128,13 @@ def crawl_sources(
             }
             continue
         fetched = result["articles"]
-        remaining = max(0, limit - len(articles))
-        accepted = fetched[:remaining]
+        if is_trusted_curated_source(source):
+            accepted = fetched[: _source_limit(source, per_source_limit)]
+            reserved_count += len(accepted)
+        else:
+            remaining = max(0, limit - general_count)
+            accepted = fetched[:remaining]
+            general_count += len(accepted)
         articles.extend(accepted)
         per_source[source.id] = {
             "status": "ok",
@@ -142,6 +150,8 @@ def crawl_sources(
         "limit": limit,
         "source_count": len(active_sources),
         "article_count": len(articles),
+        "general_article_count": general_count,
+        "reserved_article_count": reserved_count,
         "per_source_limit": per_source_limit,
         "per_source": per_source,
         "skipped_reasons": dict(skipped),

@@ -92,6 +92,43 @@ def _fallback_summary(kind: str, items: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _entries_snapshot(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Freeze which events were selected, in what order, and their score at
+    generation time. Content (title/summary/reason/tags/...) is deliberately
+    excluded - it is always resolved live from event_id at read time, same
+    as daily_report_entries."""
+    ranked = sorted(items, key=lambda item: float(item.get("final_score") or 0.0), reverse=True)
+    return [
+        {
+            "event_id": item.get("event_id"),
+            "score_at_selection": float(item.get("final_score") or 0.0),
+        }
+        for item in ranked
+        if item.get("event_id")
+    ]
+
+
+def _stats_snapshot(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate counts computed once at generation time so they stop
+    changing once the period has rolled over, instead of being recomputed
+    (and drifting) on every read."""
+    source_ids = {
+        item["main_source"]["id"]
+        for item in items
+        if isinstance(item.get("main_source"), dict) and item["main_source"].get("id")
+    }
+    multi_source_count = sum(1 for item in items if int(item.get("source_count") or 1) > 1)
+    category_distribution: dict[str, int] = {}
+    for item in items:
+        label = str(item.get("category_label") or item.get("category") or "其他")
+        category_distribution[label] = category_distribution.get(label, 0) + 1
+    return {
+        "source_coverage_count": len(source_ids),
+        "multi_source_ratio": (multi_source_count / len(items)) if items else 0.0,
+        "category_distribution": category_distribution,
+    }
+
+
 def build_period_report(
     *,
     kind: str,
@@ -122,6 +159,8 @@ def build_period_report(
         "theme_notes": summary["theme_notes"],
         "article_count": len(items),
         "report_dates": list(report_dates),
+        "entries": _entries_snapshot(items),
+        "stats": _stats_snapshot(items),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "status": status,
     }

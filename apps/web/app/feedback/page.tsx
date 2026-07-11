@@ -11,7 +11,7 @@ export default function FeedbackPage() {
       title="反馈"
       subtitle="告诉我们哪里可以做得更好"
     >
-      <section className="rounded-md border border-line bg-panel p-6 text-sm leading-7 text-ink-mid">
+      <section className="rounded-md border border-line bg-panel p-5 text-sm leading-7 text-ink-mid">
         <p>欢迎反馈以下任何内容：</p>
         <ul className="mt-3 list-disc space-y-2 pl-5">
           <li>某条情报的评分、分类或翻译不准确</li>

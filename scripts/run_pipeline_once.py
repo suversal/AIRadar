@@ -60,7 +60,6 @@ def main() -> int:
     parser.add_argument("--raw", default="data/raw_articles.json")
     parser.add_argument("--output-dir", default="data/pipeline")
     parser.add_argument("--limit", type=int, default=100)
-    parser.add_argument("--top-n", type=int, default=12)
     parser.add_argument("--date", default=date.today().isoformat())
     parser.add_argument("--ai-concurrency", type=int, default=env_int("AI_PIPELINE_CONCURRENCY", 1))
     parser.add_argument("--fake-ai", action="store_true")
@@ -115,7 +114,6 @@ def main() -> int:
         now=datetime.now(timezone.utc),
         report_date=date.fromisoformat(args.date),
         candidate_limit=args.limit,
-        top_n=args.top_n,
         ai_concurrency=args.ai_concurrency,
         skip_prefilter=args.skip_prefilter,
         cached_results=cached_results,

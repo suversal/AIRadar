@@ -69,7 +69,8 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("当前热点", latest_page)
         self.assertIn("groupEventsByDate", latest_page)
         self.assertIn("<details", latest_page)
-        self.assertNotIn('name="q"', latest_page)
+        self.assertIn('name="q"', latest_page)
+        self.assertIn("搜索标题/摘要", latest_page)
 
     def test_latest_page_degrades_when_backend_api_is_unavailable(self):
         api_source = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
@@ -95,14 +96,28 @@ class WebAppStructureTests(unittest.TestCase):
 
     def test_admin_dashboard_exposes_refresh_report_button(self):
         button_source = (WEB / "app" / "admin" / "refresh-report-button.tsx").read_text(encoding="utf-8")
+        dashboard_source = (WEB / "app" / "admin" / "page.tsx").read_text(encoding="utf-8")
         route_source = (WEB / "app" / "api" / "refresh-latest" / "route.ts").read_text(encoding="utf-8")
 
         self.assertIn("手动同步", button_source)
-        self.assertIn("top_n=30", button_source)
+        self.assertIn("limit=100", button_source)
+        self.assertNotIn("top_n", button_source)
         self.assertIn("fetch(url", button_source)
         self.assertIn("pollRefreshJob", button_source)
         self.assertIn("Unexpected end of JSON input", button_source)
         self.assertIn("router.refresh", button_source)
+        self.assertIn("useEffect", button_source)
+        self.assertIn("elapsedSeconds", button_source)
+        self.assertIn("同步中", button_source)
+        self.assertIn("完成 ·", button_source)
+        self.assertIn("失败 ·", button_source)
+        self.assertNotIn("setMessage", button_source)
+        self.assertIn("finished_at", dashboard_source)
+        self.assertIn("formatDuration", dashboard_source)
+        self.assertIn("结束", dashboard_source)
+        self.assertIn("耗时", dashboard_source)
+        self.assertIn("<details", dashboard_source)
+        self.assertIn("run.error", dashboard_source)
         self.assertIn("/api/admin/refresh-latest", route_source)
         self.assertIn("/api/admin/refresh-latest-async", route_source)
         self.assertIn("export async function GET", route_source)
@@ -121,6 +136,19 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("SchedulePanel", dashboard_page)
         self.assertIn("/api/admin/schedule", dashboard_page)
         self.assertIn("export async function PUT", proxy_route)
+
+    def test_admin_content_manager_filters_by_configured_main_source(self):
+        page = (WEB / "app" / "admin" / "events" / "page.tsx").read_text(encoding="utf-8")
+        manager = (WEB / "app" / "admin" / "events" / "events-manager.tsx").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('source_id?: string', page)
+        self.assertIn('/api/admin/sources', page)
+        self.assertIn('query.set("source_id"', page)
+        self.assertIn('name="source_id"', manager)
+        self.assertIn('全部主信源', manager)
+        self.assertIn('params.set("source_id"', manager)
 
     def test_article_images_are_proxied_against_hotlink_protection(self):
         # 中文媒体 CDN 防盗链分两派：infoq（无 Referer 放行）和 qbitai
@@ -150,7 +178,8 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("selectedCategory", latest_page)
         self.assertIn("categoryOptions", latest_page)
         self.assertIn("filteredItems", latest_page)
-        self.assertIn("?category=", latest_page)
+        self.assertIn("latestHref", latest_page)
+        self.assertIn('params.set("category", category)', latest_page)
         taxonomy = (WEB / "lib" / "taxonomy.ts").read_text(encoding="utf-8")
         self.assertIn('["", "全部"]', taxonomy)
 

@@ -18,11 +18,11 @@ export function StaticPage({
         <Sidebar activeNavId={activeNavId} />
 
         <section className="px-5 py-6 md:px-9">
-          <header className="rounded-md border border-line bg-panel p-6">
-            <h1 className="text-3xl font-semibold text-ink">{title}</h1>
-            <p className="mt-2 text-sm text-ink-mid">{subtitle}</p>
+          <header className="rounded-md border border-line bg-panel p-5">
+            <h1 className="text-2xl font-semibold text-ink">{title}</h1>
+            <p className="mt-1.5 text-sm text-ink-mid">{subtitle}</p>
           </header>
-          <div className="mt-6 max-w-3xl space-y-6">{children}</div>
+          <div className="mt-5 max-w-3xl space-y-5">{children}</div>
         </section>
       </div>
     </main>

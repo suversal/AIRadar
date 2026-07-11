@@ -6,6 +6,20 @@ export const metadata = {
 
 const entries = [
   {
+    date: "2026-07-11",
+    title: "周报/月报数据修复、收藏功能与图标导航",
+    items: [
+      "周报/月报改为严格基于当期已发布日报聚合，评分过但从未入选任何一天日报的动态不再混入统计和看点",
+      "周报/月报新增事件与统计快照，多来源事件角标终于能在周报/月报页面显示",
+      "AI 主线综述从占位文案换成约 400 字的真实综述、按主题分段落展示",
+      "「本期看点」改为点击后平滑滚动到对应主题区块，不再跳去某一篇文章详情",
+      "精选页的事件计数会随分类筛选正确变化，此前筛选后仍显示全量数字",
+      "上线收藏功能：点击收藏图标即可保存到本机浏览器，专属收藏页随时查看、可取消",
+      "左侧菜单改用图标呈现",
+      "日报选取改为不设固定条数上限，由信任来源或评分阈值共同决定，标题去重规则修复了带连字符模型名（如 GLM-5.2）被误判成站名后缀的问题",
+    ],
+  },
+  {
     date: "2026-07-10",
     title: "琥珀信号视觉体系与主题页",
     items: [
@@ -45,7 +59,7 @@ export default function ChangelogPage() {
       subtitle="产品能力的演进记录"
     >
       {entries.map((entry) => (
-        <section key={entry.date} className="rounded-md border border-line bg-panel p-6">
+        <section key={entry.date} className="rounded-md border border-line bg-panel p-5">
           <div className="flex flex-wrap items-baseline gap-3">
             <span className="readout text-sm text-signal">{entry.date}</span>
             <h2 className="text-lg font-semibold text-ink">{entry.title}</h2>

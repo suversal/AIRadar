@@ -64,25 +64,25 @@ function cleanTableElementProps<Props extends object>(props: Props) {
 
 const markdownComponents: Components = {
   h1({ node: _node, ...props }) {
-    return <h1 className="mt-10 text-3xl font-semibold leading-tight text-ink" {...props} />;
+    return <h1 className="mt-8 text-2xl font-semibold leading-tight text-ink" {...props} />;
   },
   h2({ node: _node, ...props }) {
-    return <h2 className="mt-9 border-b border-line pb-2 text-2xl font-semibold text-ink" {...props} />;
+    return <h2 className="mt-7 border-b border-line pb-2 text-xl font-semibold text-ink" {...props} />;
   },
   h3({ node: _node, ...props }) {
-    return <h3 className="mt-8 text-xl font-semibold text-ink" {...props} />;
+    return <h3 className="mt-6 text-lg font-semibold text-ink" {...props} />;
   },
   p({ node: _node, ...props }) {
-    return <p className="text-[17px] leading-8 text-ink" {...props} />;
+    return <p className="text-base leading-7 text-ink" {...props} />;
   },
   a({ node: _node, ...props }) {
     return <a className="text-signal hover:text-signal-bright" rel="noreferrer" target="_blank" {...props} />;
   },
   ul({ node: _node, ...props }) {
-    return <ul className="ml-6 list-disc space-y-2 text-[17px] leading-8 text-ink" {...props} />;
+    return <ul className="ml-6 list-disc space-y-2 text-base leading-7 text-ink" {...props} />;
   },
   ol({ node: _node, ...props }) {
-    return <ol className="ml-6 list-decimal space-y-2 text-[17px] leading-8 text-ink" {...props} />;
+    return <ol className="ml-6 list-decimal space-y-2 text-base leading-7 text-ink" {...props} />;
   },
   li({ node: _node, ...props }) {
     return <li className="pl-1" {...props} />;

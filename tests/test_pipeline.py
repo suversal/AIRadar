@@ -131,7 +131,7 @@ class PipelineTests(unittest.TestCase):
 
     def test_all_selected_articles_are_clustered_not_just_top_n(self):
         # 产品决策（2026-07-11）：聚类范围 = 全部入选文章，事件表是完整的
-        # 事件图谱；top_n 只决定日报选几个事件，不再限制聚类输入
+        # 事件图谱；日报动态展示全部入选事件，不再限制数量
         source = Source(
             id="openai_blog",
             name="OpenAI Blog",
@@ -173,9 +173,9 @@ class PipelineTests(unittest.TestCase):
         # 全部入选文章都有事件归属
         for processed in selected:
             self.assertIsNotNone(processed.event_cluster_id)
-        # 互不相似的三篇 → 三个事件；日报仍只选 top_n=1 个事件
+        # 互不相似的三篇 → 三个事件；旧 top_n 参数不再产生截断
         self.assertEqual(len(result.event_clusters), 3)
-        self.assertEqual(result.daily_report.article_count, 1)
+        self.assertEqual(result.daily_report.article_count, 3)
 
     def test_cluster_similarity_threshold_is_configurable(self):
         source_a = Source(
@@ -316,6 +316,7 @@ class PipelineTests(unittest.TestCase):
         noise_hash = stable_hash(canonicalize_url("https://openai.com/known-noise"))
         cached_results = {
             cached_hash: {
+                "raw_article_id": "persisted-raw-id",
                 "scoring": {
                     "dimensions": {
                         "ai_relevance": 9,
@@ -382,6 +383,9 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(cached_processed.title_zh, "缓存的中文标题")
         self.assertEqual(result.skipped_reasons["not_ai_related"], 1)
         cached_article = next(a for a in result.raw_articles if a.url_hash == cached_hash)
+        self.assertEqual(cached_article.id, "persisted-raw-id")
+        self.assertIn("persisted-raw-id", result.embeddings)
+        self.assertEqual(cached_processed.raw_article_id, "persisted-raw-id")
         self.assertEqual(cached_article.metadata["translated_paragraphs"], ["缓存译文段落"])
 
     def test_translate_in_chunks_bounds_each_call_and_preserves_order(self):
@@ -983,7 +987,7 @@ class PipelineTests(unittest.TestCase):
                 self.assertEqual(poison.status, "skipped")
                 self.assertEqual(poison.skipped_reason, "ai_error")
 
-    def test_pipeline_fills_report_from_below_threshold_candidates(self):
+    def test_pipeline_does_not_fill_report_from_below_threshold_candidates(self):
         source = Source(
             id="hn",
             name="Hacker News",
@@ -1021,8 +1025,8 @@ class PipelineTests(unittest.TestCase):
 
         self.assertEqual(result.skipped_reasons["below_threshold"], 3)
         self.assertEqual(len([item for item in result.processed_articles if item.selected]), 0)
-        self.assertEqual(result.daily_report.article_count, 2)
-        self.assertEqual(len(result.daily_report.json_data["items"]), 2)
+        self.assertEqual(result.daily_report.article_count, 0)
+        self.assertEqual(len(result.daily_report.json_data["items"]), 0)
 
     def test_pipeline_can_skip_prefilter_and_score_every_candidate(self):
         source = Source(

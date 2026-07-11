@@ -14,7 +14,7 @@ export type AdminEvent = {
   hidden?: boolean;
   published_at?: string;
   crawled_at?: string;
-  main_source?: { name: string };
+  main_source?: { id: string; name: string };
   original_url?: string;
 };
 
@@ -64,6 +64,8 @@ export function EventsManager({
   total,
   title,
   category,
+  sourceId,
+  sources,
 }: {
   initialEvents: AdminEvent[];
   page: number;
@@ -72,6 +74,8 @@ export function EventsManager({
   total: number;
   title: string;
   category: string;
+  sourceId: string;
+  sources: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const [filter, setFilter] = useState<Filter>("all");
@@ -80,6 +84,7 @@ export function EventsManager({
   const [editing, setEditing] = useState<AdminEvent | null>(null);
   const [titleInput, setTitleInput] = useState(title);
   const [categoryInput, setCategoryInput] = useState(category);
+  const [sourceInput, setSourceInput] = useState(sourceId);
 
   const events = useMemo(() => {
     if (filter === "selected") return initialEvents.filter((event) => event.selected);
@@ -139,6 +144,9 @@ export function EventsManager({
     if (category) {
       params.set("category", category);
     }
+    if (sourceId) {
+      params.set("source_id", sourceId);
+    }
     return `/admin/events?${params.toString()}`;
   }
 
@@ -148,7 +156,7 @@ export function EventsManager({
         <form action="/admin/events" className="space-y-3" method="get">
           <input name="page" type="hidden" value="1" />
           <input name="page_size" type="hidden" value={pageSize} />
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_auto_auto] md:items-end">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_220px_auto_auto] md:items-end">
             <label className="block text-xs font-semibold text-ink-dim">
               标题
               <input
@@ -159,6 +167,22 @@ export function EventsManager({
                 type="search"
                 value={titleInput}
               />
+            </label>
+            <label className="block text-xs font-semibold text-ink-dim">
+              主信源
+              <select
+                className="mt-1 w-full rounded-md border border-line bg-canvas px-4 py-2 text-sm font-normal text-ink outline-none focus:border-signal/60"
+                name="source_id"
+                onChange={(event) => setSourceInput(event.target.value)}
+                value={sourceInput}
+              >
+                <option value="">全部主信源</option>
+                {sources.map((source) => (
+                  <option key={source.id} value={source.id}>
+                    {source.name}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="block text-xs font-semibold text-ink-dim">
               分类
@@ -182,14 +206,14 @@ export function EventsManager({
             >
               搜索
             </button>
-            {title || category ? (
+            {title || category || sourceId ? (
               <a className="px-2 py-2 text-sm text-ink-dim hover:text-ink" href="/admin/events">
                 清除
               </a>
             ) : null}
           </div>
           <p className="text-xs text-ink-dim">
-            标题和分类会同时生效；未填写条件时显示近 30 天全部内容。
+            标题、分类和主信源会同时生效；内容按最近抓取时间倒序排列。
           </p>
         </form>
       </section>
@@ -299,6 +323,7 @@ export function EventsManager({
           <form action="/admin/events" className="flex items-center gap-2 text-xs text-ink-dim" method="get">
             <input name="title" type="hidden" value={title} />
             <input name="category" type="hidden" value={category} />
+            <input name="source_id" type="hidden" value={sourceId} />
             <input name="page" type="hidden" value="1" />
             每页
             <select
@@ -317,6 +342,7 @@ export function EventsManager({
           <form action="/admin/events" className="flex items-center gap-2 text-xs text-ink-dim" method="get">
             <input name="title" type="hidden" value={title} />
             <input name="category" type="hidden" value={category} />
+            <input name="source_id" type="hidden" value={sourceId} />
             <input name="page_size" type="hidden" value={pageSize} />
             跳至
             <input

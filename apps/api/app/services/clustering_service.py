@@ -80,6 +80,11 @@ def cluster_articles(
     for article in sorted(articles, key=lambda item: item.published_at):
         vector = embeddings.get(article.id)
         if vector is None:
+            # A trusted curated item must survive an embedding outage. Keep it
+            # as a standalone event without inventing similarity evidence.
+            buckets.append([article])
+            bucket_vectors.append([])
+            bucket_similarities.append({})
             continue
         matched_index = None
         matched_score = 0.0
@@ -120,4 +125,3 @@ def cluster_articles(
             )
         )
     return clusters
-

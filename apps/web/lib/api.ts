@@ -1,4 +1,5 @@
 export type RadarSource = {
+  id?: string;
   name: string;
   url: string;
   tier: string;
@@ -23,6 +24,15 @@ export type OriginalBlock =
       caption?: string;
     };
 
+export type EventCoverageItem = {
+  raw_article_id: string;
+  title: string;
+  source_name: string;
+  source_url?: string;
+  published_at?: string;
+  is_main: boolean;
+};
+
 export type LatestEvent = {
   event_id: string;
   title: string;
@@ -32,6 +42,7 @@ export type LatestEvent = {
   final_score?: number;
   source_count?: number;
   main_source?: RadarSource;
+  coverage?: EventCoverageItem[];
   source_language?: string;
   one_line_summary?: string;
   summary?: string;

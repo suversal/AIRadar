@@ -34,7 +34,15 @@ class APIMainTests(unittest.TestCase):
                     "items": [{"event_id": "c1"}],
                     "article_count": 12,
                 }
-            }
+            },
+            admin_items=[
+                {
+                    "event_id": "c1",
+                    "published_at": "2026-07-11T09:00:00+00:00",
+                    "final_score": 90,
+                    "source_count": 1,
+                }
+            ],
         )
         client = TestClient(module.create_app(report_repository_factory=lambda: repository))
 
@@ -43,7 +51,8 @@ class APIMainTests(unittest.TestCase):
 
         self.assertEqual(latest["items"][0]["event_id"], "c1")
         self.assertEqual(daily["report_date"], "2026-07-02")
-        self.assertEqual(repository.calls, ["latest", "daily:2026-07-02"])
+        self.assertTrue(repository.calls[0].startswith("events:"))
+        self.assertEqual(repository.calls[1], "daily:2026-07-02")
 
     @unittest.skipIf(TestClient is None, "FastAPI is not installed in this environment")
     def test_public_daily_route_returns_empty_payload_for_missing_repository_date(self):
@@ -61,9 +70,9 @@ class APIMainTests(unittest.TestCase):
         module = importlib.import_module("app.main")
         calls = []
 
-        def refresh_runner(*, limit, top_n):
-            calls.append({"limit": limit, "top_n": top_n})
-            return {"status": "ok", "report_date": "2026-07-07", "article_count": top_n}
+        def refresh_runner(*, limit):
+            calls.append({"limit": limit})
+            return {"status": "ok", "report_date": "2026-07-07", "article_count": 17}
 
         import os
         from unittest.mock import patch as env_patch
@@ -74,24 +83,23 @@ class APIMainTests(unittest.TestCase):
         client = TestClient(module.create_app(refresh_runner=refresh_runner))
         client.headers.update({"Authorization": "Bearer test-admin"})
 
-        response = client.post("/api/admin/refresh-latest?limit=80&top_n=30")
+        response = client.post("/api/admin/refresh-latest?limit=80")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["report_date"], "2026-07-07")
-        self.assertEqual(response.json()["article_count"], 30)
-        self.assertEqual(calls, [{"limit": 80, "top_n": 30}])
+        self.assertEqual(response.json()["article_count"], 17)
+        self.assertEqual(calls, [{"limit": 80}])
 
     @unittest.skipIf(TestClient is None, "FastAPI is not installed in this environment")
     def test_refresh_latest_async_route_tracks_job_result(self):
         module = importlib.import_module("app.main")
 
-        def refresh_runner(*, limit, top_n):
+        def refresh_runner(*, limit):
             return {
                 "status": "ok",
                 "report_date": "2026-07-07",
                 "limit": limit,
-                "top_n": top_n,
-                "article_count": top_n,
+                "article_count": 17,
             }
 
         import os
@@ -103,7 +111,7 @@ class APIMainTests(unittest.TestCase):
         client = TestClient(module.create_app(refresh_runner=refresh_runner))
         client.headers.update({"Authorization": "Bearer test-admin"})
 
-        response = client.post("/api/admin/refresh-latest-async?limit=20&top_n=9")
+        response = client.post("/api/admin/refresh-latest-async?limit=20")
 
         self.assertEqual(response.status_code, 200)
         job_id = response.json()["job_id"]
@@ -116,7 +124,7 @@ class APIMainTests(unittest.TestCase):
             time.sleep(0.01)
 
         self.assertEqual(job_payload["status"], "succeeded")
-        self.assertEqual(job_payload["result"]["article_count"], 9)
+        self.assertEqual(job_payload["result"]["article_count"], 17)
         self.assertEqual(job_payload["result"]["limit"], 20)
 
     @unittest.skipIf(TestClient is None, "FastAPI is not installed in this environment")
@@ -150,6 +158,53 @@ class APIMainTests(unittest.TestCase):
         legacy_response = client.get("/api/admin/events?q=vision")
         self.assertEqual(legacy_response.json()["items"][0]["event_id"], "evt-3")
 
+    @unittest.skipIf(TestClient is None, "FastAPI is not installed in this environment")
+    def test_admin_events_filters_by_main_source_and_sorts_by_crawled_time(self):
+        module = importlib.import_module("app.main")
+        repository = FakeRepository(
+            {},
+            admin_items=[
+                {
+                    "event_id": "older",
+                    "title": "Older crawl",
+                    "main_source": {"id": "openai_blog", "name": "OpenAI"},
+                    "crawled_at": "2026-07-11T08:00:00+00:00",
+                    "published_at": "2026-07-11T10:00:00+00:00",
+                },
+                {
+                    "event_id": "other-source",
+                    "title": "Other source",
+                    "main_source": {"id": "anthropic_news", "name": "Anthropic"},
+                    "crawled_at": "2026-07-11T12:00:00+00:00",
+                    "published_at": "2026-07-11T12:00:00+00:00",
+                },
+                {
+                    "event_id": "newer",
+                    "title": "Newer crawl",
+                    "main_source": {"id": "openai_blog", "name": "OpenAI"},
+                    "crawled_at": "2026-07-11T11:00:00+00:00",
+                    "published_at": "2026-07-11T09:00:00+00:00",
+                },
+            ],
+        )
+
+        import os
+        from unittest.mock import patch as env_patch
+
+        env = env_patch.dict(os.environ, {"ADMIN_TOKEN": "test-admin"})
+        env.start()
+        self.addCleanup(env.stop)
+        client = TestClient(module.create_app(report_repository_factory=lambda: repository))
+        client.headers.update({"Authorization": "Bearer test-admin"})
+
+        response = client.get("/api/admin/events?source_id=openai_blog")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [item["event_id"] for item in response.json()["items"]],
+            ["newer", "older"],
+        )
+
 
 class FakeRepository:
     def __init__(self, payloads, admin_items=None):
@@ -168,7 +223,9 @@ class FakeRepository:
         self.calls.append(f"daily:{report_date.isoformat()}")
         return self.payloads.get(report_date)
 
-    def get_all_event_items_between(self, start_date, end_date, *, include_hidden=False):
+    def get_all_event_items_between(
+        self, start_date, end_date, *, include_hidden=False, selected_only=False
+    ):
         self.calls.append(f"events:{start_date.isoformat()}:{end_date.isoformat()}")
         return list(self.admin_items)
 

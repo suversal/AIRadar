@@ -49,7 +49,7 @@ export default function AgentPage() {
       title="Agent 接入"
       subtitle="所有公开数据都可通过 HTTP API 读取，直接供你的 Agent 或应用消费"
     >
-      <section className="rounded-md border border-line bg-panel p-6">
+      <section className="rounded-md border border-line bg-panel p-5">
         <h2 className="text-lg font-semibold text-ink">公开端点</h2>
         <div className="mt-4 divide-y divide-line">
           {endpoints.map((endpoint) => (
@@ -66,7 +66,7 @@ export default function AgentPage() {
         </div>
       </section>
 
-      <section className="rounded-md border border-line bg-panel p-6">
+      <section className="rounded-md border border-line bg-panel p-5">
         <h2 className="text-lg font-semibold text-ink">快速开始</h2>
         <p className="mt-3 text-sm leading-6 text-ink-mid">
           所有端点返回 JSON，无需鉴权。以本地部署为例：
@@ -81,7 +81,7 @@ curl "http://127.0.0.1:8000/api/public/events?days=7&topic=anthropic"
 # 主题清单与计数
 curl http://127.0.0.1:8000/api/public/topics`}
         </pre>
-        <p className="mt-4 text-[15px] leading-7 text-ink-mid">
+        <p className="mt-4 text-sm leading-6 text-ink-mid">
           事件对象的关键字段：<code className="readout text-xs">title</code>（中文标题）、
           <code className="readout text-xs">final_score</code>（0-100 综合评分）、
           <code className="readout text-xs">category</code>（6 类展示分类）、
