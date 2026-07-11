@@ -664,6 +664,7 @@ class CrawlerTests(unittest.TestCase):
                 "url": "https://example.com/aims",
                 "author": "user1",
                 "created_at": "2026-07-01T10:00:00Z",
+                "points": 10,
             },
             {
                 "objectID": "2",
@@ -671,6 +672,7 @@ class CrawlerTests(unittest.TestCase):
                 "url": "https://example.com/modern-ai",
                 "author": "user2",
                 "created_at": "2026-07-01T11:00:00Z",
+                "points": 10,
             },
             {
                 "objectID": "3",
@@ -678,6 +680,7 @@ class CrawlerTests(unittest.TestCase):
                 "url": "https://example.com/openai-agent",
                 "author": "user3",
                 "created_at": "2026-07-01T12:00:00Z",
+                "points": 10,
             },
         ]
 
@@ -687,6 +690,87 @@ class CrawlerTests(unittest.TestCase):
             [article.title for article in articles],
             ["Modern AI foundations videos", "OpenAI releases an agent benchmark"],
         )
+
+    def test_parse_hn_hits_drops_low_engagement_posts_by_default(self):
+        # 实测两例（1分0评的 SPA 空壳、广告落地页）：HN 的价值信号就是
+        # points/comments，低于门槛的帖子不该成为候选去花 AI 评分
+        source = Source(
+            id="hacker_news",
+            name="Hacker News",
+            source_role="signal",
+            tier="T2",
+            type="hn",
+            category="community",
+            url="https://hn.algolia.com/api/v1/search_by_date?query=AI&tags=story",
+            homepage="https://news.ycombinator.com",
+            allowed_domains=["news.ycombinator.com", "hn.algolia.com"],
+            config={"query_terms": ["ai", "openai"]},
+        )
+        hits = [
+            {
+                "objectID": "1",
+                "title": "OpenAI agent self promo",
+                "url": "https://example.com/promo",
+                "author": "u1",
+                "created_at": "2026-07-01T10:00:00Z",
+                "points": 1,
+                "num_comments": 0,
+            },
+            {
+                "objectID": "2",
+                "title": "OpenAI agent hot story",
+                "url": "https://example.com/hot",
+                "author": "u2",
+                "created_at": "2026-07-01T11:00:00Z",
+                "points": 25,
+                "num_comments": 0,
+            },
+            {
+                "objectID": "3",
+                "title": "OpenAI agent discussed story",
+                "url": "https://example.com/discussed",
+                "author": "u3",
+                "created_at": "2026-07-01T12:00:00Z",
+                "points": 2,
+                "num_comments": 7,
+            },
+        ]
+
+        articles = parse_hn_hits(hits, source)
+
+        self.assertEqual(
+            [article.title for article in articles],
+            ["OpenAI agent hot story", "OpenAI agent discussed story"],
+        )
+
+    def test_parse_hn_hits_engagement_threshold_is_configurable(self):
+        source = Source(
+            id="hacker_news",
+            name="Hacker News",
+            source_role="signal",
+            tier="T2",
+            type="hn",
+            category="community",
+            url="https://hn.algolia.com/api/v1/search_by_date?query=AI&tags=story",
+            homepage="https://news.ycombinator.com",
+            allowed_domains=["news.ycombinator.com", "hn.algolia.com"],
+            config={"query_terms": ["openai"], "min_points": 0, "min_comments": 0},
+        )
+        hits = [
+            {
+                "objectID": "1",
+                "title": "OpenAI agent brand new post",
+                "url": "https://example.com/new",
+                "author": "u1",
+                "created_at": "2026-07-01T10:00:00Z",
+                "points": 0,
+                "num_comments": 0,
+            }
+        ]
+
+        articles = parse_hn_hits(hits, source)
+
+        self.assertEqual(len(articles), 1)
 
     def test_hacker_news_crawler_fetches_full_page_for_linked_articles(self):
         # regression: HN posts link out to external pages, and the Algolia
@@ -716,6 +800,8 @@ class CrawlerTests(unittest.TestCase):
                     "url": "https://example.com/ai-cerebellum",
                     "author": "user1",
                     "created_at": "2026-07-01T10:00:00Z",
+                    "points": 42,
+                    "num_comments": 17,
                 }
             ]
         }

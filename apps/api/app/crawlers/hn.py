@@ -51,12 +51,22 @@ def parse_hn_hits(
     limit: int | None = None,
 ) -> list[RawArticle]:
     query_terms = source.config.get("query_terms") or DEFAULT_QUERY_TERMS
+    # HN's own community signal is the quality bar: posts nobody upvoted or
+    # discussed are (measured on real data 2026-07-11) mostly self-promo
+    # landing pages or unreadable shells - not worth an AI scoring call.
+    # Either signal clears the bar; both thresholds are per-source config.
+    min_points = int(source.config.get("min_points", 5))
+    min_comments = int(source.config.get("min_comments", 3))
     articles: list[RawArticle] = []
     for hit in hits:
         title = hit.get("title") or hit.get("story_title") or ""
         if not title:
             continue
         if query_terms and not _matches_query_terms(_hit_text(hit), query_terms):
+            continue
+        points = int(hit.get("points") or 0)
+        comments = int(hit.get("num_comments") or 0)
+        if points < min_points and comments < min_comments:
             continue
         url = hit.get("url") or f"https://news.ycombinator.com/item?id={hit.get('objectID')}"
         created_at = hit.get("created_at")
