@@ -100,6 +100,18 @@ CREATE TABLE IF NOT EXISTS event_clusters (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS event_editorial_overrides (
+  id BIGSERIAL PRIMARY KEY,
+  event_cluster_id TEXT NOT NULL REFERENCES event_clusters(id),
+  hidden BOOLEAN NOT NULL DEFAULT false,
+  title_zh TEXT,
+  category TEXT,
+  tags JSONB,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ix_event_editorial_overrides_event_cluster_id ON event_editorial_overrides(event_cluster_id);
+
 CREATE TABLE IF NOT EXISTS event_cluster_articles (
   id BIGSERIAL PRIMARY KEY,
   event_cluster_id TEXT NOT NULL REFERENCES event_clusters(id),

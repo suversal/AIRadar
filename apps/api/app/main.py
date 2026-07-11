@@ -17,8 +17,6 @@ from app.api.public import (
     build_latest_payload,
     build_latest_payload_from_repository,
     build_period_payload,
-    month_range,
-    week_range,
 )
 from app.core.config import load_env_file
 from app.storage.json_store import read_json
@@ -651,6 +649,7 @@ def create_app(
 
     @app.patch("/api/admin/events/{event_id}", dependencies=[admin_guard])
     def admin_moderate_event(event_id: str, payload: dict) -> dict:
+        from app.repositories.radar_repository import RadarRepository
         from app.services.ai_service import SCORING_CATEGORIES
         from app.services.taxonomy import DISPLAY_CATEGORIES
 
@@ -658,7 +657,7 @@ def create_app(
         fields = {
             key: value
             for key, value in (payload or {}).items()
-            if key in {"hidden", "title_zh", "category", "tags"}
+            if key in RadarRepository.EVENT_MODERATION_FIELDS
         }
         if not fields:
             raise HTTPException(status_code=400, detail="No editable fields in payload")

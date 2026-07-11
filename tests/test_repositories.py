@@ -189,6 +189,83 @@ class RepositoryTests(unittest.TestCase):
         # a2 隐藏被剔除，unknown-id 解析不到被跳过，顺序按传入顺序保留
         self.assertEqual([item["event_id"] for item in items], ["aa3", "aa1"])
 
+    def test_event_moderation_survives_main_article_change(self):
+        # 人工修改针对的是"这个事件"，不是"当时恰好是主文的那篇文章"。
+        # 跨天合并可能换主文；换主文后人工标题/隐藏必须继续生效。
+        from dataclasses import replace as dc_replace
+
+        from app.db.models import EventClusterModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles(
+                [
+                    self._article(article_id="a1", title="原主文", url_hash="u1"),
+                    self._article(article_id="b1", title="新主文", url_hash="u2"),
+                ]
+            )
+            repository.upsert_processed_articles(
+                [
+                    dc_replace(self._processed("a1"), event_cluster_id="e-mod"),
+                    dc_replace(self._processed("b1"), event_cluster_id="e-mod"),
+                ]
+            )
+            cluster = self._cluster("e-mod", main_article_id="a1")
+            cluster.article_ids = ["a1", "b1"]
+            repository.upsert_event_clusters([cluster])
+            session.commit()
+
+            repository.update_event_moderation("e-mod", {"title_zh": "人工事件标题"})
+            session.commit()
+
+            # 模拟跨天合并后更高分文章接管主文槽位
+            session.get(EventClusterModel, "e-mod").main_article_id = "b1"
+            session.commit()
+
+            items = repository.get_event_items_by_ids(["e-mod"])
+
+        self.assertEqual(items[0]["title"], "人工事件标题")
+
+    def test_event_moderation_hidden_survives_main_article_change(self):
+        from dataclasses import replace as dc_replace
+
+        from app.db.models import EventClusterModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles(
+                [
+                    self._article(article_id="a1", title="原主文", url_hash="u1"),
+                    self._article(article_id="b1", title="新主文", url_hash="u2"),
+                ]
+            )
+            repository.upsert_processed_articles(
+                [
+                    dc_replace(self._processed("a1"), event_cluster_id="e-hide"),
+                    dc_replace(self._processed("b1"), event_cluster_id="e-hide"),
+                ]
+            )
+            cluster = self._cluster("e-hide", main_article_id="a1")
+            cluster.article_ids = ["a1", "b1"]
+            repository.upsert_event_clusters([cluster])
+            session.commit()
+
+            repository.update_event_moderation("e-hide", {"hidden": True})
+            session.commit()
+
+            session.get(EventClusterModel, "e-hide").main_article_id = "b1"
+            session.commit()
+
+            by_id = repository.get_event_items_by_ids(["e-hide"])
+            listed = repository.get_all_event_items_between(date(2026, 7, 1), date(2026, 7, 1))
+
+        self.assertEqual(by_id, [])
+        self.assertNotIn("e-hide", {item["event_id"] for item in listed})
+
     def test_upsert_event_clusters_persists_member_similarity(self):
         # 聚类证据落库：成员行的 similarity_score 来自聚类时的真实计算值
         from app.db.models import EventClusterArticleModel

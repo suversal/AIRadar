@@ -19,6 +19,7 @@ from app.db.models import (
     PeriodReportModel,
     EventClusterArticleModel,
     EventClusterModel,
+    EventEditorialOverrideModel,
     PipelineRunModel,
     ProcessedArticleModel,
     RawArticleModel,
@@ -246,7 +247,10 @@ class RadarRepository:
                 continue
             processed, raw, source, cluster = row
             override = self._get_override(processed.raw_article_id)
-            if override is not None and override.hidden:
+            event_override = self._get_event_override(cluster.id) if cluster else None
+            if (override is not None and override.hidden) or (
+                event_override is not None and event_override.hidden
+            ):
                 continue
             translation = self._get_translation_model(processed.raw_article_id)
             items.append(
@@ -256,6 +260,7 @@ class RadarRepository:
                     source,
                     include_content=True,
                     override=override,
+                    event_override=event_override,
                     translation=translation,
                     source_count=cluster.source_count if cluster else 1,
                 )
@@ -266,6 +271,15 @@ class RadarRepository:
         return self.session.scalar(
             select(EditorialOverrideModel).where(
                 EditorialOverrideModel.raw_article_id == raw_article_id
+            )
+        )
+
+    def _get_event_override(
+        self, event_cluster_id: str
+    ) -> Optional[EventEditorialOverrideModel]:
+        return self.session.scalar(
+            select(EventEditorialOverrideModel).where(
+                EventEditorialOverrideModel.event_cluster_id == event_cluster_id
             )
         )
 
@@ -785,6 +799,7 @@ class RadarRepository:
                 SourceModel,
                 EditorialOverrideModel,
                 EventClusterModel,
+                EventEditorialOverrideModel,
             )
             .join(RawArticleModel, ProcessedArticleModel.raw_article_id == RawArticleModel.id)
             .join(SourceModel, RawArticleModel.source_id == SourceModel.id)
@@ -795,6 +810,10 @@ class RadarRepository:
             .outerjoin(
                 EventClusterModel,
                 EventClusterModel.id == ProcessedArticleModel.event_cluster_id,
+            )
+            .outerjoin(
+                EventEditorialOverrideModel,
+                EventEditorialOverrideModel.event_cluster_id == EventClusterModel.id,
             )
             .where(RawArticleModel.published_at >= window_start)
             .where(RawArticleModel.published_at <= window_end)
@@ -810,6 +829,9 @@ class RadarRepository:
         if not include_hidden:
             query = query.where(
                 (EditorialOverrideModel.hidden.is_(None)) | (EditorialOverrideModel.hidden.is_(False))
+            ).where(
+                (EventEditorialOverrideModel.hidden.is_(None))
+                | (EventEditorialOverrideModel.hidden.is_(False))
             )
         rows = self.session.execute(query).all()
         return [
@@ -819,9 +841,10 @@ class RadarRepository:
                 source,
                 include_content=False,
                 override=override,
+                event_override=event_override,
                 source_count=cluster.source_count if cluster else 1,
             )
-            for processed, raw, source, override, cluster in rows
+            for processed, raw, source, override, cluster, event_override in rows
         ]
 
     def _resolve_processed_row(self, event_id: str):
@@ -849,18 +872,28 @@ class RadarRepository:
     EVENT_MODERATION_FIELDS = {"hidden", "title_zh", "category", "tags"}
 
     def update_event_moderation(self, event_id: str, fields: dict[str, Any]) -> bool:
-        """Editorial decisions live in editorial_overrides, never on
+        """Editorial decisions live in override tables, never on
         processed_articles: that row is AI-generated territory and a later
         pipeline run re-scoring the same re-crawled article overwrites it
-        unconditionally, which would otherwise silently undo moderation."""
+        unconditionally, which would otherwise silently undo moderation.
+
+        Real events get an event-scoped override so the decision follows the
+        event even when a cross-day merge replaces its main article; only
+        standalone `a…` pseudo-events fall back to the article-level table."""
         row = self._resolve_processed_row(event_id)
         if row is None:
             return False
-        processed, _raw, _source, _cluster = row
-        override = self._get_override(processed.raw_article_id)
-        if override is None:
-            override = EditorialOverrideModel(raw_article_id=processed.raw_article_id)
-            self.session.add(override)
+        processed, _raw, _source, cluster = row
+        if cluster is not None:
+            override = self._get_event_override(cluster.id)
+            if override is None:
+                override = EventEditorialOverrideModel(event_cluster_id=cluster.id)
+                self.session.add(override)
+        else:
+            override = self._get_override(processed.raw_article_id)
+            if override is None:
+                override = EditorialOverrideModel(raw_article_id=processed.raw_article_id)
+                self.session.add(override)
         for key, value in fields.items():
             if key not in self.EVENT_MODERATION_FIELDS:
                 continue
@@ -879,7 +912,10 @@ class RadarRepository:
             return None
         processed, raw, source, cluster = row
         override = self._get_override(processed.raw_article_id)
-        if override is not None and override.hidden:
+        event_override = self._get_event_override(cluster.id) if cluster else None
+        if (override is not None and override.hidden) or (
+            event_override is not None and event_override.hidden
+        ):
             return None
         translation = self._get_translation_model(processed.raw_article_id)
         return _event_item(
@@ -888,6 +924,7 @@ class RadarRepository:
             source,
             include_content=True,
             override=override,
+            event_override=event_override,
             translation=translation,
             source_count=cluster.source_count if cluster else 1,
         )
@@ -1031,6 +1068,7 @@ def _event_item(
     *,
     include_content: bool,
     override: Optional[EditorialOverrideModel] = None,
+    event_override: Optional[EventEditorialOverrideModel] = None,
     translation: Optional[ArticleTranslationModel] = None,
     source_count: int = 1,
 ) -> dict[str, Any]:
@@ -1038,16 +1076,29 @@ def _event_item(
     published_at = raw.published_at
     if published_at is not None and published_at.tzinfo is None:
         published_at = published_at.replace(tzinfo=timezone.utc)
-    title_zh = (override.title_zh if override and override.title_zh else None) or processed.title_zh
-    category = (override.category if override and override.category else None) or processed.category
-    # override.tags is None means the editor never touched tags; an empty
-    # list is a deliberate "clear all tags" decision and must win
-    tags = (
-        list(override.tags)
-        if override and override.tags is not None
-        else list(processed.tags or [])
+    # precedence: event-level moderation > article-level moderation > AI value
+    title_zh = (
+        (event_override.title_zh if event_override and event_override.title_zh else None)
+        or (override.title_zh if override and override.title_zh else None)
+        or processed.title_zh
     )
-    hidden = bool(override.hidden) if override else False
+    category = (
+        (event_override.category if event_override and event_override.category else None)
+        or (override.category if override and override.category else None)
+        or processed.category
+    )
+    # tags None means the editor never touched tags; an empty list is a
+    # deliberate "clear all tags" decision and must win
+    if event_override is not None and event_override.tags is not None:
+        tags = list(event_override.tags)
+    elif override is not None and override.tags is not None:
+        tags = list(override.tags)
+    else:
+        tags = list(processed.tags or [])
+    hidden = bool(
+        (override is not None and override.hidden)
+        or (event_override is not None and event_override.hidden)
+    )
     item: dict[str, Any] = {
         "event_id": processed.event_cluster_id or f"a{raw.id[:12]}",
         "title": title_zh or raw.title,

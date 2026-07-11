@@ -192,6 +192,28 @@ class EditorialOverrideModel(Base):
     )
 
 
+class EventEditorialOverrideModel(Base):
+    """Event-scoped moderation. Article-level editorial_overrides stay bound
+    to one raw article and silently stop applying when a cross-day merge
+    hands the event's main slot to a different article; decisions made
+    against an event id live here, keyed by the event itself, so they
+    survive main-article changes."""
+
+    __tablename__ = "event_editorial_overrides"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_cluster_id: Mapped[str] = mapped_column(
+        ForeignKey("event_clusters.id"), nullable=False, unique=True, index=True
+    )
+    hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    title_zh: Mapped[Optional[str]] = mapped_column(Text)
+    category: Mapped[Optional[str]] = mapped_column(String)
+    tags: Mapped[Optional[list]] = mapped_column(JSON)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class EventClusterModel(Base):
     __tablename__ = "event_clusters"
 
