@@ -1,6 +1,7 @@
 import type { LatestEvent } from "@/lib/api";
 import { getAllEvents } from "@/lib/api";
 import { eventHref, searchEvents } from "@/lib/events";
+import { proxiedImageUrl } from "@/lib/images";
 import { CATEGORY_FILTER_OPTIONS, displayCategory } from "@/lib/taxonomy";
 import { RadarStatus } from "@/components/radar-status";
 import { Sidebar } from "@/components/sidebar";
@@ -179,10 +180,13 @@ function AllEventCard({ item }: { item: LatestEvent }) {
       </p>
 
       {image ? (
+        // 外链图必须走代理 + no-referrer：带 localhost Referer 会被各家
+        // CDN 防盗链 403（详情页同款处理，实测案例：极客邦 CDN）
         <img
           alt={image.alt ?? item.title}
           className="mt-4 max-h-72 w-full max-w-xl rounded-md border border-line object-cover"
-          src={image.url}
+          src={proxiedImageUrl(image.url)}
+          referrerPolicy="no-referrer"
         />
       ) : null}
 
