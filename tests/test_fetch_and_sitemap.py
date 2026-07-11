@@ -343,6 +343,26 @@ class PageContentTests(unittest.TestCase):
         self.assertIsNotNone(payload)
         self.assertEqual(payload["content"], "Agent 正在重新定义可观测性的边界。")
 
+    def test_fetch_page_payload_rejects_bare_url_meta_description(self):
+        # real case: a tweet whose only "content" is a shortened media link -
+        # og:description is literally just that URL. A bare URL string as
+        # "article body" is actively misleading, worse than falling back to
+        # the page title, so this must not be treated as usable content.
+        import tempfile
+
+        from app.crawlers.page_content import fetch_page_payload
+
+        tweet_page = (
+            '<html><head><title>Someone on X</title>'
+            '<meta property="og:description" content="https://t.co/2QaxouWxxm">'
+            "</head><body><p>nav junk</p></body></html>"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("app.crawlers.page_content.fetch_url_text", return_value=tweet_page):
+                payload = fetch_page_payload("https://twitter.com/x/status/1", cache_dir=Path(tmpdir))
+
+        self.assertIsNone(payload)
+
 
 class RSSFullContentTests(unittest.TestCase):
     FEED = """<?xml version="1.0"?>

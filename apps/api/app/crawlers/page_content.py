@@ -10,6 +10,7 @@ hash they are never refetched.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,13 @@ from app.crawlers.article_content import extract_article_content
 from app.models.domain import RawArticle
 
 DEFAULT_PAGE_CACHE_DIR = Path("data") / "page_cache"
+
+
+def _is_bare_url(text: str) -> bool:
+    # a meta description that's just a link (real case: a tweet whose only
+    # "text" is a shortened media URL) is worse than no content at all if
+    # shown as an article body - it isn't prose, it's a dead-end pointer
+    return bool(re.fullmatch(r"https?://\S+", text.strip()))
 
 
 def prefer_full_page_content(article: RawArticle, *, cache_dir: Path | None = None) -> None:
@@ -66,7 +74,7 @@ def fetch_page_payload(
                 "original_blocks": extracted["original_blocks"],
             },
         }
-    elif description:
+    elif description and not _is_bare_url(description):
         # no <article>/<main> region (e.g. video/preview pages) but the page
         # still carries a real meta description - better than nothing
         payload = {"title": title, "content": description, "metadata": {}}
