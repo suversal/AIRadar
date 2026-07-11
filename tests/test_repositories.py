@@ -189,6 +189,56 @@ class RepositoryTests(unittest.TestCase):
         # a2 隐藏被剔除，unknown-id 解析不到被跳过，顺序按传入顺序保留
         self.assertEqual([item["event_id"] for item in items], ["aa3", "aa1"])
 
+    def test_event_items_report_real_source_count(self):
+        # payload 的 source_count 必须来自事件的真实去重来源数，
+        # 不能固定为 1（回归：DB 里 6 来源的事件前端显示 1）
+        from dataclasses import replace as dc_replace
+
+        from app.models.domain import RawArticle
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source(), self._other_source()])
+            repository.upsert_raw_articles(
+                [
+                    self._article(article_id="a1", title="主文", url_hash="u1"),
+                    RawArticle(
+                        id="b1",
+                        source_id="techcrunch",
+                        source_name="TechCrunch",
+                        source_role="signal",
+                        source_tier="T2",
+                        source_url="https://techcrunch.com/b1",
+                        title="同一事件的另一来源报道",
+                        content="AI model release",
+                        author="TechCrunch",
+                        published_at=datetime(2026, 7, 1, 10, tzinfo=timezone.utc),
+                        language="en",
+                        raw_score={"score": 1},
+                        metadata={"origin": "fixture"},
+                        title_hash="title-b1",
+                        url_hash="u2",
+                    ),
+                ]
+            )
+            repository.upsert_processed_articles(
+                [dc_replace(self._processed("a1"), event_cluster_id="e-multi")]
+            )
+            cluster = self._cluster("e-multi", main_article_id="a1")
+            cluster.article_ids = ["a1", "b1"]
+            repository.upsert_event_clusters([cluster])
+            session.commit()
+
+            by_id = repository.get_event_items_by_ids(["e-multi"])
+            detail = repository.get_event_item("e-multi")
+            listed = repository.get_all_event_items_between(date(2026, 7, 1), date(2026, 7, 1))
+
+        self.assertEqual(by_id[0]["source_count"], 2)
+        self.assertEqual(detail["source_count"], 2)
+        listed_counts = {item["event_id"]: item["source_count"] for item in listed}
+        self.assertEqual(listed_counts["e-multi"], 2)
+
     def test_moderation_can_clear_tags_with_empty_list(self):
         # 编辑把标签清空是一个真实的治理动作：tags=[] 必须覆盖掉机器标签，
         # 只有从未动过标签（override.tags 为 NULL）才回退到机器值。

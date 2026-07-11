@@ -244,14 +244,20 @@ class RadarRepository:
             row = self._resolve_processed_row(event_id)
             if row is None:
                 continue
-            processed, raw, source = row
+            processed, raw, source, cluster = row
             override = self._get_override(processed.raw_article_id)
             if override is not None and override.hidden:
                 continue
             translation = self._get_translation_model(processed.raw_article_id)
             items.append(
                 _event_item(
-                    processed, raw, source, include_content=True, override=override, translation=translation
+                    processed,
+                    raw,
+                    source,
+                    include_content=True,
+                    override=override,
+                    translation=translation,
+                    source_count=cluster.source_count if cluster else 1,
                 )
             )
         return items
@@ -772,7 +778,13 @@ class RadarRepository:
         window_start = datetime.combine(start_date, time.min, tzinfo=timezone.utc)
         window_end = datetime.combine(end_date, time.max, tzinfo=timezone.utc)
         query = (
-            select(ProcessedArticleModel, RawArticleModel, SourceModel, EditorialOverrideModel)
+            select(
+                ProcessedArticleModel,
+                RawArticleModel,
+                SourceModel,
+                EditorialOverrideModel,
+                EventClusterModel,
+            )
             .join(RawArticleModel, ProcessedArticleModel.raw_article_id == RawArticleModel.id)
             .join(SourceModel, RawArticleModel.source_id == SourceModel.id)
             .outerjoin(
@@ -800,26 +812,37 @@ class RadarRepository:
             )
         rows = self.session.execute(query).all()
         return [
-            _event_item(processed, raw, source, include_content=False, override=override)
-            for processed, raw, source, override in rows
+            _event_item(
+                processed,
+                raw,
+                source,
+                include_content=False,
+                override=override,
+                source_count=cluster.source_count if cluster else 1,
+            )
+            for processed, raw, source, override, cluster in rows
         ]
 
     def _resolve_processed_row(self, event_id: str):
+        """Resolve an event id to (processed, raw, source, cluster); cluster
+        is None for standalone `a…` pseudo-ids that never got clustered."""
         cluster = self.session.get(EventClusterModel, event_id)
         if cluster is not None:
-            return self.session.execute(
+            row = self.session.execute(
                 select(ProcessedArticleModel, RawArticleModel, SourceModel)
                 .join(RawArticleModel, ProcessedArticleModel.raw_article_id == RawArticleModel.id)
                 .join(SourceModel, RawArticleModel.source_id == SourceModel.id)
                 .where(ProcessedArticleModel.raw_article_id == cluster.main_article_id)
             ).first()
+            return (*row, cluster) if row is not None else None
         if event_id.startswith("a"):
-            return self.session.execute(
+            row = self.session.execute(
                 select(ProcessedArticleModel, RawArticleModel, SourceModel)
                 .join(RawArticleModel, ProcessedArticleModel.raw_article_id == RawArticleModel.id)
                 .join(SourceModel, RawArticleModel.source_id == SourceModel.id)
                 .where(RawArticleModel.id.like(f"{event_id[1:]}%"))
             ).first()
+            return (*row, None) if row is not None else None
         return None
 
     EVENT_MODERATION_FIELDS = {"hidden", "title_zh", "category", "tags"}
@@ -832,7 +855,7 @@ class RadarRepository:
         row = self._resolve_processed_row(event_id)
         if row is None:
             return False
-        processed, _raw, _source = row
+        processed, _raw, _source, _cluster = row
         override = self._get_override(processed.raw_article_id)
         if override is None:
             override = EditorialOverrideModel(raw_article_id=processed.raw_article_id)
@@ -853,13 +876,19 @@ class RadarRepository:
         row = self._resolve_processed_row(event_id)
         if row is None:
             return None
-        processed, raw, source = row
+        processed, raw, source, cluster = row
         override = self._get_override(processed.raw_article_id)
         if override is not None and override.hidden:
             return None
         translation = self._get_translation_model(processed.raw_article_id)
         return _event_item(
-            processed, raw, source, include_content=True, override=override, translation=translation
+            processed,
+            raw,
+            source,
+            include_content=True,
+            override=override,
+            translation=translation,
+            source_count=cluster.source_count if cluster else 1,
         )
 
     def get_daily_report_payloads_between(
@@ -1002,6 +1031,7 @@ def _event_item(
     include_content: bool,
     override: Optional[EditorialOverrideModel] = None,
     translation: Optional[ArticleTranslationModel] = None,
+    source_count: int = 1,
 ) -> dict[str, Any]:
     metadata = dict(raw.raw_metadata or {})
     published_at = raw.published_at
@@ -1027,7 +1057,7 @@ def _event_item(
         "final_score": processed.final_score,
         "selected": processed.status == "processed",
         "hidden": hidden,
-        "source_count": 1,
+        "source_count": max(source_count, 1),
         "main_source": {"name": source.name, "url": raw.source_url, "tier": source.tier},
         "source_language": raw.language,
         "one_line_summary": processed.one_line_summary,
