@@ -626,24 +626,129 @@ def create_app(
 
     @app.post("/api/admin/sources/{source_id}/test", dependencies=[admin_guard])
     def admin_test_source(source_id: str) -> dict:
+        """Manual per-source fetch: crawl this source right now and run each
+        article through the exact same content-check/prefilter/score/persist
+        steps a real pipeline round would, so the admin can see which
+        articles were fetched and which actually passed and got saved -
+        not just a connectivity check."""
+        from datetime import datetime as _datetime, timezone as _timezone
+
         from app.crawlers import registry as crawler_registry
+        from app.crawlers.run import _source_limit
+        from app.crawlers.base import stable_hash
+        from app.pipeline.runner import _process_candidate_article
+        from app.services.ai_service import embedding_input, provider_from_env
 
         with _admin_repository_context() as repository:
             sources = {source.id: source for source in repository.get_all_sources()}
-        source = sources.get(source_id)
-        if source is None:
-            raise HTTPException(status_code=404, detail="Source not found")
-        try:
-            fetched = crawler_registry.crawler_for_source(source).fetch(limit=2)
-        except Exception as exc:
-            return {"status": "failed", "error": str(exc)[:300], "articles": []}
-        return {
-            "status": "ok",
-            "error": None,
-            "articles": [
-                {"title": article.title, "url": article.source_url} for article in fetched[:3]
-            ],
-        }
+            source = sources.get(source_id)
+            if source is None:
+                raise HTTPException(status_code=404, detail="Source not found")
+            # same limit resolution the real crawl uses: config.crawl_limit,
+            # or 5 if the source has none configured
+            limit = _source_limit(source)
+            try:
+                fetched = crawler_registry.crawler_for_source(source).fetch(limit=limit)
+            except Exception as exc:
+                result = {
+                    "origin": "manual",
+                    "at": _datetime.now(_timezone.utc).isoformat(),
+                    "status": "failed",
+                    "error": str(exc)[:300],
+                    "fetched_count": 0,
+                    "accepted_count": 0,
+                    "articles": [],
+                }
+                repository.set_last_crawl_result(source_id, result)
+                repository.session.commit()
+                return result
+
+            ai_provider = provider_from_env()
+            now = _datetime.now(_timezone.utc)
+            article_results: list[dict[str, Any]] = []
+            for article in fetched[:limit]:
+                existing = repository.get_existing_outcome_by_url_hash(article.url_hash)
+                if existing is not None:
+                    article_results.append(
+                        {
+                            "title": existing["title"],
+                            "url": existing["url"],
+                            "outcome": "duplicate",
+                            "selected": existing["selected"],
+                            "final_score": existing["final_score"],
+                            "category": existing["category"],
+                            "reason": existing["reason"] or "此前已抓取，本次未重新评分",
+                        }
+                    )
+                    continue
+                try:
+                    processed, embedding, skipped_reason = _process_candidate_article(
+                        article=article,
+                        source_by_id=sources,
+                        ai_provider=ai_provider,
+                        now=now,
+                    )
+                except Exception as exc:
+                    article_results.append(
+                        {
+                            "title": article.title,
+                            "url": article.source_url,
+                            "outcome": "rejected",
+                            "selected": False,
+                            "final_score": None,
+                            "category": None,
+                            "reason": f"处理出错：{str(exc)[:200]}",
+                        }
+                    )
+                    continue
+                repository.upsert_raw_articles([article])
+                if processed is None:
+                    article_results.append(
+                        {
+                            "title": article.title,
+                            "url": article.source_url,
+                            "outcome": "rejected",
+                            "selected": False,
+                            "final_score": None,
+                            "category": None,
+                            "reason": skipped_reason,
+                        }
+                    )
+                    continue
+                repository.upsert_processed_articles([processed])
+                if embedding is not None:
+                    repository.upsert_article_embedding(
+                        article.id,
+                        embedding_model=getattr(ai_provider, "embedding_model", "unknown"),
+                        vector=embedding,
+                        source_hash=stable_hash(embedding_input(article.title, article.content)),
+                    )
+                article_results.append(
+                    {
+                        "title": processed.title_zh or article.title,
+                        "url": article.source_url,
+                        "outcome": "saved" if processed.selected else "rejected",
+                        "selected": processed.selected,
+                        "final_score": processed.final_score,
+                        "category": processed.category,
+                        "reason": processed.selection_reason
+                        if processed.selected
+                        else processed.rejection_reason,
+                    }
+                )
+
+            result = {
+                "origin": "manual",
+                "at": now.isoformat(),
+                "status": "ok",
+                "error": None,
+                "fetched_count": len(fetched),
+                "accepted_count": len(article_results),
+                "articles": article_results,
+            }
+            repository.set_last_crawl_result(source_id, result)
+            repository.session.commit()
+        return result
 
     @app.get("/api/admin/events", dependencies=[admin_guard])
     def admin_events(

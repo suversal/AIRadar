@@ -21,14 +21,13 @@ def main() -> int:
     parser.add_argument("--sources", default="data/sources.json")
     parser.add_argument("--output", default="data/raw_articles.json")
     parser.add_argument("--report", default="data/crawl_report.json")
-    parser.add_argument("--limit", type=int, default=100)
     args = parser.parse_args()
 
     sources_path = ROOT / args.sources
     if not sources_path.exists():
         save_sources(sources_path, default_sources())
     sources = load_sources(sources_path)
-    articles, report = crawl_sources(sources, limit=args.limit)
+    articles, report = crawl_sources(sources)
 
     database_url = os.getenv("DATABASE_URL")
     if database_url:

@@ -80,6 +80,7 @@ def persist_pipeline_result(
     similarity_threshold: float = 0.85,
     started_at: datetime | None = None,
     pipeline_run_id: int | None = None,
+    source_report: dict[str, Any] | None = None,
 ) -> PipelinePersistenceSummary:
     source_result = repository.upsert_sources(sources)
     raw_result = repository.upsert_raw_articles(
@@ -156,6 +157,7 @@ def persist_pipeline_result(
             processed_count=len(result.processed_articles),
             cluster_count=len(result.event_clusters),
             skipped_reasons=dict(result.skipped_reasons),
+            source_report=source_report,
             finished_at=datetime.now(timezone.utc),
         )
     else:
@@ -168,6 +170,7 @@ def persist_pipeline_result(
             skipped_reasons=dict(result.skipped_reasons),
             started_at=started_at,
             finished_at=datetime.now(timezone.utc),
+            source_report=source_report,
         )
     return PipelinePersistenceSummary(
         sources=source_result,
@@ -203,6 +206,7 @@ def persist_pipeline_result_to_database(
     similarity_threshold: float = 0.85,
     started_at: datetime | None = None,
     pipeline_run_id: int | None = None,
+    source_report: dict[str, Any] | None = None,
 ) -> PipelinePersistenceSummary:
     from app.db.session import build_session_factory, session_scope
     from app.repositories.radar_repository import RadarRepository
@@ -218,6 +222,7 @@ def persist_pipeline_result_to_database(
             similarity_threshold=similarity_threshold,
             started_at=started_at,
             pipeline_run_id=pipeline_run_id,
+            source_report=source_report,
         )
 
 
@@ -240,7 +245,7 @@ def start_pipeline_run_in_database(
 
 
 def get_active_pipeline_run_in_database(
-    database_url: str, *, stale_after_minutes: int = 180
+    database_url: str, *, stale_after_minutes: int = 20
 ) -> dict[str, Any] | None:
     """Cross-process concurrency guard: sweep orphaned running rows, then
     return the freshest live one (or None). Best-effort: a DB hiccup means

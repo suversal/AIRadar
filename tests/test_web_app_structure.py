@@ -116,7 +116,7 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("formatDuration", dashboard_source)
         self.assertIn("结束", dashboard_source)
         self.assertIn("耗时", dashboard_source)
-        self.assertIn("<details", dashboard_source)
+        self.assertIn("PipelineRunDetail", dashboard_source)
         self.assertIn("run.error", dashboard_source)
         self.assertIn("/api/admin/refresh-latest", route_source)
         self.assertIn("/api/admin/refresh-latest-async", route_source)

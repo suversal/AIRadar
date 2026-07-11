@@ -513,6 +513,7 @@ def run_pipeline(
     raw_articles = dedupe_articles(raw_articles)
     candidate_articles: list[RawArticle] = []
     general_count = 0
+    skipped_reason_by_raw_id: dict[str, str] = {}
     for article in raw_articles:
         if is_trusted_curated_source(source_by_id[article.source_id]):
             candidate_articles.append(article)
@@ -521,6 +522,7 @@ def run_pipeline(
             general_count += 1
         else:
             skipped["candidate_limit"] += 1
+            skipped_reason_by_raw_id[article.id] = "candidate_limit"
 
     processed_articles: list[ProcessedArticle] = []
     embeddings: dict[str, list[float]] = {}
@@ -565,6 +567,7 @@ def run_pipeline(
     ):
         if skipped_reason:
             skipped[skipped_reason] += 1
+            skipped_reason_by_raw_id[article.id] = skipped_reason
         if processed is None:
             continue
         processed_articles.append(processed)
@@ -645,4 +648,5 @@ def run_pipeline(
         skipped_reasons=dict(skipped),
         embeddings=embeddings,
         embedding_model=_embedding_model_name(ai_provider),
+        skipped_reason_by_raw_id=skipped_reason_by_raw_id,
     )

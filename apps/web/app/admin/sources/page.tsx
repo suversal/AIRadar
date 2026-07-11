@@ -14,7 +14,7 @@ export default async function AdminSourcesPage() {
     <AdminShell
       active="sources"
       title="信源管理"
-      subtitle="启停、编辑与试抓；改动即时生效于下一轮抓取"
+      subtitle="启停、编辑与手动抓取；改动即时生效于下一轮抓取"
     >
       {!response.ok ? (
         <div className="rounded-md border border-red-400/40 bg-red-400/10 p-5 text-sm text-red-200">

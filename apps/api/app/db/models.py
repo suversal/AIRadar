@@ -57,6 +57,11 @@ class SourceModel(Base):
     last_success_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     success_rate: Mapped[float] = mapped_column(Float, default=0.0)
     error_count: Mapped[int] = mapped_column(Integer, default=0)
+    # the freshest crawl outcome for this source, whichever happened more
+    # recently: an admin's manual fetch (per-article save/reject detail) or
+    # the latest automatic sync's per-source summary (coarser: counts only,
+    # since automatic runs don't track per-article outcome back to source_id)
+    last_crawl_result: Mapped[Optional[dict]] = mapped_column(JSON)
 
 
 class RawArticleModel(Base):

@@ -135,3 +135,8 @@ class PipelineResult:
     skipped_reasons: dict[str, int]
     embeddings: dict[str, list[float]] = field(default_factory=dict)
     embedding_model: str = ""
+    # per-article reason a raw article never got a ProcessedArticle row at
+    # all (candidate_limit cut, no_content, not_ai_related, ai_error, ...) -
+    # keyed by raw_article.id, so callers can show a full fetched/verdict
+    # breakdown per source, not just the aggregate skipped_reasons counter
+    skipped_reason_by_raw_id: dict[str, str] = field(default_factory=dict)

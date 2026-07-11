@@ -70,7 +70,6 @@ class CrawlRunTests(unittest.TestCase):
 
         articles, report = crawl_sources(
             [good_source, bad_source],
-            limit=10,
             crawler_factory=crawler_factory,
         )
 
@@ -112,7 +111,6 @@ class CrawlRunTests(unittest.TestCase):
 
         _, report = crawl_sources(
             sources,
-            limit=10,
             crawler_factory=lambda source: BarrierCrawler(),
         )
 
@@ -171,15 +169,14 @@ class CrawlRunTests(unittest.TestCase):
 
         articles, report = crawl_sources(
             sources,
-            limit=1,
             crawler_factory=lambda source: crawlers[source.id],
         )
 
-        # the global limit is applied in source order even when a later
-        # source finishes first
-        self.assertEqual([a.id for a in articles], ["a-first"])
+        # articles are merged in configured source order even when a later
+        # source's fetch finishes first
+        self.assertEqual([a.id for a in articles], ["a-first", "a-second"])
         self.assertEqual(report["per_source"]["first"]["article_count"], 1)
-        self.assertEqual(report["per_source"]["second"]["article_count"], 0)
+        self.assertEqual(report["per_source"]["second"]["article_count"], 1)
 
     def test_per_source_crawl_limit_config_overrides_default(self):
         def make_source(source_id: str, domain: str, config=None) -> Source:
@@ -213,14 +210,16 @@ class CrawlRunTests(unittest.TestCase):
 
         crawl_sources(
             sources,
-            limit=10,  # default per-source = 10 // 2 = 5
             crawler_factory=lambda source: RecordingCrawler(source.id),
         )
 
         self.assertEqual(received["boosted"], 20)
-        self.assertEqual(received["default"], 5)
+        self.assertEqual(received["default"], 5)  # no crawl_limit configured -> flat default
 
-    def test_trusted_curated_source_has_reserved_budget_outside_general_limit(self):
+    def test_trusted_and_general_sources_both_use_their_own_crawl_limit(self):
+        # there is no shared/global budget any more - a trusted_curated
+        # source and a plain source each keep everything up to their own
+        # config.crawl_limit, independent of one another
         def source(source_id, *, trusted=False):
             return Source(
                 id=source_id,
@@ -266,13 +265,12 @@ class CrawlRunTests(unittest.TestCase):
 
         articles, report = crawl_sources(
             sources,
-            limit=1,
             crawler_factory=lambda item: FakeCrawler(fetched[item.id]),
         )
 
-        self.assertEqual([item.id for item in articles], ["n1", "c1", "c2"])
-        self.assertEqual(report["general_article_count"], 1)
-        self.assertEqual(report["reserved_article_count"], 2)
+        self.assertEqual([item.id for item in articles], ["n1", "n2", "c1", "c2"])
+        self.assertEqual(report["per_source"]["normal"]["article_count"], 2)
+        self.assertEqual(report["per_source"]["curated"]["article_count"], 2)
 
     def test_crawl_sources_waits_between_same_domain_sources(self):
         def make_reddit_source(source_id: str, path: str) -> Source:
@@ -297,7 +295,6 @@ class CrawlRunTests(unittest.TestCase):
         with patch("app.crawlers.run.time.sleep", side_effect=sleeps.append):
             crawl_sources(
                 sources,
-                limit=10,
                 crawler_factory=lambda source: FakeCrawler(articles=[]),
             )
 
@@ -324,7 +321,6 @@ class CrawlRunTests(unittest.TestCase):
         with patch("app.crawlers.run.time.sleep", side_effect=sleeps.append):
             crawl_sources(
                 sources,
-                limit=10,
                 crawler_factory=lambda source: FakeCrawler(articles=[]),
             )
 

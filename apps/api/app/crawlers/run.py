@@ -10,20 +10,20 @@ from urllib.parse import urlsplit
 from app.crawlers.base import BaseCrawler
 from app.crawlers.registry import crawler_for_source
 from app.models.domain import RawArticle, Source
-from app.services.source_policy import is_trusted_curated_source
 
 CrawlerFactory = Callable[[Source], BaseCrawler]
 
 SAME_DOMAIN_DELAY_SECONDS = 6.0
 DEFAULT_CRAWL_CONCURRENCY = 8
+DEFAULT_SOURCE_CRAWL_LIMIT = 5
 
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _source_limit(source: Source, default_limit: int) -> int:
-    """Admin-configurable per-source crawl size (config.crawl_limit)."""
+def _source_limit(source: Source, default_limit: int = DEFAULT_SOURCE_CRAWL_LIMIT) -> int:
+    """Admin-configurable per-source crawl size (config.crawl_limit), else 5."""
     try:
         configured = int((source.config or {}).get("crawl_limit") or 0)
     except (TypeError, ValueError):
@@ -34,7 +34,6 @@ def _source_limit(source: Source, default_limit: int) -> int:
 def _crawl_domain_group(
     group: list[Source],
     *,
-    per_source_limit: int,
     crawler_factory: CrawlerFactory,
 ) -> dict[str, dict]:
     """Fetch one domain's sources serially, honoring the politeness delay."""
@@ -48,9 +47,7 @@ def _crawl_domain_group(
         previous_fetch = time.monotonic()
         source_started = time.perf_counter()
         try:
-            fetched = crawler_factory(source).fetch(
-                limit=_source_limit(source, per_source_limit)
-            )
+            fetched = crawler_factory(source).fetch(limit=_source_limit(source))
         except Exception as exc:  # keep one source failure from blocking the full pass
             results[source.id] = {
                 "status": "skipped",
@@ -71,12 +68,13 @@ def _crawl_domain_group(
 def crawl_sources(
     sources: list[Source],
     *,
-    limit: int,
     crawler_factory: CrawlerFactory = crawler_for_source,
     concurrency: int = DEFAULT_CRAWL_CONCURRENCY,
 ) -> tuple[list[RawArticle], dict]:
+    """Crawl every active source for its own configured crawl_limit (or the
+    default of 5) - each source's budget is independent, there is no shared
+    global pool to ration across sources."""
     active_sources = [source for source in sources if source.is_active]
-    per_source_limit = max(1, limit // max(1, len(active_sources)))
     started_at = _utc_now_iso()
 
     domain_groups: dict[str, list[Source]] = {}
@@ -89,31 +87,18 @@ def crawl_sources(
     if max_workers == 1:
         for group in domain_groups.values():
             results_by_source.update(
-                _crawl_domain_group(
-                    group,
-                    per_source_limit=per_source_limit,
-                    crawler_factory=crawler_factory,
-                )
+                _crawl_domain_group(group, crawler_factory=crawler_factory)
             )
     else:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [
-                executor.submit(
-                    _crawl_domain_group,
-                    group,
-                    per_source_limit=per_source_limit,
-                    crawler_factory=crawler_factory,
-                )
+                executor.submit(_crawl_domain_group, group, crawler_factory=crawler_factory)
                 for group in domain_groups.values()
             ]
             for future in futures:
                 results_by_source.update(future.result())
 
-    # apply the global limit deterministically in configured source order,
-    # regardless of which domain group finished first
     articles: list[RawArticle] = []
-    general_count = 0
-    reserved_count = 0
     skipped = Counter()
     per_source: dict[str, dict] = {}
     for source in active_sources:
@@ -128,17 +113,10 @@ def crawl_sources(
             }
             continue
         fetched = result["articles"]
-        if is_trusted_curated_source(source):
-            accepted = fetched[: _source_limit(source, per_source_limit)]
-            reserved_count += len(accepted)
-        else:
-            remaining = max(0, limit - general_count)
-            accepted = fetched[:remaining]
-            general_count += len(accepted)
-        articles.extend(accepted)
+        articles.extend(fetched)
         per_source[source.id] = {
             "status": "ok",
-            "article_count": len(accepted),
+            "article_count": len(fetched),
             "fetched_count": len(fetched),
             "duration_ms": result["duration_ms"],
             "error": None,
@@ -147,12 +125,8 @@ def crawl_sources(
     report = {
         "run_started_at": started_at,
         "run_finished_at": _utc_now_iso(),
-        "limit": limit,
         "source_count": len(active_sources),
         "article_count": len(articles),
-        "general_article_count": general_count,
-        "reserved_article_count": reserved_count,
-        "per_source_limit": per_source_limit,
         "per_source": per_source,
         "skipped_reasons": dict(skipped),
     }

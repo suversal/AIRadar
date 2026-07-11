@@ -7,7 +7,7 @@ from typing import Any
 
 from app.crawlers.run import crawl_sources
 from app.data.default_sources import default_sources
-from app.models.domain import RawArticle, Source
+from app.models.domain import PipelineResult, RawArticle, Source
 from app.pipeline.persistence import persist_pipeline_result_to_database
 from app.pipeline.runner import run_pipeline
 from app.services.ai_service import provider_from_env
@@ -85,6 +85,102 @@ def _load_sources(database_url: str | None, sources_path: Path) -> list[Source]:
         finally:
             session.close()
     return _load_or_seed_sources(sources_path)
+
+
+def _build_auto_crawl_results(
+    crawl_report: dict[str, Any],
+    result: PipelineResult,
+    *,
+    now: datetime,
+) -> dict[str, dict[str, Any]]:
+    """Build the same {origin, at, status, error, fetched_count,
+    accepted_count, articles: [...]} shape the manual per-source fetch
+    endpoint returns, computed from the real AI outcomes - not just the
+    crawl-stage fetch count - so a full automatic sync leaves every source
+    with an honest per-article saved/rejected breakdown, and the admin
+    'last crawl result' column looks identical whether it came from a full
+    sync or a single-source manual fetch."""
+    at = now.isoformat()
+    processed_by_raw_id = {
+        processed.raw_article_id: processed for processed in result.processed_articles
+    }
+    articles_by_source: dict[str, list[RawArticle]] = {}
+    for article in result.raw_articles:
+        articles_by_source.setdefault(article.source_id, []).append(article)
+
+    results: dict[str, dict[str, Any]] = {}
+    for source_id, crawl_entry in crawl_report.get("per_source", {}).items():
+        if crawl_entry.get("status") != "ok":
+            results[source_id] = {
+                "origin": "auto",
+                "at": at,
+                "status": "failed",
+                "error": crawl_entry.get("error"),
+                "fetched_count": 0,
+                "accepted_count": 0,
+                "duration_ms": crawl_entry.get("duration_ms"),
+                "articles": [],
+            }
+            continue
+        source_articles = articles_by_source.get(source_id, [])
+        article_results: list[dict[str, Any]] = []
+        saved_count = 0
+        for article in source_articles:
+            processed = processed_by_raw_id.get(article.id)
+            if processed is not None:
+                selected = bool(processed.selected)
+                if selected:
+                    saved_count += 1
+                article_results.append(
+                    {
+                        "title": processed.title_zh or article.title,
+                        "url": article.source_url,
+                        "outcome": "saved" if selected else "rejected",
+                        "selected": selected,
+                        "final_score": processed.final_score,
+                        "category": processed.category,
+                        "reason": processed.selection_reason if selected else processed.rejection_reason,
+                    }
+                )
+                continue
+            article_results.append(
+                {
+                    "title": article.title,
+                    "url": article.source_url,
+                    "outcome": "rejected",
+                    "selected": False,
+                    "final_score": None,
+                    "category": None,
+                    "reason": result.skipped_reason_by_raw_id.get(article.id),
+                }
+            )
+        results[source_id] = {
+            "origin": "auto",
+            "at": at,
+            "status": "ok",
+            "error": None,
+            "fetched_count": len(source_articles),
+            "accepted_count": saved_count,
+            "duration_ms": crawl_entry.get("duration_ms"),
+            "articles": article_results,
+        }
+    return results
+
+
+def _persist_auto_crawl_results(database_url: str | None, results: dict[str, dict[str, Any]]) -> None:
+    if not database_url or not results:
+        return
+    from app.db.session import build_session_factory
+    from app.repositories.radar_repository import RadarRepository
+
+    session = build_session_factory(database_url)()
+    try:
+        repository = RadarRepository(session)
+        for source_id, result in results.items():
+            repository.set_last_crawl_result(source_id, result)
+        session.commit()
+    finally:
+        session.close()
 
 
 def _persist_source_health(database_url: str | None, per_source: dict[str, Any]) -> None:
@@ -201,7 +297,7 @@ def _run_refresh(
     sources_path = data_dir / "sources.json"
     sources = _load_sources(database_url, sources_path)
 
-    raw_articles, crawl_report = crawl_sources(sources, limit=limit)
+    raw_articles, crawl_report = crawl_sources(sources)
     _persist_source_health(database_url, crawl_report.get("per_source", {}))
     _report_progress(
         database_url,
@@ -257,6 +353,11 @@ def _run_refresh(
     )
     write_json(reports_dir / f"{resolved_date.isoformat()}.json", result.daily_report.json_data)
 
+    # replaces the coarse crawl-stage source_report with the real per-article
+    # saved/rejected breakdown, now that AI processing has actually run
+    auto_crawl_results = _build_auto_crawl_results(crawl_report, result, now=generated_at)
+    _persist_auto_crawl_results(database_url, auto_crawl_results)
+
     _report_progress(database_url, pipeline_run_id, phase="persisting")
     persistence_summary = None
     if database_url:
@@ -268,6 +369,7 @@ def _run_refresh(
             similarity_threshold=_env_float("CLUSTER_SIMILARITY_THRESHOLD", 0.93),
             started_at=generated_at,
             pipeline_run_id=pipeline_run_id,
+            source_report=auto_crawl_results,
         )
         _report_progress(database_url, pipeline_run_id, phase="reports")
         _regenerate_period_reports(database_url, resolved_date, ai_provider)

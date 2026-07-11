@@ -1,5 +1,6 @@
 import { adminFetch } from "@/lib/admin-api";
 import { AdminShell } from "./admin-shell";
+import { PipelineRunDetail } from "./pipeline-run-detail";
 import { RefreshReportButton } from "./refresh-report-button";
 import { SchedulePanel } from "./schedule-panel";
 
@@ -20,7 +21,7 @@ type SourceHealth = {
 
 type SourceCrawlResult = {
   status: string;
-  article_count: number;
+  accepted_count: number;
   fetched_count?: number;
   duration_ms: number;
   error: string | null;
@@ -116,16 +117,6 @@ const PHASE_LABELS: Record<string, string> = {
   persisting: "落库中",
   reports: "生成周期报告",
 };
-
-function sortedSourceReport(report: Record<string, SourceCrawlResult>) {
-  // 失败的信源排最前，其余按文章数降序——一眼看到问题源
-  return Object.entries(report).sort(([, a], [, b]) => {
-    if ((a.status !== "ok") !== (b.status !== "ok")) {
-      return a.status !== "ok" ? -1 : 1;
-    }
-    return (b.article_count ?? 0) - (a.article_count ?? 0);
-  });
-}
 
 function skippedReasonText(reasons: Record<string, number>) {
   const entries = Object.entries(reasons);
@@ -230,68 +221,13 @@ export default async function AdminDashboardPage() {
                       <td className="readout py-2 pr-4">{run.cluster_count}</td>
                       <td className="max-w-md py-2 text-xs leading-5 text-ink-dim">
                         <div>{skippedReasonText(run.skipped_reasons)}</div>
-                        {Object.keys(run.source_report ?? {}).length > 0 ? (
-                          <details className="mt-1 max-w-xl">
-                            <summary className="cursor-pointer text-sky-300">
-                              信源明细（
-                              {
-                                Object.values(run.source_report).filter(
-                                  (item) => item.status === "ok",
-                                ).length
-                              }
-                              /{Object.keys(run.source_report).length} 成功）
-                            </summary>
-                            <div className="mt-2 max-h-72 overflow-auto rounded bg-canvas p-2">
-                              <table className="w-full text-[11px] leading-4">
-                                <thead>
-                                  <tr className="text-ink-dim">
-                                    <th className="py-1 pr-2 text-left">信源</th>
-                                    <th className="py-1 pr-2 text-left">状态</th>
-                                    <th className="py-1 pr-2 text-right">入选/抓取</th>
-                                    <th className="py-1 pr-2 text-right">耗时</th>
-                                    <th className="py-1 text-left">错误</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {sortedSourceReport(run.source_report).map(([sourceId, item]) => (
-                                    <tr key={sourceId} className="border-t border-line/50">
-                                      <td className="py-1 pr-2">{sourceId}</td>
-                                      <td
-                                        className={
-                                          item.status === "ok"
-                                            ? "py-1 pr-2 text-green-400"
-                                            : "py-1 pr-2 text-red-300"
-                                        }
-                                      >
-                                        {item.status === "ok" ? "成功" : "失败"}
-                                      </td>
-                                      <td className="readout py-1 pr-2 text-right">
-                                        {item.article_count}
-                                        {typeof item.fetched_count === "number"
-                                          ? `/${item.fetched_count}`
-                                          : ""}
-                                      </td>
-                                      <td className="readout py-1 pr-2 text-right">
-                                        {Math.round(item.duration_ms)}ms
-                                      </td>
-                                      <td className="max-w-56 break-all py-1 text-red-200">
-                                        {item.error ?? ""}
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          </details>
-                        ) : null}
-                        {run.error ? (
-                          <details className="mt-1 max-w-xl">
-                            <summary className="cursor-pointer text-red-300">查看完整错误</summary>
-                            <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-all rounded bg-canvas p-3 text-[11px] leading-4 text-red-200">
-                              {run.error}
-                            </pre>
-                          </details>
-                        ) : null}
+                        <div className="mt-1">
+                          <PipelineRunDetail
+                            error={run.error}
+                            runId={run.id}
+                            sourceReport={run.source_report ?? {}}
+                          />
+                        </div>
                       </td>
                     </tr>
                   ))}

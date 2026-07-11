@@ -85,24 +85,104 @@ class AdminSourcesApiTests(unittest.TestCase):
         self.assertEqual(self.repository.created[0].id, "new_blog")
         self.assertEqual(self.repository.created[0].source_role, "context")
 
-    def test_test_endpoint_returns_sample_titles(self):
+    def test_test_endpoint_scores_and_saves_new_articles(self):
+        # 手动抓取现在要真正跑内容检查/AI 评分/入库，不再只是连通性预览
+        from datetime import datetime, timezone
+
+        from app.models.domain import RawArticle
+        from app.services.ai_service import FakeAIProvider
+
         client = self._client()
 
         class FakeCrawler:
             def fetch(self, limit=None):
-                class A:
-                    title = "Sample article"
-                    source_url = "https://x.example/a"
+                return [
+                    RawArticle(
+                        id="manual-1",
+                        source_id="openai_blog",
+                        source_name="OpenAI Blog",
+                        source_role="authority",
+                        source_tier="T1",
+                        source_url="https://x.example/a",
+                        title="OpenAI announces new model release",
+                        content="OpenAI announces a new model release with agent capabilities.",
+                        author="OpenAI",
+                        published_at=datetime.now(timezone.utc),
+                        language="en",
+                        raw_score={},
+                        metadata={},
+                        title_hash="th-1",
+                        url_hash="uh-manual-1",
+                    )
+                ]
 
-                return [A()]
-
-        with patch("app.crawlers.registry.crawler_for_source", return_value=FakeCrawler()):
+        with patch("app.crawlers.registry.crawler_for_source", return_value=FakeCrawler()), patch(
+            "app.services.ai_service.provider_from_env", return_value=FakeAIProvider()
+        ):
             response = client.post("/api/admin/sources/openai_blog/test", headers=AUTH)
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["status"], "ok")
-        self.assertEqual(body["articles"][0]["title"], "Sample article")
+        self.assertEqual(body["origin"], "manual")
+        article = body["articles"][0]
+        self.assertEqual(article["title"], "OpenAI announces new model release")
+        self.assertEqual(article["outcome"], "saved")
+        self.assertTrue(article["selected"])
+        self.assertIsInstance(article["final_score"], (int, float))
+        # actually persisted, not just previewed
+        self.assertEqual(len(self.repository.raw_upserts), 1)
+        self.assertEqual(len(self.repository.processed_upserts), 1)
+        self.assertEqual(self.repository.crawl_results[-1][0], "openai_blog")
+
+    def test_test_endpoint_reports_duplicate_without_rescoring(self):
+        from datetime import datetime, timezone
+
+        from app.models.domain import RawArticle
+        from app.services.ai_service import FakeAIProvider
+
+        client = self._client()
+        self.repository.existing_outcomes["uh-dup"] = {
+            "title": "Previously seen article",
+            "url": "https://x.example/dup",
+            "selected": True,
+            "final_score": 88.0,
+            "category": "model_release",
+            "reason": "final_score:88.0>=threshold:65",
+        }
+
+        class FakeCrawler:
+            def fetch(self, limit=None):
+                return [
+                    RawArticle(
+                        id="manual-2",
+                        source_id="openai_blog",
+                        source_name="OpenAI Blog",
+                        source_role="authority",
+                        source_tier="T1",
+                        source_url="https://x.example/dup",
+                        title="Previously seen article",
+                        content="content",
+                        author="OpenAI",
+                        published_at=datetime.now(timezone.utc),
+                        language="en",
+                        raw_score={},
+                        metadata={},
+                        title_hash="th-2",
+                        url_hash="uh-dup",
+                    )
+                ]
+
+        with patch("app.crawlers.registry.crawler_for_source", return_value=FakeCrawler()), patch(
+            "app.services.ai_service.provider_from_env", return_value=FakeAIProvider()
+        ):
+            response = client.post("/api/admin/sources/openai_blog/test", headers=AUTH)
+
+        body = response.json()
+        self.assertEqual(body["articles"][0]["outcome"], "duplicate")
+        self.assertEqual(body["articles"][0]["final_score"], 88.0)
+        # no re-processing spent on an article we already have a verdict for
+        self.assertEqual(len(self.repository.processed_upserts), 0)
 
     def test_test_endpoint_reports_fetch_errors(self):
         client = self._client()
@@ -186,10 +266,36 @@ class AdminEventsApiTests(unittest.TestCase):
         self.assertEqual(missing.status_code, 404)
 
 
+class _FakeSession:
+    def commit(self):
+        pass
+
+
 class _FakeSourceRepository:
     def __init__(self):
         self.updates = []
         self.created = []
+        self.session = _FakeSession()
+        self.raw_upserts = []
+        self.processed_upserts = []
+        self.embedding_upserts = []
+        self.crawl_results = []
+        self.existing_outcomes = {}
+
+    def get_existing_outcome_by_url_hash(self, url_hash):
+        return self.existing_outcomes.get(url_hash)
+
+    def upsert_raw_articles(self, articles, **kwargs):
+        self.raw_upserts.extend(articles)
+
+    def upsert_processed_articles(self, processed_articles, **kwargs):
+        self.processed_upserts.extend(processed_articles)
+
+    def upsert_article_embedding(self, raw_article_id, **kwargs):
+        self.embedding_upserts.append((raw_article_id, kwargs))
+
+    def set_last_crawl_result(self, source_id, result):
+        self.crawl_results.append((source_id, result))
 
     def list_sources_with_health(self):
         return [{"id": "openai_blog", "name": "OpenAI Blog", "success_rate": 1.0}]

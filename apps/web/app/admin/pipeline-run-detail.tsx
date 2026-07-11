@@ -1,0 +1,134 @@
+"use client";
+
+import { useState } from "react";
+
+type SourceCrawlResult = {
+  status: string;
+  accepted_count: number;
+  fetched_count?: number;
+  duration_ms: number;
+  error: string | null;
+};
+
+function sortedSourceReport(report: Record<string, SourceCrawlResult>) {
+  // 失败的信源排最前，其余按入选文章数降序——一眼看到问题源
+  return Object.entries(report).sort(([, a], [, b]) => {
+    if ((a.status !== "ok") !== (b.status !== "ok")) {
+      return a.status !== "ok" ? -1 : 1;
+    }
+    return (b.accepted_count ?? 0) - (a.accepted_count ?? 0);
+  });
+}
+
+function Modal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+      <div className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-md border border-line bg-panel">
+        <div className="flex items-center justify-between gap-3 border-b border-line px-6 py-4">
+          <h2 className="text-lg font-semibold text-ink">{title}</h2>
+          <button
+            className="rounded border border-line px-3 py-1.5 text-sm text-ink-mid hover:text-ink"
+            onClick={onClose}
+            type="button"
+          >
+            关闭
+          </button>
+        </div>
+        <div className="overflow-y-auto px-6 py-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+export function PipelineRunDetail({
+  runId,
+  sourceReport,
+  error,
+}: {
+  runId: number;
+  sourceReport: Record<string, SourceCrawlResult>;
+  error: string | null;
+}) {
+  const [open, setOpen] = useState<"sources" | "error" | null>(null);
+  const entries = sortedSourceReport(sourceReport ?? {});
+  const successCount = entries.filter(([, item]) => item.status === "ok").length;
+
+  return (
+    <>
+      <div className="flex flex-col items-start gap-1">
+        {entries.length > 0 ? (
+          <button
+            className="text-sky-300 hover:underline"
+            onClick={() => setOpen("sources")}
+            type="button"
+          >
+            信源明细（{successCount}/{entries.length} 成功）
+          </button>
+        ) : null}
+        {error ? (
+          <button
+            className="text-red-300 hover:underline"
+            onClick={() => setOpen("error")}
+            type="button"
+          >
+            查看完整错误
+          </button>
+        ) : null}
+      </div>
+
+      {open === "sources" ? (
+        <Modal title={`信源明细 · 运行 #${runId}`} onClose={() => setOpen(null)}>
+          <table className="w-full text-xs leading-4">
+            <thead>
+              <tr className="text-ink-dim">
+                <th className="py-1 pr-2 text-left">信源</th>
+                <th className="py-1 pr-2 text-left">状态</th>
+                <th className="py-1 pr-2 text-right">入选/抓取</th>
+                <th className="py-1 pr-2 text-right">耗时</th>
+                <th className="py-1 text-left">错误</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map(([sourceId, item]) => (
+                <tr key={sourceId} className="border-t border-line/50">
+                  <td className="py-1.5 pr-2">{sourceId}</td>
+                  <td
+                    className={
+                      item.status === "ok" ? "py-1.5 pr-2 text-green-400" : "py-1.5 pr-2 text-red-300"
+                    }
+                  >
+                    {item.status === "ok" ? "成功" : "失败"}
+                  </td>
+                  <td className="readout py-1.5 pr-2 text-right">
+                    {item.accepted_count}
+                    {typeof item.fetched_count === "number" ? `/${item.fetched_count}` : ""}
+                  </td>
+                  <td className="readout py-1.5 pr-2 text-right">
+                    {typeof item.duration_ms === "number" ? `${Math.round(item.duration_ms)}ms` : "--"}
+                  </td>
+                  <td className="max-w-56 break-all py-1.5 text-red-200">{item.error ?? ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Modal>
+      ) : null}
+
+      {open === "error" ? (
+        <Modal title={`完整错误 · 运行 #${runId}`} onClose={() => setOpen(null)}>
+          <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-all rounded bg-canvas p-3 text-xs leading-5 text-red-200">
+            {error}
+          </pre>
+        </Modal>
+      ) : null}
+    </>
+  );
+}

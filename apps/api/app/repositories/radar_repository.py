@@ -586,7 +586,7 @@ class RadarRepository:
             "phase": model.phase,
         }
 
-    def sweep_stale_pipeline_runs(self, *, max_age_minutes: int = 180) -> int:
+    def sweep_stale_pipeline_runs(self, *, max_age_minutes: int = 20) -> int:
         """Close out 'running' rows whose process evidently died (older than
         max_age_minutes), so the concurrency guard can never dead-lock on an
         orphan. Honest bookkeeping: marked failed with an explicit reason."""
@@ -634,6 +634,7 @@ class RadarRepository:
         processed_count: int = 0,
         cluster_count: int = 0,
         skipped_reasons: Optional[dict[str, int]] = None,
+        source_report: Optional[dict[str, Any]] = None,
         error: str | None = None,
         finished_at: Any = None,
     ) -> WriteResult:
@@ -645,6 +646,11 @@ class RadarRepository:
         model.processed_count = processed_count
         model.cluster_count = cluster_count
         model.skipped_reasons = dict(skipped_reasons or {})
+        if source_report is not None:
+            # supersedes the coarse crawl-stage report _report_progress wrote
+            # earlier, now that AI processing has produced real per-source
+            # saved counts
+            model.source_report = source_report
         model.error = error
         model.finished_at = finished_at if finished_at is not None else datetime.now(timezone.utc)
         self.session.flush()
@@ -658,6 +664,7 @@ class RadarRepository:
         processed_count: int,
         cluster_count: int,
         skipped_reasons: dict[str, int],
+        source_report: Optional[dict[str, Any]] = None,
         started_at: Any = None,
         finished_at: Any = None,
         error: str | None = None,
@@ -670,6 +677,8 @@ class RadarRepository:
             skipped_reasons=dict(skipped_reasons),
             error=error,
         )
+        if source_report is not None:
+            model.source_report = source_report
         if started_at is not None:
             model.started_at = started_at
         if finished_at is not None:
@@ -779,6 +788,29 @@ class RadarRepository:
                 # without storing full history
                 previous = model.success_rate or 0.0
                 model.success_rate = round(0.8 * previous + 0.2 * observation, 4)
+            # automatic runs only know per-source counts, not which articles
+            # were ultimately selected (that's decided later, across all
+            # sources together) - store what's honestly available so this
+            # still overwrites a stale manual-fetch result with something
+            # fresher, without claiming a save/reject verdict it doesn't have
+            model.last_crawl_result = {
+                "origin": "auto",
+                "at": now.isoformat(),
+                "status": report.get("status"),
+                "error": report.get("error"),
+                "fetched_count": report.get("fetched_count"),
+                "accepted_count": report.get("article_count"),
+                "articles": [],
+            }
+
+    def set_last_crawl_result(self, source_id: str, result: dict[str, Any]) -> None:
+        """Stores this source's most recent crawl outcome, whichever origin
+        (manual single-source fetch or a full automatic sync) ran most
+        recently simply wins by virtue of being the latest write."""
+        model = self.session.get(SourceModel, source_id)
+        if model is None:
+            return
+        model.last_crawl_result = result
 
     SOURCE_EDITABLE_FIELDS = {
         "name",
@@ -831,6 +863,7 @@ class RadarRepository:
                 "success_rate": model.success_rate,
                 "error_count": model.error_count,
                 "config": dict(model.config_json or {}),
+                "last_crawl_result": model.last_crawl_result,
             }
             for model in models
         ]
@@ -940,6 +973,39 @@ class RadarRepository:
                 "metadata": metadata,
             }
         return cached
+
+    def get_existing_outcome_by_url_hash(self, url_hash: str) -> Optional[dict[str, Any]]:
+        """Already-known verdict for one URL, for reporting a manual fetch's
+        duplicates without re-spending AI calls on unchanged content."""
+        row = self.session.execute(
+            select(RawArticleModel, ProcessedArticleModel)
+            .outerjoin(
+                ProcessedArticleModel,
+                ProcessedArticleModel.raw_article_id == RawArticleModel.id,
+            )
+            .where(RawArticleModel.url_hash == url_hash)
+        ).first()
+        if row is None:
+            return None
+        raw, processed = row
+        if processed is None:
+            return {
+                "title": raw.title,
+                "url": raw.source_url,
+                "selected": None,
+                "final_score": None,
+                "category": None,
+                "reason": raw.skipped_reason,
+            }
+        selected = processed.status == "processed"
+        return {
+            "title": processed.title_zh or raw.title,
+            "url": raw.source_url,
+            "selected": selected,
+            "final_score": processed.final_score,
+            "category": processed.category,
+            "reason": processed.selection_reason if selected else processed.rejection_reason,
+        }
 
     _EVENT_CONTENT_METADATA_KEYS = (
         "original_paragraphs",
