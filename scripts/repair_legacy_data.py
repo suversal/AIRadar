@@ -10,6 +10,12 @@ still in the legacy shape.
 - pipeline_runs.finished_at is deliberately NOT touched: there is no
   trustworthy source for historical finish times, and faking them would be
   worse than NULL.
+- raw_articles whose extracted body still duplicates the page title as its
+  first paragraph, or still carries a byline avatar image (both fixed in
+  extract_article_content on 2026-07-11): re-fetched from the original page
+  with a fresh cache dir (the on-disk page cache is immutable and was built
+  by the pre-fix extractor, so it must be bypassed here) and, if a
+  translation exists, retranslated.
 
 Usage:
     .venv/bin/python scripts/repair_legacy_data.py \
@@ -19,8 +25,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
+import tempfile
 from pathlib import Path
+from typing import Any, Callable
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
@@ -29,12 +38,19 @@ from sqlalchemy import select  # noqa: E402
 from app.crawlers.base import stable_hash  # noqa: E402
 from app.db.models import (  # noqa: E402
     ArticleEmbeddingModel,
+    ArticleTranslationModel,
     EventClusterArticleModel,
     EventClusterModel,
     ProcessedArticleModel,
     RawArticleModel,
 )
 from app.services.ai_service import embedding_input  # noqa: E402
+
+_AVATAR_URL_RE = re.compile(r"avatar", re.IGNORECASE)
+
+
+def _normalize(text: str) -> str:
+    return re.sub(r"[^\w一-鿿]", "", text or "").lower()
 
 
 def repair_event_links(session) -> int:
@@ -98,6 +114,60 @@ def recount_source_counts(session) -> int:
     return fixed
 
 
+def find_articles_needing_reextraction(session) -> list[str]:
+    """Rows whose stored original_paragraphs/original_images still show the
+    pre-2026-07-11 extraction bugs: first paragraph duplicating the page
+    title, or an avatar-pattern image kept as if it were content."""
+    ids: list[str] = []
+    for row in session.scalars(select(RawArticleModel)).all():
+        metadata = row.raw_metadata or {}
+        paragraphs = metadata.get("original_paragraphs") or []
+        images = metadata.get("original_images") or []
+        title_duplicated = bool(paragraphs) and _normalize(paragraphs[0]) == _normalize(row.title)
+        has_avatar = any(_AVATAR_URL_RE.search(img.get("url") or "") for img in images)
+        if title_duplicated or has_avatar:
+            ids.append(row.id)
+    return ids
+
+
+def reextract_article_content(
+    session,
+    article_id: str,
+    *,
+    fetch_payload: Callable[[str], dict[str, Any] | None],
+    translate: Callable[[list[str]], list[str]] | None = None,
+) -> bool:
+    """Re-fetch one article's page and overwrite its content/metadata with
+    the corrected extraction. Deliberately bypasses the normal upsert's
+    "longer content wins" merge: the fix can legitimately produce SHORTER
+    (more correct) content, which that merge would otherwise reject."""
+    row = session.get(RawArticleModel, article_id)
+    if row is None:
+        return False
+    payload = fetch_payload(row.source_url)
+    if not payload:
+        return False
+
+    row.content = payload["content"]
+    merged = dict(row.raw_metadata or {})
+    merged.update(payload["metadata"])
+    merged["content_origin"] = "full_page"
+    row.raw_metadata = merged
+
+    if translate is not None:
+        translation = session.scalar(
+            select(ArticleTranslationModel).where(
+                ArticleTranslationModel.raw_article_id == article_id
+            )
+        )
+        if translation is not None:
+            paragraphs = payload["metadata"].get("original_paragraphs") or [row.content]
+            translation.translated_paragraphs = translate(paragraphs)
+            translation.translated_blocks = []
+            translation.source_hash = stable_hash("\n".join(paragraphs))
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database-url", default=os.getenv("DATABASE_URL"))
@@ -105,6 +175,11 @@ def main() -> int:
         "--skip-embeddings",
         action="store_true",
         help="skip the re-embedding step (no local model download needed)",
+    )
+    parser.add_argument(
+        "--skip-reextraction",
+        action="store_true",
+        help="skip re-fetching pages for title-duplication/avatar-image cleanup (no network calls)",
     )
     args = parser.parse_args()
     if not args.database_url:
@@ -122,9 +197,34 @@ def main() -> int:
             embeddings = reembed_unknown(session, embedder=LocalEmbeddingProvider())
         counts = recount_source_counts(session)
 
+    reextracted = 0
+    reextraction_failed = 0
+    if not args.skip_reextraction:
+        from app.crawlers.page_content import fetch_page_payload
+        from app.services.ai_service import provider_from_env
+
+        provider = provider_from_env()
+        with session_scope(session_factory) as session:
+            article_ids = find_articles_needing_reextraction(session)
+        with tempfile.TemporaryDirectory() as tmp:
+            fresh_cache = Path(tmp)
+            for article_id in article_ids:
+                with session_scope(session_factory) as session:
+                    ok = reextract_article_content(
+                        session,
+                        article_id,
+                        fetch_payload=lambda url: fetch_page_payload(url, cache_dir=fresh_cache),
+                        translate=provider.translate_paragraphs,
+                    )
+                if ok:
+                    reextracted += 1
+                else:
+                    reextraction_failed += 1
+
     print(
         f"repaired: event links={links}, unknown embeddings={embeddings}, "
-        f"source counts={counts}"
+        f"source counts={counts}, reextracted articles={reextracted} "
+        f"(failed={reextraction_failed})"
     )
     return 0
 

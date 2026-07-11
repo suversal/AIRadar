@@ -178,6 +178,110 @@ class RepairLegacyDataTests(unittest.TestCase):
         self.assertEqual(fixed, 1)
         self.assertEqual(stored.source_count, 1)
 
+    def test_find_articles_needing_reextraction_detects_duplicated_title(self):
+        from app.db.models import RawArticleModel
+
+        with self.Session() as session:
+            self._seed_event(session, drift_link=False)
+            row = session.get(RawArticleModel, "a1")
+            row.raw_metadata = {
+                **row.raw_metadata,
+                "original_paragraphs": ["OpenAI releases agent model", "Real body text follows."],
+                "original_images": [],
+            }
+            session.commit()
+
+            ids = repair_legacy_data.find_articles_needing_reextraction(session)
+
+        self.assertEqual(ids, ["a1"])
+
+    def test_find_articles_needing_reextraction_detects_avatar_image(self):
+        from app.db.models import RawArticleModel
+
+        with self.Session() as session:
+            self._seed_event(session, drift_link=False)
+            row = session.get(RawArticleModel, "a1")
+            row.raw_metadata = {
+                **row.raw_metadata,
+                "original_paragraphs": ["Body text, not the title at all."],
+                "original_images": [{"url": "https://example.com/resources/avatar_jane.jpg", "alt": "Jane"}],
+            }
+            session.commit()
+
+            ids = repair_legacy_data.find_articles_needing_reextraction(session)
+
+        self.assertEqual(ids, ["a1"])
+
+    def test_find_articles_needing_reextraction_ignores_clean_rows(self):
+        from app.db.models import RawArticleModel
+
+        with self.Session() as session:
+            self._seed_event(session, drift_link=False)
+            row = session.get(RawArticleModel, "a1")
+            row.raw_metadata = {
+                **row.raw_metadata,
+                "original_paragraphs": ["Totally unrelated body text."],
+                "original_images": [{"url": "https://example.com/hero.png", "alt": "Hero"}],
+            }
+            session.commit()
+
+            ids = repair_legacy_data.find_articles_needing_reextraction(session)
+
+        self.assertEqual(ids, [])
+
+    def test_reextract_article_content_updates_row_and_translation(self):
+        from app.db.models import ArticleTranslationModel, RawArticleModel
+        from app.crawlers.base import stable_hash
+
+        with self.Session() as session:
+            self._seed_event(session, drift_link=False)
+            row = session.get(RawArticleModel, "a1")
+            row.raw_metadata = {
+                **row.raw_metadata,
+                "original_paragraphs": ["OpenAI releases agent model", "Real body text follows."],
+                "original_images": [],
+            }
+            session.add(
+                ArticleTranslationModel(
+                    raw_article_id="a1",
+                    translated_paragraphs=["OpenAI 发布智能体模型", "真正的正文在这里。"],
+                    translated_blocks=[],
+                    source_language="en",
+                    target_language="zh",
+                    source_hash="stale-hash",
+                    status="completed",
+                )
+            )
+            session.commit()
+
+            payload = {
+                "title": "OpenAI releases agent model",
+                "content": "Real body text follows.",
+                "metadata": {
+                    "original_paragraphs": ["Real body text follows."],
+                    "original_images": [],
+                    "original_blocks": [{"type": "paragraph", "text": "Real body text follows."}],
+                },
+            }
+            fixed = repair_legacy_data.reextract_article_content(
+                session,
+                "a1",
+                fetch_payload=lambda url: payload,
+                translate=lambda paragraphs: [f"译:{p}" for p in paragraphs],
+            )
+            session.commit()
+
+            stored = session.get(RawArticleModel, "a1")
+            translation = session.scalar(
+                select(ArticleTranslationModel).where(ArticleTranslationModel.raw_article_id == "a1")
+            )
+
+        self.assertTrue(fixed)
+        self.assertEqual(stored.content, "Real body text follows.")
+        self.assertEqual(stored.raw_metadata["original_paragraphs"], ["Real body text follows."])
+        self.assertEqual(translation.translated_paragraphs, ["译:Real body text follows."])
+        self.assertEqual(translation.source_hash, stable_hash("Real body text follows."))
+
 
 if __name__ == "__main__":
     unittest.main()
