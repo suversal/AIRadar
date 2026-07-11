@@ -189,6 +189,58 @@ class RepositoryTests(unittest.TestCase):
         # a2 隐藏被剔除，unknown-id 解析不到被跳过，顺序按传入顺序保留
         self.assertEqual([item["event_id"] for item in items], ["aa3", "aa1"])
 
+    def test_duplicate_event_membership_is_rejected_by_constraint(self):
+        # 数据库层必须兜底：同一文章不能在同一事件中出现两行
+        from sqlalchemy.exc import IntegrityError
+
+        from app.db.models import EventClusterArticleModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([self._article(article_id="a1", title="主文", url_hash="u1")])
+            repository.upsert_event_clusters([self._cluster("e-dup", main_article_id="a1")])
+            session.commit()
+
+            session.add(
+                EventClusterArticleModel(
+                    event_cluster_id="e-dup", raw_article_id="a1", is_main=False
+                )
+            )
+            with self.assertRaises(IntegrityError):
+                session.commit()
+
+    def test_second_main_membership_is_rejected_by_constraint(self):
+        # 每个事件只能有一个主文成员行
+        from sqlalchemy.exc import IntegrityError
+
+        from app.db.models import EventClusterArticleModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles(
+                [
+                    self._article(article_id="a1", title="主文", url_hash="u1"),
+                    self._article(article_id="b1", title="成员", url_hash="u2"),
+                ]
+            )
+            cluster = self._cluster("e-main", main_article_id="a1")
+            cluster.article_ids = ["a1", "b1"]
+            repository.upsert_event_clusters([cluster])
+            session.commit()
+
+            member = session.scalar(
+                select(EventClusterArticleModel).where(
+                    EventClusterArticleModel.raw_article_id == "b1"
+                )
+            )
+            member.is_main = True
+            with self.assertRaises(IntegrityError):
+                session.commit()
+
     def test_event_moderation_survives_main_article_change(self):
         # 人工修改针对的是"这个事件"，不是"当时恰好是主文的那篇文章"。
         # 跨天合并可能换主文；换主文后人工标题/隐藏必须继续生效。

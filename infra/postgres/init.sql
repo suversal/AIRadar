@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS raw_articles (
 
 CREATE UNIQUE INDEX IF NOT EXISTS raw_articles_url_hash_idx ON raw_articles(url_hash);
 CREATE INDEX IF NOT EXISTS raw_articles_title_hash_idx ON raw_articles(title_hash);
+CREATE INDEX IF NOT EXISTS ix_raw_articles_published_at ON raw_articles(published_at);
+CREATE INDEX IF NOT EXISTS ix_raw_articles_source_id ON raw_articles(source_id);
 
 CREATE TABLE IF NOT EXISTS article_embeddings (
   id BIGSERIAL PRIMARY KEY,
@@ -120,8 +122,13 @@ CREATE TABLE IF NOT EXISTS event_cluster_articles (
   is_main BOOLEAN NOT NULL DEFAULT false,
   source_priority INTEGER NOT NULL DEFAULT 0,
   joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT uq_event_cluster_articles_member UNIQUE (event_cluster_id, raw_article_id)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_event_cluster_articles_main ON event_cluster_articles(event_cluster_id) WHERE is_main;
+CREATE INDEX IF NOT EXISTS ix_event_cluster_articles_event_cluster_id ON event_cluster_articles(event_cluster_id);
+CREATE INDEX IF NOT EXISTS ix_event_cluster_articles_raw_article_id ON event_cluster_articles(raw_article_id);
 
 CREATE TABLE IF NOT EXISTS processed_articles (
   id BIGSERIAL PRIMARY KEY,
@@ -149,6 +156,9 @@ CREATE TABLE IF NOT EXISTS processed_articles (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS ix_processed_articles_raw_article_id ON processed_articles(raw_article_id);
+CREATE INDEX IF NOT EXISTS ix_processed_articles_event_cluster_id ON processed_articles(event_cluster_id);
 
 CREATE TABLE IF NOT EXISTS daily_reports (
   id BIGSERIAL PRIMARY KEY,
@@ -196,14 +206,17 @@ CREATE TABLE IF NOT EXISTS period_reports (
 
 CREATE TABLE IF NOT EXISTS daily_report_entries (
   id BIGSERIAL PRIMARY KEY,
-  report_date DATE NOT NULL,
+  report_date DATE NOT NULL REFERENCES daily_reports(report_date),
   position INTEGER NOT NULL,
+  -- event_id has no FK on purpose: unclustered masthead articles carry the
+  -- "a…" pseudo-id, which never exists in event_clusters
   event_id TEXT NOT NULL,
   raw_article_id TEXT NOT NULL REFERENCES raw_articles(id),
   reason_snapshot TEXT NOT NULL DEFAULT '',
   score_at_selection DOUBLE PRECISION NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (report_date, position)
+  UNIQUE (report_date, position),
+  CONSTRAINT uq_daily_report_entries_date_event UNIQUE (report_date, event_id)
 );
 
 CREATE INDEX IF NOT EXISTS ix_daily_report_entries_report_date ON daily_report_entries(report_date);

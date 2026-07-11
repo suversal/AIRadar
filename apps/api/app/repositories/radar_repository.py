@@ -485,8 +485,16 @@ class RadarRepository:
                     EventClusterArticleModel.event_cluster_id == target_id
                 )
             ).all()
+            # demote first and flush before promoting: the partial unique
+            # index (one main per event) is checked per statement, so a
+            # promote-before-demote update order would transiently violate it
             for membership in all_memberships:
-                membership.is_main = membership.raw_article_id == model.main_article_id
+                if membership.raw_article_id != model.main_article_id and membership.is_main:
+                    membership.is_main = False
+            self.session.flush()
+            for membership in all_memberships:
+                if membership.raw_article_id == model.main_article_id and not membership.is_main:
+                    membership.is_main = True
 
             model.source_count = self._count_distinct_sources(target_id)
         self.session.flush()

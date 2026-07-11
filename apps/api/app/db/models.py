@@ -11,11 +11,13 @@ try:
         DateTime,
         Float,
         ForeignKey,
+        Index,
         Integer,
         String,
         Text,
         UniqueConstraint,
         func,
+        text,
     )
     from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard for local stdlib tests
@@ -61,13 +63,15 @@ class RawArticleModel(Base):
     __tablename__ = "raw_articles"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
-    source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"), nullable=False)
+    source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"), nullable=False, index=True)
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     content: Mapped[str] = mapped_column(Text, default="")
     author: Mapped[Optional[str]] = mapped_column(String)
     language: Mapped[str] = mapped_column(String, default="en")
-    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    published_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
     crawled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     title_hash: Mapped[str] = mapped_column(String, nullable=False, index=True)
     url_hash: Mapped[str] = mapped_column(String, nullable=False, index=True)
@@ -104,10 +108,19 @@ class DailyReportEntryModel(Base):
     instead of being frozen into a JSON snapshot."""
 
     __tablename__ = "daily_report_entries"
-    __table_args__ = (UniqueConstraint("report_date", "position", name="uq_daily_report_entries_date_position"),)
+    __table_args__ = (
+        UniqueConstraint("report_date", "position", name="uq_daily_report_entries_date_position"),
+        # persistence dedupes per event before writing; the DB backstops it
+        UniqueConstraint("report_date", "event_id", name="uq_daily_report_entries_date_event"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    report_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    # note: event_id has NO foreign key on purpose - unclustered masthead
+    # articles legitimately carry the `a…` pseudo-id, which never exists in
+    # event_clusters
+    report_date: Mapped[date] = mapped_column(
+        ForeignKey("daily_reports.report_date"), nullable=False, index=True
+    )
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     event_id: Mapped[str] = mapped_column(String, nullable=False)
     raw_article_id: Mapped[str] = mapped_column(ForeignKey("raw_articles.id"), nullable=False)
@@ -147,7 +160,9 @@ class ProcessedArticleModel(Base):
     raw_article_id: Mapped[str] = mapped_column(
         ForeignKey("raw_articles.id"), nullable=False, unique=True, index=True
     )
-    event_cluster_id: Mapped[Optional[str]] = mapped_column(ForeignKey("event_clusters.id"))
+    event_cluster_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("event_clusters.id"), index=True
+    )
     ai_relevance: Mapped[float] = mapped_column(Float, nullable=False)
     novelty: Mapped[float] = mapped_column(Float, nullable=False)
     impact: Mapped[float] = mapped_column(Float, nullable=False)
@@ -234,12 +249,27 @@ class EventClusterModel(Base):
 
 class EventClusterArticleModel(Base):
     __tablename__ = "event_cluster_articles"
+    __table_args__ = (
+        UniqueConstraint(
+            "event_cluster_id", "raw_article_id", name="uq_event_cluster_articles_member"
+        ),
+        # at most one main article per event, enforced by the DB itself
+        Index(
+            "uq_event_cluster_articles_main",
+            "event_cluster_id",
+            unique=True,
+            postgresql_where=text("is_main"),
+            sqlite_where=text("is_main"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     event_cluster_id: Mapped[str] = mapped_column(
         ForeignKey("event_clusters.id"), nullable=False, index=True
     )
-    raw_article_id: Mapped[str] = mapped_column(ForeignKey("raw_articles.id"), nullable=False)
+    raw_article_id: Mapped[str] = mapped_column(
+        ForeignKey("raw_articles.id"), nullable=False, index=True
+    )
     similarity_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     is_main: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     source_priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
