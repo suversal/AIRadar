@@ -65,6 +65,29 @@ class ScoringPromptTests(unittest.TestCase):
         self.assertIn("多模态", prompt)
         self.assertIn("strict JSON", prompt)
 
+    def test_scoring_system_prompt_enforces_reason_and_summary_quality(self):
+        # 用户规格（2026-07-11）：推荐理由与核心摘要必须有字数区间、结构
+        # 要求、禁语清单和"不得编造"约束——之前的提示词对这两个字段
+        # 没有任何要求，产出普遍是套话
+        from app.services.ai_service import scoring_system_prompt
+
+        prompt = scoring_system_prompt()
+
+        # reason_zh：字数区间 + 禁止套话 + 不复述摘要
+        self.assertIn("60", prompt)
+        self.assertIn("100", prompt)
+        self.assertIn("值得关注", prompt)  # 作为被点名禁止的套话出现
+        self.assertIn("可能产生深远影响", prompt)
+        self.assertIn("对开发者有价值", prompt)
+        # summary_zh：字数区间 + 组织结构 + 事实边界
+        self.assertIn("180", prompt)
+        self.assertIn("260", prompt)
+        self.assertIn("核心事件", prompt)
+        self.assertIn("关键细节", prompt)
+        self.assertIn("限制", prompt)
+        # 共同底线：不得补写原文没有的内容
+        self.assertTrue("编造" in prompt or "补写" in prompt)
+
     def test_deepseek_scoring_uses_shared_system_prompt(self):
         from app.services.ai_service import scoring_system_prompt
 

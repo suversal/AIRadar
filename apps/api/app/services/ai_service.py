@@ -124,8 +124,8 @@ def _scoring_schema_hint() -> dict[str, Any]:
         "tags": ["Agent"],
         "title_zh": "中文标题",
         "one_line_summary": "一句话摘要",
-        "summary_zh": "核心摘要",
-        "reason_zh": "推荐理由",
+        "summary_zh": "按核心事件→关键细节→结果→限制组织的180-260字事实摘要",
+        "reason_zh": "指出具体变化、影响对象与现实影响的60-100字推荐理由",
         "action_zh": "下一步动作",
     }
 
@@ -172,7 +172,17 @@ def scoring_system_prompt() -> str:
         f"{json.dumps(schema_hint, ensure_ascii=False)}. "
         f"category MUST be exactly one of: {', '.join(SCORING_CATEGORIES)}. "
         "tags: up to 5 short Chinese or product-name tags; prefer this vocabulary "
-        f"when applicable: {', '.join(SUGGESTED_TAGS)}; add company/model names as needed."
+        f"when applicable: {', '.join(SUGGESTED_TAGS)}; add company/model names as needed. "
+        "reason_zh（推荐理由，60-100字）：回答“这件事为什么值得被读者关注”——"
+        "必须指出具体变化、影响对象和现实影响，"
+        "优先使用文章中的数字、能力变化、行业位置或风险；"
+        "禁止“值得关注”“可能产生深远影响”“对开发者有价值”这类空泛套话；"
+        "不得重复摘要内容，不介绍文章写了什么。"
+        "summary_zh（核心摘要，180-260字）：回答“谁做了什么、怎么做、结果如何、有什么限制或后续影响”，"
+        "按“核心事件→关键细节→结果/结论→限制或背景”组织；"
+        "保留关键名称、产品、时间、数字、结论和限制条件；"
+        "只概括原文事实，不评价、不推荐、不推测；"
+        "原文信息不足时宁可缩短，严禁补写或编造原文没有的内容。"
     )
 
 
