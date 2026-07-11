@@ -189,6 +189,37 @@ class RepositoryTests(unittest.TestCase):
         # a2 隐藏被剔除，unknown-id 解析不到被跳过，顺序按传入顺序保留
         self.assertEqual([item["event_id"] for item in items], ["aa3", "aa1"])
 
+    def test_upsert_event_clusters_persists_member_similarity(self):
+        # 聚类证据落库：成员行的 similarity_score 来自聚类时的真实计算值
+        from app.db.models import EventClusterArticleModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles(
+                [
+                    self._article(article_id="a1", title="主文", url_hash="u1"),
+                    self._article(article_id="b1", title="同事件成员", url_hash="u2"),
+                ]
+            )
+            cluster = self._cluster("e-sim", main_article_id="a1")
+            cluster.article_ids = ["a1", "b1"]
+            cluster.article_similarities = {"a1": 1.0, "b1": 0.93}
+            repository.upsert_event_clusters([cluster])
+            session.commit()
+
+            scores = {
+                m.raw_article_id: m.similarity_score
+                for m in session.scalars(
+                    select(EventClusterArticleModel).where(
+                        EventClusterArticleModel.event_cluster_id == "e-sim"
+                    )
+                )
+            }
+
+        self.assertEqual(scores, {"a1": 1.0, "b1": 0.93})
+
     def test_event_items_report_real_source_count(self):
         # payload 的 source_count 必须来自事件的真实去重来源数，
         # 不能固定为 1（回归：DB 里 6 来源的事件前端显示 1）

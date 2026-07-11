@@ -51,6 +51,27 @@ class ClusteringTests(unittest.TestCase):
         self.assertEqual(len(clusters), 2)
         self.assertEqual(clusters[0].source_count, 2)
 
+    def test_cluster_articles_records_member_similarities(self):
+        # 聚类时算出的相似度是判定"这两篇是同一事件"的证据，必须随
+        # cluster 输出以便落库——否则无法事后解释误合并或阈值边界
+        articles = [
+            raw_article("a1", "openai_blog", "authority", "T1", "OpenAI releases agent model", 8),
+            raw_article("a2", "hn", "signal", "T2", "OpenAI agent model discussion", 9),
+        ]
+        embeddings = {
+            "a1": [1.0, 0.0, 0.0],
+            "a2": [0.97, 0.03, 0.0],
+        }
+
+        clusters = cluster_articles(articles, embeddings, threshold=0.85)
+
+        self.assertEqual(len(clusters), 1)
+        similarities = clusters[0].article_similarities
+        self.assertAlmostEqual(similarities["a1"], 1.0)
+        self.assertAlmostEqual(
+            similarities["a2"], cosine_similarity([1.0, 0.0, 0.0], [0.97, 0.03, 0.0])
+        )
+
     def test_cluster_ids_are_stable_across_runs_and_orderings(self):
         articles = [
             raw_article("a1", "openai_blog", "authority", "T1", "OpenAI releases agent model", 8),

@@ -75,24 +75,30 @@ def cluster_articles(
     final_scores = final_scores or {}
     buckets: list[list[RawArticle]] = []
     bucket_vectors: list[list[float]] = []
+    bucket_similarities: list[dict[str, float]] = []
 
     for article in sorted(articles, key=lambda item: item.published_at):
         vector = embeddings.get(article.id)
         if vector is None:
             continue
         matched_index = None
+        matched_score = 0.0
         for index, bucket_vector in enumerate(bucket_vectors):
-            if cosine_similarity(vector, bucket_vector) >= threshold:
+            score = cosine_similarity(vector, bucket_vector)
+            if score >= threshold:
                 matched_index = index
+                matched_score = score
                 break
         if matched_index is None:
             buckets.append([article])
             bucket_vectors.append(vector)
+            bucket_similarities.append({article.id: 1.0})
         else:
             buckets[matched_index].append(article)
+            bucket_similarities[matched_index][article.id] = matched_score
 
     clusters: list[EventCluster] = []
-    for bucket in buckets:
+    for bucket, similarities in zip(buckets, bucket_similarities):
         main = choose_main_article(bucket, sources=sources, final_scores=final_scores)
         score = max(final_scores.get(article.id, 0.0) for article in bucket)
         first_seen = min(article.published_at for article in bucket)
@@ -110,6 +116,7 @@ def cluster_articles(
                 source_count=len({article.source_id for article in bucket}),
                 first_seen_at=first_seen,
                 last_seen_at=last_seen,
+                article_similarities=similarities,
             )
         )
     return clusters

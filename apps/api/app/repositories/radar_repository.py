@@ -459,6 +459,7 @@ class RadarRepository:
                     EventClusterArticleModel(
                         event_cluster_id=target_id,
                         raw_article_id=article_id,
+                        similarity_score=cluster.article_similarities.get(article_id, 0.0),
                         is_main=False,
                         source_priority=next_priority,
                     )

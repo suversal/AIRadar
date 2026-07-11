@@ -110,6 +110,9 @@ class EventCluster:
     first_seen_at: datetime
     last_seen_at: datetime
     status: str = "published"
+    # clustering evidence: per member article, the cosine similarity that
+    # justified putting it in this cluster (the seed/main article is 1.0)
+    article_similarities: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
