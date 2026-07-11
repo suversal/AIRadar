@@ -15,7 +15,7 @@ from app.api.public import (
     build_events_payload,
     build_events_payload_from_items,
     build_latest_payload,
-    build_latest_payload_from_repository,
+    build_latest_selected_payload_from_repository,
     build_period_payload,
 )
 from app.core.config import load_env_file
@@ -148,10 +148,20 @@ def create_app(
     refresh_jobs_lock = threading.Lock()
 
     def is_refresh_running() -> bool:
+        # in-memory jobs catch async triggers from this process; the DB
+        # running row is the cross-process truth (sync endpoint, other
+        # workers, a refresh surviving a code reload)
         with refresh_jobs_lock:
-            return any(job.get("status") == "running" for job in refresh_jobs.values())
+            if any(job.get("status") == "running" for job in refresh_jobs.values()):
+                return True
+        database_url = os.getenv("DATABASE_URL")
+        if not database_url:
+            return False
+        from app.pipeline.persistence import get_active_pipeline_run_in_database
 
-    def trigger_refresh_job(resolved_limit: int, resolved_top_n: int) -> dict[str, Any]:
+        return get_active_pipeline_run_in_database(database_url) is not None
+
+    def trigger_refresh_job(resolved_limit: int) -> dict[str, Any]:
         job_id = uuid.uuid4().hex
         with refresh_jobs_lock:
             refresh_jobs[job_id] = {
@@ -161,20 +171,31 @@ def create_app(
                 "started_at": _utc_now_iso(),
                 "finished_at": None,
                 "limit": resolved_limit,
-                "top_n": resolved_top_n,
                 "result": None,
                 "error": None,
             }
 
         def worker() -> None:
+            from app.services.refresh_service import RefreshAlreadyRunning
+
             try:
-                result = run_refresh(resolved_limit, resolved_top_n)
+                result = run_refresh(resolved_limit)
                 with refresh_jobs_lock:
                     refresh_jobs[job_id].update(
                         {
                             "status": "succeeded",
                             "finished_at": _utc_now_iso(),
                             "result": result,
+                        }
+                    )
+            except RefreshAlreadyRunning as exc:
+                # another run is in flight - this trigger is redundant, not broken
+                with refresh_jobs_lock:
+                    refresh_jobs[job_id].update(
+                        {
+                            "status": "skipped",
+                            "finished_at": _utc_now_iso(),
+                            "error": str(exc),
                         }
                     )
             except Exception as exc:  # pragma: no cover - exercised through integration
@@ -198,13 +219,13 @@ def create_app(
         while True:
             await asyncio.sleep(SCHEDULER_POLL_SECONDS)
             try:
-                resolved_limit, resolved_top_n = resolve_refresh_params(None, None)
+                resolved_limit = resolve_refresh_limit(None)
                 with open_database_report_repository(database_url) as repository:
                     run_scheduler_tick(
                         repository,
                         now=datetime.now(timezone.utc),
                         is_refresh_running=is_refresh_running,
-                        trigger_refresh=lambda: trigger_refresh_job(resolved_limit, resolved_top_n),
+                        trigger_refresh=lambda: trigger_refresh_job(resolved_limit),
                     )
             except Exception:  # pragma: no cover - defensive: scheduler must never die
                 continue
@@ -249,34 +270,24 @@ def create_app(
             return open_database_report_repository(database_url)
         return None
 
-    def resolve_refresh_params(limit: Optional[int], top_n: Optional[int]) -> tuple[int, int]:
-        return (
-            _resolve_refresh_int(
-                name="limit",
-                value=limit,
-                default=_env_int("DAILY_CANDIDATE_LIMIT", 100),
-                minimum=1,
-                maximum=200,
-            ),
-            _resolve_refresh_int(
-                name="top_n",
-                value=top_n,
-                default=_env_int("DAILY_SELECTED_LIMIT", 12),
-                minimum=1,
-                maximum=50,
-            ),
+    def resolve_refresh_limit(limit: Optional[int]) -> int:
+        return _resolve_refresh_int(
+            name="limit",
+            value=limit,
+            default=_env_int("DAILY_CANDIDATE_LIMIT", 100),
+            minimum=1,
+            maximum=200,
         )
 
-    def run_refresh(resolved_limit: int, resolved_top_n: int) -> dict[str, Any]:
+    def run_refresh(resolved_limit: int) -> dict[str, Any]:
         if refresh_runner is not None:
-            return refresh_runner(limit=resolved_limit, top_n=resolved_top_n)
+            return refresh_runner(limit=resolved_limit)
         from app.services.refresh_service import refresh_latest_report
 
         return refresh_latest_report(
             data_dir=data_dir,
             database_url=os.getenv("DATABASE_URL"),
             limit=resolved_limit,
-            top_n=resolved_top_n,
         )
 
     @app.get("/health")
@@ -284,11 +295,20 @@ def create_app(
         return {"status": "ok"}
 
     @app.get("/api/public/latest")
-    def latest() -> dict:
+    def latest(limit: int = 50, offset: int = 0) -> dict:
+        if limit < 1 or limit > 200:
+            raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
+        if offset < 0:
+            raise HTTPException(status_code=400, detail="offset must be non-negative")
         repository_context = report_repository_context()
         if repository_context is not None:
             with repository_context as repository:
-                return build_latest_payload_from_repository(repository)
+                return build_latest_selected_payload_from_repository(
+                    repository,
+                    end_date=date.today(),
+                    limit=limit,
+                    offset=offset,
+                )
         return build_latest_payload(load_latest_daily_json(data_dir))
 
     @app.get("/api/public/daily/{report_date}")
@@ -605,6 +625,7 @@ def create_app(
         q: Optional[str] = None,
         title: Optional[str] = None,
         category: Optional[str] = None,
+        source_id: Optional[str] = None,
         limit: int = 20,
         offset: int = 0,
     ) -> dict:
@@ -624,6 +645,7 @@ def create_app(
             )
         title_query = (title or q or "").strip()
         selected_category = (category or "").strip()
+        selected_source_id = (source_id or "").strip()
         if selected_category:
             items = [
                 item
@@ -640,6 +662,20 @@ def create_app(
                     for needle in title_needles
                 )
             ]
+        if selected_source_id:
+            items = [
+                item
+                for item in items
+                if str((item.get("main_source") or {}).get("id") or "")
+                == selected_source_id
+            ]
+        items.sort(
+            key=lambda item: (
+                str(item.get("crawled_at") or ""),
+                str(item.get("published_at") or ""),
+            ),
+            reverse=True,
+        )
         return {
             "items": items[offset : offset + limit],
             "total": len(items),
@@ -676,25 +712,29 @@ def create_app(
         return {"status": "ok", "updated": sorted(fields)}
 
     @app.post("/api/admin/refresh-latest", dependencies=[admin_guard])
-    def refresh_latest(limit: Optional[int] = None, top_n: Optional[int] = None) -> dict:
+    def refresh_latest(limit: Optional[int] = None) -> dict:
         try:
-            resolved_limit, resolved_top_n = resolve_refresh_params(limit, top_n)
+            resolved_limit = resolve_refresh_limit(limit)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+        from app.services.refresh_service import RefreshAlreadyRunning
+
         try:
-            return run_refresh(resolved_limit, resolved_top_n)
+            return run_refresh(resolved_limit)
+        except RefreshAlreadyRunning as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @app.post("/api/admin/refresh-latest-async", dependencies=[admin_guard])
-    def refresh_latest_async(limit: Optional[int] = None, top_n: Optional[int] = None) -> dict:
+    def refresh_latest_async(limit: Optional[int] = None) -> dict:
         try:
-            resolved_limit, resolved_top_n = resolve_refresh_params(limit, top_n)
+            resolved_limit = resolve_refresh_limit(limit)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        return trigger_refresh_job(resolved_limit, resolved_top_n)
+        return trigger_refresh_job(resolved_limit)
 
     @app.get("/api/admin/refresh-jobs/{job_id}", dependencies=[admin_guard])
     def refresh_job(job_id: str) -> dict:

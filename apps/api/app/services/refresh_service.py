@@ -44,7 +44,17 @@ def _raw_items_by_source(raw_articles: list[RawArticle]) -> dict[str, list[dict[
 def _load_or_seed_sources(sources_path: Path) -> list[Source]:
     if not sources_path.exists():
         save_sources(sources_path, default_sources())
-    return load_sources(sources_path)
+    sources = load_sources(sources_path)
+    existing_ids = {source.id for source in sources}
+    missing = [
+        source
+        for source in default_sources()
+        if source.id == "aihot_feed" and source.id not in existing_ids
+    ]
+    if missing:
+        sources.extend(missing)
+        save_sources(sources_path, sources)
+    return sources
 
 
 def _load_sources(database_url: str | None, sources_path: Path) -> list[Source]:
@@ -59,9 +69,18 @@ def _load_sources(database_url: str | None, sources_path: Path) -> list[Source]:
             repository = RadarRepository(session)
             sources = repository.get_all_sources()
             if not sources:
-                sources = default_sources()
-                repository.upsert_sources(sources)
+                missing = default_sources()
+            else:
+                existing_ids = {source.id for source in sources}
+                missing = [
+                    source
+                    for source in default_sources()
+                    if source.id == "aihot_feed" and source.id not in existing_ids
+                ]
+            if missing:
+                repository.upsert_sources(missing)
                 session.commit()
+                sources.extend(missing)
             return sources
         finally:
             session.close()
@@ -109,29 +128,48 @@ def should_trigger_refresh(config: dict[str, Any], now: datetime) -> bool:
     return now - last >= timedelta(minutes=interval_minutes)
 
 
+class RefreshAlreadyRunning(RuntimeError):
+    """Another refresh's 'running' row is fresh - refuse to start a second
+    one (manual trigger and the scheduler once ran the same batch 24s
+    apart, doubling AI spend and racing persists)."""
+
+    def __init__(self, active: dict[str, Any]):
+        self.active = active
+        super().__init__(
+            f"refresh already running (run #{active.get('id')}, "
+            f"phase={active.get('phase')}, started_at={active.get('started_at')})"
+        )
+
+
 def refresh_latest_report(
     *,
     data_dir: Path,
     database_url: str | None,
     limit: int = 100,
-    top_n: int = 12,
     report_date: date | None = None,
 ) -> dict[str, Any]:
     resolved_date = report_date or date.today()
     generated_at = datetime.now(timezone.utc)
     pipeline_run_id: int | None = None
     if database_url:
-        from app.pipeline.persistence import start_pipeline_run_in_database
+        from app.pipeline.persistence import (
+            get_active_pipeline_run_in_database,
+            start_pipeline_run_in_database,
+        )
 
+        active = get_active_pipeline_run_in_database(database_url)
+        if active is not None:
+            raise RefreshAlreadyRunning(active)
         # the 'running' row is what lets anyone ask the DB "is a refresh
         # in flight right now, and since when"
-        pipeline_run_id = start_pipeline_run_in_database(database_url, started_at=generated_at)
+        pipeline_run_id = start_pipeline_run_in_database(
+            database_url, started_at=generated_at, phase="crawling"
+        )
     try:
         return _run_refresh(
             data_dir=data_dir,
             database_url=database_url,
             limit=limit,
-            top_n=top_n,
             resolved_date=resolved_date,
             generated_at=generated_at,
             pipeline_run_id=pipeline_run_id,
@@ -156,7 +194,6 @@ def _run_refresh(
     data_dir: Path,
     database_url: str | None,
     limit: int,
-    top_n: int,
     resolved_date: date,
     generated_at: datetime,
     pipeline_run_id: int | None = None,
@@ -166,6 +203,13 @@ def _run_refresh(
 
     raw_articles, crawl_report = crawl_sources(sources, limit=limit)
     _persist_source_health(database_url, crawl_report.get("per_source", {}))
+    _report_progress(
+        database_url,
+        pipeline_run_id,
+        phase="scoring",
+        raw_count=len(raw_articles),
+        source_report=crawl_report.get("per_source", {}),
+    )
     crawl_dir = data_dir / "crawl_checks"
     raw_path = crawl_dir / f"{resolved_date.isoformat()}-refresh-raw.json"
     crawl_report_path = crawl_dir / f"{resolved_date.isoformat()}-refresh-crawl-report.json"
@@ -188,7 +232,6 @@ def _run_refresh(
         now=generated_at,
         report_date=resolved_date,
         candidate_limit=limit,
-        top_n=top_n,
         ai_concurrency=_env_int("AI_PIPELINE_CONCURRENCY", 1),
         cached_results=cached_results,
         # 0.85 was too low for bge-small-zh-v1.5: real-data verification
@@ -214,6 +257,7 @@ def _run_refresh(
     )
     write_json(reports_dir / f"{resolved_date.isoformat()}.json", result.daily_report.json_data)
 
+    _report_progress(database_url, pipeline_run_id, phase="persisting")
     persistence_summary = None
     if database_url:
         persistence_summary = persist_pipeline_result_to_database(
@@ -225,6 +269,7 @@ def _run_refresh(
             started_at=generated_at,
             pipeline_run_id=pipeline_run_id,
         )
+        _report_progress(database_url, pipeline_run_id, phase="reports")
         _regenerate_period_reports(database_url, resolved_date, ai_provider)
 
     return {
@@ -233,7 +278,6 @@ def _run_refresh(
         "generated_at": generated_at.isoformat(),
         "ai_provider": ai_provider.__class__.__name__,
         "limit": limit,
-        "top_n": top_n,
         "ai_concurrency": _env_int("AI_PIPELINE_CONCURRENCY", 1),
         "crawled_count": len(raw_articles),
         "scored_count": len(result.processed_articles),
@@ -246,6 +290,29 @@ def _run_refresh(
         "raw_path": str(raw_path),
         "crawl_report_path": str(crawl_report_path),
     }
+
+
+def _report_progress(
+    database_url: str | None,
+    pipeline_run_id: int | None,
+    *,
+    phase: str,
+    raw_count: int | None = None,
+    source_report: dict[str, Any] | None = None,
+) -> None:
+    """Best-effort heartbeat onto the running row so the admin dashboard can
+    show which stage the refresh is in and how each source actually did."""
+    if not database_url or pipeline_run_id is None:
+        return
+    from app.pipeline.persistence import update_pipeline_run_progress_in_database
+
+    update_pipeline_run_progress_in_database(
+        database_url,
+        pipeline_run_id,
+        phase=phase,
+        raw_count=raw_count,
+        source_report=source_report,
+    )
 
 
 def _regenerate_period_reports(database_url: str, anchor_date: date, ai_provider: Any) -> None:

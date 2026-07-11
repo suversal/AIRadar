@@ -191,6 +191,8 @@ class ProcessedArticleModel(Base):
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     status: Mapped[str] = mapped_column(String, nullable=False, default="processed")
     rejection_reason: Mapped[Optional[str]] = mapped_column(String)
+    selection_origin: Mapped[str] = mapped_column(String, nullable=False, default="score")
+    selection_reason: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -346,6 +348,11 @@ class PipelineRunModel(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String, nullable=False, default="succeeded")
+    # which stage a running refresh is in (crawling/scoring/persisting/reports)
+    phase: Mapped[Optional[str]] = mapped_column(String)
+    # per-source crawl outcome for this run: {source_id: {status, article_count,
+    # fetched_count, duration_ms, error}}
+    source_report: Mapped[Optional[dict]] = mapped_column(JSON)
     raw_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     processed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     cluster_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

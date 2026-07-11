@@ -337,6 +337,74 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(done.raw_count, 3)
         self.assertEqual(total, 1)
 
+    def test_active_run_guard_and_stale_sweep(self):
+        # DB 级防重入：running 行是跨进程的"有任务在跑"事实源；
+        # 进程死掉留下的超龄 running 行必须能被清扫，否则护栏永久卡死
+        from datetime import timedelta
+
+        from app.db.models import PipelineRunModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            run_id = repository.start_pipeline_run()
+            session.commit()
+
+            active = repository.get_active_pipeline_run()
+            self.assertIsNotNone(active)
+            self.assertEqual(active["id"], run_id)
+
+            # 回拨 started_at 模拟进程死亡留下的孤儿行
+            session.get(PipelineRunModel, run_id).started_at = datetime.now(
+                timezone.utc
+            ) - timedelta(hours=4)
+            session.commit()
+
+            swept = repository.sweep_stale_pipeline_runs(max_age_minutes=180)
+            session.commit()
+
+            self.assertEqual(swept, 1)
+            self.assertIsNone(repository.get_active_pipeline_run())
+            stale = session.get(PipelineRunModel, run_id)
+
+        self.assertEqual(stale.status, "failed")
+        self.assertIn("stale", (stale.error or "").lower())
+        self.assertIsNotNone(stale.finished_at)
+
+    def test_update_pipeline_run_progress_records_phase_and_source_report(self):
+        # 监控需求：运行中要能看到当前阶段和每个信源的实际抓取结果
+        from app.repositories.radar_repository import RadarRepository
+
+        report = {
+            "openai_blog": {
+                "status": "ok",
+                "article_count": 5,
+                "fetched_count": 8,
+                "duration_ms": 1200.5,
+                "error": None,
+            },
+            "reddit_ml": {
+                "status": "skipped",
+                "article_count": 0,
+                "duration_ms": 30.1,
+                "error": "HTTP 403",
+            },
+        }
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            run_id = repository.start_pipeline_run()
+            repository.update_pipeline_run_progress(
+                run_id, phase="scoring", raw_count=42, source_report=report
+            )
+            session.commit()
+
+            runs = repository.get_recent_pipeline_runs(limit=1)
+
+        self.assertEqual(runs[0]["phase"], "scoring")
+        self.assertEqual(runs[0]["raw_count"], 42)
+        self.assertEqual(runs[0]["source_report"]["reddit_ml"]["error"], "HTTP 403")
+
     def test_upserts_stamp_pipeline_run_id_lineage(self):
         # 派生数据必须能回答"由哪次运行生成"
         from app.db.models import (

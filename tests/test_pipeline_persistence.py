@@ -284,6 +284,39 @@ class PipelinePersistenceTests(unittest.TestCase):
         self.assertIn("crawl exploded", run.error)
         self.assertIsNotNone(run.finished_at)
 
+    def test_refresh_refuses_to_start_when_another_run_is_active(self):
+        # DB 级防重入：手动触发与调度器曾并发执行（实测 24 秒双跑）；
+        # 存在新鲜 running 行时必须拒绝启动，且不再插入新 run 行
+        import tempfile
+        from unittest.mock import patch
+
+        from sqlalchemy import create_engine, func, select
+        from sqlalchemy.orm import Session
+
+        from app.db.models import Base, PipelineRunModel
+        from app.repositories.radar_repository import RadarRepository
+        from app.services import refresh_service
+
+        with tempfile.TemporaryDirectory() as tmp:
+            database_url = f"sqlite+pysqlite:///{Path(tmp) / 'radar.sqlite'}"
+            engine = create_engine(database_url, future=True)
+            Base.metadata.create_all(engine)
+            with Session(engine) as session:
+                RadarRepository(session).start_pipeline_run()
+                session.commit()
+
+            with patch.object(refresh_service, "crawl_sources") as crawl:
+                with self.assertRaises(refresh_service.RefreshAlreadyRunning):
+                    refresh_service.refresh_latest_report(
+                        data_dir=Path(tmp), database_url=database_url
+                    )
+                crawl.assert_not_called()
+
+            with Session(engine) as session:
+                total = session.scalar(select(func.count()).select_from(PipelineRunModel))
+
+        self.assertEqual(total, 1)
+
     def test_persist_finishes_started_run_instead_of_inserting(self):
         # refresh 在开始时已建 running 行并把 run_id 传给 persist；
         # persist 结束时应更新那一行为 succeeded，并把 run_id 盖到派生写入上

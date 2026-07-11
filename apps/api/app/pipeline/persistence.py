@@ -222,7 +222,7 @@ def persist_pipeline_result_to_database(
 
 
 def start_pipeline_run_in_database(
-    database_url: str, *, started_at: datetime | None = None
+    database_url: str, *, started_at: datetime | None = None, phase: str | None = None
 ) -> int | None:
     """Create the 'running' row the moment a refresh begins. Best-effort:
     a DB hiccup must not stop the pipeline, it only costs lineage."""
@@ -232,9 +232,53 @@ def start_pipeline_run_in_database(
 
         session_factory = build_session_factory(database_url)
         with session_scope(session_factory) as session:
-            return RadarRepository(session).start_pipeline_run(started_at=started_at)
+            return RadarRepository(session).start_pipeline_run(
+                started_at=started_at, phase=phase
+            )
     except Exception:  # pragma: no cover - best-effort bookkeeping
         return None
+
+
+def get_active_pipeline_run_in_database(
+    database_url: str, *, stale_after_minutes: int = 180
+) -> dict[str, Any] | None:
+    """Cross-process concurrency guard: sweep orphaned running rows, then
+    return the freshest live one (or None). Best-effort: a DB hiccup means
+    "unknown", reported as None so the pipeline itself is never blocked by
+    guard bookkeeping."""
+    try:
+        from app.db.session import build_session_factory, session_scope
+        from app.repositories.radar_repository import RadarRepository
+
+        session_factory = build_session_factory(database_url)
+        with session_scope(session_factory) as session:
+            repository = RadarRepository(session)
+            repository.sweep_stale_pipeline_runs(max_age_minutes=stale_after_minutes)
+            return repository.get_active_pipeline_run()
+    except Exception:  # pragma: no cover - best-effort bookkeeping
+        return None
+
+
+def update_pipeline_run_progress_in_database(
+    database_url: str,
+    run_id: int,
+    *,
+    phase: str | None = None,
+    raw_count: int | None = None,
+    source_report: dict[str, Any] | None = None,
+) -> None:
+    """Best-effort progress heartbeat on the running row."""
+    try:
+        from app.db.session import build_session_factory, session_scope
+        from app.repositories.radar_repository import RadarRepository
+
+        session_factory = build_session_factory(database_url)
+        with session_scope(session_factory) as session:
+            RadarRepository(session).update_pipeline_run_progress(
+                run_id, phase=phase, raw_count=raw_count, source_report=source_report
+            )
+    except Exception:  # pragma: no cover - best-effort bookkeeping
+        pass
 
 
 def record_failed_pipeline_run(

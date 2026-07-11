@@ -18,16 +18,38 @@ type SourceHealth = {
   error_count: number;
 };
 
+type SourceCrawlResult = {
+  status: string;
+  article_count: number;
+  fetched_count?: number;
+  duration_ms: number;
+  error: string | null;
+};
+
 type PipelineRun = {
   id: number;
   started_at: string | null;
+  finished_at: string | null;
   status: string;
   raw_count: number;
   processed_count: number;
   cluster_count: number;
   skipped_reasons: Record<string, number>;
   error: string | null;
+  phase: string | null;
+  source_report: Record<string, SourceCrawlResult>;
 };
+
+function formatDuration(start?: string | null, end?: string | null, status?: string) {
+  if (!start) return "--";
+  const started = new Date(start).getTime();
+  const finished = end ? new Date(end).getTime() : status === "running" ? Date.now() : NaN;
+  if (!Number.isFinite(started) || !Number.isFinite(finished)) return "--";
+  const totalSeconds = Math.max(0, Math.floor((finished - started) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}分${String(seconds).padStart(2, "0")}秒`;
+}
 
 type Overview = {
   runs: PipelineRun[];
@@ -87,6 +109,23 @@ const STATUS_LABELS: Record<string, string> = {
   failed: "失败",
   running: "运行中",
 };
+
+const PHASE_LABELS: Record<string, string> = {
+  crawling: "抓取中",
+  scoring: "AI 处理中",
+  persisting: "落库中",
+  reports: "生成周期报告",
+};
+
+function sortedSourceReport(report: Record<string, SourceCrawlResult>) {
+  // 失败的信源排最前，其余按文章数降序——一眼看到问题源
+  return Object.entries(report).sort(([, a], [, b]) => {
+    if ((a.status !== "ok") !== (b.status !== "ok")) {
+      return a.status !== "ok" ? -1 : 1;
+    }
+    return (b.article_count ?? 0) - (a.article_count ?? 0);
+  });
+}
 
 function skippedReasonText(reasons: Record<string, number>) {
   const entries = Object.entries(reasons);
@@ -151,7 +190,9 @@ export default async function AdminDashboardPage() {
                 <thead>
                   <tr className="border-b border-line text-xs text-ink-dim">
                     <th className="py-2 pr-4">#</th>
-                    <th className="py-2 pr-4">时间</th>
+                    <th className="py-2 pr-4">开始</th>
+                    <th className="py-2 pr-4">结束</th>
+                    <th className="py-2 pr-4">耗时</th>
                     <th className="py-2 pr-4">状态</th>
                     <th className="py-2 pr-4">抓取文章</th>
                     <th className="py-2 pr-4">AI 处理</th>
@@ -164,26 +205,99 @@ export default async function AdminDashboardPage() {
                     <tr key={run.id} className="text-ink-mid">
                       <td className="readout py-2 pr-4">{run.id}</td>
                       <td className="readout py-2 pr-4">{formatTime(run.started_at)}</td>
+                      <td className="readout py-2 pr-4">{formatTime(run.finished_at)}</td>
+                      <td className="readout whitespace-nowrap py-2 pr-4">
+                        {formatDuration(run.started_at, run.finished_at, run.status)}
+                      </td>
                       <td className="py-2 pr-4">
                         <span
                           className={
-                            run.status === "succeeded" ? "text-green-400" : "text-red-300"
+                            run.status === "succeeded"
+                              ? "text-green-400"
+                              : run.status === "running"
+                                ? "text-yellow-300"
+                                : "text-red-300"
                           }
                         >
                           {STATUS_LABELS[run.status] ?? run.status}
+                          {run.status === "running" && run.phase
+                            ? ` · ${PHASE_LABELS[run.phase] ?? run.phase}`
+                            : null}
                         </span>
                       </td>
                       <td className="readout py-2 pr-4">{run.raw_count}</td>
                       <td className="readout py-2 pr-4">{run.processed_count}</td>
                       <td className="readout py-2 pr-4">{run.cluster_count}</td>
                       <td className="max-w-md py-2 text-xs leading-5 text-ink-dim">
-                        {skippedReasonText(run.skipped_reasons)}
+                        <div>{skippedReasonText(run.skipped_reasons)}</div>
+                        {Object.keys(run.source_report ?? {}).length > 0 ? (
+                          <details className="mt-1 max-w-xl">
+                            <summary className="cursor-pointer text-sky-300">
+                              信源明细（
+                              {
+                                Object.values(run.source_report).filter(
+                                  (item) => item.status === "ok",
+                                ).length
+                              }
+                              /{Object.keys(run.source_report).length} 成功）
+                            </summary>
+                            <div className="mt-2 max-h-72 overflow-auto rounded bg-canvas p-2">
+                              <table className="w-full text-[11px] leading-4">
+                                <thead>
+                                  <tr className="text-ink-dim">
+                                    <th className="py-1 pr-2 text-left">信源</th>
+                                    <th className="py-1 pr-2 text-left">状态</th>
+                                    <th className="py-1 pr-2 text-right">入选/抓取</th>
+                                    <th className="py-1 pr-2 text-right">耗时</th>
+                                    <th className="py-1 text-left">错误</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {sortedSourceReport(run.source_report).map(([sourceId, item]) => (
+                                    <tr key={sourceId} className="border-t border-line/50">
+                                      <td className="py-1 pr-2">{sourceId}</td>
+                                      <td
+                                        className={
+                                          item.status === "ok"
+                                            ? "py-1 pr-2 text-green-400"
+                                            : "py-1 pr-2 text-red-300"
+                                        }
+                                      >
+                                        {item.status === "ok" ? "成功" : "失败"}
+                                      </td>
+                                      <td className="readout py-1 pr-2 text-right">
+                                        {item.article_count}
+                                        {typeof item.fetched_count === "number"
+                                          ? `/${item.fetched_count}`
+                                          : ""}
+                                      </td>
+                                      <td className="readout py-1 pr-2 text-right">
+                                        {Math.round(item.duration_ms)}ms
+                                      </td>
+                                      <td className="max-w-56 break-all py-1 text-red-200">
+                                        {item.error ?? ""}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </details>
+                        ) : null}
+                        {run.error ? (
+                          <details className="mt-1 max-w-xl">
+                            <summary className="cursor-pointer text-red-300">查看完整错误</summary>
+                            <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-all rounded bg-canvas p-3 text-[11px] leading-4 text-red-200">
+                              {run.error}
+                            </pre>
+                          </details>
+                        ) : null}
                       </td>
                     </tr>
                   ))}
                   {overview.runs.length === 0 ? (
                     <tr>
-                      <td className="py-4 text-ink-dim" colSpan={7}>
+                      <td className="py-4 text-ink-dim" colSpan={9}>
                         暂无运行记录，触发一次手动刷新后这里会出现台账。
                       </td>
                     </tr>

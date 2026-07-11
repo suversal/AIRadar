@@ -557,17 +557,73 @@ class RadarRepository:
         self.session.flush()
         return WriteResult(inserted=inserted, updated=updated, redirects=redirects)
 
-    def start_pipeline_run(self, *, started_at: Any = None) -> int:
+    def start_pipeline_run(self, *, started_at: Any = None, phase: Optional[str] = None) -> int:
         """Insert a 'running' row the moment work begins, so the DB can
         answer "is anything running right now / did it hang" instead of
         only learning about runs after they finish. Returns the run id for
         lineage stamping and the final finish_pipeline_run update."""
-        model = PipelineRunModel(status="running")
+        model = PipelineRunModel(status="running", phase=phase)
         if started_at is not None:
             model.started_at = started_at
         self.session.add(model)
         self.session.flush()
         return model.id
+
+    def get_active_pipeline_run(self) -> Optional[dict[str, Any]]:
+        """The freshest 'running' row, if any - the cross-process source of
+        truth for "is a refresh in flight right now"."""
+        model = self.session.scalar(
+            select(PipelineRunModel)
+            .where(PipelineRunModel.status == "running")
+            .order_by(PipelineRunModel.id.desc())
+            .limit(1)
+        )
+        if model is None:
+            return None
+        return {
+            "id": model.id,
+            "started_at": model.started_at.isoformat() if model.started_at else None,
+            "phase": model.phase,
+        }
+
+    def sweep_stale_pipeline_runs(self, *, max_age_minutes: int = 180) -> int:
+        """Close out 'running' rows whose process evidently died (older than
+        max_age_minutes), so the concurrency guard can never dead-lock on an
+        orphan. Honest bookkeeping: marked failed with an explicit reason."""
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)
+        stale_models = self.session.scalars(
+            select(PipelineRunModel).where(PipelineRunModel.status == "running")
+        ).all()
+        swept = 0
+        for model in stale_models:
+            if _ensure_utc(model.started_at) >= cutoff:
+                continue
+            model.status = "failed"
+            model.error = f"stale running row swept after {max_age_minutes}min (process died mid-run?)"
+            model.finished_at = datetime.now(timezone.utc)
+            swept += 1
+        if swept:
+            self.session.flush()
+        return swept
+
+    def update_pipeline_run_progress(
+        self,
+        run_id: int,
+        *,
+        phase: Optional[str] = None,
+        raw_count: Optional[int] = None,
+        source_report: Optional[dict[str, Any]] = None,
+    ) -> None:
+        model = self.session.get(PipelineRunModel, run_id)
+        if model is None:
+            return
+        if phase is not None:
+            model.phase = phase
+        if raw_count is not None:
+            model.raw_count = raw_count
+        if source_report is not None:
+            model.source_report = source_report
+        self.session.flush()
 
     def finish_pipeline_run(
         self,
@@ -792,6 +848,8 @@ class RadarRepository:
                 "cluster_count": model.cluster_count,
                 "skipped_reasons": dict(model.skipped_reasons or {}),
                 "error": model.error,
+                "phase": model.phase,
+                "source_report": dict(model.source_report or {}),
             }
             for model in models
         ]
