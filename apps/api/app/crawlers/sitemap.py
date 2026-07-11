@@ -23,6 +23,11 @@ DEFAULT_PAGE_CACHE_DIR = Path("data") / "page_cache"
 
 _ARTICLE_REGION_RE = re.compile(r"<article\b.*?</article>", re.IGNORECASE | re.DOTALL)
 _MAIN_REGION_RE = re.compile(r"<main\b.*?</main>", re.IGNORECASE | re.DOTALL)
+# <aside> is the HTML5-semantic tag for tangentially-related content (e.g. a
+# "Recent Articles" sidebar widget) - real cases had several such cards each
+# individually exceed REGION_MIN_TEXT_CHARS, outscoring the actual article
+# body and getting picked instead of it. Strip asides before scanning.
+_ASIDE_RE = re.compile(r"<aside\b.*?</aside>", re.IGNORECASE | re.DOTALL)
 # WordPress 常见正文容器（如 qbitai 的 <div class="article">），页面没有
 # 语义化 article/main 标签时的最后回退；贪婪到最后一个 </div>，噪音由
 # 后续段落提取过滤
@@ -94,6 +99,7 @@ def main_content_region(html_text: str) -> str | None:
     volume instead of document order: substantial <article> first, then
     <main>, then WordPress-style content divs (qbitai has no semantic
     tags at all)."""
+    html_text = _ASIDE_RE.sub("", html_text)
     articles = _ARTICLE_REGION_RE.findall(html_text)
     substantial = [a for a in articles if _region_text_length(a) >= REGION_MIN_TEXT_CHARS]
     if substantial:

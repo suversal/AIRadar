@@ -275,6 +275,37 @@ class PageContentTests(unittest.TestCase):
         self.assertTrue(region.startswith("<article"))
         self.assertNotIn("footer junk", region)
 
+    def test_main_content_region_ignores_article_cards_inside_aside_sidebar(self):
+        # 真实案例（Northwestern 新闻页）：真正文没有包在 <article> 里，只在
+        # <main> 的普通 <p> 段落里；反倒是 <aside> 里的"相关文章"卡片各自
+        # 包在 <article class="feature-box"> 里，且拼起来字数比正文还多，
+        # 纯按文本量选 region 会错误地把不相关的推荐卡片当成正文。
+        from app.crawlers.sitemap import main_content_region
+
+        real_body = "The cerebellum-inspired device ignores expected inputs. " * 10
+        page = (
+            "<html><body><div id=\"page\"><main class=\"content\">"
+            "<h1>AI Gets a Cerebellum</h1>"
+            "<article class=\"feature-box\"><p>The Problem: short summary card.</p></article>"
+            f"<section class=\"news-wysiwyg\"><p>{real_body}</p></section>"
+            "</main>"
+            "<aside class=\"recent-news\">"
+            + "".join(
+                f'<article class="feature-box"><h4>Recent article number {i}</h4>'
+                f"<p>Recent article number {i} teaser text repeated for length several times over "
+                f"so this single sidebar card alone exceeds the substantial-region character "
+                f"threshold, same as the real Northwestern page that exposed this bug.</p></article>"
+                for i in range(5)
+            )
+            + "</aside></div></body></html>"
+        )
+
+        region = main_content_region(page)
+
+        self.assertIsNotNone(region)
+        self.assertIn("cerebellum-inspired device", region)
+        self.assertNotIn("Recent article number", region)
+
     def test_main_content_region_falls_back_to_wordpress_article_div(self):
         # qbitai（WordPress 主题）没有 <article>/<main>，正文在 <div class="article">。
         from app.crawlers.sitemap import main_content_region
