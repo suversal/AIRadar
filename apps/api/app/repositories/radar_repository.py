@@ -376,13 +376,14 @@ class RadarRepository:
 
     def find_similar_recent_event(
         self, vector: list[float], *, since: datetime, threshold: float = 0.85
-    ) -> Optional[str]:
+    ) -> Optional[tuple[str, float]]:
         """Cross-day multi-source aggregation: is there an already-published
         event whose main article is close enough to this vector within the
-        sliding window? Similarity is computed in Python (not pgvector's
-        Postgres-only <=> operator) so this stays testable against the
-        SQLite-based test suite; correctness matters far more here than
-        pushing the comparison into SQL."""
+        sliding window? Returns (event_id, similarity) so the caller can
+        persist the score that actually justified the merge. Similarity is
+        computed in Python (not pgvector's Postgres-only <=> operator) so
+        this stays testable against the SQLite-based test suite; correctness
+        matters far more here than pushing the comparison into SQL."""
         candidates = self.session.execute(
             select(
                 EventClusterModel.id,
@@ -402,7 +403,18 @@ class RadarRepository:
             if score >= best_score:
                 best_score = score
                 best_id = event_id
-        return best_id
+        if best_id is None:
+            return None
+        return best_id, best_score
+
+    def _similarity_between_articles(
+        self, left_article_id: str, right_article_id: str
+    ) -> Optional[float]:
+        left = self._get_embedding_vector(left_article_id)
+        right = self._get_embedding_vector(right_article_id)
+        if left is None or right is None:
+            return None
+        return cosine_similarity(left, right)
 
     def _count_distinct_sources(self, event_cluster_id: str) -> int:
         rows = self.session.execute(
@@ -434,11 +446,11 @@ class RadarRepository:
                 main_vector = self._get_embedding_vector(cluster.main_article_id)
                 if main_vector is not None:
                     since = cluster.last_seen_at - timedelta(hours=cluster_window_hours)
-                    matched_id = self.find_similar_recent_event(
+                    match = self.find_similar_recent_event(
                         main_vector, since=since, threshold=similarity_threshold
                     )
-                    if matched_id is not None:
-                        target_id = matched_id
+                    if match is not None:
+                        target_id, _matched_score = match
                         model = self.session.get(EventClusterModel, target_id)
                         redirects[cluster.id] = target_id
 
@@ -465,16 +477,28 @@ class RadarRepository:
             ).all()
             existing_article_ids = {membership.raw_article_id for membership in existing_memberships}
             next_priority = len(existing_memberships)
+            redirected = target_id != cluster.id
             # never delete-and-recreate memberships here: that would reset
             # joined_at for every pre-existing member on every later merge
             for article_id in cluster.article_ids:
                 if article_id in existing_article_ids:
                     continue
+                similarity = cluster.article_similarities.get(article_id, 0.0)
+                if redirected:
+                    # the evidence must describe the event actually joined:
+                    # against the incoming bucket the value is trivially ~1.0,
+                    # but the merge was justified by closeness to the target
+                    # event's main article
+                    recomputed = self._similarity_between_articles(
+                        article_id, model.main_article_id
+                    )
+                    if recomputed is not None:
+                        similarity = recomputed
                 self.session.add(
                     EventClusterArticleModel(
                         event_cluster_id=target_id,
                         raw_article_id=article_id,
-                        similarity_score=cluster.article_similarities.get(article_id, 0.0),
+                        similarity_score=similarity,
                         is_main=False,
                         source_priority=next_priority,
                     )

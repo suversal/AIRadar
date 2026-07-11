@@ -403,6 +403,77 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(by_id, [])
         self.assertNotIn("e-hide", {item["event_id"] for item in listed})
 
+    def test_cross_day_merge_records_similarity_to_target_event(self):
+        # 跨天并入历史事件的成员，落库的相似度必须是"对目标事件主文"的
+        # 真实余弦（触发合并的证据）——不是对自身 bucket 的 1.0
+        from app.db.models import EventClusterArticleModel
+        from app.models.domain import RawArticle
+        from app.repositories.radar_repository import RadarRepository
+        from app.services.clustering_service import cosine_similarity
+
+        old_seen = datetime(2026, 7, 8, 9, tzinfo=timezone.utc)
+        new_seen = datetime(2026, 7, 11, 9, tzinfo=timezone.utc)
+        vec_old = self._vec([1.0, 0.0])
+        vec_new = self._vec([0.97, 0.2])
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source(), self._other_source()])
+            repository.upsert_raw_articles(
+                [
+                    self._article(article_id="old1", title="旧事件主文", url_hash="u-old"),
+                    RawArticle(
+                        id="new1",
+                        source_id="techcrunch",
+                        source_name="TechCrunch",
+                        source_role="signal",
+                        source_tier="T2",
+                        source_url="https://techcrunch.com/new1",
+                        title="今天的新报道",
+                        content="AI model release",
+                        author="TechCrunch",
+                        published_at=new_seen,
+                        language="en",
+                        raw_score={"score": 1},
+                        metadata={"origin": "fixture"},
+                        title_hash="title-new1",
+                        url_hash="u-new",
+                    ),
+                ]
+            )
+            repository.upsert_article_embedding(
+                "old1", embedding_model="m", vector=vec_old, source_hash="h-old"
+            )
+            repository.upsert_article_embedding(
+                "new1", embedding_model="m", vector=vec_new, source_hash="h-new"
+            )
+            existing_cluster = self._cluster("e-old", main_article_id="old1")
+            existing_cluster.first_seen_at = old_seen
+            existing_cluster.last_seen_at = old_seen
+            repository.upsert_event_clusters([existing_cluster])
+            session.commit()
+
+            new_cluster = self._cluster("e-new-bucket", main_article_id="new1")
+            new_cluster.article_ids = ["new1"]
+            new_cluster.article_similarities = {"new1": 1.0}  # 对自身 bucket 恒 1.0
+            new_cluster.final_score = 50.0
+            new_cluster.first_seen_at = new_seen
+            new_cluster.last_seen_at = new_seen
+            repository.upsert_event_clusters(
+                [new_cluster], cluster_window_hours=168, similarity_threshold=0.9
+            )
+            session.commit()
+
+            membership = session.scalar(
+                select(EventClusterArticleModel).where(
+                    EventClusterArticleModel.raw_article_id == "new1"
+                )
+            )
+
+        expected = cosine_similarity(vec_new, vec_old)
+        self.assertLess(expected, 0.999)  # 用例本身保证两个值可区分
+        self.assertAlmostEqual(membership.similarity_score, expected, places=4)
+
     def test_upsert_event_clusters_persists_member_similarity(self):
         # 聚类证据落库：成员行的 similarity_score 来自聚类时的真实计算值
         from app.db.models import EventClusterArticleModel
