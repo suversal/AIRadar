@@ -77,8 +77,6 @@ class RepairLegacyDataTests(unittest.TestCase):
                 )
             ]
         )
-        from dataclasses import replace as dc_replace
-
         from app.models.domain import EventCluster, ProcessedArticle, ScoreDimensions
 
         processed = ProcessedArticle(

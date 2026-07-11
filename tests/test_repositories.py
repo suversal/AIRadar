@@ -274,6 +274,83 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(listed[0]["event_id"], "e-drift")
         self.assertEqual(listed[0]["source_count"], 2)
 
+    def test_pipeline_run_state_machine_running_to_finished(self):
+        # 运行开始即落 running 行（回答"现在有没有任务在跑"），
+        # 结束后更新同一行——不是插入第二行
+        from app.db.models import PipelineRunModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            run_id = repository.start_pipeline_run()
+            session.commit()
+
+            running = session.get(PipelineRunModel, run_id)
+            self.assertEqual(running.status, "running")
+            self.assertIsNone(running.finished_at)
+
+            repository.finish_pipeline_run(
+                run_id,
+                status="succeeded",
+                raw_count=3,
+                processed_count=2,
+                cluster_count=1,
+                skipped_reasons={"below_threshold": 1},
+            )
+            session.commit()
+
+            done = session.get(PipelineRunModel, run_id)
+            total = session.scalar(select(func.count()).select_from(PipelineRunModel))
+
+        self.assertEqual(done.status, "succeeded")
+        self.assertIsNotNone(done.finished_at)
+        self.assertEqual(done.raw_count, 3)
+        self.assertEqual(total, 1)
+
+    def test_upserts_stamp_pipeline_run_id_lineage(self):
+        # 派生数据必须能回答"由哪次运行生成"
+        from app.db.models import (
+            ArticleEmbeddingModel,
+            ArticleTranslationModel,
+            DailyReportModel,
+            ProcessedArticleModel,
+        )
+        from app.repositories.radar_repository import RadarRepository
+
+        article = self._article(article_id="a1", title="主文", url_hash="u1")
+        article.metadata = {
+            "origin": "fixture",
+            "translated_paragraphs": ["翻译段落"],
+            "translation_source_hash": "th",
+            "translation_status": "completed",
+        }
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            run_id = repository.start_pipeline_run()
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([article], pipeline_run_id=run_id)
+            repository.upsert_processed_articles([self._processed("a1")], pipeline_run_id=run_id)
+            repository.upsert_article_embedding(
+                "a1",
+                embedding_model="m",
+                vector=self._vec([1.0]),
+                source_hash="h",
+                pipeline_run_id=run_id,
+            )
+            repository.upsert_daily_report(
+                self._report(date(2026, 7, 1), article_count=1), pipeline_run_id=run_id
+            )
+            session.commit()
+
+            processed = session.scalar(select(ProcessedArticleModel))
+            embedding = session.scalar(select(ArticleEmbeddingModel))
+            translation = session.scalar(select(ArticleTranslationModel))
+            report = session.scalar(select(DailyReportModel))
+
+        for row in (processed, embedding, translation, report):
+            self.assertEqual(row.pipeline_run_id, run_id)
+
     def test_similarity_score_allows_null_for_unknown_evidence(self):
         # 遗留成员行的相似度是"未知"而非真实的 0——列必须可空以区分两者
         from app.db.models import EventClusterArticleModel

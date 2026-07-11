@@ -92,6 +92,8 @@ class DailyReportModel(Base):
     sections: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     article_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     markdown: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # lineage: the pipeline run that last (re)generated this report
+    pipeline_run_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pipeline_runs.id"))
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String, nullable=False, default="generated")
@@ -150,6 +152,8 @@ class ArticleTranslationModel(Base):
     source_hash: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, default="completed")
     error: Mapped[Optional[str]] = mapped_column(Text)
+    # lineage: the pipeline run that last (re)generated this translation
+    pipeline_run_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pipeline_runs.id"))
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -182,6 +186,8 @@ class ProcessedArticleModel(Base):
     category: Mapped[str] = mapped_column(String, nullable=False)
     tags: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     model_used: Mapped[Optional[str]] = mapped_column(String)
+    # lineage: the pipeline run that last (re)generated this row
+    pipeline_run_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pipeline_runs.id"))
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     status: Mapped[str] = mapped_column(String, nullable=False, default="processed")
     rejection_reason: Mapped[Optional[str]] = mapped_column(String)
@@ -309,6 +315,8 @@ class ArticleEmbeddingModel(Base):
     # wraps, so this column must be resized if that model ever changes
     content_vector: Mapped[Any] = mapped_column(Vector(512), nullable=False)
     source_hash: Mapped[str] = mapped_column(String, nullable=False)
+    # lineage: the pipeline run that last (re)computed this vector
+    pipeline_run_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pipeline_runs.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -325,6 +333,8 @@ class PeriodReportModel(Base):
     theme_notes: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     article_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     report_dates: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    # lineage: the pipeline run that last (re)generated this report
+    pipeline_run_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pipeline_runs.id"))
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     status: Mapped[str] = mapped_column(String, nullable=False, default="generated")
 

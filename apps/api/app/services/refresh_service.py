@@ -119,6 +119,13 @@ def refresh_latest_report(
 ) -> dict[str, Any]:
     resolved_date = report_date or date.today()
     generated_at = datetime.now(timezone.utc)
+    pipeline_run_id: int | None = None
+    if database_url:
+        from app.pipeline.persistence import start_pipeline_run_in_database
+
+        # the 'running' row is what lets anyone ask the DB "is a refresh
+        # in flight right now, and since when"
+        pipeline_run_id = start_pipeline_run_in_database(database_url, started_at=generated_at)
     try:
         return _run_refresh(
             data_dir=data_dir,
@@ -127,6 +134,7 @@ def refresh_latest_report(
             top_n=top_n,
             resolved_date=resolved_date,
             generated_at=generated_at,
+            pipeline_run_id=pipeline_run_id,
         )
     except Exception as exc:
         # a failed run must leave a durable trace, not just an in-memory
@@ -134,7 +142,12 @@ def refresh_latest_report(
         if database_url:
             from app.pipeline.persistence import record_failed_pipeline_run
 
-            record_failed_pipeline_run(database_url, started_at=generated_at, error=str(exc))
+            record_failed_pipeline_run(
+                database_url,
+                started_at=generated_at,
+                error=str(exc),
+                pipeline_run_id=pipeline_run_id,
+            )
         raise
 
 
@@ -146,6 +159,7 @@ def _run_refresh(
     top_n: int,
     resolved_date: date,
     generated_at: datetime,
+    pipeline_run_id: int | None = None,
 ) -> dict[str, Any]:
     sources_path = data_dir / "sources.json"
     sources = _load_sources(database_url, sources_path)
@@ -209,6 +223,7 @@ def _run_refresh(
             cluster_window_hours=_env_int("CLUSTER_WINDOW_HOURS", 72),
             similarity_threshold=_env_float("CLUSTER_SIMILARITY_THRESHOLD", 0.93),
             started_at=generated_at,
+            pipeline_run_id=pipeline_run_id,
         )
         _regenerate_period_reports(database_url, resolved_date, ai_provider)
 

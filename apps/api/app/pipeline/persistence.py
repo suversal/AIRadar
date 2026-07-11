@@ -20,15 +20,23 @@ class PipelineRepository(Protocol):
     def upsert_sources(self, sources: list[Source]) -> Any:
         ...
 
-    def upsert_raw_articles(self, articles: list[RawArticle]) -> Any:
+    def upsert_raw_articles(self, articles: list[RawArticle], **kwargs: Any) -> Any:
         ...
 
     def upsert_article_embedding(
-        self, raw_article_id: str, *, embedding_model: str, vector: list[float], source_hash: str
+        self,
+        raw_article_id: str,
+        *,
+        embedding_model: str,
+        vector: list[float],
+        source_hash: str,
+        **kwargs: Any,
     ) -> Any:
         ...
 
-    def upsert_processed_articles(self, processed_articles: list[ProcessedArticle]) -> Any:
+    def upsert_processed_articles(
+        self, processed_articles: list[ProcessedArticle], **kwargs: Any
+    ) -> Any:
         ...
 
     def upsert_event_clusters(
@@ -40,13 +48,16 @@ class PipelineRepository(Protocol):
     ) -> Any:
         ...
 
-    def upsert_daily_report(self, report: DailyReport) -> Any:
+    def upsert_daily_report(self, report: DailyReport, **kwargs: Any) -> Any:
         ...
 
     def replace_daily_report_entries(self, report_date: Any, entries: list[dict[str, Any]]) -> Any:
         ...
 
     def record_pipeline_run(self, **kwargs: Any) -> Any:
+        ...
+
+    def finish_pipeline_run(self, run_id: int, *, status: str, **kwargs: Any) -> Any:
         ...
 
 
@@ -68,9 +79,12 @@ def persist_pipeline_result(
     cluster_window_hours: int = 72,
     similarity_threshold: float = 0.85,
     started_at: datetime | None = None,
+    pipeline_run_id: int | None = None,
 ) -> PipelinePersistenceSummary:
     source_result = repository.upsert_sources(sources)
-    raw_result = repository.upsert_raw_articles(result.raw_articles)
+    raw_result = repository.upsert_raw_articles(
+        result.raw_articles, pipeline_run_id=pipeline_run_id
+    )
 
     articles_by_id = {article.id: article for article in result.raw_articles}
     for raw_article_id, vector in result.embeddings.items():
@@ -84,6 +98,7 @@ def persist_pipeline_result(
             source_hash=stable_hash(
                 embedding_input(article.title, article.content) if article else ""
             ),
+            pipeline_run_id=pipeline_run_id,
         )
 
     # embeddings must be written first: the repository's cross-day merge
@@ -106,8 +121,12 @@ def persist_pipeline_result(
             replace(processed, event_cluster_id=redirects.get(processed.event_cluster_id, processed.event_cluster_id))
             for processed in processed_articles
         ]
-    processed_result = repository.upsert_processed_articles(processed_articles)
-    daily_result = repository.upsert_daily_report(result.daily_report)
+    processed_result = repository.upsert_processed_articles(
+        processed_articles, pipeline_run_id=pipeline_run_id
+    )
+    daily_result = repository.upsert_daily_report(
+        result.daily_report, pipeline_run_id=pipeline_run_id
+    )
     entries: list[dict[str, Any]] = []
     seen_event_ids: set[str] = set()
     for item in result.daily_report.json_data.get("items", []):
@@ -128,15 +147,28 @@ def persist_pipeline_result(
             }
         )
     repository.replace_daily_report_entries(result.daily_report.report_date, entries)
-    run_result = repository.record_pipeline_run(
-        status="succeeded",
-        raw_count=len(result.raw_articles),
-        processed_count=len(result.processed_articles),
-        cluster_count=len(result.event_clusters),
-        skipped_reasons=dict(result.skipped_reasons),
-        started_at=started_at,
-        finished_at=datetime.now(timezone.utc),
-    )
+    if pipeline_run_id is not None:
+        # the run row was created up-front as 'running'; close it out
+        run_result = repository.finish_pipeline_run(
+            pipeline_run_id,
+            status="succeeded",
+            raw_count=len(result.raw_articles),
+            processed_count=len(result.processed_articles),
+            cluster_count=len(result.event_clusters),
+            skipped_reasons=dict(result.skipped_reasons),
+            finished_at=datetime.now(timezone.utc),
+        )
+    else:
+        # CLI/legacy path with no up-front run row: record after the fact
+        run_result = repository.record_pipeline_run(
+            status="succeeded",
+            raw_count=len(result.raw_articles),
+            processed_count=len(result.processed_articles),
+            cluster_count=len(result.event_clusters),
+            skipped_reasons=dict(result.skipped_reasons),
+            started_at=started_at,
+            finished_at=datetime.now(timezone.utc),
+        )
     return PipelinePersistenceSummary(
         sources=source_result,
         raw_articles=raw_result,
@@ -170,6 +202,7 @@ def persist_pipeline_result_to_database(
     cluster_window_hours: int = 72,
     similarity_threshold: float = 0.85,
     started_at: datetime | None = None,
+    pipeline_run_id: int | None = None,
 ) -> PipelinePersistenceSummary:
     from app.db.session import build_session_factory, session_scope
     from app.repositories.radar_repository import RadarRepository
@@ -184,11 +217,32 @@ def persist_pipeline_result_to_database(
             cluster_window_hours=cluster_window_hours,
             similarity_threshold=similarity_threshold,
             started_at=started_at,
+            pipeline_run_id=pipeline_run_id,
         )
 
 
+def start_pipeline_run_in_database(
+    database_url: str, *, started_at: datetime | None = None
+) -> int | None:
+    """Create the 'running' row the moment a refresh begins. Best-effort:
+    a DB hiccup must not stop the pipeline, it only costs lineage."""
+    try:
+        from app.db.session import build_session_factory, session_scope
+        from app.repositories.radar_repository import RadarRepository
+
+        session_factory = build_session_factory(database_url)
+        with session_scope(session_factory) as session:
+            return RadarRepository(session).start_pipeline_run(started_at=started_at)
+    except Exception:  # pragma: no cover - best-effort bookkeeping
+        return None
+
+
 def record_failed_pipeline_run(
-    database_url: str, *, started_at: datetime | None, error: str
+    database_url: str,
+    *,
+    started_at: datetime | None,
+    error: str,
+    pipeline_run_id: int | None = None,
 ) -> None:
     """Leave a durable trace of a failed run. Must never mask the original
     failure, so any error while recording (e.g. the DB itself being down)
@@ -199,15 +253,24 @@ def record_failed_pipeline_run(
 
         session_factory = build_session_factory(database_url)
         with session_scope(session_factory) as session:
-            RadarRepository(session).record_pipeline_run(
-                status="failed",
-                raw_count=0,
-                processed_count=0,
-                cluster_count=0,
-                skipped_reasons={},
-                started_at=started_at,
-                finished_at=datetime.now(timezone.utc),
-                error=error,
-            )
+            repository = RadarRepository(session)
+            if pipeline_run_id is not None:
+                repository.finish_pipeline_run(
+                    pipeline_run_id,
+                    status="failed",
+                    error=error,
+                    finished_at=datetime.now(timezone.utc),
+                )
+            else:
+                repository.record_pipeline_run(
+                    status="failed",
+                    raw_count=0,
+                    processed_count=0,
+                    cluster_count=0,
+                    skipped_reasons={},
+                    started_at=started_at,
+                    finished_at=datetime.now(timezone.utc),
+                    error=error,
+                )
     except Exception:  # pragma: no cover - best-effort bookkeeping
         pass

@@ -81,7 +81,9 @@ class RadarRepository:
                 updated += 1
         return WriteResult(inserted=inserted, updated=updated)
 
-    def upsert_raw_articles(self, articles: list[RawArticle]) -> WriteResult:
+    def upsert_raw_articles(
+        self, articles: list[RawArticle], *, pipeline_run_id: Optional[int] = None
+    ) -> WriteResult:
         inserted = 0
         updated = 0
         skipped = 0
@@ -97,7 +99,7 @@ class RadarRepository:
             if existing is None:
                 self.session.add(_raw_article_to_model(article))
                 inserted += 1
-                self._sync_translation_from_metadata(article)
+                self._sync_translation_from_metadata(article, pipeline_run_id=pipeline_run_id)
                 continue
             # later runs enrich articles in memory (README, full-page body);
             # merge that back instead of freezing the first crawl. Translation
@@ -110,10 +112,12 @@ class RadarRepository:
             existing.status = article.status
             existing.skipped_reason = article.skipped_reason
             updated += 1
-            self._sync_translation_from_metadata(article)
+            self._sync_translation_from_metadata(article, pipeline_run_id=pipeline_run_id)
         return WriteResult(inserted=inserted, updated=updated, skipped=skipped)
 
-    def _sync_translation_from_metadata(self, article: RawArticle) -> None:
+    def _sync_translation_from_metadata(
+        self, article: RawArticle, *, pipeline_run_id: Optional[int] = None
+    ) -> None:
         metadata = article.metadata
         has_translation = bool(
             metadata.get("translated_paragraphs")
@@ -131,6 +135,7 @@ class RadarRepository:
             source_hash=metadata.get("translation_source_hash") or "",
             status=metadata.get("translation_status") or "completed",
             error=metadata.get("translation_error"),
+            pipeline_run_id=pipeline_run_id,
         )
 
     def upsert_article_translation(
@@ -144,6 +149,7 @@ class RadarRepository:
         source_hash: str,
         status: str = "completed",
         error: Optional[str] = None,
+        pipeline_run_id: Optional[int] = None,
     ) -> None:
         model = self.session.scalar(
             select(ArticleTranslationModel).where(
@@ -160,6 +166,8 @@ class RadarRepository:
         model.source_hash = source_hash
         model.status = status
         model.error = error
+        if pipeline_run_id is not None:
+            model.pipeline_run_id = pipeline_run_id
         self.session.flush()
 
     def get_article_translation(self, raw_article_id: str) -> Optional[dict[str, Any]]:
@@ -180,15 +188,22 @@ class RadarRepository:
             "error": model.error,
         }
 
-    def upsert_daily_report(self, report: DailyReport) -> WriteResult:
+    def upsert_daily_report(
+        self, report: DailyReport, *, pipeline_run_id: Optional[int] = None
+    ) -> WriteResult:
         model = self.session.scalar(
             select(DailyReportModel).where(DailyReportModel.report_date == report.report_date)
         )
         if model is None:
-            self.session.add(_daily_report_to_model(report))
+            model = _daily_report_to_model(report)
+            self.session.add(model)
+            if pipeline_run_id is not None:
+                model.pipeline_run_id = pipeline_run_id
             return WriteResult(inserted=1)
 
         _apply_daily_report(model, report)
+        if pipeline_run_id is not None:
+            model.pipeline_run_id = pipeline_run_id
         return WriteResult(updated=1)
 
     def get_daily_report_payload(self, report_date: date) -> Optional[dict[str, Any]]:
@@ -317,7 +332,12 @@ class RadarRepository:
         payload["article_count"] = len(items)
         return payload
 
-    def upsert_processed_articles(self, processed_articles: list[ProcessedArticle]) -> WriteResult:
+    def upsert_processed_articles(
+        self,
+        processed_articles: list[ProcessedArticle],
+        *,
+        pipeline_run_id: Optional[int] = None,
+    ) -> WriteResult:
         inserted = 0
         updated = 0
         for processed in processed_articles:
@@ -333,6 +353,8 @@ class RadarRepository:
             else:
                 updated += 1
             _apply_processed_article(model, processed)
+            if pipeline_run_id is not None:
+                model.pipeline_run_id = pipeline_run_id
         return WriteResult(inserted=inserted, updated=updated)
 
     def upsert_article_embedding(
@@ -342,6 +364,7 @@ class RadarRepository:
         embedding_model: str,
         vector: list[float],
         source_hash: str,
+        pipeline_run_id: Optional[int] = None,
     ) -> None:
         model = self.session.scalar(
             select(ArticleEmbeddingModel).where(
@@ -354,6 +377,8 @@ class RadarRepository:
         model.embedding_model = embedding_model
         model.content_vector = vector
         model.source_hash = source_hash
+        if pipeline_run_id is not None:
+            model.pipeline_run_id = pipeline_run_id
         self.session.flush()
 
     def get_article_embedding_source_hash(self, raw_article_id: str) -> Optional[str]:
@@ -526,6 +551,43 @@ class RadarRepository:
             model.source_count = self._count_distinct_sources(target_id)
         self.session.flush()
         return WriteResult(inserted=inserted, updated=updated, redirects=redirects)
+
+    def start_pipeline_run(self, *, started_at: Any = None) -> int:
+        """Insert a 'running' row the moment work begins, so the DB can
+        answer "is anything running right now / did it hang" instead of
+        only learning about runs after they finish. Returns the run id for
+        lineage stamping and the final finish_pipeline_run update."""
+        model = PipelineRunModel(status="running")
+        if started_at is not None:
+            model.started_at = started_at
+        self.session.add(model)
+        self.session.flush()
+        return model.id
+
+    def finish_pipeline_run(
+        self,
+        run_id: int,
+        *,
+        status: str,
+        raw_count: int = 0,
+        processed_count: int = 0,
+        cluster_count: int = 0,
+        skipped_reasons: Optional[dict[str, int]] = None,
+        error: str | None = None,
+        finished_at: Any = None,
+    ) -> WriteResult:
+        model = self.session.get(PipelineRunModel, run_id)
+        if model is None:
+            return WriteResult()
+        model.status = status
+        model.raw_count = raw_count
+        model.processed_count = processed_count
+        model.cluster_count = cluster_count
+        model.skipped_reasons = dict(skipped_reasons or {})
+        model.error = error
+        model.finished_at = finished_at if finished_at is not None else datetime.now(timezone.utc)
+        self.session.flush()
+        return WriteResult(updated=1)
 
     def record_pipeline_run(
         self,

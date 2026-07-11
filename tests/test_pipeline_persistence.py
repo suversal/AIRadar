@@ -250,11 +250,12 @@ class PipelinePersistenceTests(unittest.TestCase):
         self.assertIsNotNone(kwargs["finished_at"])
 
     def test_refresh_records_failed_pipeline_run(self):
-        # 失败的运行也必须留下 DB 记录，否则无法回答"哪一步失败了"
+        # 失败的运行也必须留下 DB 记录，否则无法回答"哪一步失败了"；
+        # 开始时写入的 running 行必须被"更新"为 failed，而不是另插一行
         import tempfile
         from unittest.mock import patch
 
-        from sqlalchemy import create_engine, select
+        from sqlalchemy import create_engine, func, select
         from sqlalchemy.orm import Session
 
         from app.db.models import Base, PipelineRunModel
@@ -275,11 +276,39 @@ class PipelinePersistenceTests(unittest.TestCase):
 
             with Session(engine) as session:
                 run = session.scalar(select(PipelineRunModel))
+                total = session.scalar(select(func.count()).select_from(PipelineRunModel))
 
         self.assertIsNotNone(run)
+        self.assertEqual(total, 1)
         self.assertEqual(run.status, "failed")
         self.assertIn("crawl exploded", run.error)
         self.assertIsNotNone(run.finished_at)
+
+    def test_persist_finishes_started_run_instead_of_inserting(self):
+        # refresh 在开始时已建 running 行并把 run_id 传给 persist；
+        # persist 结束时应更新那一行为 succeeded，并把 run_id 盖到派生写入上
+        repository = FakeRepository()
+        daily_report = DailyReport(
+            report_date=date(2026, 7, 1),
+            markdown="# report",
+            json_data={"report_date": "2026-07-01", "items": [], "article_count": 0},
+            article_count=0,
+        )
+        result = PipelineResult(
+            raw_articles=[],
+            processed_articles=[],
+            event_clusters=[],
+            daily_report=daily_report,
+            skipped_reasons={},
+            embeddings={},
+            embedding_model="bge-small-zh-v1.5",
+        )
+
+        persist_pipeline_result(repository, sources=[], result=result, pipeline_run_id=77)
+
+        self.assertNotIn("pipeline_run", repository.calls)
+        self.assertEqual(repository.finished_run, (77, "succeeded"))
+        self.assertEqual(repository.daily_report_run_id, 77)
 
     def test_persist_pipeline_result_remaps_event_cluster_id_through_merge_redirects(self):
         # regression, found via real-data verification: upsert_event_clusters
@@ -407,28 +436,38 @@ class FakeRepository:
         self.processed_articles_written = None
         self.cluster_redirects = {}
         self.pipeline_run_kwargs = None
+        self.finished_run = None
+        self.daily_report_run_id = None
 
     def upsert_sources(self, sources):
         self.calls.append("sources")
         return FakeWriteResult(inserted=len(sources))
 
-    def upsert_raw_articles(self, articles):
+    def upsert_raw_articles(self, articles, **kwargs):
         self.calls.append("raw_articles")
         return FakeWriteResult(inserted=len(articles))
 
-    def upsert_article_embedding(self, raw_article_id, *, embedding_model, vector, source_hash):
+    def upsert_article_embedding(
+        self, raw_article_id, *, embedding_model, vector, source_hash, **kwargs
+    ):
         self.calls.append("article_embeddings")
         self.embeddings_written.append((raw_article_id, embedding_model, vector, source_hash))
 
-    def upsert_daily_report(self, report):
+    def upsert_daily_report(self, report, **kwargs):
         self.calls.append("daily_report")
+        self.daily_report_run_id = kwargs.get("pipeline_run_id")
         return FakeWriteResult(updated=report.article_count + 1)
+
+    def finish_pipeline_run(self, run_id, *, status, **kwargs):
+        self.calls.append("finish_pipeline_run")
+        self.finished_run = (run_id, status)
+        return FakeWriteResult(updated=1)
 
     def replace_daily_report_entries(self, report_date, entries):
         self.calls.append("daily_report_entries")
         self.entries_written = (report_date, entries)
 
-    def upsert_processed_articles(self, processed_articles):
+    def upsert_processed_articles(self, processed_articles, **kwargs):
         self.calls.append("processed_articles")
         self.processed_articles_written = processed_articles
         return FakeWriteResult(inserted=len(processed_articles))
