@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html as html_module
+import re
 from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urljoin
@@ -15,16 +16,26 @@ _INLINE_CANONICAL = {"b": "strong", "i": "em"}
 SAFE_HREF_SCHEMES = ("http://", "https://")
 MAX_BLOCKS = 120
 MAX_IMAGES = 30
-# User-avatar widgets (upvoters, commenters) sit inside the same <article>/
-# <main> region as the real post on some sites (e.g. HuggingFace's "who
-# liked this" avatar stack) - these are never article content regardless
-# of which site hosts them.
+# User-avatar widgets (upvoters, commenters, byline author photo) sit inside
+# the same <article>/<main> region as the real post on some sites (e.g.
+# HuggingFace's "who liked this" avatar stack, the-decoder.com's byline) -
+# these are never article content regardless of which site hosts them.
 _AVATAR_HOST_MARKERS = (
     "cdn-avatars.",
     "avatars.githubusercontent.com",
     "gravatar.com",
     "/avatars/",
 )
+# "avatar" as a path/filename token (not just a specific host) - real cases:
+# the-decoder.com's own-origin /resources/images/avatar_matthias_bastian.jpg,
+# a WordPress theme's blank-avatar.png. Broad but low-risk: profile-picture
+# filenames reliably carry this word; genuine content images essentially
+# never do.
+_AVATAR_FILENAME_RE = re.compile(r"avatar", re.IGNORECASE)
+
+
+def _normalize_for_comparison(text: str) -> str:
+    return re.sub(r"[^\w一-鿿]", "", text or "").lower()
 
 
 class ArticleContentParser(HTMLParser):
@@ -134,6 +145,8 @@ class ArticleContentParser(HTMLParser):
             return
         if any(marker in url for marker in _AVATAR_HOST_MARKERS):
             return
+        if _AVATAR_FILENAME_RE.search(url):
+            return
         self._flush_text_block()
         image = {
             "url": url,
@@ -146,7 +159,9 @@ class ArticleContentParser(HTMLParser):
             self.blocks.append({"type": "image", **image})
 
 
-def extract_article_content(html_text: str | None, *, base_url: str | None = None) -> dict[str, Any]:
+def extract_article_content(
+    html_text: str | None, *, base_url: str | None = None, title: str | None = None
+) -> dict[str, Any]:
     if not html_text:
         return {
             "original_text": "",
@@ -157,9 +172,21 @@ def extract_article_content(html_text: str | None, *, base_url: str | None = Non
     parser = ArticleContentParser(base_url=base_url)
     parser.feed(html_text)
     parser.close()
+    blocks, paragraphs = parser.blocks, parser.paragraphs
+    # some sites render the <h1> headline inside the same content region as
+    # the body (the-decoder.com among others, ~40 articles affected on real
+    # data) - that duplicates the title as the article's own first paragraph
+    if (
+        title
+        and blocks
+        and blocks[0]["type"] == "paragraph"
+        and _normalize_for_comparison(blocks[0]["text"]) == _normalize_for_comparison(title)
+    ):
+        blocks = blocks[1:]
+        paragraphs = paragraphs[1:]
     return {
-        "original_text": "\n\n".join(parser.paragraphs),
-        "original_paragraphs": parser.paragraphs,
+        "original_text": "\n\n".join(paragraphs),
+        "original_paragraphs": paragraphs,
         "original_images": parser.images,
-        "original_blocks": parser.blocks,
+        "original_blocks": blocks,
     }

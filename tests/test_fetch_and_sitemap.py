@@ -554,7 +554,10 @@ class SitemapCrawlerTests(unittest.TestCase):
         self.assertNotIn("Careers", first.content)
         self.assertNotIn("Copyright", first.content)
         paragraphs = first.metadata["original_paragraphs"]
-        self.assertEqual(len(paragraphs), 4)  # h1 + three paragraphs
+        # the <h1> duplicates the page title and must be dropped, not kept
+        # as the article's own first paragraph (regression, see
+        # test_extract_article_content_drops_leading_block_that_duplicates_title)
+        self.assertEqual(len(paragraphs), 3)
         images = first.metadata["original_images"]
         self.assertEqual(
             images[0]["url"],

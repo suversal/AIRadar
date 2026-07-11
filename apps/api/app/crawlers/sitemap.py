@@ -205,7 +205,7 @@ class SitemapCrawler(BaseCrawler):
         content = description
         region = main_content_region(page_html)
         if region:
-            extracted = extract_article_content(region, base_url=loc)
+            extracted = extract_article_content(region, base_url=loc, title=title)
             if extracted["original_paragraphs"]:
                 metadata.update(
                     {

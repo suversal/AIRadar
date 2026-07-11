@@ -84,7 +84,7 @@ def fetch_page_payload(
     page_html = fetch_url_text(url, accept="text/html, */*")
     title, description = extract_page_article(page_html)
     region = main_content_region(page_html)
-    extracted = extract_article_content(region, base_url=url) if region else None
+    extracted = extract_article_content(region, base_url=url, title=title) if region else None
 
     if extracted and extracted["original_paragraphs"]:
         payload = {

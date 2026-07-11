@@ -5,6 +5,7 @@ import re
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from app.crawlers.article_content import extract_article_content
 from app.crawlers.base import BaseCrawler, clean_text, fetch_url_text, normalize_article
@@ -106,6 +107,21 @@ def _entry_author(element: ET.Element) -> str:
     return ""
 
 
+def _original_url_from_description(description: str) -> str:
+    match = re.search(
+        r"(?:🔗\s*)?阅读原文\s*[：:]\s*(https?://[^\s<>]+)",
+        description,
+        flags=re.IGNORECASE,
+    )
+    if match is None:
+        return ""
+    candidate = match.group(1).rstrip("，。；、")
+    parsed = urlsplit(candidate)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return candidate
+
+
 def parse_rss(xml_text: str, source: Source, limit: int | None = None) -> list[RawArticle]:
     root = ET.fromstring(xml_text)
     entries = root.findall(".//item")
@@ -113,14 +129,18 @@ def parse_rss(xml_text: str, source: Source, limit: int | None = None) -> list[R
         entries = [node for node in root.iter() if node.tag.split("}")[-1] == "entry"]
 
     articles: list[RawArticle] = []
-    for entry in entries[:limit]:
+    for position, entry in enumerate(entries[:limit], start=1):
         title = _child_text(entry, ["title"])
         link = _entry_link(entry)
         content_html = (
             _child_raw_text(entry, ["description", "summary", "content"])
             or _child_raw_text(entry, ["encoded"])
         )
-        original_content = extract_article_content(content_html, base_url=link)
+        if source.id == "aihot_feed" or (source.config or {}).get(
+            "original_url_from_description"
+        ):
+            link = _original_url_from_description(content_html) or link
+        original_content = extract_article_content(content_html, base_url=link, title=title)
         content = original_content["original_text"] or strip_html(content_html)
         author = _entry_author(entry)
         published = _child_text(entry, ["pubDate", "published", "updated"])
@@ -128,6 +148,8 @@ def parse_rss(xml_text: str, source: Source, limit: int | None = None) -> list[R
             continue
         metadata = {
             "source_type": "rss",
+            "feed_category": _child_text(entry, ["category"]),
+            "feed_position": position,
             "original_text": original_content["original_text"],
             "original_paragraphs": original_content["original_paragraphs"],
             "original_images": original_content["original_images"],
@@ -163,6 +185,8 @@ class RSSCrawler(BaseCrawler):
     def fetch(self, limit: int | None = None) -> list[RawArticle]:
         xml_text = fetch_url_text(self.source.url)
         articles = parse_rss(xml_text, self.source, limit=limit)
+        if (self.source.config or {}).get("use_feed_content_only"):
+            return articles
         for article in articles:
             self._prefer_full_page(article)
         return articles

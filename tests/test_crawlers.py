@@ -208,6 +208,57 @@ via AI HOT · https://aihot.virxact.com/items/cmrfiocpi0035ihjlcm4qu8af]]></desc
         )
         self.assertEqual(content["original_paragraphs"], ["第一段正文。", "第二段正文。"])
 
+    def test_extract_article_content_drops_leading_block_that_duplicates_title(self):
+        # 真实案例（the-decoder.com）：正文区域是整个 <article>，其中包含
+        # 独立渲染的 <h1> 标题——提取时把它当成了第一段正文，导致标题在
+        # 详情页重复出现一次。跨源实测发现 40 篇文章受此影响。
+        html = """
+        <article>
+          <h1>OpenAI admits it "didn't get everything quite right"</h1>
+          <p>Real body text starts here and continues for a while.</p>
+        </article>
+        """
+
+        content = extract_article_content(
+            html,
+            base_url="https://the-decoder.com/x",
+            title='OpenAI admits it "didn\'t get everything quite right"',
+        )
+
+        self.assertEqual(
+            content["original_paragraphs"],
+            ["Real body text starts here and continues for a while."],
+        )
+
+    def test_extract_article_content_keeps_leading_block_when_no_title_given(self):
+        # 向后兼容：不传 title 时行为不变（RSS 摘要等场景本就没有标题可比对）
+        html = "<article><p>Same as heading text</p><p>More body.</p></article>"
+
+        content = extract_article_content(html, base_url="https://example.com/x")
+
+        self.assertEqual(content["original_paragraphs"], ["Same as heading text", "More body."])
+
+    def test_extract_article_content_skips_byline_avatar_by_filename_pattern(self):
+        # 真实案例（the-decoder.com）：作者头像走站内相对路径
+        # /resources/images/avatar_matthias_bastian.jpg，不在任何已知头像
+        # CDN host 列表里，之前会被当成正文插图存下来
+        html = """
+        <article>
+          <h1>Some headline</h1>
+          <div class="byline">
+            <img src="/resources/images/avatar_matthias_bastian.jpg" alt="Matthias Bastian">
+          </div>
+          <img src="https://the-decoder.com/wp-content/uploads/2026/07/hero.png" alt="Image description">
+          <p>Real body paragraph with enough length to pass extraction thresholds easily.</p>
+        </article>
+        """
+
+        content = extract_article_content(html, base_url="https://the-decoder.com/x")
+
+        image_urls = [img["url"] for img in content["original_images"]]
+        self.assertNotIn("https://the-decoder.com/resources/images/avatar_matthias_bastian.jpg", image_urls)
+        self.assertIn("https://the-decoder.com/wp-content/uploads/2026/07/hero.png", image_urls)
+
     def test_extract_article_content_preserves_inline_links_and_bold(self):
         html = (
             "<article>"
