@@ -189,6 +189,36 @@ class RepositoryTests(unittest.TestCase):
         # a2 隐藏被剔除，unknown-id 解析不到被跳过，顺序按传入顺序保留
         self.assertEqual([item["event_id"] for item in items], ["aa3", "aa1"])
 
+    def test_upsert_updates_language_when_recrawl_detects_different_script(self):
+        # aihot 场景：首轮存的是 zh 摘要，后续全文抓取到英文原文并在内存里
+        # 把 language 翻转为 en——更新分支必须把它持久化，否则译文开关和
+        # source_language 展示会一直用错误的旧值
+        from dataclasses import replace as dc_replace
+
+        from app.db.models import RawArticleModel
+        from app.repositories.radar_repository import RadarRepository
+
+        first = dc_replace(
+            self._article(article_id="a1", title="Frontier AI report", url_hash="u1"),
+            language="zh",
+        )
+        recrawled = dc_replace(
+            first,
+            content="Long English body fetched from the original page." * 3,
+            language="en",
+        )
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([first])
+            repository.upsert_raw_articles([recrawled])
+            session.commit()
+
+            stored = session.scalar(select(RawArticleModel).where(RawArticleModel.id == "a1"))
+
+        self.assertEqual(stored.language, "en")
+
     def test_reprocessing_never_clobbers_event_link_with_none(self):
         # 事件成员关系是永久的：文章后续轮次没进聚类（processed 带 None）
         # 也不能把上一轮写好的事件链接盖掉——这是 /all 重复/丢失的根因之一
@@ -975,6 +1005,7 @@ class RepositoryTests(unittest.TestCase):
 
         self.assertEqual(set(cached), {article.url_hash, skipped.url_hash})
         hit = cached[article.url_hash]
+        self.assertEqual(hit["raw_article_id"], "a1")
         self.assertEqual(hit["scoring"]["title_zh"], "中文标题")
         self.assertEqual(hit["scoring"]["category"], "model_release")
         self.assertEqual(hit["scoring"]["dimensions"]["ai_relevance"], 9)
@@ -984,6 +1015,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(hit["metadata"]["readme_status"], "ok")
         self.assertEqual(hit["metadata"]["readme_zh_probe"], "failed")
         miss = cached[skipped.url_hash]
+        self.assertEqual(miss["raw_article_id"], "a2")
         self.assertIsNone(miss["scoring"])
         self.assertEqual(miss["skipped_reason"], "not_ai_related")
 
@@ -1105,6 +1137,9 @@ class RepositoryTests(unittest.TestCase):
             items = repository.get_all_event_items_between(
                 date(2026, 6, 30), date(2026, 7, 2)
             )
+            selected_items = repository.get_all_event_items_between(
+                date(2026, 6, 30), date(2026, 7, 2), selected_only=True
+            )
             detail = repository.get_event_item("e-abc123")
 
         self.assertEqual(len(items), 2)  # rejected articles are visible in /all
@@ -1116,12 +1151,14 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(selected_item["scoring_category"], "model_release")
         self.assertEqual(selected_item["final_score"], 88.0)
         self.assertEqual(selected_item["main_source"]["name"], "OpenAI Blog")
+        self.assertEqual(selected_item["main_source"]["id"], "openai_blog")
         self.assertEqual(
             selected_item["original_images"][0]["url"], "https://openai.com/a.png"
         )
         self.assertNotIn("original_paragraphs", selected_item)
         rejected_item = next(item for item in items if item["event_id"] != "e-abc123")
         self.assertTrue(rejected_item["event_id"].startswith("a"))
+        self.assertEqual([item["event_id"] for item in selected_items], ["e-abc123"])
 
         self.assertEqual(detail["event_id"], "e-abc123")
         self.assertEqual(detail["original_url"], "https://openai.com/a1")

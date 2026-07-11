@@ -756,6 +756,37 @@ via AI HOT · https://aihot.virxact.com/items/cmrfiocpi0035ihjlcm4qu8af]]></desc
             ["Modern AI foundations videos", "OpenAI releases an agent benchmark"],
         )
 
+    def test_main_content_region_prefers_content_marker_div_over_main(self):
+        # 真实案例（HuggingFace 博客）：正文在 <div class="blog-content …">，
+        # 评论区（Community/Sign up）和推荐卡片与它并列在同一个 <main> 里，
+        # 页面没有可用的 <article>/<aside> 语义标签——选区必须缩到正文容器，
+        # 否则评论区 UI 文案会被当成正文段落
+        from app.crawlers.sitemap import main_content_region
+
+        html = """<!DOCTYPE html><html><body><main>
+        <div class="blog-content copiable-code-container prose mx-auto">
+          <p>vLLM now runs transformers models at native speed thanks to the new
+          backend, which reuses attention kernels and the paged KV cache.</p>
+          <p>Benchmarks across four model families show throughput parity with the
+          hand-optimized implementations while keeping full API compatibility.</p>
+        </div>
+        <div class="mb-4 rounded-lg border">
+          <h4>Community</h4>
+          <p>Start discussing this article</p>
+          <p>· Sign up or log in to comment</p>
+        </div>
+        <div class="rounded-lg border">
+          <p>Datasets mentioned in this article</p>
+        </div>
+        </main></body></html>"""
+
+        region = main_content_region(html)
+
+        self.assertIsNotNone(region)
+        self.assertIn("native speed", region)
+        self.assertNotIn("Sign up or log in", region)
+        self.assertNotIn("Datasets mentioned", region)
+
     def test_prefer_full_page_content_flips_language_to_match_fetched_body(self):
         # aihot 聚合源标 zh（feed 摘要是中文），但"阅读原文"多为英文页面；
         # 全文替换后语言标记必须跟随正文，否则翻译管道（只认 en）不会翻它

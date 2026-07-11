@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 try:
     from sqlalchemy import delete, select
@@ -109,6 +110,10 @@ class RadarRepository:
             existing.raw_metadata = merged
             if len(article.content) > len(existing.content or ""):
                 existing.content = article.content
+            # the crawl re-detects the body's language (a zh-labeled
+            # aggregator often points at English originals); persist it or
+            # the translation toggle keeps using the stale label
+            existing.language = article.language
             existing.status = article.status
             existing.skipped_reason = article.skipped_reason
             updated += 1
@@ -869,6 +874,7 @@ class RadarRepository:
                     "action_zh": processed.action_zh,
                 }
             cached[raw.url_hash] = {
+                "raw_article_id": raw.id,
                 "scoring": scoring,
                 "skipped_reason": raw.skipped_reason if scoring is None else None,
                 "metadata": metadata,
@@ -885,10 +891,20 @@ class RadarRepository:
     )
 
     def get_all_event_items_between(
-        self, start_date: date, end_date: date, *, include_hidden: bool = False
+        self,
+        start_date: date,
+        end_date: date,
+        *,
+        include_hidden: bool = False,
+        selected_only: bool = False,
     ) -> list[dict[str, Any]]:
-        window_start = datetime.combine(start_date, time.min, tzinfo=timezone.utc)
-        window_end = datetime.combine(end_date, time.max, tzinfo=timezone.utc)
+        shanghai = ZoneInfo("Asia/Shanghai")
+        window_start = datetime.combine(start_date, time.min, tzinfo=shanghai).astimezone(
+            timezone.utc
+        )
+        window_end = datetime.combine(end_date, time.max, tzinfo=shanghai).astimezone(
+            timezone.utc
+        )
         # event membership comes from event_cluster_articles (the source of
         # truth), NOT from processed_articles.event_cluster_id - that cache
         # column drifts (a later run can overwrite it) and trusting it here
@@ -935,6 +951,29 @@ class RadarRepository:
             .where(main_membership.id.isnot(None) | ~has_any_membership)
             .order_by(RawArticleModel.published_at.desc())
         )
+        if selected_only:
+            selected_membership = aliased(EventClusterArticleModel)
+            selected_processed = aliased(ProcessedArticleModel)
+            has_selected_member = (
+                select(selected_membership.id)
+                .join(
+                    selected_processed,
+                    selected_processed.raw_article_id == selected_membership.raw_article_id,
+                )
+                .where(selected_membership.event_cluster_id == EventClusterModel.id)
+                .where(selected_processed.status == "processed")
+                .exists()
+            )
+            query = query.where(
+                (
+                    EventClusterModel.id.isnot(None)
+                    & has_selected_member
+                )
+                | (
+                    EventClusterModel.id.is_(None)
+                    & (ProcessedArticleModel.status == "processed")
+                )
+            )
         if not include_hidden:
             query = query.where(
                 (EditorialOverrideModel.hidden.is_(None)) | (EditorialOverrideModel.hidden.is_(False))
@@ -1220,9 +1259,16 @@ def _event_item(
         "tags": tags,
         "final_score": processed.final_score,
         "selected": processed.status == "processed",
+        "selection_origin": processed.selection_origin,
+        "selection_reason": processed.selection_reason,
         "hidden": hidden,
         "source_count": max(source_count, 1),
-        "main_source": {"name": source.name, "url": raw.source_url, "tier": source.tier},
+        "main_source": {
+            "id": source.id,
+            "name": source.name,
+            "url": raw.source_url,
+            "tier": source.tier,
+        },
         "source_language": raw.language,
         "one_line_summary": processed.one_line_summary,
         "summary": processed.summary_zh,
@@ -1289,6 +1335,8 @@ def _apply_processed_article(model: ProcessedArticleModel, processed: ProcessedA
     model.tags = list(processed.tags)
     model.status = processed.status
     model.rejection_reason = processed.rejection_reason
+    model.selection_origin = processed.selection_origin
+    model.selection_reason = processed.selection_reason
 
 
 def _apply_event_cluster(model: EventClusterModel, cluster: EventCluster) -> None:

@@ -28,6 +28,16 @@ _MAIN_REGION_RE = re.compile(r"<main\b.*?</main>", re.IGNORECASE | re.DOTALL)
 # individually exceed REGION_MIN_TEXT_CHARS, outscoring the actual article
 # body and getting picked instead of it. Strip asides before scanning.
 _ASIDE_RE = re.compile(r"<aside\b.*?</aside>", re.IGNORECASE | re.DOTALL)
+# 显式"这里是正文"的容器类名（HuggingFace 的 blog-content、WordPress 的
+# entry-content 等）。这类页面（真实案例：HF 博客）把评论区、推荐卡片和正文
+# 平铺在同一个 <main> 里且没有 <aside>/<section> 语义标签——只有缩到正文
+# 容器本身才能把 "Sign up or log in to comment" 这类 UI 文案挡在外面
+_CONTENT_DIV_OPEN_RE = re.compile(
+    r'<div\b[^>]*class="[^"]*\b(?:blog-content|entry-content|post-content|article-content|post-body|article-body)\b[^"]*"[^>]*>',
+    re.IGNORECASE,
+)
+_DIV_TOKEN_RE = re.compile(r"<div\b[^>]*>|</div\s*>", re.IGNORECASE)
+
 # WordPress 常见正文容器（如 qbitai 的 <div class="article">），页面没有
 # 语义化 article/main 标签时的最后回退；贪婪到最后一个 </div>，噪音由
 # 后续段落提取过滤
@@ -91,19 +101,42 @@ def _region_text_length(fragment: str) -> int:
     return len(_TAG_STRIP_RE.sub(" ", fragment).strip())
 
 
+def _balanced_div_region(html_text: str, open_match: re.Match) -> str:
+    """The fragment from a <div …> open tag to ITS matching </div> (depth
+    counted), not to the document's last </div> - anything after the
+    container (comment widgets, recommendation cards) must stay outside."""
+    depth = 1
+    for token in _DIV_TOKEN_RE.finditer(html_text, open_match.end()):
+        depth += 1 if token.group(0)[1] in "dD" else -1
+        if depth == 0:
+            return html_text[open_match.start() : token.end()]
+    return html_text[open_match.start() :]
+
+
 def main_content_region(html_text: str) -> str | None:
     """Pick the page region most likely to hold the article body.
 
     Pages can carry multiple <article> tags where the first is a sidebar
     card (HuggingFace blog), so candidates are ranked by stripped text
     volume instead of document order: substantial <article> first, then
-    <main>, then WordPress-style content divs (qbitai has no semantic
-    tags at all)."""
+    explicit content-marker divs (blog-content etc., tighter than <main>
+    which can also hold comment/recommendation widgets), then <main>,
+    then WordPress-style content divs (qbitai has no semantic tags)."""
     html_text = _ASIDE_RE.sub("", html_text)
     articles = _ARTICLE_REGION_RE.findall(html_text)
     substantial = [a for a in articles if _region_text_length(a) >= REGION_MIN_TEXT_CHARS]
     if substantial:
         return max(substantial, key=_region_text_length)
+    marker_regions = [
+        region
+        for region in (
+            _balanced_div_region(html_text, open_match)
+            for open_match in _CONTENT_DIV_OPEN_RE.finditer(html_text)
+        )
+        if _region_text_length(region) >= REGION_MIN_TEXT_CHARS
+    ]
+    if marker_regions:
+        return max(marker_regions, key=_region_text_length)
     match = _MAIN_REGION_RE.search(html_text)
     if match and _region_text_length(match.group(0)) >= REGION_MIN_TEXT_CHARS:
         return match.group(0)
