@@ -4,6 +4,7 @@ import json
 import re
 import urllib.request
 from datetime import datetime, timezone
+from pathlib import Path
 
 from app.crawlers.base import BaseCrawler, normalize_article
 from app.models.domain import RawArticle, Source
@@ -86,6 +87,15 @@ def parse_hn_hits(
 
 
 class HackerNewsCrawler(BaseCrawler):
+    """HN's Algolia API only carries the submitted title and (for text
+    posts) a story_text field that's empty for the common case of a post
+    linking out to an external article - the real body always lives at
+    that linked URL, same as an RSS feed's own lossy/empty description."""
+
+    def __init__(self, source: Source, *, page_cache_dir: Path | None = None):
+        super().__init__(source)
+        self.page_cache_dir = page_cache_dir
+
     def fetch(self, limit: int | None = None) -> list[RawArticle]:
         request = urllib.request.Request(
             self.source.url,
@@ -94,4 +104,12 @@ class HackerNewsCrawler(BaseCrawler):
         with urllib.request.urlopen(request, timeout=20) as response:
             payload = json.loads(response.read().decode("utf-8"))
         hits = payload.get("hits", [])
-        return parse_hn_hits(hits, self.source, limit=limit)
+        articles = parse_hn_hits(hits, self.source, limit=limit)
+        for article in articles:
+            self._prefer_full_page(article)
+        return articles
+
+    def _prefer_full_page(self, article: RawArticle) -> None:
+        from app.crawlers.page_content import prefer_full_page_content
+
+        prefer_full_page_content(article, cache_dir=self.page_cache_dir)

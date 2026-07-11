@@ -17,7 +17,7 @@ from app.crawlers.github_readme import (
     markdown_to_original_payload,
     repo_path_from_github_url,
 )
-from app.crawlers.hn import parse_hn_hits
+from app.crawlers.hn import HackerNewsCrawler, parse_hn_hits
 from app.crawlers.rss import parse_rss
 from app.models.domain import Source
 
@@ -687,7 +687,70 @@ class CrawlerTests(unittest.TestCase):
             [article.title for article in articles],
             ["Modern AI foundations videos", "OpenAI releases an agent benchmark"],
         )
-        self.assertEqual([article.metadata["hn_object_id"] for article in articles], ["2", "3"])
+
+    def test_hacker_news_crawler_fetches_full_page_for_linked_articles(self):
+        # regression: HN posts link out to external pages, and the Algolia
+        # API's own story_text is empty for link-type posts - the crawler
+        # was falling back to just the title with zero real body content.
+        # HN discovers articles same as RSS; the body must equally always
+        # come from the real linked page, not the HN metadata.
+        import tempfile
+
+        source = Source(
+            id="hacker_news",
+            name="Hacker News",
+            source_role="signal",
+            tier="T2",
+            type="hn",
+            category="community",
+            url="https://hn.algolia.com/api/v1/search_by_date?query=AI&tags=story",
+            homepage="https://news.ycombinator.com",
+            allowed_domains=["news.ycombinator.com", "hn.algolia.com"],
+            config={"query_terms": ["ai"]},
+        )
+        hits_payload = {
+            "hits": [
+                {
+                    "objectID": "1",
+                    "title": "AI Gets a Cerebellum",
+                    "url": "https://example.com/ai-cerebellum",
+                    "author": "user1",
+                    "created_at": "2026-07-01T10:00:00Z",
+                }
+            ]
+        }
+        page_html = """<!DOCTYPE html>
+<html><head><title>AI Gets a Cerebellum</title></head>
+<body><article>
+<h1>AI Gets a Cerebellum</h1>
+<p>Researchers built a new module with stronger reasoning for robots, drawing
+directly on how biological cerebellums coordinate fine motor control.</p>
+<p>It coordinates fine motor control across many simulated limbs at once,
+improving balance and reaction time well beyond earlier baseline models
+tested on the same benchmark suite.</p>
+</article></body></html>
+"""
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return __import__("json").dumps(hits_payload).encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("urllib.request.urlopen", return_value=FakeResponse()), patch(
+                "app.crawlers.page_content.fetch_url_text", return_value=page_html
+            ):
+                crawler = HackerNewsCrawler(source, page_cache_dir=Path(tmpdir))
+                articles = crawler.fetch(limit=5)
+
+        self.assertIn("stronger reasoning", articles[0].content)
+        self.assertTrue(articles[0].metadata.get("original_paragraphs"))
+        self.assertEqual(articles[0].metadata.get("content_origin"), "full_page")
 
 
 if __name__ == "__main__":

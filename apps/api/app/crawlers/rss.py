@@ -168,17 +168,6 @@ class RSSCrawler(BaseCrawler):
         return articles
 
     def _prefer_full_page(self, article: RawArticle) -> None:
-        from app.crawlers.page_content import DEFAULT_PAGE_CACHE_DIR, fetch_page_payload
+        from app.crawlers.page_content import prefer_full_page_content
 
-        try:
-            payload = fetch_page_payload(
-                article.source_url,
-                cache_dir=self.page_cache_dir or DEFAULT_PAGE_CACHE_DIR,
-            )
-        except Exception:  # page fetch is best-effort; feed data still stands
-            return
-        if not payload:
-            return
-        article.content = payload["content"]
-        article.metadata.update(payload["metadata"])
-        article.metadata["content_origin"] = "full_page"
+        prefer_full_page_content(article, cache_dir=self.page_cache_dir)

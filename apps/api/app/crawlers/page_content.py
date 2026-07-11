@@ -16,8 +16,27 @@ from typing import Any
 from app.crawlers.base import canonicalize_url, fetch_url_text, stable_hash
 from app.crawlers.sitemap import extract_page_article, main_content_region
 from app.crawlers.article_content import extract_article_content
+from app.models.domain import RawArticle
 
 DEFAULT_PAGE_CACHE_DIR = Path("data") / "page_cache"
+
+
+def prefer_full_page_content(article: RawArticle, *, cache_dir: Path | None = None) -> None:
+    """Replace an article's content with the real linked page's body, if it
+    can be fetched and extracted. Best-effort: any crawler that only
+    discovers articles (RSS feeds, HN/Reddit-style link aggregators) should
+    call this, since their own feed/API metadata is frequently a lossy
+    teaser or entirely empty - the real content always lives at the
+    original URL. Leaves the article untouched on any failure."""
+    try:
+        payload = fetch_page_payload(article.source_url, cache_dir=cache_dir or DEFAULT_PAGE_CACHE_DIR)
+    except Exception:
+        return
+    if not payload:
+        return
+    article.content = payload["content"]
+    article.metadata.update(payload["metadata"])
+    article.metadata["content_origin"] = "full_page"
 
 
 def fetch_page_payload(
