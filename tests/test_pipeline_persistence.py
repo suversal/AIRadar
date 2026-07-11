@@ -221,6 +221,66 @@ class PipelinePersistenceTests(unittest.TestCase):
             stable_hash("OpenAI releases agent model\nAI model release"),
         )
 
+    def test_persist_pipeline_result_records_run_timing(self):
+        # pipeline_runs 必须能回答"哪次任务何时开始、何时结束"——
+        # started_at 由调用方（refresh）提供，finished_at 在落库时打点
+        repository = FakeRepository()
+        daily_report = DailyReport(
+            report_date=date(2026, 7, 1),
+            markdown="# report",
+            json_data={"report_date": "2026-07-01", "items": [], "article_count": 0},
+            article_count=0,
+        )
+        result = PipelineResult(
+            raw_articles=[],
+            processed_articles=[],
+            event_clusters=[],
+            daily_report=daily_report,
+            skipped_reasons={},
+            embeddings={},
+            embedding_model="bge-small-zh-v1.5",
+        )
+        started = datetime(2026, 7, 1, 8, tzinfo=timezone.utc)
+
+        persist_pipeline_result(repository, sources=[], result=result, started_at=started)
+
+        kwargs = repository.pipeline_run_kwargs
+        self.assertEqual(kwargs["status"], "succeeded")
+        self.assertEqual(kwargs["started_at"], started)
+        self.assertIsNotNone(kwargs["finished_at"])
+
+    def test_refresh_records_failed_pipeline_run(self):
+        # 失败的运行也必须留下 DB 记录，否则无法回答"哪一步失败了"
+        import tempfile
+        from unittest.mock import patch
+
+        from sqlalchemy import create_engine, select
+        from sqlalchemy.orm import Session
+
+        from app.db.models import Base, PipelineRunModel
+        from app.services import refresh_service
+
+        with tempfile.TemporaryDirectory() as tmp:
+            database_url = f"sqlite+pysqlite:///{Path(tmp) / 'radar.sqlite'}"
+            engine = create_engine(database_url, future=True)
+            Base.metadata.create_all(engine)
+
+            with patch.object(
+                refresh_service, "crawl_sources", side_effect=RuntimeError("crawl exploded")
+            ):
+                with self.assertRaises(RuntimeError):
+                    refresh_service.refresh_latest_report(
+                        data_dir=Path(tmp), database_url=database_url
+                    )
+
+            with Session(engine) as session:
+                run = session.scalar(select(PipelineRunModel))
+
+        self.assertIsNotNone(run)
+        self.assertEqual(run.status, "failed")
+        self.assertIn("crawl exploded", run.error)
+        self.assertIsNotNone(run.finished_at)
+
     def test_persist_pipeline_result_remaps_event_cluster_id_through_merge_redirects(self):
         # regression, found via real-data verification: upsert_event_clusters
         # can redirect a "new" cluster into a different, already-existing
@@ -346,6 +406,7 @@ class FakeRepository:
         self.event_cluster_kwargs = None
         self.processed_articles_written = None
         self.cluster_redirects = {}
+        self.pipeline_run_kwargs = None
 
     def upsert_sources(self, sources):
         self.calls.append("sources")
@@ -379,6 +440,7 @@ class FakeRepository:
 
     def record_pipeline_run(self, **kwargs):
         self.calls.append("pipeline_run")
+        self.pipeline_run_kwargs = kwargs
         return FakeWriteResult(inserted=1)
 
 

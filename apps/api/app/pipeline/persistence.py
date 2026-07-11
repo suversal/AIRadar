@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from app.crawlers.base import stable_hash
@@ -66,6 +67,7 @@ def persist_pipeline_result(
     result: PipelineResult,
     cluster_window_hours: int = 72,
     similarity_threshold: float = 0.85,
+    started_at: datetime | None = None,
 ) -> PipelinePersistenceSummary:
     source_result = repository.upsert_sources(sources)
     raw_result = repository.upsert_raw_articles(result.raw_articles)
@@ -132,6 +134,8 @@ def persist_pipeline_result(
         processed_count=len(result.processed_articles),
         cluster_count=len(result.event_clusters),
         skipped_reasons=dict(result.skipped_reasons),
+        started_at=started_at,
+        finished_at=datetime.now(timezone.utc),
     )
     return PipelinePersistenceSummary(
         sources=source_result,
@@ -165,6 +169,7 @@ def persist_pipeline_result_to_database(
     *,
     cluster_window_hours: int = 72,
     similarity_threshold: float = 0.85,
+    started_at: datetime | None = None,
 ) -> PipelinePersistenceSummary:
     from app.db.session import build_session_factory, session_scope
     from app.repositories.radar_repository import RadarRepository
@@ -178,4 +183,31 @@ def persist_pipeline_result_to_database(
             result=result,
             cluster_window_hours=cluster_window_hours,
             similarity_threshold=similarity_threshold,
+            started_at=started_at,
         )
+
+
+def record_failed_pipeline_run(
+    database_url: str, *, started_at: datetime | None, error: str
+) -> None:
+    """Leave a durable trace of a failed run. Must never mask the original
+    failure, so any error while recording (e.g. the DB itself being down)
+    is swallowed."""
+    try:
+        from app.db.session import build_session_factory, session_scope
+        from app.repositories.radar_repository import RadarRepository
+
+        session_factory = build_session_factory(database_url)
+        with session_scope(session_factory) as session:
+            RadarRepository(session).record_pipeline_run(
+                status="failed",
+                raw_count=0,
+                processed_count=0,
+                cluster_count=0,
+                skipped_reasons={},
+                started_at=started_at,
+                finished_at=datetime.now(timezone.utc),
+                error=error,
+            )
+    except Exception:  # pragma: no cover - best-effort bookkeeping
+        pass

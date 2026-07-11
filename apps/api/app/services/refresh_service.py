@@ -119,6 +119,34 @@ def refresh_latest_report(
 ) -> dict[str, Any]:
     resolved_date = report_date or date.today()
     generated_at = datetime.now(timezone.utc)
+    try:
+        return _run_refresh(
+            data_dir=data_dir,
+            database_url=database_url,
+            limit=limit,
+            top_n=top_n,
+            resolved_date=resolved_date,
+            generated_at=generated_at,
+        )
+    except Exception as exc:
+        # a failed run must leave a durable trace, not just an in-memory
+        # job status; recording is best-effort and never masks the failure
+        if database_url:
+            from app.pipeline.persistence import record_failed_pipeline_run
+
+            record_failed_pipeline_run(database_url, started_at=generated_at, error=str(exc))
+        raise
+
+
+def _run_refresh(
+    *,
+    data_dir: Path,
+    database_url: str | None,
+    limit: int,
+    top_n: int,
+    resolved_date: date,
+    generated_at: datetime,
+) -> dict[str, Any]:
     sources_path = data_dir / "sources.json"
     sources = _load_sources(database_url, sources_path)
 
@@ -180,6 +208,7 @@ def refresh_latest_report(
             result,
             cluster_window_hours=_env_int("CLUSTER_WINDOW_HOURS", 72),
             similarity_threshold=_env_float("CLUSTER_SIMILARITY_THRESHOLD", 0.93),
+            started_at=generated_at,
         )
         _regenerate_period_reports(database_url, resolved_date, ai_provider)
 
