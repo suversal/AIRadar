@@ -265,6 +265,15 @@ class AIProviderTests(unittest.TestCase):
         # param no longer reshapes output the way the old hash fallback did
         self.assertEqual(len(provider.embed_text("same text")), 512)
 
+    def test_composite_providers_expose_embedding_model_name(self):
+        # article_embeddings.embedding_model 落库时取自 provider；组合 provider
+        # （远程 chat + 本地 bge 向量）必须报告真实向量模型名而非 "unknown"
+        from app.pipeline.runner import _embedding_model_name
+
+        for provider in (KimiProvider("test-key"), DeepSeekProvider("test-key")):
+            self.assertEqual(_embedding_model_name(provider), "BAAI/bge-small-zh-v1.5")
+        self.assertEqual(_embedding_model_name(FakeAIProvider()), "fake-embedding")
+
     def test_provider_from_env_selects_kimi_without_committing_secrets(self):
         with patch.dict(
             os.environ,

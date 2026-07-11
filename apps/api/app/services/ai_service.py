@@ -222,6 +222,8 @@ def parse_chat_json(content: str) -> Any:
 class FakeAIProvider:
     """Deterministic provider for local tests and no-key dry runs."""
 
+    embedding_model = "fake-embedding"
+
     def prefilter(self, text: str) -> PrefilterResult:
         normalized = text.lower()
         is_related = any(keyword in normalized for keyword in AI_KEYWORDS)
@@ -454,6 +456,12 @@ class KimiProvider:
         self.base_url = base_url.rstrip("/")
         self._embedding_provider = LocalEmbeddingProvider()
 
+    @property
+    def embedding_model(self) -> str:
+        # chat runs remotely but vectors come from the local bge model; the
+        # persisted embedding_model label must name the vector model
+        return self._embedding_provider.model_name
+
     def _post_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
         request = urllib.request.Request(
             url,
@@ -570,6 +578,12 @@ class DeepSeekProvider:
         self.user_id = user_id
         self.max_tokens = max_tokens
         self._embedding_provider = LocalEmbeddingProvider()
+
+    @property
+    def embedding_model(self) -> str:
+        # chat runs remotely but vectors come from the local bge model; the
+        # persisted embedding_model label must name the vector model
+        return self._embedding_provider.model_name
 
     def _post_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
         request = urllib.request.Request(
