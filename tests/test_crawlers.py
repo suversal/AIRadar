@@ -75,6 +75,7 @@ class CrawlerTests(unittest.TestCase):
               <title>AI system ships</title>
               <link>https://example.com/ai-system?utm_campaign=test</link>
               <description>Important model update.</description>
+              <category>AI 产品</category>
               <pubDate>Wed, 01 Jul 2026 08:00:00 GMT</pubDate>
               <author>Reporter</author>
             </item>
@@ -87,6 +88,70 @@ class CrawlerTests(unittest.TestCase):
         self.assertEqual(len(articles), 1)
         self.assertEqual(articles[0].title, "AI system ships")
         self.assertEqual(articles[0].source_url, "https://example.com/ai-system")
+        self.assertEqual(articles[0].metadata["feed_category"], "AI 产品")
+        self.assertEqual(articles[0].metadata["feed_position"], 1)
+
+    def test_aihot_rss_uses_original_url_from_description_as_source_url(self):
+        source = Source(
+            id="aihot_feed",
+            name="AI HOT 每日精选",
+            source_role="aggregator",
+            tier="T3",
+            type="rss",
+            category="media",
+            url="https://aihot.virxact.com/feed.xml",
+            homepage="https://aihot.virxact.com",
+            allowed_domains=["aihot.virxact.com"],
+            language="zh",
+            can_be_main_source=False,
+            config={"original_url_from_description": True},
+        )
+        xml = """<?xml version="1.0"?>
+        <rss version="2.0"><channel><item>
+          <title><![CDATA[博科圣地如何利用前沿AI技术]]></title>
+          <link>https://aihot.virxact.com/items/cmrfiocpi0035ihjlcm4qu8af</link>
+          <description><![CDATA[研究摘要正文。
+
+🔗 阅读原文：https://casp.ac/reports/ai-enabled-terrorism
+
+via AI HOT · https://aihot.virxact.com/items/cmrfiocpi0035ihjlcm4qu8af]]></description>
+          <category>论文</category>
+          <pubDate>Fri, 10 Jul 2026 22:07:19 GMT</pubDate>
+        </item></channel></rss>
+        """
+
+        articles = parse_rss(xml, source)
+
+        self.assertEqual(
+            articles[0].source_url,
+            "https://casp.ac/reports/ai-enabled-terrorism",
+        )
+
+    def test_aihot_rss_falls_back_to_item_link_without_original_url(self):
+        source = Source(
+            id="aihot_feed",
+            name="AI HOT 每日精选",
+            source_role="aggregator",
+            tier="T3",
+            type="rss",
+            category="media",
+            url="https://aihot.virxact.com/feed.xml",
+            homepage="https://aihot.virxact.com",
+            allowed_domains=["aihot.virxact.com"],
+            config={"original_url_from_description": True},
+        )
+        xml = """<rss><channel><item>
+          <title>无原文链接的条目</title>
+          <link>https://aihot.virxact.com/items/fallback</link>
+          <description>只有摘要，没有阅读原文。</description>
+        </item></channel></rss>"""
+
+        articles = parse_rss(xml, source)
+
+        self.assertEqual(
+            articles[0].source_url,
+            "https://aihot.virxact.com/items/fallback",
+        )
 
     def test_extract_article_content_preserves_blocks_and_image_urls(self):
         html = """
@@ -690,6 +755,95 @@ class CrawlerTests(unittest.TestCase):
             [article.title for article in articles],
             ["Modern AI foundations videos", "OpenAI releases an agent benchmark"],
         )
+
+    def test_prefer_full_page_content_flips_language_to_match_fetched_body(self):
+        # aihot 聚合源标 zh（feed 摘要是中文），但"阅读原文"多为英文页面；
+        # 全文替换后语言标记必须跟随正文，否则翻译管道（只认 en）不会翻它
+        import tempfile
+
+        from app.crawlers.page_content import prefer_full_page_content
+
+        source = Source(
+            id="aihot_feed",
+            name="AI HOT 每日精选",
+            source_role="aggregator",
+            tier="T3",
+            type="rss",
+            category="media",
+            url="https://aihot.virxact.com/feed.xml",
+            homepage="https://aihot.virxact.com",
+            allowed_domains=["aihot.virxact.com"],
+            language="zh",
+            can_be_main_source=False,
+        )
+        article = normalize_article(
+            source=source,
+            source_url="https://casp.ac/reports/ai-enabled-terrorism",
+            title="How groups use frontier AI",
+            content="中文摘要：报告讨论了前沿 AI 的滥用问题。",
+            author=None,
+            published_at=datetime(2026, 7, 10, 22, tzinfo=timezone.utc),
+            language=source.language,
+            raw_score={},
+            metadata={},
+        )
+        page_html = """<!DOCTYPE html><html><body><article>
+        <p>Frontier AI systems are increasingly capable, and this report examines
+        how extremist groups experiment with them for propaganda and recruiting.</p>
+        <p>The authors reviewed dozens of operational incidents and interviewed
+        analysts to understand where current safeguards fall short in practice.</p>
+        </article></body></html>"""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("app.crawlers.page_content.fetch_url_text", return_value=page_html):
+                prefer_full_page_content(article, cache_dir=Path(tmpdir))
+
+        self.assertEqual(article.metadata.get("content_origin"), "full_page")
+        self.assertIn("Frontier AI systems", article.content)
+        self.assertEqual(article.language, "en")
+
+    def test_prefer_full_page_content_keeps_zh_language_for_chinese_body(self):
+        import tempfile
+
+        from app.crawlers.page_content import prefer_full_page_content
+
+        source = Source(
+            id="ithome",
+            name="IT之家",
+            source_role="signal",
+            tier="T2",
+            type="rss",
+            category="media",
+            url="https://www.ithome.com/rss/",
+            homepage="https://www.ithome.com",
+            allowed_domains=["ithome.com"],
+            language="zh",
+        )
+        article = normalize_article(
+            source=source,
+            source_url="https://www.ithome.com/0/973/803.htm",
+            title="国产大模型发布",
+            content="摘要",
+            author=None,
+            published_at=datetime(2026, 7, 10, 22, tzinfo=timezone.utc),
+            language=source.language,
+            raw_score={},
+            metadata={},
+        )
+        page_html = """<!DOCTYPE html><html><body><article>
+        <p>今天发布的国产大模型在多项公开基准测试上刷新了行业纪录，模型支持超长上下文窗口
+        与多模态输入输出能力，面向开发者全面开放应用编程接口，并同步提供企业级私有化部署方案，
+        覆盖在线推理与继续训练两大类使用场景，官方文档给出了完整的迁移指引和示例代码仓库。</p>
+        <p>官方同时公布了详细的价格档位与调用配额策略，早期接入的多个开发团队反馈整体积极，
+        社区讨论集中在推理延迟与中文语料质量两个方面，已有多家企业宣布将现有业务迁移至该模型。</p>
+        </article></body></html>"""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("app.crawlers.page_content.fetch_url_text", return_value=page_html):
+                prefer_full_page_content(article, cache_dir=Path(tmpdir))
+
+        self.assertEqual(article.metadata.get("content_origin"), "full_page")
+        self.assertEqual(article.language, "zh")
 
     def test_parse_hn_hits_drops_low_engagement_posts_by_default(self):
         # 实测两例（1分0评的 SPA 空壳、广告落地页）：HN 的价值信号就是

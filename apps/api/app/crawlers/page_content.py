@@ -29,6 +29,25 @@ def _is_bare_url(text: str) -> bool:
     return bool(re.fullmatch(r"https?://\S+", text.strip()))
 
 
+_CJK_RE = re.compile(r"[一-鿿]")
+_LATIN_RE = re.compile(r"[A-Za-z]")
+
+
+def _detect_body_language(text: str) -> str | None:
+    """Best-effort script detection for a fetched article body. Aggregator
+    feeds label their own language (e.g. aihot's zh summaries), but the
+    阅读原文 page they point at is often English - and the translation
+    pipeline only picks up language=='en' articles. Returns None when the
+    signal is ambiguous so the caller keeps the source's label."""
+    cjk = len(_CJK_RE.findall(text))
+    latin = len(_LATIN_RE.findall(text))
+    if cjk >= 50 or (cjk > 0 and cjk * 4 >= latin):
+        return "zh"
+    if latin >= 200 and cjk < 10:
+        return "en"
+    return None
+
+
 def prefer_full_page_content(article: RawArticle, *, cache_dir: Path | None = None) -> None:
     """Replace an article's content with the real linked page's body, if it
     can be fetched and extracted. Best-effort: any crawler that only
@@ -45,6 +64,9 @@ def prefer_full_page_content(article: RawArticle, *, cache_dir: Path | None = No
     article.content = payload["content"]
     article.metadata.update(payload["metadata"])
     article.metadata["content_origin"] = "full_page"
+    detected = _detect_body_language(article.content)
+    if detected:
+        article.language = detected
 
 
 def fetch_page_payload(

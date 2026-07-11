@@ -28,6 +28,20 @@ class SourcesAndStorageTests(unittest.TestCase):
         self.assertEqual(ithome.language, "zh")
         self.assertTrue(ithome.config["extract_original_content"])
 
+        aihot = next(source for source in sources if source.id == "aihot_feed")
+        self.assertEqual(aihot.url, "https://aihot.virxact.com/feed.xml")
+        self.assertEqual(aihot.source_role, "aggregator")
+        self.assertEqual(aihot.tier, "T3")
+        self.assertEqual(aihot.language, "zh")
+        self.assertFalse(aihot.can_be_main_source)
+        self.assertFalse(aihot.affects_heat_score)
+        self.assertEqual(aihot.config["crawl_limit"], 50)
+        self.assertEqual(aihot.config["selection_policy"], "trusted_curated")
+        # 正文必须从"阅读原文"页面抓取（2026-07-11 决策），feed 摘要只是
+        # 抓取失败时的回退——绝不能配置成只用 feed 内容
+        self.assertNotIn("use_feed_content_only", aihot.config)
+        self.assertTrue(aihot.config["original_url_from_description"])
+
     def test_default_sources_second_batch_replaces_dead_feeds(self):
         sources = default_sources()
         by_id = {source.id: source for source in sources}

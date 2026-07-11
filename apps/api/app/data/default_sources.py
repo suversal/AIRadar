@@ -389,4 +389,26 @@ def default_sources() -> list[Source]:
             can_be_main_source=True,
             config={"extract_original_content": True},
         ),
+        Source(
+            id="aihot_feed",
+            name="AI HOT 每日精选",
+            source_role="aggregator",
+            tier="T3",
+            type="rss",
+            category="media",
+            url="https://aihot.virxact.com/feed.xml",
+            homepage="https://aihot.virxact.com",
+            allowed_domains=["aihot.virxact.com"],
+            fetch_interval_min=60,
+            language="zh",
+            can_be_main_source=False,
+            affects_heat_score=False,
+            config={
+                "crawl_limit": 50,
+                "selection_policy": "trusted_curated",
+                # body comes from the 阅读原文 page (feed summary is only the
+                # fallback when that fetch fails) - so NO use_feed_content_only
+                "original_url_from_description": True,
+            },
+        ),
     ]
