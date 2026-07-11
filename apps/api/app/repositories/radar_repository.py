@@ -1009,7 +1009,13 @@ def _event_item(
         published_at = published_at.replace(tzinfo=timezone.utc)
     title_zh = (override.title_zh if override and override.title_zh else None) or processed.title_zh
     category = (override.category if override and override.category else None) or processed.category
-    tags = list(override.tags) if override and override.tags else list(processed.tags or [])
+    # override.tags is None means the editor never touched tags; an empty
+    # list is a deliberate "clear all tags" decision and must win
+    tags = (
+        list(override.tags)
+        if override and override.tags is not None
+        else list(processed.tags or [])
+    )
     hidden = bool(override.hidden) if override else False
     item: dict[str, Any] = {
         "event_id": processed.event_cluster_id or f"a{raw.id[:12]}",

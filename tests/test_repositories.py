@@ -189,6 +189,25 @@ class RepositoryTests(unittest.TestCase):
         # a2 隐藏被剔除，unknown-id 解析不到被跳过，顺序按传入顺序保留
         self.assertEqual([item["event_id"] for item in items], ["aa3", "aa1"])
 
+    def test_moderation_can_clear_tags_with_empty_list(self):
+        # 编辑把标签清空是一个真实的治理动作：tags=[] 必须覆盖掉机器标签，
+        # 只有从未动过标签（override.tags 为 NULL）才回退到机器值。
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([self._article(article_id="a1", title="待清标签")])
+            repository.upsert_processed_articles([self._processed("a1")])
+            session.commit()
+
+            repository.update_event_moderation("aa1", {"tags": []})
+            session.commit()
+
+            items = repository.get_event_items_by_ids(["aa1"])
+
+        self.assertEqual(items[0]["tags"], [])
+
     def test_daily_report_payloads_between_returns_range_in_ascending_order(self):
         from app.repositories.radar_repository import RadarRepository
 
