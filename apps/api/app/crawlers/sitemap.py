@@ -56,12 +56,19 @@ _META_RE = re.compile(
     re.IGNORECASE,
 )
 _META_CONTENT_RE = re.compile(r"content=[\"'](.*?)[\"']", re.IGNORECASE | re.DOTALL)
-# strips a trailing " | Site Name" / " - Site Name" style suffix. The
-# separator must have whitespace on BOTH sides - a bare hyphen inside a
-# word/number (e.g. "GLM-5.2", "GPT-5") is not a title/site-name delimiter
-# and must be left alone (real case: the-decoder.com titles with no site
-# suffix at all were getting chopped off at the version-number hyphen).
-_TITLE_SUFFIX_RE = re.compile(r"\s+[\\|·—-]\s+[^\\|·—-]*$")
+# strips a trailing " | Site Name" style suffix: separator with whitespace
+# on BOTH sides (covers \|·—- and the en dash – some sites use, e.g. an
+# HTML-entity-decoded qbitai.com title). A bare hyphen inside a word/number
+# (e.g. "GLM-5.2", "GPT-5") is not a title/site-name delimiter and must be
+# left alone (real case: the-decoder.com titles with no site suffix at all
+# were getting chopped off at the version-number hyphen).
+_TITLE_SUFFIX_RE = re.compile(r"\s+[\\|·—–-]\s+[^\\|·—–-]*$")
+# some sites glue the site-name suffix directly onto the title with no
+# surrounding whitespace at all (real case: 36kr.com "...流体-36氪"). Only
+# treat a bare trailing hyphen as this kind of suffix when the tail after it
+# is short and space-free - a genuine site name, not a version number like
+# "GLM-5.2 in coding..." where real prose continues past the number.
+_TITLE_TIGHT_HYPHEN_SUFFIX_RE = re.compile(r"-[^\s\\|·—–-]{1,12}$")
 
 
 def _parse_lastmod(value: str | None) -> datetime | None:
@@ -156,7 +163,8 @@ def extract_page_article(html_text: str) -> tuple[str, str]:
     title_match = _TITLE_RE.search(html_text)
     if title_match:
         title = clean_text(html.unescape(title_match.group(1)))
-        title = _TITLE_SUFFIX_RE.sub("", title).strip()
+        title = _TITLE_SUFFIX_RE.sub("", title)
+        title = _TITLE_TIGHT_HYPHEN_SUFFIX_RE.sub("", title).strip()
     description = ""
     meta_match = _META_RE.search(html_text)
     if meta_match:

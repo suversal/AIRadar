@@ -535,6 +535,48 @@ class SitemapCrawlerTests(unittest.TestCase):
 
         self.assertEqual(title, "Some Headline")
 
+    def test_extract_page_article_strips_en_dash_site_suffix(self):
+        # 真实案例（qbitai.com）：站点名后缀用的是 en dash "–"（U+2013，
+        # HTML 实体 &#8211;），不在旧字符类 [\|·—-] 里，导致后缀没被剥离
+        html = (
+            "<html><head><title>中国首个十万卡集群落成！全国产算力支撑"
+            "“十万卡时代” &#8211; 量子位</title></head><body></body></html>"
+        )
+
+        title, _ = extract_page_article(html)
+
+        self.assertEqual(title, "中国首个十万卡集群落成！全国产算力支撑“十万卡时代”")
+
+    def test_extract_page_article_strips_tight_hyphen_site_suffix_at_end(self):
+        # 真实案例（36kr.com）：站点名紧贴在连字符后、两侧都没有空格
+        # （"...流体-36氪"），必须和真正的版本号连字符（GLM-5.2）区分——
+        # 判据是连字符后到字符串末尾这段"尾巴"很短且不含空白
+        html = (
+            "<html><head><title>36氪首发 | 三个月融三轮，上交大00后博士让"
+            "具身智能仿生扑翼机器人理解并驾驭流体-36氪</title></head><body></body></html>"
+        )
+
+        title, _ = extract_page_article(html)
+
+        self.assertEqual(
+            title,
+            "36氪首发 | 三个月融三轮，上交大00后博士让具身智能仿生扑翼机器人理解并驾驭流体",
+        )
+
+    def test_extract_page_article_keeps_mid_title_hyphen_with_long_tail(self):
+        # 回归防护：连字符后尾巴较长（真实正文续写，不是站点名）时依然不剥离
+        html = (
+            "<html><head><title>Meta's Muse Spark 1.1 outperforms GLM-5.2 "
+            "in coding and costs slightly less</title></head><body></body></html>"
+        )
+
+        title, _ = extract_page_article(html)
+
+        self.assertEqual(
+            title,
+            "Meta's Muse Spark 1.1 outperforms GLM-5.2 in coding and costs slightly less",
+        )
+
     def setUp(self):
         import tempfile
 
