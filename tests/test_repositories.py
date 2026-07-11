@@ -274,6 +274,35 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(listed[0]["event_id"], "e-drift")
         self.assertEqual(listed[0]["source_count"], 2)
 
+    def test_similarity_score_allows_null_for_unknown_evidence(self):
+        # 遗留成员行的相似度是"未知"而非真实的 0——列必须可空以区分两者
+        from app.db.models import EventClusterArticleModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([self._article(article_id="a1", title="主文", url_hash="u1")])
+            repository.upsert_event_clusters([self._cluster("e-null", main_article_id="a1")])
+            session.commit()
+
+            session.add(
+                EventClusterArticleModel(
+                    event_cluster_id="e-null",
+                    raw_article_id="b-legacy",
+                    similarity_score=None,
+                )
+            )
+            # b-legacy 无 raw 行也能插（SQLite 默认不查 FK），重点是可空性
+            session.flush()
+            stored = session.scalar(
+                select(EventClusterArticleModel).where(
+                    EventClusterArticleModel.raw_article_id == "b-legacy"
+                )
+            )
+
+        self.assertIsNone(stored.similarity_score)
+
     def test_duplicate_event_membership_is_rejected_by_constraint(self):
         # 数据库层必须兜底：同一文章不能在同一事件中出现两行
         from sqlalchemy.exc import IntegrityError

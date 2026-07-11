@@ -277,7 +277,9 @@ class EventClusterArticleModel(Base):
     raw_article_id: Mapped[str] = mapped_column(
         ForeignKey("raw_articles.id"), nullable=False, index=True
     )
-    similarity_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    # clustering evidence; NULL means "unknown" (legacy rows written before
+    # evidence was captured) - never fake it as 0.0
+    similarity_score: Mapped[Optional[float]] = mapped_column(Float)
     is_main: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     source_priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # when this article joined the event - distinct from the event's own

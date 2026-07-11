@@ -483,7 +483,9 @@ class RadarRepository:
             for article_id in cluster.article_ids:
                 if article_id in existing_article_ids:
                     continue
-                similarity = cluster.article_similarities.get(article_id, 0.0)
+                # None (not 0.0) when evidence is unavailable - the column
+                # distinguishes "unknown" from a real low score
+                similarity = cluster.article_similarities.get(article_id)
                 if redirected:
                     # the evidence must describe the event actually joined:
                     # against the incoming bucket the value is trivially ~1.0,
