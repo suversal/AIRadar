@@ -3,6 +3,7 @@ import { AdminShell } from "./admin-shell";
 import { PipelineRunDetail } from "./pipeline-run-detail";
 import { RefreshReportButton } from "./refresh-report-button";
 import { SchedulePanel } from "./schedule-panel";
+import { Pill, TABLE_HEAD_ROW, TABLE_ROW, type Tone } from "./ui";
 
 export const metadata = {
   title: "仪表盘 · AI·RADAR 管理后台",
@@ -111,6 +112,12 @@ const STATUS_LABELS: Record<string, string> = {
   running: "运行中",
 };
 
+const STATUS_TONE: Record<string, Tone> = {
+  succeeded: "success",
+  failed: "danger",
+  running: "warning",
+};
+
 const PHASE_LABELS: Record<string, string> = {
   crawling: "抓取中",
   scoring: "AI 处理中",
@@ -179,47 +186,39 @@ export default async function AdminDashboardPage() {
             <div className="mt-5 overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className="border-b border-line text-xs text-ink-dim">
-                    <th className="py-2 pr-4">#</th>
-                    <th className="py-2 pr-4">开始</th>
-                    <th className="py-2 pr-4">结束</th>
-                    <th className="py-2 pr-4">耗时</th>
-                    <th className="py-2 pr-4">状态</th>
-                    <th className="py-2 pr-4">抓取文章</th>
-                    <th className="py-2 pr-4">AI 处理</th>
-                    <th className="py-2 pr-4">事件簇</th>
-                    <th className="py-2">跳过说明</th>
+                  <tr className={TABLE_HEAD_ROW}>
+                    <th className="py-2.5 pr-4 text-right font-semibold">#</th>
+                    <th className="py-2.5 pr-4 font-semibold">开始</th>
+                    <th className="py-2.5 pr-4 font-semibold">结束</th>
+                    <th className="py-2.5 pr-4 text-right font-semibold">耗时</th>
+                    <th className="py-2.5 pr-4 font-semibold">状态</th>
+                    <th className="py-2.5 pr-4 text-right font-semibold">抓取</th>
+                    <th className="py-2.5 pr-4 text-right font-semibold">AI 处理</th>
+                    <th className="py-2.5 pr-4 text-right font-semibold">事件簇</th>
+                    <th className="py-2.5 font-semibold">跳过说明</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
                   {overview.runs.map((run) => (
-                    <tr key={run.id} className="text-ink-mid">
-                      <td className="readout py-2 pr-4">{run.id}</td>
-                      <td className="readout py-2 pr-4">{formatTime(run.started_at)}</td>
-                      <td className="readout py-2 pr-4">{formatTime(run.finished_at)}</td>
-                      <td className="readout whitespace-nowrap py-2 pr-4">
+                    <tr key={run.id} className={`text-ink-mid ${TABLE_ROW}`}>
+                      <td className="readout py-2.5 pr-4 text-right text-ink-dim">{run.id}</td>
+                      <td className="readout py-2.5 pr-4">{formatTime(run.started_at)}</td>
+                      <td className="readout py-2.5 pr-4">{formatTime(run.finished_at)}</td>
+                      <td className="readout whitespace-nowrap py-2.5 pr-4 text-right">
                         {formatDuration(run.started_at, run.finished_at, run.status)}
                       </td>
-                      <td className="py-2 pr-4">
-                        <span
-                          className={
-                            run.status === "succeeded"
-                              ? "text-green-400"
-                              : run.status === "running"
-                                ? "text-yellow-300"
-                                : "text-red-300"
-                          }
-                        >
+                      <td className="py-2.5 pr-4">
+                        <Pill tone={STATUS_TONE[run.status] ?? "neutral"}>
                           {STATUS_LABELS[run.status] ?? run.status}
                           {run.status === "running" && run.phase
                             ? ` · ${PHASE_LABELS[run.phase] ?? run.phase}`
                             : null}
-                        </span>
+                        </Pill>
                       </td>
-                      <td className="readout py-2 pr-4">{run.raw_count}</td>
-                      <td className="readout py-2 pr-4">{run.processed_count}</td>
-                      <td className="readout py-2 pr-4">{run.cluster_count}</td>
-                      <td className="max-w-md py-2 text-xs leading-5 text-ink-dim">
+                      <td className="readout py-2.5 pr-4 text-right">{run.raw_count}</td>
+                      <td className="readout py-2.5 pr-4 text-right">{run.processed_count}</td>
+                      <td className="readout py-2.5 pr-4 text-right">{run.cluster_count}</td>
+                      <td className="max-w-md py-2.5 text-xs leading-5 text-ink-dim">
                         <div>{skippedReasonText(run.skipped_reasons)}</div>
                         <div className="mt-1">
                           <PipelineRunDetail

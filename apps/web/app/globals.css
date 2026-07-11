@@ -17,6 +17,14 @@
   --color-ink-mid: #a9a69c;
   --color-ink-dim: #75726a;
 
+  /* semantic status colors — same hues already used ad hoc across admin
+     tables (health dots, run status, article outcomes), formalized here
+     so every table speaks the same status language */
+  --color-success: #4ade80;
+  --color-warning: #facc15;
+  --color-danger: #f87171;
+  --color-info: #7dd3fc;
+
   --font-sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC",
     "Microsoft YaHei", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono",

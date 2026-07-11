@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
+import { Pill, StatusDot, TABLE_HEAD_ROW, TABLE_ROW, TableShell, type Tone } from "../ui";
 
 export type AdminSource = {
   id: string;
@@ -54,12 +55,11 @@ async function api(path: string, init?: RequestInit) {
   return payload;
 }
 
-function healthLabel(source: AdminSource) {
-  if (!source.is_active) return { text: "停用", tone: "text-ink-dim", dot: "bg-ink-dim" };
-  if (source.error_count > 0 || source.success_rate < 0.5)
-    return { text: "故障", tone: "text-red-300", dot: "bg-red-400" };
-  if (source.success_rate < 0.9) return { text: "波动", tone: "text-yellow-300", dot: "bg-yellow-400" };
-  return { text: "正常", tone: "text-green-400", dot: "bg-green-400" };
+function healthLabel(source: AdminSource): { text: string; tone: Tone } {
+  if (!source.is_active) return { text: "停用", tone: "neutral" };
+  if (source.error_count > 0 || source.success_rate < 0.5) return { text: "故障", tone: "danger" };
+  if (source.success_rate < 0.9) return { text: "波动", tone: "warning" };
+  return { text: "正常", tone: "success" };
 }
 
 function formatTime(value?: string | null) {
@@ -75,29 +75,31 @@ function formatTime(value?: string | null) {
   }).format(parsed);
 }
 
-function resultSummary(result?: CrawlResult | null) {
-  if (!result) return { tone: "border-line text-ink-dim", text: "尚未抓取" };
+function resultSummary(result?: CrawlResult | null): { tone: Tone; text: string } {
+  if (!result) return { tone: "neutral", text: "尚未抓取" };
   if (result.status === "failed") {
-    return { tone: "border-red-400/30 bg-red-400/10 text-red-200", text: "失败 · 查看详情" };
+    return { tone: "danger", text: "失败" };
   }
   const origin = result.origin === "auto" ? "自动" : "手动";
   if (!result.articles?.length) {
-    return {
-      tone: "border-line text-ink-mid",
-      text: `${origin} · 抓到 ${result.fetched_count ?? 0} 篇 · 查看详情`,
-    };
+    return { tone: "neutral", text: `${origin} · 抓到 ${result.fetched_count ?? 0} 篇` };
   }
   const saved = result.articles.filter((article) => article.outcome === "saved").length;
-  return {
-    tone: "border-green-400/30 bg-green-400/10 text-green-300",
-    text: `${origin} · 抓到 ${result.articles.length} · 通过 ${saved} · 查看详情`,
-  };
+  return { tone: "success", text: `${origin} · 抓到 ${result.articles.length} · 通过 ${saved}` };
 }
 
-const OUTCOME_LABEL: Record<string, { text: string; tone: string }> = {
-  saved: { text: "已保存", tone: "border-green-400/40 bg-green-400/10 text-green-300" },
-  rejected: { text: "未通过", tone: "border-line-strong text-ink-dim" },
-  duplicate: { text: "已存在", tone: "border-yellow-400/40 bg-yellow-400/10 text-yellow-300" },
+const RESULT_BUTTON_TONE: Record<Tone, string> = {
+  success: "border-success/30 bg-success/10 text-success",
+  warning: "border-warning/30 bg-warning/10 text-warning",
+  danger: "border-danger/30 bg-danger/10 text-danger",
+  signal: "border-signal/30 bg-signal/10 text-signal",
+  neutral: "border-line text-ink-dim",
+};
+
+const OUTCOME_LABEL: Record<string, { text: string; tone: Tone }> = {
+  saved: { text: "已保存", tone: "success" },
+  rejected: { text: "未通过", tone: "neutral" },
+  duplicate: { text: "已存在", tone: "warning" },
 };
 
 export function SourcesManager({ initialSources }: { initialSources: AdminSource[] }) {
@@ -115,6 +117,23 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
   });
   const [editing, setEditing] = useState<AdminSource | null>(null);
   const [viewingResultFor, setViewingResultFor] = useState<string | null>(null);
+  const [hoverCard, setHoverCard] = useState<{
+    source: AdminSource;
+    top: number;
+    left: number;
+    flip: boolean;
+  } | null>(null);
+
+  function showHoverCard(event: ReactMouseEvent<HTMLElement>, source: AdminSource) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const flip = rect.bottom + 90 > window.innerHeight;
+    setHoverCard({
+      source,
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - 340)),
+      top: flip ? rect.top - 8 : rect.bottom + 8,
+      flip,
+    });
+  }
 
   async function run(sourceId: string, kind: "toggle" | "edit", action: () => Promise<void>) {
     setBusy({ id: sourceId, kind });
@@ -184,15 +203,15 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
         </div>
       ) : null}
 
-      <div className="overflow-x-auto rounded-md border border-line bg-panel">
+      <TableShell>
         <table className="w-full table-fixed text-left text-sm">
           <thead>
-            <tr className="border-b border-line text-xs text-ink-dim">
-              <th className="w-[30%] px-4 py-3">信源</th>
-              <th className="w-[18%] px-4 py-3">类型</th>
-              <th className="w-[14%] px-4 py-3">状态与健康</th>
-              <th className="w-[20%] px-4 py-3">上次抓取结果</th>
-              <th className="w-[18%] px-4 py-3">操作</th>
+            <tr className={TABLE_HEAD_ROW}>
+              <th className="w-[27%] px-4 py-3 font-semibold">信源</th>
+              <th className="w-[17%] px-4 py-3 font-semibold">类型</th>
+              <th className="w-[13%] px-4 py-3 font-semibold">状态与健康</th>
+              <th className="w-[18%] px-4 py-3 font-semibold">上次抓取结果</th>
+              <th className="w-[25%] px-4 py-3 font-semibold">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -200,66 +219,73 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
               const health = healthLabel(source);
               const test = testResults[source.id];
               const summary = resultSummary(test);
+              const crawlLimitLabel =
+                Number(source.config?.crawl_limit ?? 0) > 0
+                  ? `每轮 ${source.config?.crawl_limit} 条`
+                  : "每轮默认 5 条";
               return (
-                <tr key={source.id} className="align-top text-ink-mid">
+                <tr key={source.id} className={`align-top text-ink-mid ${TABLE_ROW}`}>
                   <td className="min-w-0 px-4 py-3">
-                    <div className="truncate font-semibold text-ink" title={source.name}>
-                      {source.name}
-                    </div>
-                    <div className="readout mt-1 truncate text-xs text-ink-dim" title={source.url}>
-                      {source.url}
-                    </div>
-                  </td>
-                  <td className="min-w-0 px-4 py-3 text-xs text-ink-mid">
-                    <div className="readout truncate">{source.type} · {source.tier}</div>
-                    <div className="mt-1 truncate">{source.category} · {source.language}</div>
-                    <div className="readout mt-1 truncate text-ink-dim">
-                      {source.fetch_interval_min} min ·{" "}
-                      {Number(source.config?.crawl_limit ?? 0) > 0
-                        ? `每轮 ${source.config?.crawl_limit} 条`
-                        : "每轮默认 5 条"}
+                    <div
+                      className="w-fit max-w-full"
+                      onMouseEnter={(event) => showHoverCard(event, source)}
+                      onMouseLeave={() => setHoverCard(null)}
+                    >
+                      <div className="truncate font-semibold text-ink">{source.name}</div>
+                      <div className="readout mt-1 truncate text-xs text-ink-dim">{source.url}</div>
                     </div>
                   </td>
                   <td className="min-w-0 px-4 py-3 text-xs">
-                    <div className={`flex items-center gap-2 font-semibold ${health.tone}`}>
-                      <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${health.dot}`} />
-                      {health.text}
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="rounded bg-panel-soft px-1.5 py-0.5 text-[11px] font-semibold text-ink-mid">
+                        {source.type}
+                      </span>
+                      <span className="rounded border border-line-strong px-1.5 py-0.5 text-[11px] font-semibold text-ink-dim">
+                        {source.tier}
+                      </span>
+                    </div>
+                    <div className="mt-1.5 truncate text-ink-mid">
+                      {source.category} · {source.language}
                     </div>
                     <div className="readout mt-1 truncate text-ink-dim">
-                      成功率 {(source.success_rate * 100).toFixed(0)}% · 错误 {source.error_count}
+                      {source.fetch_interval_min} min · {crawlLimitLabel}
                     </div>
+                  </td>
+                  <td className="min-w-0 px-4 py-3 text-xs">
+                    <StatusDot label={health.text} tone={health.tone} />
+                    <div className="readout mt-1.5 text-ink-dim">
+                      成功率 {(source.success_rate * 100).toFixed(0)}%
+                    </div>
+                    <div className="readout text-ink-dim">错误 {source.error_count}</div>
                   </td>
                   <td className="min-w-0 px-4 py-3 text-xs">
                     <button
-                      className={`inline-flex w-full items-center gap-1.5 rounded border px-2.5 py-1 text-left font-semibold hover:opacity-80 disabled:cursor-default ${summary.tone}`}
+                      className={`flex w-full flex-col items-start gap-0.5 rounded border px-2.5 py-1.5 text-left font-semibold hover:opacity-80 disabled:cursor-default ${RESULT_BUTTON_TONE[summary.tone]}`}
                       disabled={!test}
                       onClick={() => setViewingResultFor(source.id)}
-                      title={summary.text}
                       type="button"
                     >
-                      <span className="truncate">{summary.text}</span>
+                      <span className="w-full truncate">{summary.text}</span>
+                      {test?.at ? (
+                        <span className="readout text-[10px] font-normal opacity-75">{formatTime(test.at)}</span>
+                      ) : null}
+                      {test ? <span className="text-[10px] font-normal underline decoration-dotted opacity-80">查看详情</span> : null}
                     </button>
-                    {test?.at ? (
-                      <div className="readout mt-1 text-ink-dim">{formatTime(test.at)}</div>
-                    ) : null}
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-2 text-xs font-semibold">
+                    <div className="flex gap-1.5 text-xs font-semibold">
                       <button
-                        className={`rounded border px-3 py-1.5 ${
+                        className={`flex-1 rounded border px-2 py-1.5 ${
                           source.is_active
-                            ? "border-line text-ink-mid hover:border-red-400/40 hover:text-red-300"
-                            : "border-green-400/40 text-green-300 hover:bg-green-400/10"
+                            ? "border-line text-ink-mid hover:border-danger/40 hover:text-danger"
+                            : "border-success/40 text-success hover:bg-success/10"
                         }`}
                         disabled={busy?.id === source.id}
                         onClick={() => toggle(source)}
                         type="button"
                       >
                         {busy?.id === source.id && busy.kind === "toggle" ? (
-                          <span className="inline-flex items-center gap-1.5">
-                            <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} />
-                            处理中
-                          </span>
+                          <Loader2 aria-hidden className="mx-auto h-3.5 w-3.5 animate-spin" strokeWidth={2.5} />
                         ) : source.is_active ? (
                           "停用"
                         ) : (
@@ -267,22 +293,19 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
                         )}
                       </button>
                       <button
-                        className="inline-flex items-center gap-1.5 rounded border border-line px-3 py-1.5 text-ink-mid hover:border-signal/40 hover:text-signal disabled:cursor-wait disabled:opacity-70"
+                        className="flex-1 rounded border border-line px-2 py-1.5 text-ink-mid hover:border-signal/40 hover:text-signal disabled:cursor-wait disabled:opacity-70"
                         disabled={busy?.id === source.id}
                         onClick={() => manualFetch(source)}
                         type="button"
                       >
                         {busy?.id === source.id && busy.kind === "fetch" ? (
-                          <>
-                            <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} />
-                            抓取中
-                          </>
+                          <Loader2 aria-hidden className="mx-auto h-3.5 w-3.5 animate-spin" strokeWidth={2.5} />
                         ) : (
-                          "手动抓取"
+                          "抓取"
                         )}
                       </button>
                       <button
-                        className="rounded border border-line px-3 py-1.5 text-ink-mid hover:border-signal/40 hover:text-signal disabled:cursor-wait disabled:opacity-70"
+                        className="flex-1 rounded border border-line px-2 py-1.5 text-ink-mid hover:border-signal/40 hover:text-signal disabled:cursor-wait disabled:opacity-70"
                         disabled={busy?.id === source.id}
                         onClick={() => setEditing(source)}
                         type="button"
@@ -296,7 +319,21 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
             })}
           </tbody>
         </table>
-      </div>
+      </TableShell>
+
+      {hoverCard ? (
+        <div
+          className="pointer-events-none fixed z-50 max-w-sm rounded-md border border-line-strong bg-panel-soft px-3 py-2 text-xs shadow-lg"
+          style={{
+            top: hoverCard.top,
+            left: hoverCard.left,
+            transform: hoverCard.flip ? "translateY(-100%)" : undefined,
+          }}
+        >
+          <div className="font-semibold text-ink">{hoverCard.source.name}</div>
+          <div className="readout mt-1 break-all text-ink-dim">{hoverCard.source.url}</div>
+        </div>
+      ) : null}
 
       {editing ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
@@ -429,10 +466,8 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
                                 {article.title}
                               </a>
                               {outcome ? (
-                                <span
-                                  className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold ${outcome.tone}`}
-                                >
-                                  {outcome.text}
+                                <span className="shrink-0">
+                                  <Pill tone={outcome.tone}>{outcome.text}</Pill>
                                 </span>
                               ) : null}
                               {typeof article.final_score === "number" ? (

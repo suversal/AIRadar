@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Pill, TABLE_HEAD_ROW, TABLE_ROW, TableShell } from "../ui";
 
 export type AdminEvent = {
   event_id: string;
@@ -156,7 +157,7 @@ export function EventsManager({
         <form action="/admin/events" className="space-y-3" method="get">
           <input name="page" type="hidden" value="1" />
           <input name="page_size" type="hidden" value={pageSize} />
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_220px_auto_auto] md:items-end">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_220px_auto] md:items-end">
             <label className="block text-xs font-semibold text-ink-dim">
               标题
               <input
@@ -200,17 +201,20 @@ export function EventsManager({
                 ))}
               </select>
             </label>
-            <button
-              className="rounded-md border border-signal bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal-bright"
-              type="submit"
-            >
-              搜索
-            </button>
-            {title || category || sourceId ? (
-              <a className="px-2 py-2 text-sm text-ink-dim hover:text-ink" href="/admin/events">
+            <div className="flex items-center gap-2">
+              <a
+                className="rounded-md border border-line px-3 py-2 text-sm text-ink-mid hover:border-signal/40 hover:text-signal"
+                href="/admin/events"
+              >
                 清除
               </a>
-            ) : null}
+              <button
+                className="rounded-md border border-signal bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal-bright"
+                type="submit"
+              >
+                搜索
+              </button>
+            </div>
           </div>
           <p className="text-xs text-ink-dim">
             标题、分类和主信源会同时生效；内容按最近抓取时间倒序排列。
@@ -250,70 +254,97 @@ export function EventsManager({
         </div>
       ) : null}
 
-      <div className="divide-y divide-line rounded-md border border-line bg-panel">
-        {events.map((event) => (
-          <div key={event.event_id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                {event.hidden ? (
-                  <span className="rounded border border-red-400/40 px-2 py-0.5 text-xs text-red-300">
-                    已隐藏
+      <TableShell>
+        <table className="w-full table-fixed text-left text-sm">
+          <thead>
+            <tr className={TABLE_HEAD_ROW}>
+              <th className="w-[34%] px-4 py-3 font-semibold">标题</th>
+              <th className="w-[13%] px-4 py-3 font-semibold">来源</th>
+              <th className="w-[11%] px-4 py-3 font-semibold">分类</th>
+              <th className="w-[8%] px-4 py-3 text-right font-semibold">评分</th>
+              <th className="w-[15%] px-4 py-3 font-semibold">发布 / 抓取</th>
+              <th className="w-[8%] px-4 py-3 font-semibold">状态</th>
+              <th className="w-[11%] px-4 py-3 font-semibold">操作</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {events.map((event) => (
+              <tr key={event.event_id} className={`align-top text-ink-mid ${TABLE_ROW}`}>
+                <td className="min-w-0 px-4 py-3">
+                  <a
+                    className={`block truncate text-sm font-semibold hover:text-signal ${
+                      event.hidden ? "text-ink-dim line-through" : "text-ink"
+                    }`}
+                    href={`/event/${encodeURIComponent(event.event_id)}`}
+                    rel="noreferrer"
+                    target="_blank"
+                    title={event.title}
+                  >
+                    {event.title}
+                  </a>
+                  {event.tags?.length ? (
+                    <div className="mt-1 truncate text-xs text-ink-dim" title={event.tags.join(" / ")}>
+                      {event.tags.join(" / ")}
+                    </div>
+                  ) : null}
+                </td>
+                <td className="min-w-0 px-4 py-3 text-xs" title={event.main_source?.name}>
+                  <span className="block truncate">{event.main_source?.name ?? "--"}</span>
+                </td>
+                <td className="min-w-0 px-4 py-3 text-xs">
+                  <span className="block truncate rounded bg-panel-soft px-2 py-0.5 text-ink-mid" title={event.category_label ?? event.category}>
+                    {event.category_label ?? event.category}
                   </span>
-                ) : null}
-                {event.selected ? (
-                  <span className="rounded border border-signal/40 px-2 py-0.5 text-xs text-signal">
-                    精选
-                  </span>
-                ) : null}
-                <span className="rounded bg-panel-soft px-2 py-0.5 text-xs text-ink-mid">
-                  {event.category_label ?? event.category}
-                </span>
-                <span className="readout text-xs text-ink-dim">
+                </td>
+                <td className="readout px-4 py-3 text-right text-xs text-ink-dim">
                   {event.final_score != null ? Math.round(event.final_score) : "--"}
-                </span>
-              </div>
-              <div className={`mt-1 truncate text-sm font-semibold ${event.hidden ? "text-ink-dim line-through" : "text-ink"}`}>
-                <a
-                  className="hover:text-signal"
-                  href={`/event/${encodeURIComponent(event.event_id)}`}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  {event.title}
-                </a>
-              </div>
-              <div className="readout mt-0.5 truncate text-xs text-ink-dim">
-                发布 {formatStamp(event.published_at)} · 抓取 {formatStamp(event.crawled_at)} ·{" "}
-                {event.main_source?.name} · {(event.tags ?? []).join(" / ") || "无标签"}
-              </div>
-            </div>
-            <div className="flex shrink-0 gap-2 text-xs font-semibold">
-              <button
-                className={`rounded border px-3 py-1.5 ${
-                  event.hidden
-                    ? "border-green-400/40 text-green-300 hover:bg-green-400/10"
-                    : "border-line text-ink-mid hover:border-red-400/40 hover:text-red-300"
-                }`}
-                disabled={busy === event.event_id}
-                onClick={() => toggleHidden(event)}
-                type="button"
-              >
-                {event.hidden ? "恢复" : "隐藏"}
-              </button>
-              <button
-                className="rounded border border-line px-3 py-1.5 text-ink-mid hover:border-signal/40 hover:text-signal"
-                onClick={() => setEditing(event)}
-                type="button"
-              >
-                编辑
-              </button>
-            </div>
-          </div>
-        ))}
-        {events.length === 0 ? (
-          <div className="px-4 py-8 text-sm text-ink-dim">当前筛选下没有事件。</div>
-        ) : null}
-      </div>
+                </td>
+                <td className="readout px-4 py-3 text-xs text-ink-dim">
+                  <div className="truncate">{formatStamp(event.published_at)}</div>
+                  <div className="mt-0.5 truncate text-ink-dim/70">抓取 {formatStamp(event.crawled_at)}</div>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex flex-col items-start gap-1">
+                    {event.selected ? <Pill tone="signal">精选</Pill> : null}
+                    {event.hidden ? <Pill tone="danger">已隐藏</Pill> : null}
+                    {!event.selected && !event.hidden ? <span className="text-xs text-ink-dim">--</span> : null}
+                  </div>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex flex-wrap gap-1.5 text-xs font-semibold">
+                    <button
+                      className={`rounded border px-2.5 py-1 ${
+                        event.hidden
+                          ? "border-success/40 text-success hover:bg-success/10"
+                          : "border-line text-ink-mid hover:border-danger/40 hover:text-danger"
+                      }`}
+                      disabled={busy === event.event_id}
+                      onClick={() => toggleHidden(event)}
+                      type="button"
+                    >
+                      {event.hidden ? "恢复" : "隐藏"}
+                    </button>
+                    <button
+                      className="rounded border border-line px-2.5 py-1 text-ink-mid hover:border-signal/40 hover:text-signal"
+                      onClick={() => setEditing(event)}
+                      type="button"
+                    >
+                      编辑
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {events.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-sm text-ink-dim" colSpan={7}>
+                  当前筛选下没有事件。
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </TableShell>
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-line bg-panel px-4 py-3 text-sm text-ink-mid">
         <span className="readout text-xs text-ink-dim">

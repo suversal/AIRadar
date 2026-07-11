@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Pill, TABLE_HEAD_ROW, TABLE_ROW } from "./ui";
 
 type SourceCrawlResult = {
   status: string;
@@ -66,7 +67,7 @@ export function PipelineRunDetail({
       <div className="flex flex-col items-start gap-1">
         {entries.length > 0 ? (
           <button
-            className="text-sky-300 hover:underline"
+            className="text-info hover:underline"
             onClick={() => setOpen("sources")}
             type="button"
           >
@@ -75,7 +76,7 @@ export function PipelineRunDetail({
         ) : null}
         {error ? (
           <button
-            className="text-red-300 hover:underline"
+            className="text-danger hover:underline"
             onClick={() => setOpen("error")}
             type="button"
           >
@@ -88,33 +89,31 @@ export function PipelineRunDetail({
         <Modal title={`信源明细 · 运行 #${runId}`} onClose={() => setOpen(null)}>
           <table className="w-full text-xs leading-4">
             <thead>
-              <tr className="text-ink-dim">
-                <th className="py-1 pr-2 text-left">信源</th>
-                <th className="py-1 pr-2 text-left">状态</th>
-                <th className="py-1 pr-2 text-right">入选/抓取</th>
-                <th className="py-1 pr-2 text-right">耗时</th>
-                <th className="py-1 text-left">错误</th>
+              <tr className={TABLE_HEAD_ROW}>
+                <th className="py-2 pr-2 text-left font-semibold">信源</th>
+                <th className="py-2 pr-2 text-left font-semibold">状态</th>
+                <th className="py-2 pr-2 text-right font-semibold">入选/抓取</th>
+                <th className="py-2 pr-2 text-right font-semibold">耗时</th>
+                <th className="py-2 text-left font-semibold">错误</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-line/50">
               {entries.map(([sourceId, item]) => (
-                <tr key={sourceId} className="border-t border-line/50">
-                  <td className="py-1.5 pr-2">{sourceId}</td>
-                  <td
-                    className={
-                      item.status === "ok" ? "py-1.5 pr-2 text-green-400" : "py-1.5 pr-2 text-red-300"
-                    }
-                  >
-                    {item.status === "ok" ? "成功" : "失败"}
+                <tr key={sourceId} className={TABLE_ROW}>
+                  <td className="readout py-1.5 pr-2 text-ink-mid">{sourceId}</td>
+                  <td className="py-1.5 pr-2">
+                    <Pill tone={item.status === "ok" ? "success" : "danger"}>
+                      {item.status === "ok" ? "成功" : "失败"}
+                    </Pill>
                   </td>
-                  <td className="readout py-1.5 pr-2 text-right">
+                  <td className="readout py-1.5 pr-2 text-right text-ink-mid">
                     {item.accepted_count}
                     {typeof item.fetched_count === "number" ? `/${item.fetched_count}` : ""}
                   </td>
-                  <td className="readout py-1.5 pr-2 text-right">
+                  <td className="readout py-1.5 pr-2 text-right text-ink-mid">
                     {typeof item.duration_ms === "number" ? `${Math.round(item.duration_ms)}ms` : "--"}
                   </td>
-                  <td className="max-w-56 break-all py-1.5 text-red-200">{item.error ?? ""}</td>
+                  <td className="max-w-56 break-all py-1.5 text-danger/90">{item.error ?? ""}</td>
                 </tr>
               ))}
             </tbody>
