@@ -560,11 +560,11 @@ docker compose -f infra/docker-compose.yml up --build api
 env DATABASE_URL=postgresql+psycopg://radar:radar@localhost:5432/radar PYTHONPATH=apps/api .venv/bin/python -c "from app.main import create_app; from fastapi.testclient import TestClient; c=TestClient(create_app()); latest=c.get('/api/public/latest').json(); daily=c.get('/api/public/daily/2026-07-02').json(); print({'latest_items': len(latest['items']), 'daily_date': daily['report_date'], 'daily_count': daily['article_count']})"
 ```
 
-- [x] 完成数据库迁移策略。
+- [x] 完成数据库迁移策略（2026-07-11 起 Alembic 是 schema 唯一来源）。
   - `apps/api/alembic/` 已接入，`env.py` 读取 `DATABASE_URL`、target_metadata 指向 `app.db.models.Base.metadata`。
-  - 基线迁移 `254438b7a6b4_baseline_schema.py` 有意留空——历史 schema 由 `infra/postgres/init.sql` 手写建立，autogenerate 对比会产出一堆 TEXT/JSONB vs String/JSON 的惯例噪音和一个误删 `article_embeddings`（无 ORM model 的历史表）的假 diff，均非真实变更，故不采纳；现有数据库已 `alembic stamp head` 到此基线。
-  - `infra/postgres/init.sql` 仍是全新空库的从零建表脚本；此后的 schema 变更都走 alembic migration。
-  - 验收：`alembic current` 显示 head；`alembic upgrade head` 在已是 head 时为空操作、无报错。
+  - 基线迁移 `254438b7a6b4_baseline_schema.py` 已回填为 Alembic 接入时点的完整历史 DDL：全新空库只需 `alembic upgrade head` 即可建出全部表，不再需要 `stamp` 协议。历史库已 stamp 到基线之后，该 DDL 在其上永不执行，因此基线内容必须冻结在历史形态（如 `article_embeddings` 在基线仍是 vector(1536)、无 source_hash，由后续 migration 重塑）。
+  - `infra/postgres/init.sql` 只创建 pgvector extension（需要超级用户、由 docker-entrypoint-initdb.d 执行）；所有业务表都在 migration 里。
+  - 验收（2026-07-11 已执行）：scratch pgvector 容器空库 `alembic upgrade head` 后 `pg_dump --schema-only` 与生产库逐行 diff 为零差异（仅 pg_dump 随机 `\restrict` 令牌行不同）。
 
 - [ ] 实现 pgvector 相似查询。
   - 当前聚类使用内存向量。

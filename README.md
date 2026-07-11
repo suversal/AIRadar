@@ -101,6 +101,8 @@ Install Docker Desktop first, then:
 ```bash
 cp .env.example .env
 docker compose -f infra/docker-compose.yml up -d postgres redis
+# Alembic owns the whole schema; a fresh database has no tables until:
+(cd apps/api && DATABASE_URL=postgresql+psycopg://radar:radar@localhost:5432/radar ../../.venv/bin/alembic upgrade head)
 python3 scripts/check_db_once.py
 ```
 
