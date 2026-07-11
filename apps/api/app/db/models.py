@@ -160,6 +160,9 @@ class ProcessedArticleModel(Base):
     raw_article_id: Mapped[str] = mapped_column(
         ForeignKey("raw_articles.id"), nullable=False, unique=True, index=True
     )
+    # read cache of the article's event, NOT the source of truth - that is
+    # event_cluster_articles. Never trust this column for listing/dedup and
+    # never let a None overwrite an existing value (see _apply_processed_article)
     event_cluster_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("event_clusters.id"), index=True
     )
@@ -248,6 +251,10 @@ class EventClusterModel(Base):
 
 
 class EventClusterArticleModel(Base):
+    """THE source of truth for article↔event membership. The cache column
+    processed_articles.event_cluster_id may drift; readers must resolve
+    membership and per-event dedup through this table."""
+
     __tablename__ = "event_cluster_articles"
     __table_args__ = (
         UniqueConstraint(

@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 try:
     from sqlalchemy import delete, select
-    from sqlalchemy.orm import Session
+    from sqlalchemy.orm import Session, aliased
 except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard for local stdlib tests
     raise RuntimeError("SQLAlchemy is required for database repositories.") from exc
 
@@ -263,6 +263,7 @@ class RadarRepository:
                     event_override=event_override,
                     translation=translation,
                     source_count=cluster.source_count if cluster else 1,
+                    event_id=cluster.id if cluster else None,
                 )
             )
         return items
@@ -800,6 +801,16 @@ class RadarRepository:
     ) -> list[dict[str, Any]]:
         window_start = datetime.combine(start_date, time.min, tzinfo=timezone.utc)
         window_end = datetime.combine(end_date, time.max, tzinfo=timezone.utc)
+        # event membership comes from event_cluster_articles (the source of
+        # truth), NOT from processed_articles.event_cluster_id - that cache
+        # column drifts (a later run can overwrite it) and trusting it here
+        # made /all duplicate members and drop articles
+        main_membership = aliased(EventClusterArticleModel)
+        has_any_membership = (
+            select(EventClusterArticleModel.id)
+            .where(EventClusterArticleModel.raw_article_id == ProcessedArticleModel.raw_article_id)
+            .exists()
+        )
         query = (
             select(
                 ProcessedArticleModel,
@@ -816,8 +827,13 @@ class RadarRepository:
                 EditorialOverrideModel.raw_article_id == ProcessedArticleModel.raw_article_id,
             )
             .outerjoin(
+                main_membership,
+                (main_membership.raw_article_id == ProcessedArticleModel.raw_article_id)
+                & main_membership.is_main.is_(True),
+            )
+            .outerjoin(
                 EventClusterModel,
-                EventClusterModel.id == ProcessedArticleModel.event_cluster_id,
+                EventClusterModel.id == main_membership.event_cluster_id,
             )
             .outerjoin(
                 EventEditorialOverrideModel,
@@ -827,11 +843,8 @@ class RadarRepository:
             .where(RawArticleModel.published_at <= window_end)
             # an event with multiple source members must appear once, not
             # once per member article - only its designated main article
-            # (or a standalone article with no cluster at all) passes through
-            .where(
-                (EventClusterModel.id.is_(None))
-                | (EventClusterModel.main_article_id == RawArticleModel.id)
-            )
+            # (or a standalone article with no membership at all) passes
+            .where(main_membership.id.isnot(None) | ~has_any_membership)
             .order_by(RawArticleModel.published_at.desc())
         )
         if not include_hidden:
@@ -851,6 +864,7 @@ class RadarRepository:
                 override=override,
                 event_override=event_override,
                 source_count=cluster.source_count if cluster else 1,
+                event_id=cluster.id if cluster else None,
             )
             for processed, raw, source, override, cluster, event_override in rows
         ]
@@ -935,6 +949,7 @@ class RadarRepository:
             event_override=event_override,
             translation=translation,
             source_count=cluster.source_count if cluster else 1,
+            event_id=cluster.id if cluster else None,
         )
 
     def get_daily_report_payloads_between(
@@ -1079,6 +1094,7 @@ def _event_item(
     event_override: Optional[EventEditorialOverrideModel] = None,
     translation: Optional[ArticleTranslationModel] = None,
     source_count: int = 1,
+    event_id: Optional[str] = None,
 ) -> dict[str, Any]:
     metadata = dict(raw.raw_metadata or {})
     published_at = raw.published_at
@@ -1108,7 +1124,7 @@ def _event_item(
         or (event_override is not None and event_override.hidden)
     )
     item: dict[str, Any] = {
-        "event_id": processed.event_cluster_id or f"a{raw.id[:12]}",
+        "event_id": event_id or processed.event_cluster_id or f"a{raw.id[:12]}",
         "title": title_zh or raw.title,
         "category": display_category(category),
         "category_label": category_label(category),
@@ -1162,7 +1178,12 @@ def _event_item(
 
 
 def _apply_processed_article(model: ProcessedArticleModel, processed: ProcessedArticle) -> None:
-    model.event_cluster_id = processed.event_cluster_id
+    # event membership is permanent: a later run that re-processes the same
+    # article without clustering it hands us event_cluster_id=None, and that
+    # must not detach the article from its event (event_cluster_articles is
+    # the source of truth; this column is a read cache of it)
+    if processed.event_cluster_id is not None:
+        model.event_cluster_id = processed.event_cluster_id
     model.ai_relevance = processed.dimensions.ai_relevance
     model.novelty = processed.dimensions.novelty
     model.impact = processed.dimensions.impact

@@ -189,6 +189,91 @@ class RepositoryTests(unittest.TestCase):
         # a2 隐藏被剔除，unknown-id 解析不到被跳过，顺序按传入顺序保留
         self.assertEqual([item["event_id"] for item in items], ["aa3", "aa1"])
 
+    def test_reprocessing_never_clobbers_event_link_with_none(self):
+        # 事件成员关系是永久的：文章后续轮次没进聚类（processed 带 None）
+        # 也不能把上一轮写好的事件链接盖掉——这是 /all 重复/丢失的根因之一
+        from dataclasses import replace as dc_replace
+
+        from app.db.models import ProcessedArticleModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([self._article(article_id="a1", title="主文", url_hash="u1")])
+            repository.upsert_processed_articles(
+                [dc_replace(self._processed("a1"), event_cluster_id="e-keep")]
+            )
+            repository.upsert_event_clusters([self._cluster("e-keep", main_article_id="a1")])
+            session.commit()
+
+            # 模拟后一轮：同一文章重新处理，本轮未入聚类 → event_cluster_id=None
+            repository.upsert_processed_articles([self._processed("a1")])
+            session.commit()
+
+            stored = session.scalar(
+                select(ProcessedArticleModel).where(ProcessedArticleModel.raw_article_id == "a1")
+            )
+
+        self.assertEqual(stored.event_cluster_id, "e-keep")
+
+    def test_all_listing_uses_membership_table_despite_link_drift(self):
+        # 回归（实测生产库 14/48 链接漂移）：即使 processed 缓存列被覆写成
+        # NULL，/all 也必须以成员表为事实源——事件只出现一次（主文代表），
+        # 非主文成员不以独立文章身份重复出现，event_id 和 source_count 正确
+        from dataclasses import replace as dc_replace
+
+        from app.db.models import ProcessedArticleModel
+        from app.models.domain import RawArticle
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source(), self._other_source()])
+            repository.upsert_raw_articles(
+                [
+                    self._article(article_id="a1", title="事件主文", url_hash="u1"),
+                    RawArticle(
+                        id="b1",
+                        source_id="techcrunch",
+                        source_name="TechCrunch",
+                        source_role="signal",
+                        source_tier="T2",
+                        source_url="https://techcrunch.com/b1",
+                        title="同事件另一来源",
+                        content="AI model release",
+                        author="TechCrunch",
+                        published_at=datetime(2026, 7, 1, 10, tzinfo=timezone.utc),
+                        language="en",
+                        raw_score={"score": 1},
+                        metadata={"origin": "fixture"},
+                        title_hash="title-b1",
+                        url_hash="u2",
+                    ),
+                ]
+            )
+            repository.upsert_processed_articles(
+                [
+                    dc_replace(self._processed("a1"), event_cluster_id="e-drift"),
+                    dc_replace(self._processed("b1"), event_cluster_id="e-drift"),
+                ]
+            )
+            cluster = self._cluster("e-drift", main_article_id="a1")
+            cluster.article_ids = ["a1", "b1"]
+            repository.upsert_event_clusters([cluster])
+            session.commit()
+
+            # 模拟链接漂移：两篇的缓存列都被后续运行覆写成 NULL
+            for row in session.scalars(select(ProcessedArticleModel)):
+                row.event_cluster_id = None
+            session.commit()
+
+            listed = repository.get_all_event_items_between(date(2026, 7, 1), date(2026, 7, 1))
+
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(listed[0]["event_id"], "e-drift")
+        self.assertEqual(listed[0]["source_count"], 2)
+
     def test_duplicate_event_membership_is_rejected_by_constraint(self):
         # 数据库层必须兜底：同一文章不能在同一事件中出现两行
         from sqlalchemy.exc import IntegrityError
