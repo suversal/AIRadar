@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
 from app.crawlers.base import stable_hash
+from app.services.ai_service import embedding_input
 from app.models.domain import (
     DailyReport,
     EventCluster,
@@ -69,13 +70,18 @@ def persist_pipeline_result(
     source_result = repository.upsert_sources(sources)
     raw_result = repository.upsert_raw_articles(result.raw_articles)
 
-    content_by_id = {article.id: article.content for article in result.raw_articles}
+    articles_by_id = {article.id: article for article in result.raw_articles}
     for raw_article_id, vector in result.embeddings.items():
+        article = articles_by_id.get(raw_article_id)
         repository.upsert_article_embedding(
             raw_article_id,
             embedding_model=result.embedding_model,
             vector=vector,
-            source_hash=stable_hash(content_by_id.get(raw_article_id, "")),
+            # must hash the same text the vector was computed from (see
+            # embedding_input), not just the content
+            source_hash=stable_hash(
+                embedding_input(article.title, article.content) if article else ""
+            ),
         )
 
     # embeddings must be written first: the repository's cross-day merge

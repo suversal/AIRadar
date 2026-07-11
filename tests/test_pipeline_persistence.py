@@ -174,6 +174,53 @@ class PipelinePersistenceTests(unittest.TestCase):
         )
 
 
+    def test_embedding_source_hash_covers_title_and_content(self):
+        # runner 的 embedding 输入是 title+"\n"+content；落库的 source_hash
+        # 必须哈希同一份输入，否则标题变化时哈希不变，血缘失真
+        from app.crawlers.base import stable_hash
+
+        repository = FakeRepository()
+        article = RawArticle(
+            id="a1",
+            source_id="openai_blog",
+            source_name="OpenAI Blog",
+            source_role="authority",
+            source_tier="T1",
+            source_url="https://openai.com/a",
+            title="OpenAI releases agent model",
+            content="AI model release",
+            author="OpenAI",
+            published_at=datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+            language="en",
+            raw_score={},
+            metadata={},
+            title_hash="title-a1",
+            url_hash="url-a1",
+        )
+        daily_report = DailyReport(
+            report_date=date(2026, 7, 1),
+            markdown="# report",
+            json_data={"report_date": "2026-07-01", "items": [], "article_count": 0},
+            article_count=0,
+        )
+        result = PipelineResult(
+            raw_articles=[article],
+            processed_articles=[],
+            event_clusters=[],
+            daily_report=daily_report,
+            skipped_reasons={},
+            embeddings={"a1": [0.1, 0.2]},
+            embedding_model="bge-small-zh-v1.5",
+        )
+
+        persist_pipeline_result(repository, sources=[], result=result)
+
+        _, _, _, source_hash = repository.embeddings_written[0]
+        self.assertEqual(
+            source_hash,
+            stable_hash("OpenAI releases agent model\nAI model release"),
+        )
+
     def test_persist_pipeline_result_remaps_event_cluster_id_through_merge_redirects(self):
         # regression, found via real-data verification: upsert_event_clusters
         # can redirect a "new" cluster into a different, already-existing

@@ -18,7 +18,7 @@ from app.models.domain import (
     ScoringResult,
     Source,
 )
-from app.services.ai_service import FakeAIProvider
+from app.services.ai_service import FakeAIProvider, embedding_input
 from app.services.clustering_service import cluster_articles
 from app.services.daily_report_service import build_daily_json, render_daily_markdown
 from app.services.scoring_service import select_processed_article
@@ -189,7 +189,7 @@ def _process_candidate_article(
         now=now,
         source_count=1,
     )
-    embedding = ai_provider.embed_text(f"{article.title}\n{article.content}")
+    embedding = ai_provider.embed_text(embedding_input(article.title, article.content))
     skipped_reason = None if processed.selected else "below_threshold"
     return processed, embedding, skipped_reason
 

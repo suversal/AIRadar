@@ -219,6 +219,13 @@ def parse_chat_json(content: str) -> Any:
     raise ValueError(f"Chat response was not valid JSON: {text[:200]}")
 
 
+def embedding_input(title: str, content: str) -> str:
+    """The exact text an article's embedding is computed from. The persisted
+    source_hash must hash this same string, or a title change would leave the
+    stored hash claiming the embedding is still current."""
+    return f"{title}\n{content}"
+
+
 class FakeAIProvider:
     """Deterministic provider for local tests and no-key dry runs."""
 
