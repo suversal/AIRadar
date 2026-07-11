@@ -157,6 +157,16 @@ def _process_candidate_article(
     skip_prefilter: bool = False,
     cached: dict[str, Any] | None = None,
 ) -> tuple[ProcessedArticle | None, list[float] | None, str | None]:
+    # a title-only "article" (SPA extraction failure fallback) gives the
+    # scorer nothing to judge - an LLM invents dimension scores from the
+    # headline alone - and its detail page would be blank. Gate BEFORE any
+    # AI spend, including cached results from when it was equally empty.
+    content = (article.content or "").strip()
+    if not content or content == (article.title or "").strip():
+        article.status = "skipped"
+        article.skipped_reason = "no_content"
+        return None, None, "no_content"
+
     scoring = _cached_scoring_result(cached)
     if scoring is None and cached and cached.get("skipped_reason") == "not_ai_related":
         article.status = "skipped"

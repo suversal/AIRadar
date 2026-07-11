@@ -77,6 +77,58 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result.skipped_reasons["candidate_limit"], 1)
         self.assertEqual(result.skipped_reasons["not_ai_related"], 1)
 
+    def test_title_only_articles_are_skipped_without_any_ai_call(self):
+        # 实测：SPA 页面抓不到正文时 content 回退为标题，LLM 对着一句标题
+        # 也能编出 information_density=6 的分。无正文必须在任何 AI 调用
+        # 之前拦下——省钱且确定
+        class ExplodingProvider(FakeAIProvider):
+            def prefilter(self, text):
+                raise AssertionError("prefilter must not be called for title-only articles")
+
+            def score_article(self, title, content):
+                raise AssertionError("score_article must not be called for title-only articles")
+
+        source = Source(
+            id="hacker_news",
+            name="Hacker News",
+            source_role="signal",
+            tier="T2",
+            type="hn",
+            category="community",
+            url="https://hn.algolia.com/api/v1/search",
+            homepage="https://news.ycombinator.com",
+            allowed_domains=["news.ycombinator.com"],
+        )
+        raw_items = [
+            {
+                "source_url": "https://example.com/spa-shell",
+                "title": "The Conversation We're Not Having About AI in Peer Review",
+                # SPA 提取失败的回退形态：正文 = 标题
+                "content": "The Conversation We're Not Having About AI in Peer Review",
+                "author": None,
+                "published_at": datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {"points": 1, "comments": 0},
+                "metadata": {},
+            }
+        ]
+
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={"hacker_news": raw_items},
+            ai_provider=ExplodingProvider(),
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 1),
+            candidate_limit=10,
+            top_n=12,
+        )
+
+        self.assertEqual(result.skipped_reasons.get("no_content"), 1)
+        self.assertEqual(len(result.processed_articles), 0)
+        skipped = result.raw_articles[0]
+        self.assertEqual(skipped.status, "skipped")
+        self.assertEqual(skipped.skipped_reason, "no_content")
+
     def test_all_selected_articles_are_clustered_not_just_top_n(self):
         # 产品决策（2026-07-11）：聚类范围 = 全部入选文章，事件表是完整的
         # 事件图谱；top_n 只决定日报选几个事件，不再限制聚类输入
@@ -529,55 +581,10 @@ class PipelineTests(unittest.TestCase):
         translated = result.raw_articles[0].metadata.get("translated_paragraphs") or []
         self.assertEqual(len(translated), 40)
 
-    def test_below_threshold_article_with_only_title_as_content_still_gets_translated(self):
-        # 真实案例：一篇 Hacker News 链接帖，抓取时没提取到 original_blocks/
-        # original_paragraphs（HN 链接类帖子常见），content 字段只有标题
-        # 本身。这篇文章分数不够进日报（被拒绝），但仍应该在 /all 和详情页
-        # 可见，翻译理应覆盖到它——之前发现这类文章完全没有译文。
-        source = Source(
-            id="hacker_news",
-            name="Hacker News",
-            source_role="signal",
-            tier="T2",
-            type="api",
-            category="community",
-            url="https://hn.algolia.com/api/v1/search",
-            homepage="https://news.ycombinator.com",
-            allowed_domains=["news.ycombinator.com"],
-            language="en",
-        )
-        raw_items = [
-            {
-                "source_url": "https://ploy.ai/blog/ai-web-design-with-opus-and-sol",
-                "title": "AI Web Design (Opus vs. Sol)",
-                "content": "AI Web Design (Opus vs. Sol)",
-                "author": "hn",
-                "published_at": datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
-                "language": "en",
-                "raw_score": {"points": 1, "comments": 1},
-                "metadata": {"hn_object_id": "1"},
-            },
-        ]
-
-        result = run_pipeline(
-            sources=[source],
-            raw_items_by_source={"hacker_news": raw_items},
-            ai_provider=LowScoreAIProvider(),
-            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
-            report_date=date(2026, 7, 1),
-            candidate_limit=10,
-            top_n=1,
-        )
-
-        low_scorer = next(
-            article
-            for article in result.raw_articles
-            if article.source_url.endswith("ai-web-design-with-opus-and-sol")
-        )
-        self.assertEqual(
-            low_scorer.metadata.get("translated_paragraphs"),
-            ["译文：AI Web Design (Opus vs. Sol)"],
-        )
+    # 注：原 test_below_threshold_article_with_only_title_as_content_still_gets_translated
+    # 编码的是 2026-07-11 上午的旧决策（标题-only 文章仍展示并翻译）。当天下午
+    # 产品决策反转：无正文的文章在任何 AI 调用前直接跳过、不再收录——见
+    # test_title_only_articles_are_skipped_without_any_ai_call。
 
     def test_readme_enrichment_retries_when_zh_probe_failed(self):
         # 限流时降级存下的英文 README 会带 readme_zh_probe=failed 标记，
