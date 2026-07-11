@@ -59,7 +59,9 @@ class Settings:
     # 0.85 threshold merged unrelated events together. 0.93 sits clearly
     # above that observed false-positive band.
     cluster_similarity_threshold: float = 0.93
-    cluster_window_hours: int = 72
+    # rolling aggregation scope: an event only absorbs new coverage seen
+    # within this window (product decision 2026-07-11: 24h rolling hot set)
+    cluster_window_hours: int = 24
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -77,5 +79,5 @@ class Settings:
             daily_candidate_limit=int(os.getenv("DAILY_CANDIDATE_LIMIT", "100")),
             daily_selected_limit=int(os.getenv("DAILY_SELECTED_LIMIT", "12")),
             cluster_similarity_threshold=float(os.getenv("CLUSTER_SIMILARITY_THRESHOLD", "0.93")),
-            cluster_window_hours=int(os.getenv("CLUSTER_WINDOW_HOURS", "72")),
+            cluster_window_hours=int(os.getenv("CLUSTER_WINDOW_HOURS", "24")),
         )

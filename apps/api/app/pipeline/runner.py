@@ -500,7 +500,21 @@ def run_pipeline(
         if embedding is not None:
             embeddings[article.id] = embedding
 
-    report_article_ids = {
+    final_scores = {
+        processed.raw_article_id: processed.final_score for processed in processed_articles
+    }
+    # cluster EVERY selected article, not just the report candidates: the
+    # event table is the full rolling event graph (product decision
+    # 2026-07-11), and the daily report picks its top_n at the EVENT level
+    # inside build_daily_json - so merged coverage can no longer shrink the
+    # masthead below target
+    selected_ids = {
+        processed.raw_article_id for processed in processed_articles if processed.selected
+    }
+    # weak news days keep their long-standing fill behavior: the best
+    # below-threshold candidates (up to top_n) still enter the event graph
+    # so the report is never blank just because nothing crossed the bar
+    fill_ids = {
         processed.raw_article_id
         for processed in sorted(
             processed_articles,
@@ -508,12 +522,10 @@ def run_pipeline(
             reverse=True,
         )[:top_n]
     }
-    selected_articles = [article for article in raw_articles if article.id in report_article_ids]
-    final_scores = {
-        processed.raw_article_id: processed.final_score for processed in processed_articles
-    }
+    clusterable_ids = selected_ids | fill_ids
+    clusterable_articles = [article for article in raw_articles if article.id in clusterable_ids]
     clusters = cluster_articles(
-        selected_articles,
+        clusterable_articles,
         embeddings,
         threshold=cluster_similarity_threshold,
         sources=source_by_id,

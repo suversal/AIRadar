@@ -77,6 +77,54 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result.skipped_reasons["candidate_limit"], 1)
         self.assertEqual(result.skipped_reasons["not_ai_related"], 1)
 
+    def test_all_selected_articles_are_clustered_not_just_top_n(self):
+        # 产品决策（2026-07-11）：聚类范围 = 全部入选文章，事件表是完整的
+        # 事件图谱；top_n 只决定日报选几个事件，不再限制聚类输入
+        source = Source(
+            id="openai_blog",
+            name="OpenAI Blog",
+            source_role="authority",
+            tier="T1",
+            type="rss",
+            category="official",
+            url="https://openai.com/rss.xml",
+            homepage="https://openai.com",
+            allowed_domains=["openai.com"],
+            can_be_main_source=True,
+        )
+        raw_items = [
+            {
+                "source_url": f"https://openai.com/full-{index}",
+                "title": f"AI agent model release {index}",
+                "content": f"Distinct AI model release story number {index} about agents.",
+                "author": "OpenAI",
+                "published_at": datetime(2026, 7, 1, 8 + index, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {},
+            }
+            for index in range(3)
+        ]
+
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={"openai_blog": raw_items},
+            ai_provider=FakeAIProvider(),
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 1),
+            candidate_limit=10,
+            top_n=1,
+        )
+
+        selected = [p for p in result.processed_articles if p.selected]
+        self.assertEqual(len(selected), 3)
+        # 全部入选文章都有事件归属
+        for processed in selected:
+            self.assertIsNotNone(processed.event_cluster_id)
+        # 互不相似的三篇 → 三个事件；日报仍只选 top_n=1 个事件
+        self.assertEqual(len(result.event_clusters), 3)
+        self.assertEqual(result.daily_report.article_count, 1)
+
     def test_cluster_similarity_threshold_is_configurable(self):
         source_a = Source(
             id="openai_blog",

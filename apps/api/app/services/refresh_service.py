@@ -220,7 +220,7 @@ def _run_refresh(
             database_url,
             sources,
             result,
-            cluster_window_hours=_env_int("CLUSTER_WINDOW_HOURS", 72),
+            cluster_window_hours=_env_int("CLUSTER_WINDOW_HOURS", 24),
             similarity_threshold=_env_float("CLUSTER_SIMILARITY_THRESHOLD", 0.93),
             started_at=generated_at,
             pipeline_run_id=pipeline_run_id,
