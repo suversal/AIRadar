@@ -294,7 +294,9 @@ class FakeAIProvider:
             "theme_notes": [{"label": "模型", "note": "多家模型更新"}],
         }
 
-    def embed_text(self, text: str, dimensions: int = 64) -> list[float]:
+    # 512 matches article_embeddings' vector(512), so fake-AI runs can
+    # persist to a real Postgres just like the local bge model's output
+    def embed_text(self, text: str, dimensions: int = 512) -> list[float]:
         digest = hashlib.sha256(text.lower().encode("utf-8")).digest()
         values = []
         while len(values) < dimensions:

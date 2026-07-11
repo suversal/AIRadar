@@ -265,6 +265,11 @@ class AIProviderTests(unittest.TestCase):
         # param no longer reshapes output the way the old hash fallback did
         self.assertEqual(len(provider.embed_text("same text")), 512)
 
+    def test_fake_provider_embeddings_match_vector_column_width(self):
+        # --fake-ai --persist-db 必须与 article_embeddings 的 vector(512)
+        # 列兼容，否则本地端到端验证无法写库
+        self.assertEqual(len(FakeAIProvider().embed_text("any text")), 512)
+
     def test_composite_providers_expose_embedding_model_name(self):
         # article_embeddings.embedding_model 落库时取自 provider；组合 provider
         # （远程 chat + 本地 bge 向量）必须报告真实向量模型名而非 "unknown"
