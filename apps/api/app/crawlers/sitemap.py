@@ -56,7 +56,12 @@ _META_RE = re.compile(
     re.IGNORECASE,
 )
 _META_CONTENT_RE = re.compile(r"content=[\"'](.*?)[\"']", re.IGNORECASE | re.DOTALL)
-_TITLE_SUFFIX_RE = re.compile(r"\s*[\\|·—-]\s*[^\\|·—-]*$")
+# strips a trailing " | Site Name" / " - Site Name" style suffix. The
+# separator must have whitespace on BOTH sides - a bare hyphen inside a
+# word/number (e.g. "GLM-5.2", "GPT-5") is not a title/site-name delimiter
+# and must be left alone (real case: the-decoder.com titles with no site
+# suffix at all were getting chopped off at the version-number hyphen).
+_TITLE_SUFFIX_RE = re.compile(r"\s+[\\|·—-]\s+[^\\|·—-]*$")
 
 
 def _parse_lastmod(value: str | None) -> datetime | None:

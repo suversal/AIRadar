@@ -510,6 +510,31 @@ class SitemapCrawlerTests(unittest.TestCase):
         self.assertEqual(title, "Claude ships a new model")
         self.assertEqual(description, "Today we announce a new model.")
 
+    def test_extract_page_article_keeps_mid_title_hyphen_without_site_suffix(self):
+        # 真实案例（the-decoder.com）：<title> 本身就是纯标题、没有" - 站点名"
+        # 后缀，但标题里含产品版本号连字符"GLM-5.2"——旧正则把它误判成
+        # 分隔符，从那个连字符开始把标题腰斩，导致后续标题去重比对失败
+        html = (
+            "<html><head>"
+            "<title>Meta's Muse Spark 1.1 outperforms GLM-5.2 in coding and costs slightly less</title>"
+            "</head><body></body></html>"
+        )
+
+        title, _ = extract_page_article(html)
+
+        self.assertEqual(
+            title,
+            "Meta's Muse Spark 1.1 outperforms GLM-5.2 in coding and costs slightly less",
+        )
+
+    def test_extract_page_article_still_strips_real_site_name_suffix(self):
+        # 真正的"标题 - 站点名"后缀（分隔符两侧都有空格）必须继续正确剥离
+        html = "<html><head><title>Some Headline - The Decoder</title></head><body></body></html>"
+
+        title, _ = extract_page_article(html)
+
+        self.assertEqual(title, "Some Headline")
+
     def setUp(self):
         import tempfile
 
