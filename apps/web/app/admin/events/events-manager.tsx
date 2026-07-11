@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pill, TABLE_HEAD_ROW, TABLE_ROW, TableShell } from "../ui";
+import { HoverCard, Pill, TABLE_HEAD_ROW, TABLE_ROW, TableShell, useHoverCard } from "../ui";
 
 export type AdminEvent = {
   event_id: string;
@@ -86,6 +86,7 @@ export function EventsManager({
   const [titleInput, setTitleInput] = useState(title);
   const [categoryInput, setCategoryInput] = useState(category);
   const [sourceInput, setSourceInput] = useState(sourceId);
+  const titleHoverCard = useHoverCard<AdminEvent>();
 
   const events = useMemo(() => {
     if (filter === "selected") return initialEvents.filter((event) => event.selected);
@@ -258,35 +259,38 @@ export function EventsManager({
         <table className="w-full table-fixed text-left text-sm">
           <thead>
             <tr className={TABLE_HEAD_ROW}>
-              <th className="w-[34%] px-4 py-3 font-semibold">标题</th>
-              <th className="w-[13%] px-4 py-3 font-semibold">来源</th>
-              <th className="w-[11%] px-4 py-3 font-semibold">分类</th>
-              <th className="w-[8%] px-4 py-3 text-right font-semibold">评分</th>
-              <th className="w-[15%] px-4 py-3 font-semibold">发布 / 抓取</th>
+              <th className="w-[32%] px-4 py-3 font-semibold">标题</th>
+              <th className="w-[12%] px-4 py-3 font-semibold">来源</th>
+              <th className="w-[10%] px-4 py-3 font-semibold">分类</th>
+              <th className="w-[7%] px-4 py-3 text-right font-semibold">评分</th>
+              <th className="w-[13%] px-4 py-3 font-semibold">发布 / 抓取</th>
               <th className="w-[8%] px-4 py-3 font-semibold">状态</th>
-              <th className="w-[11%] px-4 py-3 font-semibold">操作</th>
+              <th className="w-[18%] px-4 py-3 font-semibold">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
             {events.map((event) => (
               <tr key={event.event_id} className={`align-top text-ink-mid ${TABLE_ROW}`}>
                 <td className="min-w-0 px-4 py-3">
-                  <a
-                    className={`block truncate text-sm font-semibold hover:text-signal ${
-                      event.hidden ? "text-ink-dim line-through" : "text-ink"
-                    }`}
-                    href={`/event/${encodeURIComponent(event.event_id)}`}
-                    rel="noreferrer"
-                    target="_blank"
-                    title={event.title}
+                  <div
+                    className="w-fit max-w-full"
+                    onMouseEnter={(mouseEvent) => titleHoverCard.show(mouseEvent, event)}
+                    onMouseLeave={titleHoverCard.hide}
                   >
-                    {event.title}
-                  </a>
-                  {event.tags?.length ? (
-                    <div className="mt-1 truncate text-xs text-ink-dim" title={event.tags.join(" / ")}>
-                      {event.tags.join(" / ")}
-                    </div>
-                  ) : null}
+                    <a
+                      className={`block truncate text-sm font-semibold hover:text-signal ${
+                        event.hidden ? "text-ink-dim line-through" : "text-ink"
+                      }`}
+                      href={`/event/${encodeURIComponent(event.event_id)}`}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      {event.title}
+                    </a>
+                    {event.tags?.length ? (
+                      <div className="mt-1 truncate text-xs text-ink-dim">{event.tags.join(" / ")}</div>
+                    ) : null}
+                  </div>
                 </td>
                 <td className="min-w-0 px-4 py-3 text-xs" title={event.main_source?.name}>
                   <span className="block truncate">{event.main_source?.name ?? "--"}</span>
@@ -301,7 +305,7 @@ export function EventsManager({
                 </td>
                 <td className="readout px-4 py-3 text-xs text-ink-dim">
                   <div className="truncate">{formatStamp(event.published_at)}</div>
-                  <div className="mt-0.5 truncate text-ink-dim/70">抓取 {formatStamp(event.crawled_at)}</div>
+                  <div className="truncate">{formatStamp(event.crawled_at)}</div>
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex flex-col items-start gap-1">
@@ -311,9 +315,9 @@ export function EventsManager({
                   </div>
                 </td>
                 <td className="px-4 py-3">
-                  <div className="flex flex-wrap gap-1.5 text-xs font-semibold">
+                  <div className="flex flex-nowrap gap-1.5 text-xs font-semibold">
                     <button
-                      className={`rounded border px-2.5 py-1 ${
+                      className={`shrink-0 whitespace-nowrap rounded border px-2.5 py-1 ${
                         event.hidden
                           ? "border-success/40 text-success hover:bg-success/10"
                           : "border-line text-ink-mid hover:border-danger/40 hover:text-danger"
@@ -325,7 +329,7 @@ export function EventsManager({
                       {event.hidden ? "恢复" : "隐藏"}
                     </button>
                     <button
-                      className="rounded border border-line px-2.5 py-1 text-ink-mid hover:border-signal/40 hover:text-signal"
+                      className="shrink-0 whitespace-nowrap rounded border border-line px-2.5 py-1 text-ink-mid hover:border-signal/40 hover:text-signal"
                       onClick={() => setEditing(event)}
                       type="button"
                     >
@@ -345,6 +349,18 @@ export function EventsManager({
           </tbody>
         </table>
       </TableShell>
+
+      <HoverCard
+        card={titleHoverCard.card}
+        render={(event) => (
+          <>
+            <div className="font-semibold text-ink">{event.title}</div>
+            {event.tags?.length ? (
+              <div className="mt-1 text-ink-dim">{event.tags.join(" / ")}</div>
+            ) : null}
+          </>
+        )}
+      />
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-line bg-panel px-4 py-3 text-sm text-ink-mid">
         <span className="readout text-xs text-ink-dim">

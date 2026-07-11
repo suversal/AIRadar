@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
-import { Pill, StatusDot, TABLE_HEAD_ROW, TABLE_ROW, TableShell, type Tone } from "../ui";
+import { HoverCard, Pill, StatusDot, TABLE_HEAD_ROW, TABLE_ROW, TableShell, useHoverCard, type Tone } from "../ui";
 
 export type AdminSource = {
   id: string;
@@ -117,23 +117,7 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
   });
   const [editing, setEditing] = useState<AdminSource | null>(null);
   const [viewingResultFor, setViewingResultFor] = useState<string | null>(null);
-  const [hoverCard, setHoverCard] = useState<{
-    source: AdminSource;
-    top: number;
-    left: number;
-    flip: boolean;
-  } | null>(null);
-
-  function showHoverCard(event: ReactMouseEvent<HTMLElement>, source: AdminSource) {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const flip = rect.bottom + 90 > window.innerHeight;
-    setHoverCard({
-      source,
-      left: Math.max(8, Math.min(rect.left, window.innerWidth - 340)),
-      top: flip ? rect.top - 8 : rect.bottom + 8,
-      flip,
-    });
-  }
+  const sourceHoverCard = useHoverCard<AdminSource>();
 
   async function run(sourceId: string, kind: "toggle" | "edit", action: () => Promise<void>) {
     setBusy({ id: sourceId, kind });
@@ -228,8 +212,8 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
                   <td className="min-w-0 px-4 py-3">
                     <div
                       className="w-fit max-w-full"
-                      onMouseEnter={(event) => showHoverCard(event, source)}
-                      onMouseLeave={() => setHoverCard(null)}
+                      onMouseEnter={(event) => sourceHoverCard.show(event, source)}
+                      onMouseLeave={sourceHoverCard.hide}
                     >
                       <div className="truncate font-semibold text-ink">{source.name}</div>
                       <div className="readout mt-1 truncate text-xs text-ink-dim">{source.url}</div>
@@ -321,19 +305,15 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
         </table>
       </TableShell>
 
-      {hoverCard ? (
-        <div
-          className="pointer-events-none fixed z-50 max-w-sm rounded-md border border-line-strong bg-panel-soft px-3 py-2 text-xs shadow-lg"
-          style={{
-            top: hoverCard.top,
-            left: hoverCard.left,
-            transform: hoverCard.flip ? "translateY(-100%)" : undefined,
-          }}
-        >
-          <div className="font-semibold text-ink">{hoverCard.source.name}</div>
-          <div className="readout mt-1 break-all text-ink-dim">{hoverCard.source.url}</div>
-        </div>
-      ) : null}
+      <HoverCard
+        card={sourceHoverCard.card}
+        render={(source) => (
+          <>
+            <div className="font-semibold text-ink">{source.name}</div>
+            <div className="readout mt-1 break-all text-ink-dim">{source.url}</div>
+          </>
+        )}
+      />
 
       {editing ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
@@ -470,11 +450,9 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
                                   <Pill tone={outcome.tone}>{outcome.text}</Pill>
                                 </span>
                               ) : null}
-                              {typeof article.final_score === "number" ? (
-                                <span className="readout shrink-0 text-xs text-ink-dim">
-                                  {Math.round(article.final_score)}
-                                </span>
-                              ) : null}
+                              <span className="readout w-8 shrink-0 text-right text-xs text-ink-dim">
+                                {typeof article.final_score === "number" ? Math.round(article.final_score) : "--"}
+                              </span>
                             </div>
                             {article.reason ? (
                               <p className="ml-7 mt-1 text-xs text-ink-dim">
