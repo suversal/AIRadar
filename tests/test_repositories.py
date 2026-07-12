@@ -249,8 +249,10 @@ class RepositoryTests(unittest.TestCase):
 
     def test_all_listing_uses_membership_table_despite_link_drift(self):
         # 回归（实测生产库 14/48 链接漂移）：即使 processed 缓存列被覆写成
-        # NULL，/all 也必须以成员表为事实源——事件只出现一次（主文代表），
-        # 非主文成员不以独立文章身份重复出现，event_id 和 source_count 正确
+        # NULL，事件主文的 event_id 也必须以成员表为事实源，不依赖那个会
+        # 漂移的缓存列。产品决策(2026-07-13)：不做事件级去重，每篇处理过
+        # 的文章都独立展示——这里同时验证非主文成员也正常出现，并带着
+        # 自己的伪地址(a{id})而不是漂移前缓存列指向的事件 ID。
         from dataclasses import replace as dc_replace
 
         from app.db.models import ProcessedArticleModel
@@ -300,8 +302,11 @@ class RepositoryTests(unittest.TestCase):
 
             listed = repository.get_all_event_items_between(date(2026, 7, 1), date(2026, 7, 1))
 
-        self.assertEqual(len(listed), 1)
-        self.assertEqual(listed[0]["event_id"], "e-drift")
+        self.assertEqual(len(listed), 2)
+        main_item = next(item for item in listed if item["is_main"])
+        member_item = next(item for item in listed if not item["is_main"])
+        self.assertEqual(main_item["event_id"], "e-drift")
+        self.assertEqual(member_item["event_id"], "ab1")
         self.assertEqual(listed[0]["source_count"], 2)
 
     def test_pipeline_run_state_machine_running_to_finished(self):
@@ -931,7 +936,11 @@ class RepositoryTests(unittest.TestCase):
             repository.upsert_processed_articles(
                 [
                     dc_replace(self._processed("a1"), event_cluster_id="e-multi"),
-                    dc_replace(self._processed("b1"), event_cluster_id="e-multi"),
+                    dc_replace(
+                        self._processed("b1"),
+                        event_cluster_id="e-multi",
+                        title_zh="TechCrunch 自己的中文标题",
+                    ),
                     dc_replace(self._processed("c1"), event_cluster_id="e-multi"),
                 ]
             )
@@ -954,6 +963,143 @@ class RepositoryTests(unittest.TestCase):
         self.assertTrue(coverage[1]["is_main"])
         self.assertFalse(coverage[0]["is_main"])
         self.assertEqual(coverage[0]["source_name"], "TechCrunch")
+        # 每条报道自带跳转地址(2026-07-13):主条用真实事件 ID,非主条
+        # 用文章自己的 a{id前12位} 伪事件地址,前端不用重新推导哈希格式
+        self.assertEqual(coverage[1]["event_id"], "e-multi")
+        self.assertEqual(coverage[0]["event_id"], "ab1")
+
+    def test_event_item_for_non_main_member_returns_own_content_with_coverage(self):
+        # 2026-07-13:通过非主条自己的 a{id} 伪地址访问,必须看到它自己的
+        # 标题/摘要(不是主条的),且仍然附带完整 coverage 面板方便互相跳转
+        from dataclasses import replace as dc_replace
+
+        from app.models.domain import RawArticle
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source(), self._other_source()])
+            repository.upsert_raw_articles(
+                [
+                    self._article(article_id="a1", title="主文", url_hash="u1"),
+                    RawArticle(
+                        id="b1",
+                        source_id="techcrunch",
+                        source_name="TechCrunch",
+                        source_role="signal",
+                        source_tier="T2",
+                        source_url="https://techcrunch.com/b1",
+                        title="同一事件的另一来源报道",
+                        content="AI model release",
+                        author="TechCrunch",
+                        published_at=datetime(2026, 7, 1, 11, tzinfo=timezone.utc),
+                        language="en",
+                        raw_score={"score": 1},
+                        metadata={"origin": "fixture"},
+                        title_hash="title-b1",
+                        url_hash="u2",
+                    ),
+                ]
+            )
+            repository.upsert_processed_articles(
+                [
+                    dc_replace(self._processed("a1"), event_cluster_id="e-multi2"),
+                    dc_replace(
+                        self._processed("b1"),
+                        event_cluster_id="e-multi2",
+                        title_zh="TechCrunch 自己的中文标题",
+                    ),
+                ]
+            )
+            cluster = self._cluster("e-multi2", main_article_id="a1")
+            cluster.article_ids = ["a1", "b1"]
+            repository.upsert_event_clusters([cluster])
+            session.commit()
+
+            own_page = repository.get_event_item("ab1")
+
+        self.assertIsNotNone(own_page)
+        self.assertEqual(own_page["title"], "TechCrunch 自己的中文标题")
+        self.assertEqual(
+            sorted(c["raw_article_id"] for c in own_page["coverage"]), ["a1", "b1"]
+        )
+
+    def test_hiding_one_article_never_affects_other_members_of_the_same_event(self):
+        # 产品决策(2026-07-13):不做事件级去重后，每篇文章都独立管理——
+        # 隐藏主条不能连带隐藏非主条，反之亦然；source_count/coverage 这
+        # 类"事实性"字段仍然共享同一个真实事件，不受隐藏范围影响。
+        from dataclasses import replace as dc_replace
+
+        from app.models.domain import RawArticle
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source(), self._other_source()])
+            repository.upsert_raw_articles(
+                [
+                    self._article(article_id="a1", title="主文", url_hash="u1"),
+                    RawArticle(
+                        id="b1",
+                        source_id="techcrunch",
+                        source_name="TechCrunch",
+                        source_role="signal",
+                        source_tier="T2",
+                        source_url="https://techcrunch.com/b1",
+                        title="同一事件的另一来源报道",
+                        content="AI model release",
+                        author="TechCrunch",
+                        published_at=datetime(2026, 7, 1, 11, tzinfo=timezone.utc),
+                        language="en",
+                        raw_score={"score": 1},
+                        metadata={"origin": "fixture"},
+                        title_hash="title-b1",
+                        url_hash="u2",
+                    ),
+                ]
+            )
+            repository.upsert_processed_articles(
+                [
+                    dc_replace(self._processed("a1"), event_cluster_id="e-hide"),
+                    dc_replace(self._processed("b1"), event_cluster_id="e-hide"),
+                ]
+            )
+            cluster = self._cluster("e-hide", main_article_id="a1")
+            cluster.article_ids = ["a1", "b1"]
+            repository.upsert_event_clusters([cluster])
+            session.commit()
+
+            # 隐藏主条:非主条必须完全不受影响
+            repository.update_event_moderation("e-hide", {"hidden": True})
+            session.commit()
+
+            listing_after_main_hidden = repository.get_all_event_items_between(
+                date(2026, 7, 1), date(2026, 7, 1)
+            )
+            main_detail = repository.get_event_item("e-hide")
+            member_detail = repository.get_event_item("ab1")
+
+        self.assertIsNone(main_detail)  # 主条自己被隐藏
+        self.assertIsNotNone(member_detail)  # 非主条不受影响
+        remaining_ids = {item["event_id"] for item in listing_after_main_hidden}
+        self.assertEqual(remaining_ids, {"ab1"})  # 列表里只剩非主条
+        # coverage 依然共享同一份真实事件成员，不受隐藏范围影响
+        self.assertEqual(
+            sorted(c["raw_article_id"] for c in member_detail["coverage"]), ["a1", "b1"]
+        )
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            # 反向验证:隐藏非主条,主条必须完全不受影响
+            repository.update_event_moderation("e-hide", {"hidden": False})
+            repository.update_event_moderation("ab1", {"hidden": True})
+            session.commit()
+
+            main_detail_2 = repository.get_event_item("e-hide")
+            member_detail_2 = repository.get_event_item("ab1")
+
+        self.assertIsNotNone(main_detail_2)
+        self.assertIsNone(member_detail_2)
 
     def test_moderation_can_clear_tags_with_empty_list(self):
         # 编辑把标签清空是一个真实的治理动作：tags=[] 必须覆盖掉机器标签，
@@ -1348,12 +1494,10 @@ class RepositoryTests(unittest.TestCase):
         )
         self.assertEqual(detail["translation_status"], "completed")
 
-    def test_all_events_listing_shows_one_row_per_event_not_per_member_article(self):
-        # regression, found via real-data verification: once an event has
-        # multiple source members (cross-day multi-source aggregation), a
-        # naive per-processed-article listing shows the same event_id once
-        # per member - confirmed live on /api/public/events (duplicate
-        # event_id entries, each with a different member's own title).
+    def test_all_events_listing_shows_every_member_article_not_just_main(self):
+        # 产品决策(2026-07-13):不需要事件级去重——同一事件的不同信源
+        # 报道各自独立展示，各自带自己的标题/评分/地址；只有热点榜需要
+        # 按事件去重，那由 build_hotspots_payload 通过 is_main 过滤实现。
         from app.repositories.radar_repository import RadarRepository
 
         main = self._article(article_id="a1", title="主报道", url_hash="hash-a1")
@@ -1377,13 +1521,15 @@ class RepositoryTests(unittest.TestCase):
 
             items = repository.get_all_event_items_between(date(2026, 6, 30), date(2026, 7, 2))
 
-        event_ids = [item["event_id"] for item in items]
-        self.assertEqual(len(event_ids), 2)  # one for the event, one standalone
-        self.assertEqual(event_ids.count("e-multi"), 1)
-        multi_item = next(item for item in items if item["event_id"] == "e-multi")
-        # the surviving row must be the main article's own processed record,
-        # not whichever member happened to be iterated
-        self.assertEqual(multi_item["final_score"], 88.0)
+        by_event_id = {item["event_id"]: item for item in items}
+        self.assertEqual(len(items), 3)  # main + member + standalone, none dropped
+        self.assertEqual(set(by_event_id), {"e-multi", "aa2", "aa3"})
+        self.assertTrue(by_event_id["e-multi"]["is_main"])
+        self.assertEqual(by_event_id["e-multi"]["final_score"], 88.0)
+        self.assertFalse(by_event_id["aa2"]["is_main"])
+        self.assertEqual(by_event_id["aa2"]["final_score"], 70.0)
+        self.assertTrue(by_event_id["aa3"]["is_main"])  # standalone counts as its own main
+        self.assertEqual(by_event_id["aa3"]["final_score"], 60.0)
 
     def test_all_event_items_come_from_processed_articles_table(self):
         from app.repositories.radar_repository import RadarRepository

@@ -242,9 +242,7 @@ export default async function EventDetailPage({ params }: { params: EventParams 
                     <a
                       key={member.raw_article_id}
                       className="grid gap-1 py-3 text-sm transition hover:bg-panel-soft/60 md:grid-cols-[100px_1fr]"
-                      href={member.source_url ?? "#"}
-                      rel="noreferrer"
-                      target="_blank"
+                      href={`/event/${member.event_id}`}
                     >
                       <span className="readout text-ink-dim">{formatRelativeTime(member.published_at)}</span>
                       <span>

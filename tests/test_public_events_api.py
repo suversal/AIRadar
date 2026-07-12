@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
@@ -392,6 +392,39 @@ class PublicEventRouteTests(unittest.TestCase):
         self.assertFalse(body["generated"])
         self.assertEqual(body["period_key"], "2026-W28")
         self.assertEqual(body["article_count"], 1)
+
+    def test_weekly_route_with_no_key_falls_back_to_latest_archived_period(self):
+        # 2026-07-13 修复:同 /daily 的问题——本周(或本月)在还没有任何
+        # 一次同步生成快照之前，硬套"今天所在的自然周期"会显示"等待
+        # 生成"占位符。无 key 请求必须落到最近一个真正生成过快照的期次。
+        import sys
+        from pathlib import Path
+
+        sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
+        from app.services.period_summary_service import period_key_for
+
+        today = date.today()
+        current_key = period_key_for("weekly", today)
+        # 保证和当前自然周不是同一周
+        archived_key = period_key_for("weekly", today - timedelta(days=14))
+
+        client, repository = self._client({})
+        repository.period_archive["weekly"] = [
+            {
+                "period_key": archived_key,
+                "range_start": "2000-01-01",
+                "range_end": "2000-01-07",
+                "mainline_title": "已归档的一期",
+                "article_count": 5,
+            },
+        ]
+        # 当前自然周没有持久化快照(current_key 不在 period_reports 里)
+        self.assertNotIn(("weekly", current_key), repository.period_reports)
+
+        response = client.get("/api/public/reports/weekly")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["period_key"], archived_key)
 
     def test_period_archive_routes(self):
         client, repository = self._client({})

@@ -28,9 +28,6 @@ class WebAppStructureTests(unittest.TestCase):
             "app/all/page.tsx",
             "app/search/page.tsx",
             "app/daily/page.tsx",
-            "app/daily/[date]/page.tsx",
-            "app/daily/report-view.tsx",
-            "app/daily/copy-markdown-button.tsx",
             "app/reports/report-shell.tsx",
             "app/reports/report-data.ts",
             "app/reports/period-report-page.tsx",
@@ -162,6 +159,14 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertNotIn("skippedReasonText", dashboard_source)
         self.assertNotIn("notAiCount", dashboard_source)
 
+    def test_event_coverage_links_stay_on_site(self):
+        # 2026-07-13:同一事件的跨源报道点进去要看我们站内自己的内容页
+        # (每篇文章都有独立地址),不能再跳去来源站的外部原文
+        event_page = (WEB / "app" / "event" / "[id]" / "page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("member.event_id", event_page)
+        self.assertNotIn("href={member.source_url}", event_page)
+
     def test_hover_card_stays_open_for_copying(self):
         # 悬浮卡(2026-07-12):鼠标移出触发区后延迟关闭,可移入卡片内
         # 选中复制——卡片不能是 pointer-events-none,且悬停卡片取消关闭
@@ -271,33 +276,30 @@ class WebAppStructureTests(unittest.TestCase):
         taxonomy = (WEB / "lib" / "taxonomy.ts").read_text(encoding="utf-8")
         self.assertIn('["", "全部"]', taxonomy)
 
-    def test_daily_pages_fetch_public_daily_report_and_render_copy_controls(self):
+    def test_daily_page_falls_back_to_latest_archived_date_not_todays_empty_report(self):
+        # 2026-07-13 修复:同步还没跑到"今天"之前(比如刚过零点),/latest
+        # 的滚动窗口会把 report_date 报成"今天"，但当天还没有真正生成的
+        # 日报——/daily 必须用归档里真实存在的最新日期兜底，而不是硬套
+        # 一个空壳日期导致页面显示 0 篇。
         api_source = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
         daily_index = (WEB / "app" / "daily" / "page.tsx").read_text(encoding="utf-8")
-        daily_date = (WEB / "app" / "daily" / "[date]" / "page.tsx").read_text(encoding="utf-8")
-        report_view = (WEB / "app" / "daily" / "report-view.tsx").read_text(encoding="utf-8")
-        copy_button = (WEB / "app" / "daily" / "copy-markdown-button.tsx").read_text(encoding="utf-8")
-        markdown_source = (WEB / "lib" / "markdown.ts").read_text(encoding="utf-8")
 
         self.assertIn("/api/public/daily/", api_source)
         self.assertIn("getDailyReport", api_source)
         self.assertIn("getLatestReport", daily_index)
         self.assertIn("getDailyArchive", daily_index)
+        self.assertIn("archiveDates[0]", daily_index)
         self.assertIn("AI·RADAR 日报", daily_index)
         self.assertIn("今日看点", daily_index)
         self.assertIn("ReportShell", daily_index)
         self.assertIn("buildDailyDigest", daily_index)
-        self.assertNotIn("CopyMarkdownButton", daily_index)  # moved off the daily view
-        self.assertNotIn("redirect", daily_index)
-        self.assertIn("params", daily_date)
-        self.assertIn("DailyReportView", daily_date)
-        self.assertIn("CopyMarkdownButton", report_view)
-        self.assertIn("复制 Markdown", copy_button)
-        self.assertIn("navigator.clipboard.writeText", copy_button)
-        self.assertIn("buildDailyMarkdown", markdown_source)
-        self.assertIn("按日期归档", report_view)
-        self.assertIn("为什么重要", report_view)
-        self.assertIn("下一步", report_view)
+        self.assertIn("eventHref", daily_index)
+        # 归档日期和前后翻页都停留在同一个页面壳(带侧边栏)，用查询参数
+        # 切换日期，不再跳去没有侧边栏的独立 /daily/[date] 页面
+        self.assertIn("/daily?date=", daily_index)
+        self.assertNotIn("href={`/daily/${", daily_index)
+        for removed in ["app/daily/[date]/page.tsx", "app/daily/report-view.tsx", "app/daily/copy-markdown-button.tsx"]:
+            self.assertFalse((WEB / removed).exists(), removed)
 
     def test_report_shell_exposes_aihot_sidebar_and_report_tabs(self):
         shell_source = (WEB / "app" / "reports" / "report-shell.tsx").read_text(encoding="utf-8")
@@ -342,7 +344,6 @@ class WebAppStructureTests(unittest.TestCase):
 
     def test_event_detail_page_links_from_latest_and_daily_views(self):
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
-        report_view = (WEB / "app" / "daily" / "report-view.tsx").read_text(encoding="utf-8")
         event_page = (WEB / "app" / "event" / "[id]" / "page.tsx").read_text(encoding="utf-8")
         reading_toggle = (
             WEB / "app" / "event" / "[id]" / "article-reading-toggle.tsx"
@@ -351,7 +352,6 @@ class WebAppStructureTests(unittest.TestCase):
         api_source = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
 
         self.assertIn("eventHref", latest_page)
-        self.assertIn("eventHref", report_view)
         self.assertIn("findEventById", event_helpers)
         self.assertIn("getLatestReport", event_page)
         self.assertIn("notFound", event_page)

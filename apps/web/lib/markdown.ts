@@ -6,13 +6,6 @@ export type DailySection = {
   items: LatestEvent[];
 };
 
-function formatScore(score?: number) {
-  if (typeof score !== "number") {
-    return "未评分";
-  }
-  return score.toFixed(1);
-}
-
 function categoryLabel(key: string, items: LatestEvent[]) {
   return items[0]?.category_label ?? items[0]?.category ?? key;
 }
@@ -39,35 +32,3 @@ export function getDailySections(report: DailyReport): DailySection[] {
   }));
 }
 
-function sourceText(item: LatestEvent) {
-  if (!item.main_source) {
-    return `来源：相关来源 ${item.source_count ?? 1} 个`;
-  }
-  return `来源：[${item.main_source.name}](${item.main_source.url})，${item.main_source.tier}，相关来源 ${
-    item.source_count ?? 1
-  } 个`;
-}
-
-export function buildDailyMarkdown(report: DailyReport) {
-  const lines = [`# ${report.title}`, "", `> ${report.summary}`, ""];
-
-  for (const section of getDailySections(report)) {
-    lines.push(`## ${section.label}`, "");
-    section.items.forEach((item, index) => {
-      const tags = (item.tags ?? []).map((tag) => `\`${tag}\``).join(" ");
-      lines.push(
-        `### ${index + 1}. ${item.title} (${formatScore(item.final_score)})`,
-        "",
-        `- 摘要：${item.one_line_summary ?? item.summary ?? "暂无摘要。"}`,
-        `- 核心总结：${item.summary ?? item.one_line_summary ?? "暂无核心总结。"}`,
-        `- 为什么重要：${item.reason ?? "暂无推荐理由。"}`,
-        `- 下一步：${item.action ?? "阅读原文并评估是否跟进。"}`,
-        `- ${sourceText(item)}`,
-        `- 标签：${tags || "无"}`,
-        "",
-      );
-    });
-  }
-
-  return `${lines.join("\n").trim()}\n`;
-}

@@ -495,11 +495,23 @@ def create_app(
     def _serve_period(kind: str, raw_key: Optional[str]) -> dict:
         from app.services.period_summary_service import period_key_for, period_range_for_key
 
-        key = (
-            _resolve_period_key(kind, raw_key)
-            if raw_key
-            else period_key_for(kind, date.today())
-        )
+        if raw_key:
+            key = _resolve_period_key(kind, raw_key)
+        else:
+            key = period_key_for(kind, date.today())
+            # 2026-07-13 修复:当前自然周期(本周/本月)在第一次同步生成
+            # 快照之前没有真实内容——周期刚翻页时不能硬套一个空壳当前
+            # 周期，落到最近一个真正生成过快照的期次
+            repository_context = report_repository_context()
+            if repository_context is not None:
+                with repository_context as repository:
+                    has_snapshot = repository.get_period_report(kind, key) is not None
+                    if not has_snapshot:
+                        entries = getattr(
+                            repository, "list_period_reports", lambda *a, **k: []
+                        )(kind, limit=1)
+                        if entries:
+                            key = entries[0]["period_key"]
         range_start, range_end = period_range_for_key(kind, key)
         return period_report(kind, key, range_start, range_end)
 

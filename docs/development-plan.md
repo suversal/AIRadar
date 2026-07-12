@@ -1,22 +1,24 @@
 # Suversal AI Radar 完整开发计划书
 
-最后更新：2026-07-08
-当前分支：`codex/ai-radar-data-loop`  
-当前阶段：Phase 0 已完成，Phase 1 真实采集闭环进行中，Phase 2 真实 AI provider 接入进行中，Phase 6 前端 MVP 首版已完成
+最后更新：2026-07-13
+当前分支：`codex/source-quality`
+当前阶段：Phase 0-3 已完成；Phase 4-6 持续迭代打磨；Phase 8 后台管理已相当成熟。
+
+> 2026-07-08 之后到 2026-07-13 之间的密集迭代未逐条回填到下方第 3-16 节的旧版任务清单——那些章节记录的是 Phase 0-2 的历史推进过程，仍具参考价值，但已不是当前系统行为的准确描述。**以本节总进度看板和 `docs/implementation-notes.md` 为准**，后者逐项记录了当前的真实架构决策。
 
 ## 0. 总进度看板
 
 | 阶段 | 状态 | 当前结论 | 下一步 |
 | --- | --- | --- | --- |
-| Phase 0 - 本地数据闭环骨架 | 已完成 | 代码骨架、核心模型、crawler 基础、AI 边界、评分、聚类、日报、CLI、测试、Docker 配置均已落地 | 进入真实源抓取验证 |
-| Phase 1 - 真实采集与质量闭环 | 进行中 | 源清单 27 个（实测 27/27 可抓取，135 篇/轮）；Anthropic 用 sitemap 爬虫，机器之心 RSS 已下线故移除，venturebeat 修正 308 地址；抓取层：浏览器 UA、429/5xx 退避重试、同域 6 秒礼貌间隔、跨域并行（默认 8 并发）、sitemap 页面 lastmod 缓存、10 秒超时——整轮抓取 118s→25s | 继续人工检查日报质量并调源权重 |
-| Phase 2 - OpenAI/Kimi/DeepSeek 接入、AI 总结与真实评分 | 进行中 | Kimi/Moonshot 和 DeepSeek chat provider 已接入环境变量；DeepSeek 20 并发 API smoke 和 20 条日报生成已跑通；OpenAI 边界保留；真实 key 不写入仓库 | 继续观察真实日报质量，并根据成本/稳定性调整默认并发 |
-| Phase 3 - PostgreSQL + pgvector 持久化 | 基本完成 | 全部 8 张表已投入使用：raw/processed/event_clusters/关联表/daily_reports/pipeline_runs 均由 pipeline 持久化；事件 ID 改为内容哈希（跨 run 稳定）；pipeline 按 url_hash 增量复用已缓存的 AI 评分与译文（实测 74s→17s，仅新文章产生 AI 调用） | 补 Alembic 迁移；article_embeddings 待接入真实 embedding API 后启用 pgvector 相似查询 |
-| Phase 4 - API 与日报服务化 | 进行中 | latest/daily/events/topics/period 全套公开 API 就绪；周期报告已期次化：period_reports 表持久化 AI 主线综述（每次日报刷新自动重生成当周/当月），/reports/weekly/2026-W28 可按 ISO 周号寻址，daily/weekly/monthly 均有归档端点 | 等 API compose 网络问题恢复后补容器验证 |
-| Phase 5 - 任务调度与稳定性 | 进行中 | 轻量调度已就绪：`scripts/run_scheduled_refresh.sh`（带锁防重入、日志落 data/logs/）+ launchd 配置 `infra/launchd/`，每 2 小时抓取+处理；安装命令见 README；Celery/Redis 队列后置 | 用户确认安装 launchd agent；观察若干天后再评估是否需要 Celery |
-| Phase 6 - 前端 MVP | 已完成（v1 收尾完成） | 分类统一为 全部/模型/产品/行业/论文/技巧 六类（后端 8 类评分→展示映射，AI prompt 已约束枚举）；主题页上线（公司与模型/技术方向/内容形态 三组，点击进入 `/all?topic=` 筛选流）；视觉重设计为"琥珀信号"体系（AI·RADAR 品牌、暖炭黑+琥珀金 token、等宽仪表读数、雷达状态条、共享 Sidebar）；Agent接入/关于/更新日志/反馈 四个静态页上线；全部 15 条路由 + 404/API宕机降级走查通过 | 收藏（v2）；移动端截图细调 |
-| Phase 7 - RSS/Public API/MCP | 未开始 | RSS/Public API 完整版和 MCP 暂缓 | 等 API 和数据质量稳定后启动 |
-| Phase 8 - 后台管理 | 前期完成 | Token 认证管理后台上线（/admin，ADMIN_TOKEN 环境变量 + HttpOnly cookie）：仪表盘（信源健康网格/运行台账/手动刷新——刷新入口已从公开页移入后台）、信源管理（启停/编辑/新增/试抓，DB 为配置事实源）、内容修正（隐藏/恢复/改标题分类标签，隐藏事件公开侧即时 404）| 后期：阈值与 prompt 调参、故障告警、编辑工作流、审计日志、多管理员 |
+| Phase 0 - 本地数据闭环骨架 | 已完成 | 代码骨架、核心模型、crawler 基础、AI 边界、评分、聚类、日报、CLI、测试、Docker 配置均已落地 | — |
+| Phase 1 - 真实采集与质量闭环 | 已完成，持续演进 | 27 个信源（含 2026-07-13 新增的字节 Seed、Google Gemini/Developers/Research、NVIDIA 开发者博客、GitHub AI、Microsoft、AWS、Cursor、AI HOT 全量流共 10 个）；抓取只拉 feed 元数据（单请求成本恒定），正文延后到 AI 预筛通过后按需拉取；只处理发布日期为当天（Asia/Shanghai）的文章，不再回灌历史存量；每源 crawl_limit 配置已停用 | 观察新信源质量与去重效果 |
+| Phase 2 - AI 总结与真实评分 | 已完成，持续演进 | DeepSeek 为主力 provider（20 并发），Kimi/OpenAI 备用；预筛前置（feed 标题+摘要）、非AI文章判定后即弃（不入库，同一 URL 每轮重判，代价可忽略）；缓存文章复用库中全文与既有向量，不重算 | — |
+| Phase 3 - PostgreSQL + pgvector 持久化 | 已完成 | Alembic 是 schema 唯一事实源；关键唯一约束/索引已补齐；每篇评完的文章逐条即时落库（不必等整轮结束）；pipeline_runs 记录真实运行状态机与阶段耗时（`data/logs/stage_timings.log`） | pgvector 原生 top-k 检索仍是 Python 侧计算，规模变大前需要迁移 |
+| Phase 4 - API 与日报服务化 | 进行中 | latest/daily/events/topics/period/hotspots 全套公开 API 就绪；事件不再做去重折叠——同一事件的每个信源报道都是独立文章、独立地址（`/event/{id}`），可分别查看各自原文/译文并通过跨源列表互相跳转；日报/周报/月报默认视图改为回退到最近一次真正生成的期次，不再在周期刚翻页时显示空壳 | 事件聚类范围仍只覆盖入选候选，未覆盖全部 processed 文章 |
+| Phase 5 - 任务调度与稳定性 | 进行中 | launchd 每小时自动同步；孤儿运行清扫阈值 45 分钟；每次同步结束（成功或失败）自动推送信源级结果到管理员 Telegram | Celery/Redis 队列仍后置 |
+| Phase 6 - 前端 MVP | 持续迭代 | 精选页新增「当前热点」榜（48 小时多信源优先排序，随分类/搜索联动）；全部动态与内容管理不再按事件去重；日报/周报/月报页面统一走同一套带侧边栏的报告壳（旧的无侧边栏 `/daily/[date]` 兼容页已移除，归档改用 `?date=` 查询参数）；收藏、主题、移动端等延续 v1 状态 | 移动端截图细调 |
+| Phase 7 - RSS/Public API/MCP | 未开始 | RSS/Public API 完整版和 MCP 暂缓 | 等数据质量稳定后启动 |
+| Phase 8 - 后台管理 | 相当成熟 | 仪表盘运行台账改为可核对的漏斗指标（抓取 = 重复 + 非AI + 入库，精选 ⊂ 入库），信源明细区分 已存在/非AI/未达精选/精选 四种判定并配人话原因；信源管理支持按名称排序、官方信源角标、悬浮卡可复制；内容管理每篇文章独立可见、独立管理隐藏状态（不再因不是"事件主条"而被折叠隐身） | 阈值与 prompt 调参、故障告警、审计日志、多管理员 |
 
 ## 0.1 已完成任务索引
 

@@ -292,6 +292,7 @@ class HotspotPayloadTests(unittest.TestCase):
         last_seen_hours_ago=None,
         category="model",
         title=None,
+        is_main=True,
     ):
         published = self.NOW - timedelta(hours=hours_ago)
         item = {
@@ -302,6 +303,7 @@ class HotspotPayloadTests(unittest.TestCase):
             "final_score": score,
             "source_count": sources,
             "published_at": published.isoformat(),
+            "is_main": is_main,
         }
         if last_seen_hours_ago is not None:
             item["last_seen_at"] = (
@@ -400,6 +402,24 @@ class HotspotPayloadTests(unittest.TestCase):
         self.assertEqual(
             [item["event_id"] for item in payload["items"]], ["visible"]
         )
+
+    def test_non_main_cluster_members_never_reach_the_board(self):
+        # 2026-07-13:/all 和后台不再去重，同一事件的多个成员会作为独立
+        # item 出现在候选池里；热点榜必须只把 is_main 的那条当候选，
+        # 否则一个 4 信源事件会用 4 条重复记录挤满前 5 名
+        main = self._item("e-multi", sources=4, score=70, is_main=True)
+        member_a = self._item("a-member1", sources=4, score=68, is_main=False)
+        member_b = self._item("a-member2", sources=4, score=65, is_main=False)
+        others = [self._item(f"single{i}", sources=1, score=90 - i) for i in range(4)]
+        items = [main, member_a, member_b, *others]
+
+        payload = build_hotspots_payload(items, now=self.NOW)
+
+        event_ids = [item["event_id"] for item in payload["items"]]
+        self.assertIn("e-multi", event_ids)
+        self.assertNotIn("a-member1", event_ids)
+        self.assertNotIn("a-member2", event_ids)
+        self.assertEqual(len(payload["items"]), 5)
 
     def test_empty_items_produce_empty_payload(self):
         payload = build_hotspots_payload([], now=self.NOW)

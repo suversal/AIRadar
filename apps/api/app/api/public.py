@@ -168,6 +168,11 @@ def build_hotspots_payload(
     for item in items:
         if item.get("hidden"):
             continue
+        # 2026-07-13:/all 和后台不再去重，同一事件的每个成员各自成条；
+        # 热点榜必须只把事件的代表条(is_main)当候选，否则一个多信源
+        # 事件会用它的全部成员挤满榜单——source_count 已经是聚合值了
+        if not item.get("is_main", True):
+            continue
         if not _item_matches(item, category=category, q=q):
             continue
         seen_at = _hotspot_seen_at(item)

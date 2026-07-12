@@ -31,6 +31,8 @@ export type EventCoverageItem = {
   source_url?: string;
   published_at?: string;
   is_main: boolean;
+  // 站内跳转地址:主条是真实事件 ID,非主条是该文章自己的 a{id} 伪地址
+  event_id: string;
 };
 
 export type LatestEvent = {

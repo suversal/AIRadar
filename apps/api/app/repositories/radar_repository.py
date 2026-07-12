@@ -1109,6 +1109,10 @@ class RadarRepository:
         include_hidden: bool = False,
         selected_only: bool = False,
     ) -> list[dict[str, Any]]:
+        # 产品决策(2026-07-13):不做事件级去重——同一事件的每篇处理过的
+        # 文章都独立展示，各自带自己的标题/评分/地址。事件聚簇只服务
+        # 热点榜排序(build_hotspots_payload 按 is_main 过滤)和详情页的
+        # 跨源列表，不再用于折叠 /all 或后台内容管理的列表。
         shanghai = ZoneInfo("Asia/Shanghai")
         window_start = datetime.combine(start_date, time.min, tzinfo=shanghai).astimezone(
             timezone.utc
@@ -1118,22 +1122,26 @@ class RadarRepository:
         )
         # event membership comes from event_cluster_articles (the source of
         # truth), NOT from processed_articles.event_cluster_id - that cache
-        # column drifts (a later run can overwrite it) and trusting it here
-        # made /all duplicate members and drop articles
+        # column drifts (a later run can overwrite it)
+        #
+        # 每篇文章独立管理(2026-07-13 产品决策):hide/title/category 的
+        # 事件级覆盖只在这一行本身是主条时才生效(main_cluster) - 隐藏
+        # 一条不会连带隐藏同事件的其他成员，反之亦然。source_count 和
+        # last_seen_at 是客观事实，仍然查真实所属聚类(member_cluster)。
         main_membership = aliased(EventClusterArticleModel)
-        has_any_membership = (
-            select(EventClusterArticleModel.id)
-            .where(EventClusterArticleModel.raw_article_id == ProcessedArticleModel.raw_article_id)
-            .exists()
-        )
+        main_cluster = aliased(EventClusterModel)
+        main_event_override = aliased(EventEditorialOverrideModel)
+        member_membership = aliased(EventClusterArticleModel)
+        member_cluster = aliased(EventClusterModel)
         query = (
             select(
                 ProcessedArticleModel,
                 RawArticleModel,
                 SourceModel,
                 EditorialOverrideModel,
-                EventClusterModel,
-                EventEditorialOverrideModel,
+                main_cluster,
+                member_cluster,
+                main_event_override,
             )
             .join(RawArticleModel, ProcessedArticleModel.raw_article_id == RawArticleModel.id)
             .join(SourceModel, RawArticleModel.source_id == SourceModel.id)
@@ -1146,20 +1154,18 @@ class RadarRepository:
                 (main_membership.raw_article_id == ProcessedArticleModel.raw_article_id)
                 & main_membership.is_main.is_(True),
             )
+            .outerjoin(main_cluster, main_cluster.id == main_membership.event_cluster_id)
             .outerjoin(
-                EventClusterModel,
-                EventClusterModel.id == main_membership.event_cluster_id,
+                main_event_override,
+                main_event_override.event_cluster_id == main_cluster.id,
             )
             .outerjoin(
-                EventEditorialOverrideModel,
-                EventEditorialOverrideModel.event_cluster_id == EventClusterModel.id,
+                member_membership,
+                member_membership.raw_article_id == ProcessedArticleModel.raw_article_id,
             )
+            .outerjoin(member_cluster, member_cluster.id == member_membership.event_cluster_id)
             .where(RawArticleModel.published_at >= window_start)
             .where(RawArticleModel.published_at <= window_end)
-            # an event with multiple source members must appear once, not
-            # once per member article - only its designated main article
-            # (or a standalone article with no membership at all) passes
-            .where(main_membership.id.isnot(None) | ~has_any_membership)
             .order_by(RawArticleModel.published_at.desc())
         )
         if selected_only:
@@ -1171,46 +1177,67 @@ class RadarRepository:
                     selected_processed,
                     selected_processed.raw_article_id == selected_membership.raw_article_id,
                 )
-                .where(selected_membership.event_cluster_id == EventClusterModel.id)
+                .where(selected_membership.event_cluster_id == member_cluster.id)
                 .where(selected_processed.status == "processed")
                 .exists()
             )
             query = query.where(
-                (
-                    EventClusterModel.id.isnot(None)
-                    & has_selected_member
-                )
-                | (
-                    EventClusterModel.id.is_(None)
-                    & (ProcessedArticleModel.status == "processed")
-                )
+                (member_cluster.id.isnot(None) & has_selected_member)
+                | (member_cluster.id.is_(None) & (ProcessedArticleModel.status == "processed"))
             )
         if not include_hidden:
             query = query.where(
                 (EditorialOverrideModel.hidden.is_(None)) | (EditorialOverrideModel.hidden.is_(False))
             ).where(
-                (EventEditorialOverrideModel.hidden.is_(None))
-                | (EventEditorialOverrideModel.hidden.is_(False))
+                (main_event_override.hidden.is_(None))
+                | (main_event_override.hidden.is_(False))
             )
         rows = self.session.execute(query).all()
-        return [
-            _event_item(
-                processed,
-                raw,
-                source,
-                include_content=False,
-                override=override,
-                event_override=event_override,
-                source_count=cluster.source_count if cluster else 1,
-                event_id=cluster.id if cluster else None,
-                last_seen_at=cluster.last_seen_at if cluster else None,
+        items = []
+        for processed, raw, source, override, cluster, m_cluster, event_override in rows:
+            # this row is the designated main of its cluster, or genuinely
+            # standalone (no membership at all) - both are "one candidate
+            # per event" cases for hotspot ranking; only a non-main member
+            # of a real cluster is not
+            is_main = cluster is not None or m_cluster is None
+            items.append(
+                _event_item(
+                    processed,
+                    raw,
+                    source,
+                    include_content=False,
+                    override=override,
+                    event_override=event_override,
+                    source_count=m_cluster.source_count if m_cluster else 1,
+                    event_id=cluster.id if cluster is not None else f"a{raw.id[:12]}",
+                    last_seen_at=m_cluster.last_seen_at if m_cluster else None,
+                    is_main=is_main,
+                )
             )
-            for processed, raw, source, override, cluster, event_override in rows
-        ]
+        return items
+
+    def _find_cluster_for_raw_article(self, raw_article_id: str) -> Optional[EventClusterModel]:
+        """Is this article actually a member of some event cluster, regardless
+        of role? Used so a non-main member's own `a…` pseudo-id page (the
+        article's address always stays article-level) can still: attach a
+        coverage panel, report the event's real source_count/last_seen_at,
+        and - critically - respect an event-level hide, which must cascade
+        to every member, not just the one designated main."""
+        membership = self.session.scalar(
+            select(EventClusterArticleModel).where(
+                EventClusterArticleModel.raw_article_id == raw_article_id
+            )
+        )
+        if membership is None:
+            return None
+        return self.session.get(EventClusterModel, membership.event_cluster_id)
 
     def _resolve_processed_row(self, event_id: str):
-        """Resolve an event id to (processed, raw, source, cluster); cluster
-        is None for standalone `a…` pseudo-ids that never got clustered."""
+        """Resolve an event id to (processed, raw, source, cluster). `cluster`
+        here is None whenever resolution went through the `a…` prefix path -
+        that path matches by raw_article_id regardless of actual cluster
+        membership (see get_event_item, which re-checks membership via
+        _find_cluster_id_for_raw_article to still attach a coverage panel)."""
         cluster = self.session.get(EventClusterModel, event_id)
         if cluster is not None:
             row = self.session.execute(
@@ -1272,13 +1299,28 @@ class RadarRepository:
         if row is None:
             return None
         processed, raw, source, cluster = row
+        # 每篇文章独立管理(2026-07-13 产品决策):隐藏/标题/分类的事件级
+        # 覆盖只在这一行本身就是被解析成"主条"时才生效(cluster is not
+        # None,即通过真实事件 ID 访问);通过 a{id} 伪地址访问的非主条
+        # 永远不受主条的隐藏/覆盖影响，反之亦然。
+        #
+        # source_count/last_seen_at/coverage 是描述"这篇文章客观上属于
+        # 哪个事件"的事实字段，不是治理决定，所以仍然查它真实所属的
+        # 聚类(不管是不是主条)。
+        member_cluster = cluster if cluster is not None else self._find_cluster_for_raw_article(
+            processed.raw_article_id
+        )
         override = self._get_override(processed.raw_article_id)
-        event_override = self._get_event_override(cluster.id) if cluster else None
+        event_override = self._get_event_override(cluster.id) if cluster is not None else None
         if (override is not None and override.hidden) or (
             event_override is not None and event_override.hidden
         ):
             return None
         translation = self._get_translation_model(processed.raw_article_id)
+        # never let _event_item fall back to processed.event_cluster_id (a
+        # cache column that can drift/stay stale) for this article's own
+        # address - always pass the identity we already resolved reliably
+        own_event_id = cluster.id if cluster is not None else f"a{raw.id[:12]}"
         item = _event_item(
             processed,
             raw,
@@ -1287,12 +1329,12 @@ class RadarRepository:
             override=override,
             event_override=event_override,
             translation=translation,
-            source_count=cluster.source_count if cluster else 1,
-            event_id=cluster.id if cluster else None,
-            last_seen_at=cluster.last_seen_at if cluster else None,
+            source_count=member_cluster.source_count if member_cluster else 1,
+            event_id=own_event_id,
+            last_seen_at=member_cluster.last_seen_at if member_cluster else None,
         )
-        if cluster is not None:
-            item["coverage"] = self.get_event_cluster_coverage(cluster.id)
+        if member_cluster is not None:
+            item["coverage"] = self.get_event_cluster_coverage(member_cluster.id)
         return item
 
     def get_event_cluster_coverage(self, event_cluster_id: str) -> list[dict[str, Any]]:
@@ -1325,6 +1367,9 @@ class RadarRepository:
                     "source_url": raw.source_url,
                     "published_at": _as_utc_isoformat(raw.published_at),
                     "is_main": membership.is_main,
+                    # 站内跳转地址(2026-07-13):主条用真实事件 ID,非主条
+                    # 用文章自己的伪事件地址——前端不用重新推导哈希格式
+                    "event_id": event_cluster_id if membership.is_main else f"a{raw.id[:12]}",
                 }
             )
         return coverage
@@ -1475,6 +1520,7 @@ def _event_item(
     source_count: int = 1,
     event_id: Optional[str] = None,
     last_seen_at: Optional[datetime] = None,
+    is_main: bool = True,
 ) -> dict[str, Any]:
     metadata = dict(raw.raw_metadata or {})
     published_at = raw.published_at
@@ -1518,6 +1564,9 @@ def _event_item(
         "selection_reason": processed.selection_reason,
         "hidden": hidden,
         "source_count": max(source_count, 1),
+        # 是否为其所属事件的代表条(标准孤立文章也算) - 热点榜靠这个字段
+        # 把同一事件的多个成员折叠成一个候选，避免占满前 5 名
+        "is_main": is_main,
         "main_source": {
             "id": source.id,
             "name": source.name,

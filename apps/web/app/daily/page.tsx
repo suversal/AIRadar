@@ -3,16 +3,25 @@ import { eventHref } from "@/lib/events";
 import { buildDailyDigest, latestToDailyReport } from "../reports/report-data";
 import { ReportShell } from "../reports/report-shell";
 
-async function loadReport() {
+type DailySearchParams = Promise<{ date?: string | string[] }>;
+
+async function loadReport(preferredDate: string | undefined, archiveDates: string[]) {
+  // 优先用显式请求的日期，否则用归档里真实存在的最新一期——不能信
+  // getLatestReport().report_date：那是滚动窗口拼出来的"今天"，在今天
+  // 的日报还没生成之前，这个日期在 daily_reports 里根本不存在
+  const targetDate = preferredDate ?? archiveDates[0];
+  if (targetDate) {
+    try {
+      const report = await getDailyReport(targetDate);
+      if (report.article_count > 0) {
+        return report;
+      }
+    } catch {
+      // 请求的日期没有真实日报，落到下面的滚动兜底
+    }
+  }
   const latest = await getLatestReport();
-  if (!latest.report_date) {
-    return latestToDailyReport(latest);
-  }
-  try {
-    return await getDailyReport(latest.report_date);
-  } catch {
-    return latestToDailyReport(latest);
-  }
+  return latestToDailyReport(latest);
 }
 
 function formatChineseDate(reportDate: string) {
@@ -37,8 +46,17 @@ function groupDatesByMonth(dates: string[]) {
   return Array.from(groups.entries());
 }
 
-export default async function DailyPage() {
-  const [report, archiveDates] = await Promise.all([loadReport(), getDailyArchive()]);
+export default async function DailyPage({
+  searchParams,
+}: {
+  searchParams: DailySearchParams;
+}) {
+  const resolvedSearchParams = await searchParams;
+  const requestedDate = Array.isArray(resolvedSearchParams.date)
+    ? resolvedSearchParams.date[0]
+    : resolvedSearchParams.date;
+  const archiveDates = await getDailyArchive();
+  const report = await loadReport(requestedDate, archiveDates);
   const monthGroups = groupDatesByMonth(archiveDates);
   const digest = buildDailyDigest(report);
 
@@ -72,7 +90,7 @@ export default async function DailyPage() {
                               ? "bg-signal/10 text-signal-bright"
                               : "text-ink-mid hover:bg-panel-soft hover:text-ink"
                           }`}
-                          href={`/daily/${value}`}
+                          href={`/daily?date=${value}`}
                         >
                           <span className="readout">{value.slice(-2)} 日</span>
                         </a>
@@ -113,12 +131,12 @@ export default async function DailyPage() {
             return (
               <div className="readout mt-4 flex gap-4 text-xs text-ink-dim">
                 {older ? (
-                  <a className="hover:text-signal" href={`/daily/${older}`}>
+                  <a className="hover:text-signal" href={`/daily?date=${older}`}>
                     ← 前一日 {older}
                   </a>
                 ) : null}
                 {newer ? (
-                  <a className="hover:text-signal" href={`/daily/${newer}`}>
+                  <a className="hover:text-signal" href={`/daily?date=${newer}`}>
                     后一日 {newer} →
                   </a>
                 ) : null}
