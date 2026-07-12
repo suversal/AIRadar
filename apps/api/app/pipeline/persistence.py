@@ -69,6 +69,11 @@ class PipelinePersistenceSummary:
     processed_articles: Any = None
     event_clusters: Any = None
     pipeline_run: Any = None
+    # 台账漏斗指标(2026-07-12 深夜):单一事实源,下游(Telegram 通知等)
+    # 直接读取,不再各自重算——避免两处口径不一致
+    new_raw_count: int = 0
+    new_selected_count: int = 0
+    non_ai_dropped_count: int = 0
 
 
 def persist_pipeline_result(
@@ -210,6 +215,9 @@ def persist_pipeline_result(
         processed_articles=processed_result,
         event_clusters=cluster_result,
         pipeline_run=run_result,
+        new_raw_count=new_raw_count,
+        new_selected_count=new_selected_count,
+        non_ai_dropped_count=non_ai_dropped_count,
     )
 
 

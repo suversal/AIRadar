@@ -53,10 +53,13 @@ export function PipelineRunDetail({
   runId,
   sourceReport,
   error,
+  sourceNames,
 }: {
   runId: number;
   sourceReport: Record<string, SourceCrawlResult>;
   error: string | null;
+  // id→当前名称:信源改名后明细跟着显示新名,id 只是稳定标识
+  sourceNames?: Record<string, string>;
 }) {
   const [open, setOpen] = useState<"sources" | "error" | null>(null);
   const entries = sortedSourceReport(sourceReport ?? {});
@@ -100,7 +103,9 @@ export function PipelineRunDetail({
             <tbody className="divide-y divide-line/50">
               {entries.map(([sourceId, item]) => (
                 <tr key={sourceId} className={TABLE_ROW}>
-                  <td className="readout py-1.5 pr-2 text-ink-mid">{sourceId}</td>
+                  <td className="py-1.5 pr-2 text-ink-mid">
+                    {sourceNames?.[sourceId] ?? sourceId}
+                  </td>
                   <td className="py-1.5 pr-2">
                     <Pill tone={item.status === "ok" ? "success" : "danger"}>
                       {item.status === "ok" ? "成功" : "失败"}

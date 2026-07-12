@@ -134,6 +134,15 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("export async function GET", route_source)
         self.assertIn("searchParams", route_source)
 
+    def test_run_detail_shows_source_names_not_ids(self):
+        # 信源改名后,运行明细必须跟着显示新名称——id 只是稳定标识,
+        # 展示层用 overview.sources 的 id→name 映射解析
+        detail_source = (WEB / "app" / "admin" / "pipeline-run-detail.tsx").read_text(encoding="utf-8")
+        dashboard_source = (WEB / "app" / "admin" / "page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("sourceNames", detail_source)
+        self.assertIn("sourceNames", dashboard_source)
+
     def test_admin_ledger_shows_ingest_metrics_not_cache_inflated_counts(self):
         # 台账漏斗口径(2026-07-12):抓取 = 重复 + 非AI(判定后直接丢弃,
         # 不入库) + 入库;精选 ⊂ 入库;历史行(NULL)显示 --;末列只保留

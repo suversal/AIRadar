@@ -482,7 +482,7 @@ class PipelinePersistenceTests(unittest.TestCase):
             skipped_reason_by_raw_id={"junk1": "not_ai_related"},
         )
 
-        persist_pipeline_result(repository, sources=[], result=result)
+        summary = persist_pipeline_result(repository, sources=[], result=result)
         kwargs = repository.pipeline_run_kwargs
         self.assertEqual(kwargs["new_raw_count"], 2)
         self.assertEqual(kwargs["new_selected_count"], 1)
@@ -492,6 +492,11 @@ class PipelinePersistenceTests(unittest.TestCase):
         duplicate = raw_total - kwargs["new_raw_count"] - kwargs["non_ai_dropped_count"]
         self.assertEqual(raw_total, duplicate + kwargs["non_ai_dropped_count"] + kwargs["new_raw_count"])
         self.assertEqual(duplicate, 1)
+        # summary 必须携带同样的指标(2026-07-12 深夜):Telegram 通知等
+        # 下游消费者应该从这里读,而不是各自重新计算一遍同样的口径
+        self.assertEqual(summary.new_raw_count, 2)
+        self.assertEqual(summary.new_selected_count, 1)
+        self.assertEqual(summary.non_ai_dropped_count, 1)
 
         # 预建 running 行的正式路径(finish 分支)必须携带同样的指标;
         # intake(抓取后立即落库)提供的插入清单优先于本次 upsert 的结果

@@ -665,8 +665,17 @@ def create_app(
                 raise HTTPException(status_code=404, detail="Source not found")
             try:
                 # 与自动同步同一口径:feed 全量拉元数据,只保留当天发布的
+                # (ingest_all_dates 源豁免)
                 fetched = crawler_registry.crawler_for_source(source).fetch(limit=None)
-                fetched = filter_articles_published_on(fetched, _date.today())
+                fetched = filter_articles_published_on(
+                    fetched,
+                    _date.today(),
+                    exempt_source_ids=(
+                        {source.id}
+                        if (source.config or {}).get("ingest_all_dates")
+                        else frozenset()
+                    ),
+                )
             except Exception as exc:
                 result = {
                     "origin": "manual",
@@ -818,10 +827,11 @@ def create_app(
                 if str((item.get("main_source") or {}).get("id") or "")
                 == selected_source_id
             ]
+        # 按发布时间倒序(2026-07-12),抓取时间只作并列时的次序
         items.sort(
             key=lambda item: (
-                str(item.get("crawled_at") or ""),
                 str(item.get("published_at") or ""),
+                str(item.get("crawled_at") or ""),
             ),
             reverse=True,
         )

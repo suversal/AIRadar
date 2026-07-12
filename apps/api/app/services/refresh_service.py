@@ -288,6 +288,13 @@ def refresh_latest_report(
                 error=str(exc),
                 pipeline_run_id=pipeline_run_id,
             )
+        from app.services.telegram_notifier import format_sync_report, send_telegram_message
+
+        send_telegram_message(
+            format_sync_report(
+                status="failed", report_date=resolved_date.isoformat(), error=str(exc)
+            )
+        )
         raise
 
 
@@ -304,11 +311,28 @@ def _run_refresh(
 
     raw_articles, crawl_report = crawl_sources(sources)
     # 只处理当天发布(上海时区,2026-07-12 深夜决策):feed 的陈年存量在
-    # intake 之前出局,不入库、不进任何统计
+    # intake 之前出局,不入库、不进任何统计;标记 ingest_all_dates 的源
+    # (AI HOT 全量流)豁免日期筛选,全部保留
     from app.pipeline.runner import filter_articles_published_on
 
-    raw_articles = filter_articles_published_on(raw_articles, resolved_date)
+    raw_articles = filter_articles_published_on(
+        raw_articles,
+        resolved_date,
+        exempt_source_ids={
+            source.id for source in sources if (source.config or {}).get("ingest_all_dates")
+        },
+    )
     _persist_source_health(database_url, crawl_report.get("per_source", {}))
+    # 缓存快照必须在 intake 之前拍:它代表"本轮开始前库里已有什么",
+    # 是信源明细区分 已存在/新入选 的依据——intake 先跑会把本轮新文章
+    # 全部误判成已存在(39 号运行的"入选全 0"事故)
+    cached_results: dict[str, Any] = {}
+    if database_url:
+        from app.pipeline.persistence import load_cached_results_from_database
+
+        cached_results = load_cached_results_from_database(
+            database_url, [article.url_hash for article in raw_articles]
+        )
     # 四步流程第 1 步:抓取一结束立即把新文章插入库(默认未入选),
     # 数据先于 AI 处理可见;返回的清单是台账"入库/非AI"指标的事实源
     intake_inserted_ids: list[str] | None = None
@@ -330,14 +354,6 @@ def _run_refresh(
     crawl_report_path = crawl_dir / f"{resolved_date.isoformat()}-refresh-crawl-report.json"
     save_articles(raw_path, raw_articles)
     write_json(crawl_report_path, crawl_report)
-
-    cached_results: dict[str, Any] = {}
-    if database_url:
-        from app.pipeline.persistence import load_cached_results_from_database
-
-        cached_results = load_cached_results_from_database(
-            database_url, [article.url_hash for article in raw_articles]
-        )
 
     ai_provider = provider_from_env()
 
@@ -433,6 +449,31 @@ def _run_refresh(
         )
         _report_progress(database_url, pipeline_run_id, phase="reports")
         _regenerate_period_reports(database_url, resolved_date, ai_provider)
+
+    # 每次同步完成后推送完整结果到 Telegram(2026-07-12 深夜决策)。
+    # 指标读自 persistence_summary(唯一事实源),不重新计算——防止和
+    # 台账口径出现两处不一致
+    from app.services.telegram_notifier import format_sync_report, send_telegram_message
+
+    duplicate_count = (
+        len(raw_articles) - persistence_summary.new_raw_count - persistence_summary.non_ai_dropped_count
+        if persistence_summary is not None
+        else 0
+    )
+    send_telegram_message(
+        format_sync_report(
+            status="succeeded",
+            report_date=resolved_date.isoformat(),
+            raw_count=len(raw_articles),
+            duplicate_count=duplicate_count,
+            non_ai_dropped_count=persistence_summary.non_ai_dropped_count if persistence_summary else 0,
+            new_raw_count=persistence_summary.new_raw_count if persistence_summary else 0,
+            new_selected_count=persistence_summary.new_selected_count if persistence_summary else 0,
+            cluster_count=len(result.event_clusters),
+            source_report=auto_crawl_results,
+            source_names={source.id: source.name for source in sources},
+        )
+    )
 
     return {
         "status": "ok",

@@ -134,6 +134,10 @@ export default async function AdminDashboardPage() {
   ]);
   const overview: Overview | null = response.ok ? await response.json() : null;
   const scheduleConfig = scheduleResponse.ok ? await scheduleResponse.json() : null;
+  // id→当前名称:运行明细展示信源的最新名称,改名即时生效
+  const sourceNames: Record<string, string> = Object.fromEntries(
+    (overview?.sources ?? []).map((source) => [source.id, source.name]),
+  );
 
   return (
     <AdminShell
@@ -226,6 +230,7 @@ export default async function AdminDashboardPage() {
                         <PipelineRunDetail
                           error={run.error}
                           runId={run.id}
+                          sourceNames={sourceNames}
                           sourceReport={run.source_report ?? {}}
                         />
                       </td>

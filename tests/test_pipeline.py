@@ -230,6 +230,23 @@ class PipelineTests(unittest.TestCase):
             ["https://openai.com/today"],
         )
 
+        # 豁免源(config.ingest_all_dates,如 AI HOT 全量流):不筛当天,
+        # 全部保留——判重仍由 url_hash 兜底
+        ancient = dc_replace(
+            result.raw_articles[0],
+            source_id="aihot_all",
+            published_at=datetime(2025, 1, 1, 9, tzinfo=timezone.utc),
+        )
+        self.assertEqual(
+            [
+                a.source_id
+                for a in filter_articles_published_on(
+                    [ancient], date(2026, 7, 1), exempt_source_ids={"aihot_all"}
+                )
+            ],
+            ["aihot_all"],
+        )
+
     def test_each_scored_article_triggers_immediate_persist_callback(self):
         # 2026-07-12 深夜决策:每成功评分一条立即回调保存,数据库持续
         # 增长;跳过类不回调;回调抛异常不得炸掉整轮

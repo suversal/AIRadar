@@ -150,16 +150,24 @@ def _cached_scoring_result(cached: dict[str, Any] | None) -> ScoringResult | Non
 
 
 def filter_articles_published_on(
-    articles: list[RawArticle], report_date: date
+    articles: list[RawArticle],
+    report_date: date,
+    *,
+    exempt_source_ids: set[str] | frozenset = frozenset(),
 ) -> list[RawArticle]:
     """只处理发布日期(上海时区)等于报告日期的文章(2026-07-12 深夜决策):
     feed 里的陈年存量一概出局。published_at 为 None 的保留——GitHub
-    Trending 这类聚合器条目本质上就是"当前"。"""
+    Trending 这类聚合器条目本质上就是"当前"。exempt_source_ids 中的源
+    (config.ingest_all_dates,如 AI HOT 全量流)不筛日期全部保留,判重
+    仍由 url_hash 兜底。"""
     from zoneinfo import ZoneInfo
 
     shanghai = ZoneInfo("Asia/Shanghai")
     kept: list[RawArticle] = []
     for article in articles:
+        if article.source_id in exempt_source_ids:
+            kept.append(article)
+            continue
         published = article.published_at
         if published is None:
             kept.append(article)
@@ -571,7 +579,15 @@ def run_pipeline(
 
     # 只处理当天发布(2026-07-12 深夜决策):feed 的陈年存量在这里出局,
     # 不入库、不进统计;总量由日期天然约束,不再依赖每源条数配置
-    raw_articles = filter_articles_published_on(raw_articles, report_date)
+    raw_articles = filter_articles_published_on(
+        raw_articles,
+        report_date,
+        exempt_source_ids={
+            source.id
+            for source in sources
+            if (source.config or {}).get("ingest_all_dates")
+        },
+    )
     raw_articles = dedupe_articles(raw_articles)
     candidate_articles = list(raw_articles)
     skipped_reason_by_raw_id: dict[str, str] = {}

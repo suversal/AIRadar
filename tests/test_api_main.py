@@ -221,7 +221,7 @@ class APIMainTests(unittest.TestCase):
         self.assertEqual(legacy_response.json()["items"][0]["event_id"], "evt-3")
 
     @unittest.skipIf(TestClient is None, "FastAPI is not installed in this environment")
-    def test_admin_events_filters_by_main_source_and_sorts_by_crawled_time(self):
+    def test_admin_events_filters_by_main_source_and_sorts_by_published_time(self):
         module = importlib.import_module("app.main")
         repository = FakeRepository(
             {},
@@ -262,9 +262,11 @@ class APIMainTests(unittest.TestCase):
         response = client.get("/api/admin/events?source_id=openai_blog")
 
         self.assertEqual(response.status_code, 200)
+        # 内容管理按发布时间倒序(2026-07-12):older 发布于 10:00,晚于
+        # newer 的 09:00,所以排在前——抓取时间只作并列时的次序
         self.assertEqual(
             [item["event_id"] for item in response.json()["items"]],
-            ["newer", "older"],
+            ["older", "newer"],
         )
 
 
