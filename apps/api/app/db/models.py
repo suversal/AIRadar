@@ -370,6 +370,14 @@ class PipelineRunModel(Base):
     raw_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     processed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     cluster_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # ingest metrics (2026-07-12): raw_count is dominated by re-crawled
+    # articles whose AI results are cache-reused, so the ledger surfaces
+    # what a run actually contributed. NULL = row predates these columns.
+    new_raw_count: Mapped[Optional[int]] = mapped_column(Integer)
+    new_selected_count: Mapped[Optional[int]] = mapped_column(Integer)
+    # non-AI verdicts dropped outright this run (never stored as rows);
+    # 抓取 = 重复 + non_ai_dropped + new_raw 的恒等式成员
+    non_ai_dropped_count: Mapped[Optional[int]] = mapped_column(Integer)
     skipped_reasons: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     error: Mapped[Optional[str]] = mapped_column(Text)
 

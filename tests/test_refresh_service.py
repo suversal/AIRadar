@@ -107,6 +107,57 @@ class BuildAutoCrawlResultsTests(unittest.TestCase):
         self.assertEqual(skipped["outcome"], "rejected")
         self.assertEqual(skipped["reason"], "not_ai_related")
 
+    def test_marks_already_stored_articles_as_duplicate(self):
+        # 信源明细必须区分"已存在"和"非AI"(2026-07-12):库里已有的文章
+        # 标 duplicate(与手动抓取路径一致),"通过"只统计本轮新入选的
+        crawl_report = {
+            "per_source": {
+                "good_source": {"status": "ok", "duration_ms": 1.0},
+            }
+        }
+        raw_articles = [
+            _article("old-sel", "good_source"),
+            _article("old-rej", "good_source"),
+            _article("fresh", "good_source"),
+            _article("junk", "good_source"),
+        ]
+        processed = [
+            _processed("old-sel", selected=True),
+            _processed("old-rej", selected=False),
+            _processed("fresh", selected=True),
+        ]
+        result = PipelineResult(
+            raw_articles=raw_articles,
+            processed_articles=processed,
+            event_clusters=[],
+            daily_report=_daily_report(),
+            skipped_reasons={"not_ai_related": 1},
+            skipped_reason_by_raw_id={"junk": "not_ai_related"},
+        )
+
+        merged = _build_auto_crawl_results(
+            crawl_report,
+            result,
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            existing_url_hashes={"u-old-sel", "u-old-rej"},
+        )
+
+        entry = merged["good_source"]
+        by_url = {a["url"]: a for a in entry["articles"]}
+        old_sel = by_url["https://example.com/old-sel"]
+        old_rej = by_url["https://example.com/old-rej"]
+        fresh = by_url["https://example.com/fresh"]
+        junk = by_url["https://example.com/junk"]
+        self.assertEqual(old_sel["outcome"], "duplicate")
+        self.assertTrue(old_sel["selected"])
+        self.assertEqual(old_rej["outcome"], "duplicate")
+        self.assertEqual(old_rej["reason"], "below_threshold:65")
+        self.assertEqual(fresh["outcome"], "saved")
+        self.assertEqual(junk["outcome"], "rejected")
+        self.assertEqual(junk["reason"], "not_ai_related")
+        # 通过 = 本轮新入选;旧文章再次入选不算
+        self.assertEqual(entry["accepted_count"], 1)
+
     def test_passes_through_failed_crawl_stage_sources_without_articles(self):
         crawl_report = {
             "per_source": {

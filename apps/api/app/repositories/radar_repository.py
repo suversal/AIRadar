@@ -37,6 +37,10 @@ class WriteResult:
     inserted: int = 0
     updated: int = 0
     skipped: int = 0
+    # populated by upsert_raw_articles / insert_missing_raw_articles: ids of
+    # articles written for the first time this call - the "入库/非AI" ledger
+    # metrics and the basis for counting which selected articles are new
+    inserted_ids: list[str] = field(default_factory=list)
     # populated only by upsert_event_clusters: {original_cluster_id: target_event_id}
     # for every incoming cluster that got merged into a different, already-
     # existing event instead of creating its own row. Callers (persistence
@@ -88,6 +92,7 @@ class RadarRepository:
         inserted = 0
         updated = 0
         skipped = 0
+        inserted_ids: list[str] = []
         seen_url_hashes: set[str] = set()
         for article in articles:
             if article.url_hash in seen_url_hashes:
@@ -100,6 +105,7 @@ class RadarRepository:
             if existing is None:
                 self.session.add(_raw_article_to_model(article))
                 inserted += 1
+                inserted_ids.append(article.id)
                 self._sync_translation_from_metadata(article, pipeline_run_id=pipeline_run_id)
                 continue
             # later runs enrich articles in memory (README, full-page body);
@@ -118,7 +124,41 @@ class RadarRepository:
             existing.skipped_reason = article.skipped_reason
             updated += 1
             self._sync_translation_from_metadata(article, pipeline_run_id=pipeline_run_id)
-        return WriteResult(inserted=inserted, updated=updated, skipped=skipped)
+        return WriteResult(
+            inserted=inserted,
+            updated=updated,
+            skipped=skipped,
+            inserted_ids=inserted_ids,
+        )
+
+    def insert_missing_raw_articles(
+        self, articles: list[RawArticle], *, pipeline_run_id: Optional[int] = None
+    ) -> WriteResult:
+        """抓取后立即落库(2026-07-12 四步流程第 1 步):只插入库里没有的
+        文章(默认未入选状态),已存在的完全跳过——不合并不更新,让抓取
+        结果先于 AI 处理可见。增强合并仍由整轮结束后的 upsert 完成。"""
+        inserted = 0
+        skipped = 0
+        inserted_ids: list[str] = []
+        seen_url_hashes: set[str] = set()
+        for article in articles:
+            if article.url_hash in seen_url_hashes:
+                skipped += 1
+                continue
+            seen_url_hashes.add(article.url_hash)
+            exists = self.session.scalar(
+                select(RawArticleModel.id).where(
+                    RawArticleModel.url_hash == article.url_hash
+                )
+            )
+            if exists is not None:
+                skipped += 1
+                continue
+            self.session.add(_raw_article_to_model(article))
+            inserted += 1
+            inserted_ids.append(article.id)
+        self.session.flush()
+        return WriteResult(inserted=inserted, skipped=skipped, inserted_ids=inserted_ids)
 
     def _sync_translation_from_metadata(
         self, article: RawArticle, *, pipeline_run_id: Optional[int] = None
@@ -284,6 +324,7 @@ class RadarRepository:
                     translation=translation,
                     source_count=cluster.source_count if cluster else 1,
                     event_id=cluster.id if cluster else None,
+                    last_seen_at=cluster.last_seen_at if cluster else None,
                 )
             )
         return items
@@ -586,10 +627,12 @@ class RadarRepository:
             "phase": model.phase,
         }
 
-    def sweep_stale_pipeline_runs(self, *, max_age_minutes: int = 20) -> int:
+    def sweep_stale_pipeline_runs(self, *, max_age_minutes: int = 45) -> int:
         """Close out 'running' rows whose process evidently died (older than
         max_age_minutes), so the concurrency guard can never dead-lock on an
-        orphan. Honest bookkeeping: marked failed with an explicit reason."""
+        orphan. Honest bookkeeping: marked failed with an explicit reason.
+        45min: 流程重排后正常运行是分钟级,这里纯作孤儿兜底——阈值必须
+        大于任何合法运行时长,否则活着的运行会被误杀并叠加双跑。"""
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)
         stale_models = self.session.scalars(
             select(PipelineRunModel).where(PipelineRunModel.status == "running")
@@ -637,6 +680,9 @@ class RadarRepository:
         source_report: Optional[dict[str, Any]] = None,
         error: str | None = None,
         finished_at: Any = None,
+        new_raw_count: Optional[int] = None,
+        new_selected_count: Optional[int] = None,
+        non_ai_dropped_count: Optional[int] = None,
     ) -> WriteResult:
         model = self.session.get(PipelineRunModel, run_id)
         if model is None:
@@ -645,6 +691,9 @@ class RadarRepository:
         model.raw_count = raw_count
         model.processed_count = processed_count
         model.cluster_count = cluster_count
+        model.new_raw_count = new_raw_count
+        model.new_selected_count = new_selected_count
+        model.non_ai_dropped_count = non_ai_dropped_count
         model.skipped_reasons = dict(skipped_reasons or {})
         if source_report is not None:
             # supersedes the coarse crawl-stage report _report_progress wrote
@@ -668,12 +717,18 @@ class RadarRepository:
         started_at: Any = None,
         finished_at: Any = None,
         error: str | None = None,
+        new_raw_count: Optional[int] = None,
+        new_selected_count: Optional[int] = None,
+        non_ai_dropped_count: Optional[int] = None,
     ) -> WriteResult:
         model = PipelineRunModel(
             status=status,
             raw_count=raw_count,
             processed_count=processed_count,
             cluster_count=cluster_count,
+            new_raw_count=new_raw_count,
+            new_selected_count=new_selected_count,
+            non_ai_dropped_count=non_ai_dropped_count,
             skipped_reasons=dict(skipped_reasons),
             error=error,
         )
@@ -881,6 +936,17 @@ class RadarRepository:
                 "raw_count": model.raw_count,
                 "processed_count": model.processed_count,
                 "cluster_count": model.cluster_count,
+                "new_raw_count": model.new_raw_count,
+                "new_selected_count": model.new_selected_count,
+                "non_ai_dropped_count": model.non_ai_dropped_count,
+                # 恒等式:抓取 = 重复 + 非AI + 入库。NULL(历史行)保持
+                # None,前端显示 --,不能伪装成 0
+                "duplicate_count": (
+                    model.raw_count - model.new_raw_count - model.non_ai_dropped_count
+                    if model.new_raw_count is not None
+                    and model.non_ai_dropped_count is not None
+                    else None
+                ),
                 "skipped_reasons": dict(model.skipped_reasons or {}),
                 "error": model.error,
                 "phase": model.phase,
@@ -921,7 +987,12 @@ class RadarRepository:
         if not url_hashes:
             return {}
         rows = self.session.execute(
-            select(RawArticleModel, ProcessedArticleModel, ArticleTranslationModel)
+            select(
+                RawArticleModel,
+                ProcessedArticleModel,
+                ArticleTranslationModel,
+                ArticleEmbeddingModel,
+            )
             .join(
                 ProcessedArticleModel,
                 ProcessedArticleModel.raw_article_id == RawArticleModel.id,
@@ -931,10 +1002,14 @@ class RadarRepository:
                 ArticleTranslationModel,
                 ArticleTranslationModel.raw_article_id == RawArticleModel.id,
             )
+            .outerjoin(
+                ArticleEmbeddingModel,
+                ArticleEmbeddingModel.raw_article_id == RawArticleModel.id,
+            )
             .where(RawArticleModel.url_hash.in_(url_hashes))
         ).all()
         cached: dict[str, dict[str, Any]] = {}
-        for raw, processed, translation in rows:
+        for raw, processed, translation, embedding in rows:
             raw_metadata = dict(raw.raw_metadata or {})
             metadata = {
                 key: raw_metadata[key]
@@ -971,6 +1046,16 @@ class RadarRepository:
                 "scoring": scoring,
                 "skipped_reason": raw.skipped_reason if scoring is None else None,
                 "metadata": metadata,
+                # 缓存文章不再拉正文(2026-07-12 流程重排):把库里的全文
+                # 和既有向量带回 pipeline,防止 feed 摘要重算出劣质向量
+                # 覆盖全文向量。必须转纯 float:pgvector 给的是 numpy
+                # float32,顺着相似度计算混进日报 JSON 会崩掉序列化
+                "content": raw.content,
+                "embedding": (
+                    [float(value) for value in embedding.content_vector]
+                    if embedding is not None and embedding.content_vector is not None
+                    else None
+                ),
             }
         return cached
 
@@ -1118,6 +1203,7 @@ class RadarRepository:
                 event_override=event_override,
                 source_count=cluster.source_count if cluster else 1,
                 event_id=cluster.id if cluster else None,
+                last_seen_at=cluster.last_seen_at if cluster else None,
             )
             for processed, raw, source, override, cluster, event_override in rows
         ]
@@ -1203,6 +1289,7 @@ class RadarRepository:
             translation=translation,
             source_count=cluster.source_count if cluster else 1,
             event_id=cluster.id if cluster else None,
+            last_seen_at=cluster.last_seen_at if cluster else None,
         )
         if cluster is not None:
             item["coverage"] = self.get_event_cluster_coverage(cluster.id)
@@ -1387,11 +1474,14 @@ def _event_item(
     translation: Optional[ArticleTranslationModel] = None,
     source_count: int = 1,
     event_id: Optional[str] = None,
+    last_seen_at: Optional[datetime] = None,
 ) -> dict[str, Any]:
     metadata = dict(raw.raw_metadata or {})
     published_at = raw.published_at
     if published_at is not None and published_at.tzinfo is None:
         published_at = published_at.replace(tzinfo=timezone.utc)
+    if last_seen_at is not None and last_seen_at.tzinfo is None:
+        last_seen_at = last_seen_at.replace(tzinfo=timezone.utc)
     # precedence: event-level moderation > article-level moderation > AI value
     title_zh = (
         (event_override.title_zh if event_override and event_override.title_zh else None)
@@ -1440,6 +1530,11 @@ def _event_item(
         "reason": processed.reason_zh,
         "action": processed.action_zh,
         "published_at": published_at.isoformat() if published_at else None,
+        # the event's latest coverage time - hotspot recency anchors on this
+        # so an older event that just gained a new source still counts
+        "last_seen_at": (last_seen_at or published_at).isoformat()
+        if (last_seen_at or published_at)
+        else None,
         "crawled_at": raw.crawled_at.isoformat() if raw.crawled_at else None,
         "original_url": raw.source_url,
     }

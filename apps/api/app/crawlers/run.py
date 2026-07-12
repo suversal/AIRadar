@@ -15,20 +15,14 @@ CrawlerFactory = Callable[[Source], BaseCrawler]
 
 SAME_DOMAIN_DELAY_SECONDS = 6.0
 DEFAULT_CRAWL_CONCURRENCY = 8
-DEFAULT_SOURCE_CRAWL_LIMIT = 5
 
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _source_limit(source: Source, default_limit: int = DEFAULT_SOURCE_CRAWL_LIMIT) -> int:
-    """Admin-configurable per-source crawl size (config.crawl_limit), else 5."""
-    try:
-        configured = int((source.config or {}).get("crawl_limit") or 0)
-    except (TypeError, ValueError):
-        configured = 0
-    return configured if configured > 0 else default_limit
+# 每源条数配置已停用(2026-07-12 深夜):feed 全量拉元数据(单请求,
+# 成本恒定),总量由"只处理当天发布"的日期过滤控制,正文按需拉取
 
 
 def _crawl_domain_group(
@@ -47,7 +41,7 @@ def _crawl_domain_group(
         previous_fetch = time.monotonic()
         source_started = time.perf_counter()
         try:
-            fetched = crawler_factory(source).fetch(limit=_source_limit(source))
+            fetched = crawler_factory(source).fetch(limit=None)
         except Exception as exc:  # keep one source failure from blocking the full pass
             results[source.id] = {
                 "status": "skipped",
@@ -71,9 +65,9 @@ def crawl_sources(
     crawler_factory: CrawlerFactory = crawler_for_source,
     concurrency: int = DEFAULT_CRAWL_CONCURRENCY,
 ) -> tuple[list[RawArticle], dict]:
-    """Crawl every active source for its own configured crawl_limit (or the
-    default of 5) - each source's budget is independent, there is no shared
-    global pool to ration across sources."""
+    """Crawl every active source for its own configured crawl_limit
+    (unconfigured = everything the feed/API provides) - each source's budget
+    is independent, there is no shared global pool to ration across sources."""
     active_sources = [source for source in sources if source.is_active]
     started_at = _utc_now_iso()
 

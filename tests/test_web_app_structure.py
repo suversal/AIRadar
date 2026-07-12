@@ -72,6 +72,16 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn('name="q"', latest_page)
         self.assertIn("搜索标题/摘要", latest_page)
 
+    def test_latest_hotspots_come_from_dedicated_api_not_feed_slice(self):
+        api_source = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
+        latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("/api/public/hotspots", api_source)
+        self.assertIn("getHotspots", api_source)
+        self.assertIn("getHotspots", latest_page)
+        # the board must rank by the hotspot rule, not slice the feed
+        self.assertNotIn("filteredItems.slice(0, 5)", latest_page)
+
     def test_latest_page_degrades_when_backend_api_is_unavailable(self):
         api_source = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
@@ -100,7 +110,8 @@ class WebAppStructureTests(unittest.TestCase):
         route_source = (WEB / "app" / "api" / "refresh-latest" / "route.ts").read_text(encoding="utf-8")
 
         self.assertIn("手动同步", button_source)
-        self.assertIn("limit=100", button_source)
+        # 2026-07-12 决策:总量由每源 crawl_limit 约束,同步请求不再携带全局上限
+        self.assertNotIn("limit=", button_source)
         self.assertNotIn("top_n", button_source)
         self.assertIn("fetch(url", button_source)
         self.assertIn("pollRefreshJob", button_source)
@@ -122,6 +133,74 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("/api/admin/refresh-latest-async", route_source)
         self.assertIn("export async function GET", route_source)
         self.assertIn("searchParams", route_source)
+
+    def test_admin_ledger_shows_ingest_metrics_not_cache_inflated_counts(self):
+        # 台账漏斗口径(2026-07-12):抓取 = 重复 + 非AI(判定后直接丢弃,
+        # 不入库) + 入库;精选 ⊂ 入库;历史行(NULL)显示 --;末列只保留
+        # 信源明细,评分未达阈值属于入库的正常组成,不单独展示
+        dashboard_source = (WEB / "app" / "admin" / "page.tsx").read_text(encoding="utf-8")
+
+        for column in ["重复", "非AI", "入库", "精选", "信源明细"]:
+            self.assertIn(column, dashboard_source)
+        self.assertIn("new_raw_count", dashboard_source)
+        self.assertIn("new_selected_count", dashboard_source)
+        self.assertIn("non_ai_dropped_count", dashboard_source)
+        self.assertIn("duplicate_count", dashboard_source)
+        self.assertNotIn("AI 处理</th>", dashboard_source)
+        self.assertNotIn("事件簇</th>", dashboard_source)
+        self.assertNotIn("跳过说明", dashboard_source)
+        self.assertNotIn("评分未达精选阈值", dashboard_source)
+        self.assertNotIn("skippedReasonText", dashboard_source)
+        self.assertNotIn("notAiCount", dashboard_source)
+
+    def test_hover_card_stays_open_for_copying(self):
+        # 悬浮卡(2026-07-12):鼠标移出触发区后延迟关闭,可移入卡片内
+        # 选中复制——卡片不能是 pointer-events-none,且悬停卡片取消关闭
+        ui_source = (WEB / "app" / "admin" / "ui.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("setTimeout", ui_source)
+        self.assertIn("cancelHide", ui_source)
+        self.assertNotIn("pointer-events-none", ui_source)
+        self.assertIn("onMouseEnter", ui_source)
+        for consumer in ["sources/sources-manager.tsx", "events/events-manager.tsx"]:
+            consumer_source = (WEB / "app" / "admin" / Path(consumer)).read_text(encoding="utf-8")
+            self.assertIn("cancelHide", consumer_source)
+
+    def test_sources_manager_reflects_today_only_crawling(self):
+        # 2026-07-12 深夜决策:每源条数配置停用,只处理当天发布——
+        # UI 不再有 crawl_limit 输入与"每轮 N 条"文案
+        manager_source = (
+            WEB / "app" / "admin" / "sources" / "sources-manager.tsx"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("仅当天发布", manager_source)
+        self.assertNotIn("crawl_limit", manager_source)
+        self.assertNotIn("每轮", manager_source)
+
+    def test_sources_list_sorts_by_name_and_flags_official(self):
+        # 信源管理(2026-07-12):列表按名称排序;官方信源带显眼"官方"标记
+        manager_source = (
+            WEB / "app" / "admin" / "sources" / "sources-manager.tsx"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("sortedSources", manager_source)
+        self.assertIn("localeCompare", manager_source)
+        self.assertIn('source.category === "official"', manager_source)
+        self.assertIn("官方", manager_source)
+
+    def test_source_crawl_results_distinguish_duplicate_and_non_ai(self):
+        # 信源明细(2026-07-12):判定标签必须区分 已存在/非AI/未达精选/异常,
+        # 原因码要翻译成人话而不是原样输出 below_threshold:78
+        manager_source = (
+            WEB / "app" / "admin" / "sources" / "sources-manager.tsx"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("outcomeLabel", manager_source)
+        self.assertIn("formatVerdictReason", manager_source)
+        for label in ["已存在", "非AI", "未达精选", "异常"]:
+            self.assertIn(label, manager_source)
+        self.assertIn("评分未达精选阈值", manager_source)
+        self.assertIn("预筛判定与 AI 无关", manager_source)
 
     def test_admin_dashboard_exposes_schedule_panel(self):
         panel_source = (WEB / "app" / "admin" / "schedule-panel.tsx").read_text(encoding="utf-8")

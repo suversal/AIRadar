@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react";
 
 export type Tone = "success" | "warning" | "danger" | "signal" | "neutral";
 
@@ -90,8 +96,17 @@ type HoverCardState<T> = { data: T; top: number; left: number; flip: boolean };
  * in `overflow-x-auto` (which per spec also clips overflow-y). */
 export function useHoverCard<T>() {
   const [card, setCard] = useState<HoverCardState<T> | null>(null);
+  const hideTimer = useRef<number | null>(null);
+
+  function cancelHide() {
+    if (hideTimer.current !== null) {
+      window.clearTimeout(hideTimer.current);
+      hideTimer.current = null;
+    }
+  }
 
   function show(event: ReactMouseEvent<HTMLElement>, data: T) {
+    cancelHide();
     const rect = event.currentTarget.getBoundingClientRect();
     const flip = rect.bottom + 90 > window.innerHeight;
     setCard({
@@ -102,25 +117,38 @@ export function useHoverCard<T>() {
     });
   }
 
+  // 延迟关闭:给鼠标留出从触发元素移入卡片的走廊,悬停卡片时取消关闭,
+  // 这样卡片里的 URL 可以选中复制
   function hide() {
-    setCard(null);
+    cancelHide();
+    hideTimer.current = window.setTimeout(() => setCard(null), 200);
   }
 
-  return { card, show, hide };
+  useEffect(() => cancelHide, []);
+
+  return { card, show, hide, cancelHide };
 }
 
-/** Renders whatever `useHoverCard` is currently showing — mount once per table. */
+/** Renders whatever `useHoverCard` is currently showing — mount once per table.
+ * Pass the hook's cancelHide/hide so the card survives the pointer moving
+ * into it (and text inside stays selectable for copying). */
 export function HoverCard<T>({
   card,
   render,
+  onMouseEnter,
+  onMouseLeave,
 }: {
   card: HoverCardState<T> | null;
   render: (data: T) => ReactNode;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
 }) {
   if (!card) return null;
   return (
     <div
-      className="pointer-events-none fixed z-50 max-w-sm rounded-md border border-line-strong bg-panel-soft px-3 py-2 text-xs shadow-lg"
+      className="fixed z-50 max-w-sm select-text rounded-md border border-line-strong bg-panel-soft px-3 py-2 text-xs shadow-lg"
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       style={{
         top: card.top,
         left: card.left,

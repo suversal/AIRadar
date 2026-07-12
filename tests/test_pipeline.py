@@ -14,7 +14,52 @@ from app.services.ai_service import FakeAIProvider
 
 
 class PipelineTests(unittest.TestCase):
-    def test_pipeline_skips_over_limit_and_generates_daily_report(self):
+    def test_pipeline_has_no_global_candidate_cap(self):
+        # 2026-07-12 决策:总量由每个信源自己的 crawl_limit 在抓取层约束,
+        # pipeline 不得再按全局上限静默跳过候选
+        source = Source(
+            id="hacker_news",
+            name="Hacker News",
+            source_role="community",
+            tier="T2",
+            type="hn",
+            category="community",
+            url="https://news.ycombinator.com",
+            homepage="https://news.ycombinator.com",
+            allowed_domains=["news.ycombinator.com"],
+            can_be_main_source=True,
+        )
+        raw_items = [
+            {
+                "source_url": f"https://news.ycombinator.com/item?id={index}",
+                "title": f"AI model release update {index}",
+                "content": f"AI model {index} ships new agent capabilities for developers.",
+                "author": "hn",
+                "published_at": datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {},
+            }
+            for index in range(105)
+        ]
+
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={"hacker_news": raw_items},
+            ai_provider=FakeAIProvider(),
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 1),
+        )
+
+        self.assertEqual(len(result.raw_articles), 105)
+        self.assertEqual(len(result.processed_articles), 105)
+        self.assertNotIn("candidate_limit", result.skipped_reasons)
+        # 阶段计时:定位"AI 处理中"里的时间去向(评分/聚类/README/翻译/成报)
+        for stage in ("ai_candidates", "clustering", "readme", "translation", "report"):
+            self.assertIn(stage, result.stage_timings)
+            self.assertGreaterEqual(result.stage_timings[stage], 0.0)
+
+    def test_pipeline_filters_non_ai_and_generates_daily_report(self):
         source = Source(
             id="openai_blog",
             name="OpenAI Blog",
@@ -66,25 +111,20 @@ class PipelineTests(unittest.TestCase):
             ai_provider=FakeAIProvider(),
             now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
             report_date=date(2026, 7, 1),
-            candidate_limit=2,
             top_n=12,
         )
 
         self.assertEqual(len(result.raw_articles), 3)
-        self.assertEqual(len(result.processed_articles), 1)
-        self.assertEqual(len(result.event_clusters), 1)
+        self.assertEqual(len(result.processed_articles), 2)
         self.assertIn("Suversal AI Radar 日报", result.daily_report.markdown)
-        self.assertEqual(result.skipped_reasons["candidate_limit"], 1)
+        self.assertNotIn("candidate_limit", result.skipped_reasons)
         self.assertEqual(result.skipped_reasons["not_ai_related"], 1)
 
     def test_title_only_articles_are_skipped_without_any_ai_call(self):
-        # 实测：SPA 页面抓不到正文时 content 回退为标题，LLM 对着一句标题
-        # 也能编出 information_density=6 的分。无正文必须在任何 AI 调用
-        # 之前拦下——省钱且确定
+        # 流程重排(2026-07-12 晚):标题-only(HN 外链在 feed 阶段的常态)
+        # 允许进预筛——标题足够判断 AI 相关性;但正文拉取失败后仍无内容的,
+        # 绝不能进入完整评分(LLM 对着一句标题也能编出高分)
         class ExplodingProvider(FakeAIProvider):
-            def prefilter(self, text):
-                raise AssertionError("prefilter must not be called for title-only articles")
-
             def score_article(self, title, content):
                 raise AssertionError("score_article must not be called for title-only articles")
 
@@ -102,32 +142,204 @@ class PipelineTests(unittest.TestCase):
         raw_items = [
             {
                 "source_url": "https://example.com/spa-shell",
-                "title": "The Conversation We're Not Having About AI in Peer Review",
-                # SPA 提取失败的回退形态：正文 = 标题
-                "content": "The Conversation We're Not Having About AI in Peer Review",
+                "title": "New AI agent model ships for developers",
+                # feed 阶段外链帖的常态:正文 = 标题,等待预筛通过后拉取
+                "content": "New AI agent model ships for developers",
                 "author": None,
                 "published_at": datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
                 "language": "en",
-                "raw_score": {"points": 1, "comments": 0},
-                "metadata": {},
+                "raw_score": {"points": 42, "comments": 17},
+                "metadata": {"body_fetch": "deferred"},
             }
         ]
 
-        result = run_pipeline(
-            sources=[source],
-            raw_items_by_source={"hacker_news": raw_items},
-            ai_provider=ExplodingProvider(),
-            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
-            report_date=date(2026, 7, 1),
-            candidate_limit=10,
-            top_n=12,
-        )
+        # 正文拉取失败(反爬/SPA):内容保持标题-only
+        with patch("app.crawlers.page_content.prefer_full_page_content", lambda article, **kwargs: None):
+            result = run_pipeline(
+                sources=[source],
+                raw_items_by_source={"hacker_news": raw_items},
+                ai_provider=ExplodingProvider(),
+                now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+                report_date=date(2026, 7, 1),
+                top_n=12,
+            )
 
         self.assertEqual(result.skipped_reasons.get("no_content"), 1)
         self.assertEqual(len(result.processed_articles), 0)
         skipped = result.raw_articles[0]
         self.assertEqual(skipped.status, "skipped")
         self.assertEqual(skipped.skipped_reason, "no_content")
+
+    def test_pipeline_only_processes_articles_published_on_report_date(self):
+        # 2026-07-12 深夜决策:feed 里的陈年存量一概不处理——只处理发布
+        # 日期(上海时区)等于报告日期的文章;无发布时间的(聚合器)保留
+        source = Source(
+            id="openai_blog",
+            name="OpenAI Blog",
+            source_role="authority",
+            tier="T1",
+            type="rss",
+            category="official",
+            url="https://openai.com/rss.xml",
+            homepage="https://openai.com",
+            allowed_domains=["openai.com"],
+            can_be_main_source=True,
+        )
+
+        def item(url_slug, published_at):
+            return {
+                "source_url": f"https://openai.com/{url_slug}",
+                "title": f"AI model release {url_slug}",
+                "content": f"AI model release story {url_slug} about agents.",
+                "author": "OpenAI",
+                "published_at": published_at,
+                "language": "en",
+                "raw_score": {},
+                "metadata": {},
+            }
+
+        raw_items = [
+            # 上海时间 7/1 08:00 = UTC 00:00 → 当天,保留
+            item("today", datetime(2026, 7, 1, 0, 0, tzinfo=timezone.utc)),
+            # UTC 6/30 15:00 = 上海 6/30 23:00 → 昨天,过滤
+            item("yesterday", datetime(2026, 6, 30, 15, 0, tzinfo=timezone.utc)),
+            # 陈年存量,过滤
+            item("ancient", datetime(2025, 1, 1, 9, 0, tzinfo=timezone.utc)),
+        ]
+
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={"openai_blog": raw_items},
+            ai_provider=FakeAIProvider(),
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 1),
+        )
+
+        kept_urls = {article.source_url for article in result.raw_articles}
+        self.assertEqual(kept_urls, {"https://openai.com/today"})
+
+        # 防御分支:published_at 为 None 的文章(normalize 之前的形态)
+        # 视为当前保留——生产上 normalize 会把 None 填成抓取时刻
+        from dataclasses import replace as dc_replace
+
+        from app.pipeline.runner import filter_articles_published_on
+
+        undated = dc_replace(result.raw_articles[0], published_at=None)
+        self.assertEqual(
+            [a.source_url for a in filter_articles_published_on([undated], date(2026, 7, 1))],
+            ["https://openai.com/today"],
+        )
+
+    def test_each_scored_article_triggers_immediate_persist_callback(self):
+        # 2026-07-12 深夜决策:每成功评分一条立即回调保存,数据库持续
+        # 增长;跳过类不回调;回调抛异常不得炸掉整轮
+        source = Source(
+            id="openai_blog",
+            name="OpenAI Blog",
+            source_role="authority",
+            tier="T1",
+            type="rss",
+            category="official",
+            url="https://openai.com/rss.xml",
+            homepage="https://openai.com",
+            allowed_domains=["openai.com"],
+            can_be_main_source=True,
+        )
+        raw_items = [
+            {
+                "source_url": "https://openai.com/a",
+                "title": "OpenAI releases agent model",
+                "content": "OpenAI releases a new AI agent model for developers.",
+                "author": "OpenAI",
+                "published_at": datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {},
+            },
+            {
+                "source_url": "https://openai.com/junk",
+                "title": "Office lunch menu",
+                "content": "Cafeteria update for staff members today.",
+                "author": "OpenAI",
+                "published_at": datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {},
+            },
+        ]
+
+        saved: list[str] = []
+
+        def exploding_callback(article, processed, embedding):
+            saved.append(processed.raw_article_id)
+            raise RuntimeError("db hiccup must not break the run")
+
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={"openai_blog": raw_items},
+            ai_provider=FakeAIProvider(),
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 1),
+            on_article_processed=exploding_callback,
+        )
+
+        self.assertEqual(len(result.processed_articles), 1)
+        self.assertEqual(saved, [result.processed_articles[0].raw_article_id])
+
+    def test_non_ai_articles_never_trigger_body_fetch(self):
+        # 预筛前置的核心收益:非 AI 文章零外站请求
+        fetch_calls: list[str] = []
+
+        def recording_fetch(article, **kwargs):
+            fetch_calls.append(article.source_url)
+
+        source = Source(
+            id="ithome",
+            name="IT之家",
+            source_role="context",
+            tier="T2",
+            type="rss",
+            category="media",
+            url="https://www.ithome.com/rss/",
+            homepage="https://www.ithome.com",
+            allowed_domains=["ithome.com"],
+        )
+        raw_items = [
+            {
+                "source_url": "https://www.ithome.com/junk",
+                "title": "Office lunch menu",
+                "content": "Office lunch menu\nCafeteria update for staff.",
+                "author": None,
+                "published_at": datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {"body_fetch": "deferred"},
+            },
+            {
+                "source_url": "https://www.ithome.com/ai-news",
+                "title": "OpenAI releases agent model",
+                "content": "OpenAI releases agent model\nAI model release teaser.",
+                "author": None,
+                "published_at": datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {"body_fetch": "deferred"},
+            },
+        ]
+
+        with patch("app.crawlers.page_content.prefer_full_page_content", recording_fetch):
+            result = run_pipeline(
+                sources=[source],
+                raw_items_by_source={"ithome": raw_items},
+                ai_provider=FakeAIProvider(),
+                now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+                report_date=date(2026, 7, 1),
+            )
+
+        # 非 AI 的 junk 没触发正文拉取;通过预筛的 ai-news 拉了
+        self.assertEqual(fetch_calls, ["https://www.ithome.com/ai-news"])
+        self.assertEqual(result.skipped_reasons.get("not_ai_related"), 1)
+        self.assertEqual(len(result.processed_articles), 1)
 
     def test_all_selected_articles_are_clustered_not_just_top_n(self):
         # 产品决策（2026-07-11）：聚类范围 = 全部入选文章，事件表是完整的
@@ -164,7 +376,6 @@ class PipelineTests(unittest.TestCase):
             ai_provider=FakeAIProvider(),
             now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
             report_date=date(2026, 7, 1),
-            candidate_limit=10,
             top_n=1,
         )
 
@@ -241,7 +452,6 @@ class PipelineTests(unittest.TestCase):
             ai_provider=provider,
             now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
             report_date=date(2026, 7, 1),
-            candidate_limit=10,
             top_n=12,
             cluster_similarity_threshold=0.9,
         )
@@ -251,7 +461,6 @@ class PipelineTests(unittest.TestCase):
             ai_provider=provider,
             now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
             report_date=date(2026, 7, 1),
-            candidate_limit=10,
             top_n=12,
             cluster_similarity_threshold=0.5,
         )
@@ -313,10 +522,20 @@ class PipelineTests(unittest.TestCase):
         from app.crawlers.base import canonicalize_url, stable_hash
 
         cached_hash = stable_hash(canonicalize_url("https://openai.com/cached"))
+        # 四步流程(2026-07-12 晚)恢复非AI入库作跳过标记:库里已判非AI的
+        # 文章命中缓存直接跳过,不再重新预筛
         noise_hash = stable_hash(canonicalize_url("https://openai.com/known-noise"))
+        cached_full_body = (
+            "OpenAI releases a new AI agent model for developers. "
+            "This is the stored full-page body from the first processing run, "
+            "much longer than the feed teaser that re-crawls carry."
+        )
+        cached_vector = [0.5] + [0.0] * 511
         cached_results = {
             cached_hash: {
                 "raw_article_id": "persisted-raw-id",
+                "content": cached_full_body,
+                "embedding": cached_vector,
                 "scoring": {
                     "dimensions": {
                         "ai_relevance": 9,
@@ -338,9 +557,10 @@ class PipelineTests(unittest.TestCase):
                 "metadata": {
                     "translated_paragraphs": ["缓存译文段落"],
                     # hash of the article body that was translated; matching
-                    # hash means the cached translation is still valid
+                    # hash means the cached translation is still valid. 缓存
+                    # 文章的正文以库里全文为准(流程重排),哈希也随之锚定全文
                     "translation_source_hash": __import__("app.pipeline.runner", fromlist=["translation_source_hash"]).translation_source_hash(
-                        ["OpenAI releases a new AI agent model for developers."]
+                        [cached_full_body]
                     ),
                 },
             },
@@ -351,6 +571,7 @@ class PipelineTests(unittest.TestCase):
             def __init__(self):
                 self.prefilter_calls = 0
                 self.score_calls = 0
+                self.embed_calls = 0
 
             def prefilter(self, text):
                 self.prefilter_calls += 1
@@ -360,6 +581,10 @@ class PipelineTests(unittest.TestCase):
                 self.score_calls += 1
                 return super().score_article(title, content)
 
+            def embed_text(self, text):
+                self.embed_calls += 1
+                return super().embed_text(text)
+
         provider = CountingProvider()
         result = run_pipeline(
             sources=[source],
@@ -367,14 +592,17 @@ class PipelineTests(unittest.TestCase):
             ai_provider=provider,
             now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
             report_date=date(2026, 7, 1),
-            candidate_limit=10,
             top_n=12,
             cached_results=cached_results,
         )
 
-        # only the fresh article should reach the AI provider
+        # 缓存命中的(含历史非AI判定)不进 AI;只有 fresh 真实预筛+评分
         self.assertEqual(provider.prefilter_calls, 1)
         self.assertEqual(provider.score_calls, 1)
+        # 缓存文章复用库里的向量,不重算(feed 摘要算出的劣质向量会在
+        # 落库时覆盖全文向量);全文也要带回,供翻译哈希/展示使用
+        self.assertEqual(provider.embed_calls, 1)
+        self.assertEqual(result.embeddings["persisted-raw-id"][0], 0.5)
         cached_processed = next(
             p
             for p in result.processed_articles
@@ -384,6 +612,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result.skipped_reasons["not_ai_related"], 1)
         cached_article = next(a for a in result.raw_articles if a.url_hash == cached_hash)
         self.assertEqual(cached_article.id, "persisted-raw-id")
+        self.assertEqual(cached_article.content, cached_full_body)
         self.assertIn("persisted-raw-id", result.embeddings)
         self.assertEqual(cached_processed.raw_article_id, "persisted-raw-id")
         self.assertEqual(cached_article.metadata["translated_paragraphs"], ["缓存译文段落"])
@@ -529,7 +758,6 @@ class PipelineTests(unittest.TestCase):
             ai_provider=TokenLimitedProvider(),
             now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
             report_date=date(2026, 7, 1),
-            candidate_limit=10,
             top_n=12,
         )
 
@@ -578,7 +806,6 @@ class PipelineTests(unittest.TestCase):
             ai_provider=TranslatingAIProvider(),
             now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
             report_date=date(2026, 7, 1),
-            candidate_limit=10,
             top_n=12,
         )
 
@@ -716,7 +943,6 @@ class PipelineTests(unittest.TestCase):
                 ai_provider=LowScoreProvider(),
                 now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
                 report_date=date(2026, 7, 1),
-                candidate_limit=10,
                 top_n=1,
             )
 
@@ -775,7 +1001,6 @@ class PipelineTests(unittest.TestCase):
                 ai_provider=FakeAIProvider(),
                 now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
                 report_date=date(2026, 7, 1),
-                candidate_limit=10,
                 top_n=1,
             )
 
@@ -836,7 +1061,6 @@ class PipelineTests(unittest.TestCase):
             ai_provider=FakeAIProvider(),
             now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
             report_date=date(2026, 7, 1),
-            candidate_limit=10,
             top_n=12,
             cached_results=cached_results,
         )
@@ -911,7 +1135,6 @@ class PipelineTests(unittest.TestCase):
             ai_provider=NoTranslateProvider(),
             now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
             report_date=date(2026, 7, 1),
-            candidate_limit=10,
             top_n=12,
             cached_results=cached_results,
         )
@@ -972,7 +1195,6 @@ class PipelineTests(unittest.TestCase):
                     ai_provider=FlakyProvider(),
                     now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
                     report_date=date(2026, 7, 1),
-                    candidate_limit=10,
                     top_n=12,
                     ai_concurrency=concurrency,
                 )
@@ -1019,7 +1241,6 @@ class PipelineTests(unittest.TestCase):
             ai_provider=LowScoreAIProvider(),
             now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
             report_date=date(2026, 7, 1),
-            candidate_limit=10,
             top_n=2,
         )
 
@@ -1060,7 +1281,6 @@ class PipelineTests(unittest.TestCase):
             ai_provider=NonAiPrefilterProvider(),
             now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
             report_date=date(2026, 7, 1),
-            candidate_limit=3,
             top_n=3,
             skip_prefilter=True,
         )
@@ -1102,7 +1322,6 @@ class PipelineTests(unittest.TestCase):
             ai_provider=provider,
             now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
             report_date=date(2026, 7, 1),
-            candidate_limit=10,
             top_n=4,
             ai_concurrency=4,
         )
@@ -1147,7 +1366,6 @@ class PipelineTests(unittest.TestCase):
             ai_provider=provider,
             now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
             report_date=date(2026, 7, 1),
-            candidate_limit=10,
             top_n=4,
             ai_concurrency=4,
         )
@@ -1239,7 +1457,6 @@ class PipelineTests(unittest.TestCase):
             ai_provider=provider,
             now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
             report_date=date(2026, 7, 1),
-            candidate_limit=10,
             top_n=1,
         )
 
@@ -1356,7 +1573,6 @@ class PipelineTests(unittest.TestCase):
                 ai_provider=provider,
                 now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
                 report_date=date(2026, 7, 1),
-                candidate_limit=10,
                 top_n=2,
             )
 
@@ -1436,7 +1652,6 @@ class PipelineTests(unittest.TestCase):
                 ai_provider=provider,
                 now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
                 report_date=date(2026, 7, 1),
-                candidate_limit=10,
                 top_n=1,
             )
 

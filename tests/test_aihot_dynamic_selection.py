@@ -74,7 +74,6 @@ class AIHotDynamicSelectionTests(unittest.TestCase):
             ai_provider=LowScoreProvider(),
             now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
             report_date=date(2026, 7, 1),
-            candidate_limit=1,
         )
 
         self.assertEqual(len(result.processed_articles), 13)

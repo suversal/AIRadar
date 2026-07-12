@@ -1,4 +1,5 @@
 import {
+  Podcast,
   Bookmark,
   Bot,
   Hash,
@@ -6,7 +7,6 @@ import {
   Info,
   MessageSquare,
   Newspaper,
-  Rss,
   ShieldCheck,
   Sparkles,
   type LucideIcon,
@@ -22,7 +22,7 @@ export type NavItem = {
 
 export const navItems: NavItem[] = [
   { id: "latest", label: "精选", group: "内容", href: "/latest", icon: Sparkles },
-  { id: "all", label: "全部 AI 动态", group: "内容", href: "/all", icon: Rss },
+  { id: "all", label: "全部 AI 动态", group: "内容", href: "/all", icon: Podcast },
   { id: "daily", label: "AI 日报", group: "内容", href: "/daily", icon: Newspaper },
   { id: "topics", label: "主题", group: "内容", href: "/topics", icon: Hash },
   { id: "bookmarks", label: "收藏", group: "内容", href: "/bookmarks", icon: Bookmark },

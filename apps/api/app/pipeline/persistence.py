@@ -81,6 +81,7 @@ def persist_pipeline_result(
     started_at: datetime | None = None,
     pipeline_run_id: int | None = None,
     source_report: dict[str, Any] | None = None,
+    intake_inserted_ids: list[str] | None = None,
 ) -> PipelinePersistenceSummary:
     source_result = repository.upsert_sources(sources)
     raw_result = repository.upsert_raw_articles(
@@ -148,6 +149,30 @@ def persist_pipeline_result(
             }
         )
     repository.replace_daily_report_entries(result.daily_report.report_date, entries)
+    # ledger ingest metrics: what did this run actually contribute, as
+    # opposed to re-processing already-known articles via the AI cache.
+    # 新文章清单以 intake(抓取后立即落库)为准;CLI/JSON 模式没有 intake,
+    # 回退到本次 upsert 的插入清单。恒等式:抓取 = 重复 + 非AI + 入库
+    if intake_inserted_ids is not None:
+        new_ids = set(intake_inserted_ids)
+    else:
+        new_ids = set(getattr(raw_result, "inserted_ids", None) or [])
+    non_ai_dropped_count = len(
+        [
+            article_id
+            for article_id in new_ids
+            if result.skipped_reason_by_raw_id.get(article_id) == "not_ai_related"
+        ]
+    )
+    # 入库 = 新文章中通过筛选的;非AI 行虽然保留(跳过标记)但不算入库
+    new_raw_count = len(new_ids) - non_ai_dropped_count
+    new_selected_count = len(
+        [
+            processed
+            for processed in result.processed_articles
+            if processed.selected and processed.raw_article_id in new_ids
+        ]
+    )
     if pipeline_run_id is not None:
         # the run row was created up-front as 'running'; close it out
         run_result = repository.finish_pipeline_run(
@@ -156,6 +181,9 @@ def persist_pipeline_result(
             raw_count=len(result.raw_articles),
             processed_count=len(result.processed_articles),
             cluster_count=len(result.event_clusters),
+            new_raw_count=new_raw_count,
+            new_selected_count=new_selected_count,
+            non_ai_dropped_count=non_ai_dropped_count,
             skipped_reasons=dict(result.skipped_reasons),
             source_report=source_report,
             finished_at=datetime.now(timezone.utc),
@@ -167,6 +195,9 @@ def persist_pipeline_result(
             raw_count=len(result.raw_articles),
             processed_count=len(result.processed_articles),
             cluster_count=len(result.event_clusters),
+            new_raw_count=new_raw_count,
+            new_selected_count=new_selected_count,
+            non_ai_dropped_count=non_ai_dropped_count,
             skipped_reasons=dict(result.skipped_reasons),
             started_at=started_at,
             finished_at=datetime.now(timezone.utc),
@@ -207,6 +238,7 @@ def persist_pipeline_result_to_database(
     started_at: datetime | None = None,
     pipeline_run_id: int | None = None,
     source_report: dict[str, Any] | None = None,
+    intake_inserted_ids: list[str] | None = None,
 ) -> PipelinePersistenceSummary:
     from app.db.session import build_session_factory, session_scope
     from app.repositories.radar_repository import RadarRepository
@@ -223,7 +255,69 @@ def persist_pipeline_result_to_database(
             started_at=started_at,
             pipeline_run_id=pipeline_run_id,
             source_report=source_report,
+            intake_inserted_ids=intake_inserted_ids,
         )
+
+
+def persist_raw_intake_to_database(
+    database_url: str,
+    articles: list[Any],
+    *,
+    pipeline_run_id: int | None = None,
+) -> list[str] | None:
+    """四步流程第 1 步(2026-07-12):抓取一结束就把新文章插入库
+    (status='raw',未入选默认态),让数据先于 AI 处理可见。返回本轮新
+    插入的文章 id 清单,作为台账"入库/非AI"指标的事实源。Best-effort:
+    失败返回 None(调用方回退到最终 upsert 的插入清单),只损失即时
+    可见性,整轮结束后的全量 upsert 仍会补齐数据。"""
+    try:
+        from app.db.session import build_session_factory, session_scope
+        from app.repositories.radar_repository import RadarRepository
+
+        session_factory = build_session_factory(database_url)
+        with session_scope(session_factory) as session:
+            result = RadarRepository(session).insert_missing_raw_articles(
+                articles, pipeline_run_id=pipeline_run_id
+            )
+            return list(result.inserted_ids)
+    except Exception:  # pragma: no cover - best-effort visibility
+        return None
+
+
+def persist_single_article_to_database(
+    database_url: str,
+    article: Any,
+    processed: Any,
+    embedding: list[float] | None,
+    *,
+    embedding_model: str = "",
+    pipeline_run_id: int | None = None,
+) -> None:
+    """逐条即时落库(2026-07-12 深夜决策):每评完一条马上写库,让数据
+    在整轮结束前就持续可见。幂等 upsert;event_cluster_id 此时为 None,
+    聚类归属由整轮结束后的最终落库补写(None 不会覆盖已有值)。
+    Best-effort:失败只损失即时可见性。"""
+    try:
+        from app.crawlers.base import stable_hash
+        from app.db.session import build_session_factory, session_scope
+        from app.repositories.radar_repository import RadarRepository
+        from app.services.ai_service import embedding_input
+
+        session_factory = build_session_factory(database_url)
+        with session_scope(session_factory) as session:
+            repository = RadarRepository(session)
+            repository.upsert_raw_articles([article], pipeline_run_id=pipeline_run_id)
+            repository.upsert_processed_articles([processed], pipeline_run_id=pipeline_run_id)
+            if embedding is not None:
+                repository.upsert_article_embedding(
+                    article.id,
+                    embedding_model=embedding_model,
+                    vector=embedding,
+                    source_hash=stable_hash(embedding_input(article.title, article.content)),
+                    pipeline_run_id=pipeline_run_id,
+                )
+    except Exception:  # pragma: no cover - best-effort visibility
+        return
 
 
 def start_pipeline_run_in_database(
@@ -245,7 +339,7 @@ def start_pipeline_run_in_database(
 
 
 def get_active_pipeline_run_in_database(
-    database_url: str, *, stale_after_minutes: int = 20
+    database_url: str, *, stale_after_minutes: int = 45
 ) -> dict[str, Any] | None:
     """Cross-process concurrency guard: sweep orphaned running rows, then
     return the freshest live one (or None). Best-effort: a DB hiccup means

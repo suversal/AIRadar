@@ -59,7 +59,12 @@ def main() -> int:
     parser.add_argument("--sources", default="data/sources.json")
     parser.add_argument("--raw", default="data/raw_articles.json")
     parser.add_argument("--output-dir", default="data/pipeline")
-    parser.add_argument("--limit", type=int, default=100)
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Dev-only small-batch cap: keep only the first N raw articles. 0 = no cap (production behavior).",
+    )
     parser.add_argument("--date", default=date.today().isoformat())
     parser.add_argument("--ai-concurrency", type=int, default=env_int("AI_PIPELINE_CONCURRENCY", 1))
     parser.add_argument("--fake-ai", action="store_true")
@@ -82,6 +87,8 @@ def main() -> int:
         save_sources(sources_path, default_sources())
     sources = load_sources(sources_path)
     raw_articles = load_articles(ROOT / args.raw)
+    if args.limit > 0:
+        raw_articles = raw_articles[: args.limit]
     raw_items_by_source = {}
     for article in raw_articles:
         raw_items_by_source.setdefault(article.source_id, []).append(
@@ -113,7 +120,6 @@ def main() -> int:
         ai_provider=provider_from_env(args.fake_ai),
         now=datetime.now(timezone.utc),
         report_date=date.fromisoformat(args.date),
-        candidate_limit=args.limit,
         ai_concurrency=args.ai_concurrency,
         skip_prefilter=args.skip_prefilter,
         cached_results=cached_results,

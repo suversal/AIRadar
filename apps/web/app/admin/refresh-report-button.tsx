@@ -62,7 +62,7 @@ export function RefreshReportButton() {
   }, [refreshState]);
 
   async function refreshReport() {
-    const url = "/api/refresh-latest?limit=100";
+    const url = "/api/refresh-latest";
     startedAt.current = Date.now();
     setElapsedSeconds(0);
     setResultCount(null);

@@ -49,6 +49,7 @@ export type LatestEvent = {
   reason?: string;
   action?: string;
   published_at?: string;
+  last_seen_at?: string;
   original_url?: string;
   original_content?: string;
   original_markdown?: string;
@@ -113,6 +114,37 @@ export async function getLatestReport(): Promise<LatestReport> {
     return { ...payload, error: null };
   } catch (error) {
     return emptyLatestReport(latestLoadErrorMessage(error));
+  }
+}
+
+export type HotspotsPayload = {
+  window_hours: number;
+  item_count: number;
+  items: LatestEvent[];
+};
+
+export async function getHotspots(
+  params: { category?: string; q?: string } = {},
+): Promise<HotspotsPayload> {
+  const search = new URLSearchParams();
+  if (params.category) {
+    search.set("category", params.category);
+  }
+  if (params.q) {
+    search.set("q", params.q);
+  }
+  const query = search.toString();
+  const path = query ? `/api/public/hotspots?${query}` : "/api/public/hotspots";
+  try {
+    const response = await fetch(`${getApiBaseUrl()}${path}`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return { window_hours: 48, item_count: 0, items: [] };
+    }
+    return (await response.json()) as HotspotsPayload;
+  } catch {
+    return { window_hours: 48, item_count: 0, items: [] };
   }
 }
 

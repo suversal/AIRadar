@@ -102,6 +102,36 @@ const OUTCOME_LABEL: Record<string, { text: string; tone: Tone }> = {
   duplicate: { text: "已存在", tone: "warning" },
 };
 
+// rejected 按原因细分:未达精选(已入库,/all 可见) vs 非AI(直接丢弃) vs 异常
+function outcomeLabel(article: CrawlArticleResult): { text: string; tone: Tone } | null {
+  if (!article.outcome) return null;
+  if (article.outcome === "rejected" && article.reason) {
+    if (article.reason.startsWith("below_threshold")) {
+      return { text: "未达精选", tone: "neutral" };
+    }
+    if (article.reason.startsWith("not_ai_related")) {
+      return { text: "非AI", tone: "neutral" };
+    }
+    if (article.reason.startsWith("no_content") || article.reason.startsWith("ai_error")) {
+      return { text: "异常", tone: "danger" };
+    }
+  }
+  return OUTCOME_LABEL[article.outcome] ?? null;
+}
+
+// 判定原因码 → 人话;未知格式原样展示
+function formatVerdictReason(reason: string) {
+  const below = reason.match(/^below_threshold:(\S+)$/);
+  if (below) return `评分未达精选阈值(阈值 ${below[1]}),已入库可在全部动态查看`;
+  const passed = reason.match(/^final_score:(\S+)>=threshold:(\S+)$/);
+  if (passed) return `评分 ${passed[1]} ≥ 精选阈值 ${passed[2]}`;
+  if (reason.startsWith("trusted_curated:")) return "可信精选源直入";
+  if (reason === "not_ai_related") return "预筛判定与 AI 无关,未入库";
+  if (reason === "no_content") return "未抓到正文,未评分";
+  if (reason === "ai_error") return "AI 调用失败";
+  return reason;
+}
+
 export function SourcesManager({ initialSources }: { initialSources: AdminSource[] }) {
   const router = useRouter();
   const [busy, setBusy] = useState<{ id: string; kind: "toggle" | "fetch" | "edit" } | null>(null);
@@ -118,6 +148,10 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
   const [editing, setEditing] = useState<AdminSource | null>(null);
   const [viewingResultFor, setViewingResultFor] = useState<string | null>(null);
   const sourceHoverCard = useHoverCard<AdminSource>();
+  // 按名称排序(中文按拼音),让长列表可预期地定位
+  const sortedSources = [...initialSources].sort((a, b) =>
+    a.name.localeCompare(b.name, "zh-CN"),
+  );
 
   async function run(sourceId: string, kind: "toggle" | "edit", action: () => Promise<void>) {
     setBusy({ id: sourceId, kind });
@@ -156,20 +190,13 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
 
   async function saveEdit(form: FormData) {
     if (!editing) return;
-    const crawlLimit = Number(form.get("crawl_limit") ?? 0);
     const payload = {
       name: String(form.get("name") ?? "").trim(),
       url: String(form.get("url") ?? "").trim(),
       tier: String(form.get("tier") ?? "T2"),
       fetch_interval_min: Number(form.get("fetch_interval_min") ?? 240),
-      config: {
-        ...(editing.config ?? {}),
-        ...(crawlLimit > 0 ? { crawl_limit: crawlLimit } : { crawl_limit: undefined }),
-      },
+      config: { ...(editing.config ?? {}) },
     };
-    if (crawlLimit <= 0 && payload.config) {
-      delete (payload.config as Record<string, unknown>).crawl_limit;
-    }
     await run(editing.id, "edit", async () => {
       await api(`sources/${editing.id}`, {
         method: "PATCH",
@@ -199,14 +226,10 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
-            {initialSources.map((source) => {
+            {sortedSources.map((source) => {
               const health = healthLabel(source);
               const test = testResults[source.id];
               const summary = resultSummary(test);
-              const crawlLimitLabel =
-                Number(source.config?.crawl_limit ?? 0) > 0
-                  ? `每轮 ${source.config?.crawl_limit} 条`
-                  : "每轮默认 5 条";
               return (
                 <tr key={source.id} className={`align-top text-ink-mid ${TABLE_ROW}`}>
                   <td className="min-w-0 px-4 py-3">
@@ -215,7 +238,14 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
                       onMouseEnter={(event) => sourceHoverCard.show(event, source)}
                       onMouseLeave={sourceHoverCard.hide}
                     >
-                      <div className="truncate font-semibold text-ink">{source.name}</div>
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate font-semibold text-ink">{source.name}</span>
+                        {source.category === "official" ? (
+                          <span className="shrink-0 rounded border border-signal/60 bg-signal/15 px-1.5 py-0.5 text-[11px] font-semibold text-signal">
+                            官方
+                          </span>
+                        ) : null}
+                      </div>
                       <div className="readout mt-1 truncate text-xs text-ink-dim">{source.url}</div>
                     </div>
                   </td>
@@ -232,7 +262,7 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
                       {source.category} · {source.language}
                     </div>
                     <div className="readout mt-1 truncate text-ink-dim">
-                      {source.fetch_interval_min} min · {crawlLimitLabel}
+                      {source.fetch_interval_min} min · 仅当天发布
                     </div>
                   </td>
                   <td className="min-w-0 px-4 py-3 text-xs">
@@ -307,6 +337,8 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
 
       <HoverCard
         card={sourceHoverCard.card}
+        onMouseEnter={sourceHoverCard.cancelHide}
+        onMouseLeave={sourceHoverCard.hide}
         render={(source) => (
           <>
             <div className="font-semibold text-ink">{source.name}</div>
@@ -362,15 +394,9 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
                   type="number"
                 />
               </label>
-              <label className="block text-xs text-ink-dim">
-                每轮抓取条数（留空/0 = 默认 5 条）
-                <input
-                  className="readout mt-1 w-full rounded border border-line bg-canvas px-3 py-2 text-sm text-ink"
-                  defaultValue={Number(editing.config?.crawl_limit ?? "") || ""}
-                  name="crawl_limit"
-                  type="number"
-                />
-              </label>
+              <p className="block self-end pb-2 text-xs text-ink-dim">
+                抓取范围:仅当天发布的文章(feed 全量拉取后按日期过滤)
+              </p>
             </div>
             <div className="mt-5 flex justify-end gap-3 text-sm font-semibold">
               <button
@@ -426,7 +452,7 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
                   ) : articles.length > 0 ? (
                     <ol className="space-y-1.5">
                       {articles.map((article, index) => {
-                        const outcome = article.outcome ? OUTCOME_LABEL[article.outcome] : null;
+                        const outcome = outcomeLabel(article);
                         return (
                           <li
                             key={`${article.url}-${index}`}
@@ -457,7 +483,7 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
                             {article.reason ? (
                               <p className="ml-7 mt-1 text-xs text-ink-dim">
                                 {article.category ? `${article.category} · ` : ""}
-                                {article.reason}
+                                {formatVerdictReason(article.reason)}
                               </p>
                             ) : null}
                           </li>

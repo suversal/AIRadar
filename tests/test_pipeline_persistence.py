@@ -414,6 +414,187 @@ class PipelinePersistenceTests(unittest.TestCase):
         self.assertEqual(repository.processed_articles_written[0].event_cluster_id, "c-existing")
         self.assertEqual(repository.entries_written[1][0]["event_id"], "c-existing")
 
+    def test_persist_records_new_ingest_metrics_from_inserted_ids(self):
+        # 台账指标(2026-07-12):新入库 = 本轮首次插入的文章数;
+        # 精选(新增) = 新入库且 selected 的数量——已存在文章即使本轮再次
+        # 入选也不计入,否则缓存复用会把数字重新灌水
+        from app.models.domain import ProcessedArticle, ScoreDimensions
+
+        def _raw(article_id):
+            return RawArticle(
+                id=article_id,
+                source_id="openai_blog",
+                source_name="OpenAI Blog",
+                source_role="authority",
+                source_tier="T1",
+                source_url=f"https://openai.com/{article_id}",
+                title=article_id,
+                content="c",
+                author="OpenAI",
+                published_at=datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+                language="en",
+                raw_score={},
+                metadata={},
+                title_hash=f"title-{article_id}",
+                url_hash=f"url-{article_id}",
+            )
+
+        def _processed(article_id, *, selected):
+            return ProcessedArticle(
+                raw_article_id=article_id,
+                event_cluster_id=None,
+                dimensions=ScoreDimensions(9, 8, 8, 7, 7, 6),
+                base_score=7.8,
+                final_score=88.0 if selected else 40.0,
+                title_zh=article_id,
+                one_line_summary="s",
+                summary_zh="s",
+                reason_zh="r",
+                action_zh="a",
+                category="model_release",
+                tags=[],
+                selected=selected,
+                status="processed" if selected else "rejected",
+            )
+
+        junk = _raw("junk1")
+        junk.status = "skipped"
+        junk.skipped_reason = "not_ai_related"
+
+        repository = FakeRepository()
+        # old1 已存在(重复);new1/new2 新入库;junk1 判非AI直接丢弃
+        repository.raw_existing_ids = {"old1"}
+        result = PipelineResult(
+            raw_articles=[_raw("old1"), _raw("new1"), _raw("new2"), junk],
+            processed_articles=[
+                _processed("old1", selected=True),   # 旧文章再次入选:不计入新增精选
+                _processed("new1", selected=True),   # 新入库且入选:计入
+                _processed("new2", selected=False),  # 新入库但未达阈值:属于入库,不丢弃
+            ],
+            event_clusters=[],
+            daily_report=DailyReport(
+                report_date=date(2026, 7, 1),
+                markdown="# report",
+                json_data={"report_date": "2026-07-01", "items": [], "article_count": 0},
+                article_count=0,
+            ),
+            skipped_reasons={"not_ai_related": 1},
+            skipped_reason_by_raw_id={"junk1": "not_ai_related"},
+        )
+
+        persist_pipeline_result(repository, sources=[], result=result)
+        kwargs = repository.pipeline_run_kwargs
+        self.assertEqual(kwargs["new_raw_count"], 2)
+        self.assertEqual(kwargs["new_selected_count"], 1)
+        self.assertEqual(kwargs["non_ai_dropped_count"], 1)
+        # 恒等式:抓取 = 重复 + 非AI + 入库
+        raw_total = len(result.raw_articles)
+        duplicate = raw_total - kwargs["new_raw_count"] - kwargs["non_ai_dropped_count"]
+        self.assertEqual(raw_total, duplicate + kwargs["non_ai_dropped_count"] + kwargs["new_raw_count"])
+        self.assertEqual(duplicate, 1)
+
+        # 预建 running 行的正式路径(finish 分支)必须携带同样的指标;
+        # intake(抓取后立即落库)提供的插入清单优先于本次 upsert 的结果
+        finish_repository = FakeRepository()
+        # 模拟 intake 已把新文章插入:最终 upsert 全部视为已存在
+        finish_repository.raw_existing_ids = {"old1", "new1", "new2", "junk1"}
+        persist_pipeline_result(
+            finish_repository,
+            sources=[],
+            result=result,
+            pipeline_run_id=42,
+            intake_inserted_ids=["new1", "new2", "junk1"],
+        )
+        self.assertEqual(finish_repository.finished_run, (42, "succeeded"))
+        self.assertEqual(finish_repository.finished_run_kwargs["new_raw_count"], 2)
+        self.assertEqual(finish_repository.finished_run_kwargs["new_selected_count"], 1)
+        self.assertEqual(finish_repository.finished_run_kwargs["non_ai_dropped_count"], 1)
+
+    def test_persist_single_article_writes_raw_processed_and_embedding(self):
+        # 逐条即时落库(2026-07-12 深夜):每评完一条马上可见;重复调用
+        # 幂等(upsert),最终整轮落库再补聚类/日报
+        import tempfile
+
+        from app.models.domain import ProcessedArticle, ScoreDimensions
+        from app.pipeline.persistence import persist_single_article_to_database
+
+        article = RawArticle(
+            id="live1",
+            source_id="openai_blog",
+            source_name="OpenAI Blog",
+            source_role="authority",
+            source_tier="T1",
+            source_url="https://openai.com/live1",
+            title="Live article",
+            content="Full fetched body for live persistence.",
+            author="OpenAI",
+            published_at=datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+            language="en",
+            raw_score={},
+            metadata={},
+            title_hash="t-live1",
+            url_hash="u-live1",
+        )
+        processed = ProcessedArticle(
+            raw_article_id="live1",
+            event_cluster_id=None,
+            dimensions=ScoreDimensions(9, 8, 8, 7, 7, 6),
+            base_score=7.8,
+            final_score=88.0,
+            title_zh="标题",
+            one_line_summary="s",
+            summary_zh="s",
+            reason_zh="r",
+            action_zh="a",
+            category="model_release",
+            tags=[],
+            selected=True,
+            status="processed",
+        )
+        vector = [0.25] + [0.0] * 511
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database_url = f"sqlite+pysqlite:///{tmpdir}/live.db"
+            from sqlalchemy import create_engine
+
+            from app.db.models import Base
+
+            engine = create_engine(database_url, future=True)
+            Base.metadata.create_all(engine)
+
+            persist_single_article_to_database(
+                database_url,
+                article,
+                processed,
+                vector,
+                embedding_model="bge",
+                pipeline_run_id=None,
+            )
+            # 幂等:同一条再次写入不炸、不重复
+            persist_single_article_to_database(
+                database_url,
+                article,
+                processed,
+                vector,
+                embedding_model="bge",
+                pipeline_run_id=None,
+            )
+
+            from sqlalchemy import text
+
+            with engine.connect() as conn:
+                raw_count = conn.execute(text("SELECT count(*) FROM raw_articles")).scalar()
+                processed_row = conn.execute(
+                    text("SELECT title_zh, final_score FROM processed_articles")
+                ).first()
+                embedding_count = conn.execute(
+                    text("SELECT count(*) FROM article_embeddings")
+                ).scalar()
+
+        self.assertEqual(raw_count, 1)
+        self.assertEqual(processed_row[0], "标题")
+        self.assertEqual(embedding_count, 1)
+
     def test_persist_pipeline_result_dedupes_masthead_entries_that_merge_into_the_same_event(self):
         # regression, found via real-data verification: two DIFFERENT
         # in-run clusters ("c-new-1" and "c-new-2", covering two genuinely
@@ -453,11 +634,20 @@ class PipelinePersistenceTests(unittest.TestCase):
 
 
 class FakeWriteResult:
-    def __init__(self, *, inserted=0, updated=0, skipped=0, redirects=None):
+    def __init__(
+        self,
+        *,
+        inserted=0,
+        updated=0,
+        skipped=0,
+        redirects=None,
+        inserted_ids=None,
+    ):
         self.inserted = inserted
         self.updated = updated
         self.skipped = skipped
         self.redirects = redirects or {}
+        self.inserted_ids = inserted_ids or []
 
 
 class FakeRepository:
@@ -470,7 +660,10 @@ class FakeRepository:
         self.cluster_redirects = {}
         self.pipeline_run_kwargs = None
         self.finished_run = None
+        self.finished_run_kwargs = None
         self.daily_report_run_id = None
+        # 模拟"库里已存在"的文章 id;其余全部插入(含非AI跳过标记行)
+        self.raw_existing_ids = set()
 
     def upsert_sources(self, sources):
         self.calls.append("sources")
@@ -478,7 +671,10 @@ class FakeRepository:
 
     def upsert_raw_articles(self, articles, **kwargs):
         self.calls.append("raw_articles")
-        return FakeWriteResult(inserted=len(articles))
+        inserted_ids = [
+            article.id for article in articles if article.id not in self.raw_existing_ids
+        ]
+        return FakeWriteResult(inserted=len(inserted_ids), inserted_ids=inserted_ids)
 
     def upsert_article_embedding(
         self, raw_article_id, *, embedding_model, vector, source_hash, **kwargs
@@ -494,6 +690,7 @@ class FakeRepository:
     def finish_pipeline_run(self, run_id, *, status, **kwargs):
         self.calls.append("finish_pipeline_run")
         self.finished_run = (run_id, status)
+        self.finished_run_kwargs = kwargs
         return FakeWriteResult(updated=1)
 
     def replace_daily_report_entries(self, report_date, entries):

@@ -4,7 +4,7 @@ import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
 
 from app.crawlers.base import normalize_article
@@ -149,6 +149,40 @@ def _cached_scoring_result(cached: dict[str, Any] | None) -> ScoringResult | Non
         return None
 
 
+def filter_articles_published_on(
+    articles: list[RawArticle], report_date: date
+) -> list[RawArticle]:
+    """只处理发布日期(上海时区)等于报告日期的文章(2026-07-12 深夜决策):
+    feed 里的陈年存量一概出局。published_at 为 None 的保留——GitHub
+    Trending 这类聚合器条目本质上就是"当前"。"""
+    from zoneinfo import ZoneInfo
+
+    shanghai = ZoneInfo("Asia/Shanghai")
+    kept: list[RawArticle] = []
+    for article in articles:
+        published = article.published_at
+        if published is None:
+            kept.append(article)
+            continue
+        if published.tzinfo is None:
+            published = published.replace(tzinfo=timezone.utc)
+        if published.astimezone(shanghai).date() == report_date:
+            kept.append(article)
+    return kept
+
+
+def _notify_article_processed(callback: Any, article: RawArticle, processed, embedding) -> None:
+    """逐条即时落库回调(2026-07-12 深夜决策):每成功评分一条立即通知
+    保存,数据库持续增长。best-effort——回调异常绝不炸整轮,最终整轮
+    落库仍会补齐一切;跳过类结果不回调。"""
+    if callback is None or processed is None:
+        return
+    try:
+        callback(article, processed, embedding)
+    except Exception:
+        pass
+
+
 def _process_candidate_article(
     *,
     article: RawArticle,
@@ -158,30 +192,40 @@ def _process_candidate_article(
     skip_prefilter: bool = False,
     cached: dict[str, Any] | None = None,
 ) -> tuple[ProcessedArticle | None, list[float] | None, str | None]:
-    # a title-only "article" (SPA extraction failure fallback) gives the
-    # scorer nothing to judge - an LLM invents dimension scores from the
-    # headline alone - and its detail page would be blank. Gate BEFORE any
-    # AI spend, including cached results from when it was equally empty.
-    content = (article.content or "").strip()
-    if not content or content == (article.title or "").strip():
-        article.status = "skipped"
-        article.skipped_reason = "no_content"
-        return None, None, "no_content"
-
+    # 四步流程(2026-07-12 晚):已存在跳过 → feed 元数据预筛 → 通过后才
+    # 拉正文 → 无正文拦截 → 评分。非 AI 文章零外站请求。
     source = source_by_id[article.source_id]
     trusted_curated = is_trusted_curated_source(source)
     scoring = _cached_scoring_result(cached)
+    scoring_was_cached = scoring is not None
+    # 库里已判非AI的文章(不入选、仅作跳过标记)直接跳过,不再花任何调用
     if scoring is None and cached and cached.get("skipped_reason") == "not_ai_related":
         article.status = "skipped"
         article.skipped_reason = "not_ai_related"
         return None, None, "not_ai_related"
 
     if scoring is None and not skip_prefilter and not trusted_curated:
+        # 用 feed 提供的标题+摘要判断 AI 相关性;HN 外链帖此时只有标题,
+        # 判断主题相关性足够
         prefilter = ai_provider.prefilter(f"{article.title}\n{article.content[:500]}")
         if not prefilter.is_ai_related:
             article.status = "skipped"
             article.skipped_reason = "not_ai_related"
             return None, None, "not_ai_related"
+
+    # 通过预筛(或可信源/复用缓存)后,才为 deferred 文章拉取原文页
+    if article.metadata.pop("body_fetch", None) == "deferred" and scoring is None:
+        from app.crawlers.page_content import prefer_full_page_content
+
+        prefer_full_page_content(article)
+
+    # 无正文门槛移到拉取之后:拉取失败仍是标题-only 的,绝不进入完整
+    # 评分(LLM 对着一句标题也能编出高分),详情页也会是空的
+    content = (article.content or "").strip()
+    if scoring is None and (not content or content == (article.title or "").strip()):
+        article.status = "skipped"
+        article.skipped_reason = "no_content"
+        return None, None, "no_content"
 
     if scoring is None:
         try:
@@ -216,13 +260,22 @@ def _process_candidate_article(
             selection_origin="curated_source",
             selection_reason=f"trusted_curated:{source.id}",
         )
-    try:
-        embedding = ai_provider.embed_text(embedding_input(article.title, article.content))
-    except Exception:
-        if not trusted_curated:
-            raise
-        embedding = None
-        article.metadata["ai_fallback"] = "embedding_error"
+    # 缓存文章直接复用库里的向量:重算既浪费 CPU,又会在内容有差异时
+    # 用劣质向量覆盖全文向量
+    cached_embedding = (cached or {}).get("embedding") if scoring_was_cached else None
+    if cached_embedding:
+        # 双保险转纯 float:上游任何 numpy 标量混进相似度/JSON 都会炸
+        embedding = [float(value) for value in cached_embedding]
+    else:
+        try:
+            embedding = ai_provider.embed_text(
+                embedding_input(article.title, article.content)
+            )
+        except Exception:
+            if not trusted_curated:
+                raise
+            embedding = None
+            article.metadata["ai_fallback"] = "embedding_error"
     skipped_reason = None if processed.selected else "below_threshold"
     return processed, embedding, skipped_reason
 
@@ -479,12 +532,12 @@ def run_pipeline(
     ai_provider: FakeAIProvider,
     now: datetime,
     report_date: date,
-    candidate_limit: int = 100,
     top_n: int | None = None,
     ai_concurrency: int = 1,
     skip_prefilter: bool = False,
     cached_results: dict[str, dict[str, Any]] | None = None,
     cluster_similarity_threshold: float = 0.85,
+    on_article_processed: Any = None,
 ) -> PipelineResult:
     source_by_id = {source.id: source for source in sources}
     cached_results = cached_results or {}
@@ -508,24 +561,25 @@ def run_pipeline(
                 # from earlier runs; freshly crawled metadata still wins
                 for key, value in (cached.get("metadata") or {}).items():
                     article.metadata.setdefault(key, value)
+                # 缓存文章不再拉正文(2026-07-12 流程重排):feed 只带摘要,
+                # 全文以库里存的为准——否则翻译哈希失配、embedding 会用
+                # 摘要重算并覆盖全文向量
+                cached_content = cached.get("content") or ""
+                if len(cached_content) > len(article.content or ""):
+                    article.content = cached_content
             raw_articles.append(article)
 
+    # 只处理当天发布(2026-07-12 深夜决策):feed 的陈年存量在这里出局,
+    # 不入库、不进统计;总量由日期天然约束,不再依赖每源条数配置
+    raw_articles = filter_articles_published_on(raw_articles, report_date)
     raw_articles = dedupe_articles(raw_articles)
-    candidate_articles: list[RawArticle] = []
-    general_count = 0
+    candidate_articles = list(raw_articles)
     skipped_reason_by_raw_id: dict[str, str] = {}
-    for article in raw_articles:
-        if is_trusted_curated_source(source_by_id[article.source_id]):
-            candidate_articles.append(article)
-        elif general_count < candidate_limit:
-            candidate_articles.append(article)
-            general_count += 1
-        else:
-            skipped["candidate_limit"] += 1
-            skipped_reason_by_raw_id[article.id] = "candidate_limit"
 
     processed_articles: list[ProcessedArticle] = []
     embeddings: dict[str, list[float]] = {}
+    stage_timings: dict[str, float] = {}
+    stage_started = time.perf_counter()
 
     max_workers = max(1, ai_concurrency)
     candidate_results: list[
@@ -542,6 +596,7 @@ def run_pipeline(
                 cached=cached_results.get(article.url_hash),
             )
             candidate_results.append((index, article, processed, embedding, skipped_reason))
+            _notify_article_processed(on_article_processed, article, processed, embedding)
     else:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
@@ -560,6 +615,8 @@ def run_pipeline(
                 index, article = futures[future]
                 processed, embedding, skipped_reason = future.result()
                 candidate_results.append((index, article, processed, embedding, skipped_reason))
+                # 主线程串行通知,回调内的 DB 会话无并发问题
+                _notify_article_processed(on_article_processed, article, processed, embedding)
 
     for _, article, processed, embedding, skipped_reason in sorted(
         candidate_results,
@@ -573,6 +630,9 @@ def run_pipeline(
         processed_articles.append(processed)
         if embedding is not None:
             embeddings[article.id] = embedding
+
+    stage_timings["ai_candidates"] = round(time.perf_counter() - stage_started, 3)
+    stage_started = time.perf_counter()
 
     final_scores = {
         processed.raw_article_id: processed.final_score for processed in processed_articles
@@ -606,6 +666,9 @@ def run_pipeline(
             )
 
     processed_articles = list(processed_by_article.values())
+    stage_timings["clustering"] = round(time.perf_counter() - stage_started, 3)
+    stage_started = time.perf_counter()
+
     articles_by_id = {article.id: article for article in raw_articles}
     displayable_articles = [
         articles_by_id[processed.raw_article_id]
@@ -613,11 +676,17 @@ def run_pipeline(
         if processed.raw_article_id in articles_by_id
     ]
     _attach_github_readmes(articles=displayable_articles)
+    stage_timings["readme"] = round(time.perf_counter() - stage_started, 3)
+    stage_started = time.perf_counter()
+
     _translate_processed_english_articles(
         articles=displayable_articles,
         ai_provider=ai_provider,
         ai_concurrency=ai_concurrency,
     )
+    stage_timings["translation"] = round(time.perf_counter() - stage_started, 3)
+    stage_started = time.perf_counter()
+
     markdown = render_daily_markdown(
         report_date=report_date,
         clusters=clusters,
@@ -640,6 +709,7 @@ def run_pipeline(
         json_data=json_data,
         article_count=json_data["article_count"],
     )
+    stage_timings["report"] = round(time.perf_counter() - stage_started, 3)
     return PipelineResult(
         raw_articles=raw_articles,
         processed_articles=processed_articles,
@@ -649,4 +719,5 @@ def run_pipeline(
         embeddings=embeddings,
         embedding_model=_embedding_model_name(ai_provider),
         skipped_reason_by_raw_id=skipped_reason_by_raw_id,
+        stage_timings=stage_timings,
     )

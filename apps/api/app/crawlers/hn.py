@@ -115,11 +115,7 @@ class HackerNewsCrawler(BaseCrawler):
             payload = json.loads(response.read().decode("utf-8"))
         hits = payload.get("hits", [])
         articles = parse_hn_hits(hits, self.source, limit=limit)
+        # 外链正文延迟到预筛通过后由 pipeline 拉取(2026-07-12 流程重排)
         for article in articles:
-            self._prefer_full_page(article)
+            article.metadata["body_fetch"] = "deferred"
         return articles
-
-    def _prefer_full_page(self, article: RawArticle) -> None:
-        from app.crawlers.page_content import prefer_full_page_content
-
-        prefer_full_page_content(article, cache_dir=self.page_cache_dir)

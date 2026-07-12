@@ -213,8 +213,10 @@ class CrawlRunTests(unittest.TestCase):
             crawler_factory=lambda source: RecordingCrawler(source.id),
         )
 
-        self.assertEqual(received["boosted"], 20)
-        self.assertEqual(received["default"], 5)  # no crawl_limit configured -> flat default
+        # 2026-07-12 深夜决策:每源条数配置彻底停用——feed 全量拉元数据,
+        # 总量由"只处理当天发布"的日期过滤控制
+        self.assertIsNone(received["boosted"])
+        self.assertIsNone(received["default"])
 
     def test_trusted_and_general_sources_both_use_their_own_crawl_limit(self):
         # there is no shared/global budget any more - a trusted_curated

@@ -136,7 +136,10 @@ class PipelineResult:
     embeddings: dict[str, list[float]] = field(default_factory=dict)
     embedding_model: str = ""
     # per-article reason a raw article never got a ProcessedArticle row at
-    # all (candidate_limit cut, no_content, not_ai_related, ai_error, ...) -
+    # all (no_content, not_ai_related, ai_error, ...) -
     # keyed by raw_article.id, so callers can show a full fetched/verdict
     # breakdown per source, not just the aggregate skipped_reasons counter
     skipped_reason_by_raw_id: dict[str, str] = field(default_factory=dict)
+    # 每阶段耗时(秒):ai_candidates/clustering/readme/translation/report,
+    # 用于定位"AI 处理中"这个粗阶段里时间的真实去向
+    stage_timings: dict[str, float] = field(default_factory=dict)

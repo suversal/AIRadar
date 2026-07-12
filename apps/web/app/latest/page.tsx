@@ -1,5 +1,5 @@
 import type { LatestEvent } from "@/lib/api";
-import { getLatestReport } from "@/lib/api";
+import { getHotspots, getLatestReport } from "@/lib/api";
 import { eventHref, searchEvents } from "@/lib/events";
 import { CATEGORY_FILTER_OPTIONS, displayCategory } from "@/lib/taxonomy";
 import { formatRelativeTime } from "@/lib/time";
@@ -163,15 +163,18 @@ export default async function LatestPage({
 }: {
   searchParams: LatestSearchParams;
 }) {
-  const report = await getLatestReport();
   const resolvedSearchParams = await searchParams;
   const selectedCategory = firstQueryValue(resolvedSearchParams.category) ?? "";
   const query = firstQueryValue(resolvedSearchParams.q)?.trim() ?? "";
+  const [report, hotspots] = await Promise.all([
+    getLatestReport(),
+    getHotspots({ category: selectedCategory, q: query }),
+  ]);
   const searchedItems = searchEvents(report.items, query);
   const filteredItems = selectedCategory
     ? searchedItems.filter((item) => displayCategory(item.category) === selectedCategory)
     : searchedItems;
-  const topEvents = filteredItems.slice(0, 5);
+  const topEvents = hotspots.items;
   const dateGroups = groupEventsByDate(filteredItems);
 
   return (
@@ -236,30 +239,33 @@ export default async function LatestPage({
             </div>
           ) : null}
 
-          <section className="mt-4 rounded-md border border-signal/25 bg-gradient-to-br from-signal/10 via-panel to-panel p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="flex items-center gap-1.5 text-base font-semibold text-ink">
-                <span aria-hidden>🔥</span>
-                当前热点
-              </h2>
-              <span className="text-xs text-ink-dim">多信源热度 · 随时间消退</span>
-            </div>
-            <div className="mt-3 grid gap-1">
-              {topEvents.map((item, index) => (
-                <a
-                  key={item.event_id}
-                  className="grid gap-2 rounded-md px-2 py-1.5 text-sm transition hover:bg-panel-soft/60 md:grid-cols-[32px_1fr_180px]"
-                  href={eventHref(item)}
-                >
-                  <span className="font-semibold text-signal">{index + 1}</span>
-                  <span className="font-semibold text-ink">{item.title}</span>
-                  <span className="text-ink-dim md:text-right">
-                    {item.source_count ?? 1} 个信源 · {formatRelativeTime(item.published_at)}
-                  </span>
-                </a>
-              ))}
-            </div>
-          </section>
+          {topEvents.length > 0 ? (
+            <section className="mt-4 rounded-md border border-signal/25 bg-gradient-to-br from-signal/10 via-panel to-panel p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="flex items-center gap-1.5 text-base font-semibold text-ink">
+                  <span aria-hidden>🔥</span>
+                  当前热点
+                </h2>
+                <span className="text-xs text-ink-dim">近48小时 · 按热度与评分</span>
+              </div>
+              <div className="mt-3 grid gap-1">
+                {topEvents.map((item, index) => (
+                  <a
+                    key={item.event_id}
+                    className="grid gap-2 rounded-md px-2 py-1.5 text-sm transition hover:bg-panel-soft/60 md:grid-cols-[32px_1fr_180px]"
+                    href={eventHref(item)}
+                  >
+                    <span className="font-semibold text-signal">{index + 1}</span>
+                    <span className="font-semibold text-ink">{item.title}</span>
+                    <span className="text-ink-dim md:text-right">
+                      {item.source_count ?? 1} 个信源 ·{" "}
+                      {formatRelativeTime(item.last_seen_at ?? item.published_at)}
+                    </span>
+                  </a>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <section className="mt-6">
             {dateGroups.length > 0 ? (

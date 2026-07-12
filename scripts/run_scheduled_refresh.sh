@@ -23,7 +23,7 @@ fi
 
 {
   echo "==== refresh started $(date -u +%FT%TZ) ===="
-  "$PYTHON" "$ROOT/scripts/run_crawl_once.py" --limit 135 --report data/crawl_report.json
-  "$PYTHON" "$ROOT/scripts/run_pipeline_once.py" --limit 100 --persist-db
+  "$PYTHON" "$ROOT/scripts/run_crawl_once.py" --report data/crawl_report.json
+  "$PYTHON" "$ROOT/scripts/run_pipeline_once.py" --persist-db
   echo "==== refresh finished $(date -u +%FT%TZ) ===="
 } >> "$LOG_DIR/refresh.log" 2>&1

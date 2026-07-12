@@ -1,6 +1,6 @@
 import sys
 import unittest
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
@@ -8,6 +8,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 from app.api.public import (
     build_daily_payload,
     build_daily_payload_from_repository,
+    build_hotspots_payload,
     build_latest_payload,
     build_latest_payload_from_repository,
 )
@@ -276,6 +277,135 @@ class ReportAndAPITests(unittest.TestCase):
         self.assertEqual(daily["report_date"], "2026-07-03")
         self.assertEqual(daily["article_count"], 0)
         self.assertEqual(daily["items"], [])
+
+
+class HotspotPayloadTests(unittest.TestCase):
+    NOW = datetime(2026, 7, 12, 12, 0, tzinfo=timezone.utc)
+
+    def _item(
+        self,
+        event_id,
+        *,
+        sources=1,
+        score=50.0,
+        hours_ago=1,
+        last_seen_hours_ago=None,
+        category="model",
+        title=None,
+    ):
+        published = self.NOW - timedelta(hours=hours_ago)
+        item = {
+            "event_id": event_id,
+            "title": title or f"event {event_id}",
+            "category": category,
+            "tags": [],
+            "final_score": score,
+            "source_count": sources,
+            "published_at": published.isoformat(),
+        }
+        if last_seen_hours_ago is not None:
+            item["last_seen_at"] = (
+                self.NOW - timedelta(hours=last_seen_hours_ago)
+            ).isoformat()
+        return item
+
+    def test_multi_source_events_rank_before_high_score_singles(self):
+        items = [
+            self._item("d", sources=1, score=99),
+            self._item("a", sources=3, score=80),
+            self._item("e", sources=1, score=90),
+            self._item("b", sources=5, score=70),
+            self._item("f", sources=1, score=85),
+            self._item("c", sources=2, score=95),
+        ]
+        payload = build_hotspots_payload(items, now=self.NOW)
+        self.assertEqual(
+            [item["event_id"] for item in payload["items"]],
+            ["b", "a", "c", "d", "e"],
+        )
+
+    def test_equal_source_count_breaks_tie_by_score(self):
+        items = [
+            self._item("low", sources=2, score=60),
+            self._item("high", sources=2, score=90),
+        ]
+        payload = build_hotspots_payload(items, now=self.NOW)
+        self.assertEqual(
+            [item["event_id"] for item in payload["items"]], ["high", "low"]
+        )
+
+    def test_events_outside_window_are_excluded(self):
+        items = [
+            self._item("stale", sources=6, score=99, hours_ago=49),
+            self._item("fresh", sources=2, score=10, hours_ago=47),
+        ]
+        payload = build_hotspots_payload(items, now=self.NOW)
+        self.assertEqual(
+            [item["event_id"] for item in payload["items"]], ["fresh"]
+        )
+
+    def test_last_seen_at_keeps_old_event_with_fresh_coverage(self):
+        items = [
+            self._item("revived", sources=3, score=70, hours_ago=72, last_seen_hours_ago=2),
+        ]
+        payload = build_hotspots_payload(items, now=self.NOW)
+        self.assertEqual(
+            [item["event_id"] for item in payload["items"]], ["revived"]
+        )
+
+    def test_all_single_source_falls_back_to_score_order(self):
+        items = [
+            self._item("mid", sources=1, score=80),
+            self._item("top", sources=1, score=95),
+            self._item("low", sources=1, score=60),
+        ]
+        payload = build_hotspots_payload(items, now=self.NOW)
+        self.assertEqual(
+            [item["event_id"] for item in payload["items"]],
+            ["top", "mid", "low"],
+        )
+
+    def test_limit_caps_the_board_at_five_by_default(self):
+        items = [
+            self._item(f"e{index}", sources=2, score=50 + index)
+            for index in range(8)
+        ]
+        payload = build_hotspots_payload(items, now=self.NOW)
+        self.assertEqual(len(payload["items"]), 5)
+
+    def test_category_and_query_filters_apply_before_ranking(self):
+        items = [
+            self._item("model-multi", sources=4, score=70, category="model"),
+            self._item("product-multi", sources=5, score=90, category="product"),
+            self._item("model-single", sources=1, score=95, category="model"),
+        ]
+        payload = build_hotspots_payload(items, category="model", now=self.NOW)
+        self.assertEqual(
+            [item["event_id"] for item in payload["items"]],
+            ["model-multi", "model-single"],
+        )
+        query_payload = build_hotspots_payload(
+            items, q="product-multi", now=self.NOW
+        )
+        self.assertEqual(
+            [item["event_id"] for item in query_payload["items"]],
+            ["product-multi"],
+        )
+
+    def test_hidden_items_never_reach_the_board(self):
+        hidden = self._item("hidden", sources=5, score=99)
+        hidden["hidden"] = True
+        items = [hidden, self._item("visible", sources=2, score=50)]
+        payload = build_hotspots_payload(items, now=self.NOW)
+        self.assertEqual(
+            [item["event_id"] for item in payload["items"]], ["visible"]
+        )
+
+    def test_empty_items_produce_empty_payload(self):
+        payload = build_hotspots_payload([], now=self.NOW)
+        self.assertEqual(payload["items"], [])
+        self.assertEqual(payload["item_count"], 0)
+        self.assertEqual(payload["window_hours"], 48)
 
 
 class FakeDailyReportRepository:

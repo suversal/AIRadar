@@ -183,15 +183,12 @@ class RSSCrawler(BaseCrawler):
         self.page_cache_dir = page_cache_dir
 
     def fetch(self, limit: int | None = None) -> list[RawArticle]:
+        # 只拉 feed 元数据。正文拉取延迟到 AI 预筛通过之后由 pipeline 执行
+        # (2026-07-12 流程重排):非 AI 文章因此零外站请求
         xml_text = fetch_url_text(self.source.url)
         articles = parse_rss(xml_text, self.source, limit=limit)
         if (self.source.config or {}).get("use_feed_content_only"):
             return articles
         for article in articles:
-            self._prefer_full_page(article)
+            article.metadata["body_fetch"] = "deferred"
         return articles
-
-    def _prefer_full_page(self, article: RawArticle) -> None:
-        from app.crawlers.page_content import prefer_full_page_content
-
-        prefer_full_page_content(article, cache_dir=self.page_cache_dir)

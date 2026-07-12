@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -92,6 +93,7 @@ def _build_auto_crawl_results(
     result: PipelineResult,
     *,
     now: datetime,
+    existing_url_hashes: set[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Build the same {origin, at, status, error, fetched_count,
     accepted_count, articles: [...]} shape the manual per-source fetch
@@ -101,6 +103,7 @@ def _build_auto_crawl_results(
     'last crawl result' column looks identical whether it came from a full
     sync or a single-source manual fetch."""
     at = now.isoformat()
+    existing_url_hashes = existing_url_hashes or set()
     processed_by_raw_id = {
         processed.raw_article_id: processed for processed in result.processed_articles
     }
@@ -126,16 +129,21 @@ def _build_auto_crawl_results(
         article_results: list[dict[str, Any]] = []
         saved_count = 0
         for article in source_articles:
+            # 与手动抓取路径一致:库里已存在的标 duplicate,让"已存在"
+            # 和"非AI丢弃"在信源明细里一眼可分;"通过"只统计本轮新入选
+            existing = article.url_hash in existing_url_hashes
             processed = processed_by_raw_id.get(article.id)
             if processed is not None:
                 selected = bool(processed.selected)
-                if selected:
+                if selected and not existing:
                     saved_count += 1
                 article_results.append(
                     {
                         "title": processed.title_zh or article.title,
                         "url": article.source_url,
-                        "outcome": "saved" if selected else "rejected",
+                        "outcome": "duplicate"
+                        if existing
+                        else ("saved" if selected else "rejected"),
                         "selected": selected,
                         "final_score": processed.final_score,
                         "category": processed.category,
@@ -147,7 +155,7 @@ def _build_auto_crawl_results(
                 {
                     "title": article.title,
                     "url": article.source_url,
-                    "outcome": "rejected",
+                    "outcome": "duplicate" if existing else "rejected",
                     "selected": False,
                     "final_score": None,
                     "category": None,
@@ -241,7 +249,6 @@ def refresh_latest_report(
     *,
     data_dir: Path,
     database_url: str | None,
-    limit: int = 100,
     report_date: date | None = None,
 ) -> dict[str, Any]:
     resolved_date = report_date or date.today()
@@ -265,7 +272,6 @@ def refresh_latest_report(
         return _run_refresh(
             data_dir=data_dir,
             database_url=database_url,
-            limit=limit,
             resolved_date=resolved_date,
             generated_at=generated_at,
             pipeline_run_id=pipeline_run_id,
@@ -289,7 +295,6 @@ def _run_refresh(
     *,
     data_dir: Path,
     database_url: str | None,
-    limit: int,
     resolved_date: date,
     generated_at: datetime,
     pipeline_run_id: int | None = None,
@@ -298,7 +303,21 @@ def _run_refresh(
     sources = _load_sources(database_url, sources_path)
 
     raw_articles, crawl_report = crawl_sources(sources)
+    # 只处理当天发布(上海时区,2026-07-12 深夜决策):feed 的陈年存量在
+    # intake 之前出局,不入库、不进任何统计
+    from app.pipeline.runner import filter_articles_published_on
+
+    raw_articles = filter_articles_published_on(raw_articles, resolved_date)
     _persist_source_health(database_url, crawl_report.get("per_source", {}))
+    # 四步流程第 1 步:抓取一结束立即把新文章插入库(默认未入选),
+    # 数据先于 AI 处理可见;返回的清单是台账"入库/非AI"指标的事实源
+    intake_inserted_ids: list[str] | None = None
+    if database_url:
+        from app.pipeline.persistence import persist_raw_intake_to_database
+
+        intake_inserted_ids = persist_raw_intake_to_database(
+            database_url, raw_articles, pipeline_run_id=pipeline_run_id
+        )
     _report_progress(
         database_url,
         pipeline_run_id,
@@ -321,20 +340,58 @@ def _run_refresh(
         )
 
     ai_provider = provider_from_env()
+
+    # 逐条即时落库:每评完一条马上写库,数据在整轮结束前持续可见
+    on_article_processed = None
+    if database_url:
+        from app.pipeline.persistence import persist_single_article_to_database
+        from app.pipeline.runner import _embedding_model_name
+
+        def on_article_processed(article, processed, embedding):  # noqa: ANN001
+            persist_single_article_to_database(
+                database_url,
+                article,
+                processed,
+                embedding,
+                embedding_model=_embedding_model_name(ai_provider),
+                pipeline_run_id=pipeline_run_id,
+            )
+
     result = run_pipeline(
         sources=sources,
         raw_items_by_source=_raw_items_by_source(raw_articles),
         ai_provider=ai_provider,
         now=generated_at,
         report_date=resolved_date,
-        candidate_limit=limit,
         ai_concurrency=_env_int("AI_PIPELINE_CONCURRENCY", 1),
         cached_results=cached_results,
+        on_article_processed=on_article_processed,
         # 0.85 was too low for bge-small-zh-v1.5: real-data verification
         # found unrelated AI-news articles scoring 0.79-0.89 against each
         # other, so a lower threshold merged unrelated events together
         cluster_similarity_threshold=_env_float("CLUSTER_SIMILARITY_THRESHOLD", 0.93),
     )
+
+    # 阶段耗时落盘:定位"AI 处理中"这个粗阶段里时间的真实去向
+    try:
+        timings_path = data_dir / "logs" / "stage_timings.log"
+        timings_path.parent.mkdir(parents=True, exist_ok=True)
+        with timings_path.open("a", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(
+                    {
+                        "run_id": pipeline_run_id,
+                        "generated_at": generated_at.isoformat(),
+                        "raw_count": len(result.raw_articles),
+                        "processed_count": len(result.processed_articles),
+                        **result.stage_timings,
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+    except OSError:
+        pass  # 观测日志不阻塞主流程
 
     pipeline_dir = data_dir / "crawl_checks" / f"{resolved_date.isoformat()}-refresh-pipeline"
     write_json(pipeline_dir / "raw_articles.json", [article_to_dict(item) for item in result.raw_articles])
@@ -355,7 +412,9 @@ def _run_refresh(
 
     # replaces the coarse crawl-stage source_report with the real per-article
     # saved/rejected breakdown, now that AI processing has actually run
-    auto_crawl_results = _build_auto_crawl_results(crawl_report, result, now=generated_at)
+    auto_crawl_results = _build_auto_crawl_results(
+        crawl_report, result, now=generated_at, existing_url_hashes=set(cached_results)
+    )
     _persist_auto_crawl_results(database_url, auto_crawl_results)
 
     _report_progress(database_url, pipeline_run_id, phase="persisting")
@@ -370,6 +429,7 @@ def _run_refresh(
             started_at=generated_at,
             pipeline_run_id=pipeline_run_id,
             source_report=auto_crawl_results,
+            intake_inserted_ids=intake_inserted_ids,
         )
         _report_progress(database_url, pipeline_run_id, phase="reports")
         _regenerate_period_reports(database_url, resolved_date, ai_provider)
@@ -379,7 +439,6 @@ def _run_refresh(
         "report_date": resolved_date.isoformat(),
         "generated_at": generated_at.isoformat(),
         "ai_provider": ai_provider.__class__.__name__,
-        "limit": limit,
         "ai_concurrency": _env_int("AI_PIPELINE_CONCURRENCY", 1),
         "crawled_count": len(raw_articles),
         "scored_count": len(result.processed_articles),

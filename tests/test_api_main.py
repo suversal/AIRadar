@@ -2,7 +2,7 @@ import importlib
 import sys
 import time
 import unittest
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
@@ -70,8 +70,8 @@ class APIMainTests(unittest.TestCase):
         module = importlib.import_module("app.main")
         calls = []
 
-        def refresh_runner(*, limit):
-            calls.append({"limit": limit})
+        def refresh_runner():
+            calls.append("refresh")
             return {"status": "ok", "report_date": "2026-07-07", "article_count": 17}
 
         import os
@@ -83,22 +83,21 @@ class APIMainTests(unittest.TestCase):
         client = TestClient(module.create_app(refresh_runner=refresh_runner))
         client.headers.update({"Authorization": "Bearer test-admin"})
 
-        response = client.post("/api/admin/refresh-latest?limit=80")
+        response = client.post("/api/admin/refresh-latest")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["report_date"], "2026-07-07")
         self.assertEqual(response.json()["article_count"], 17)
-        self.assertEqual(calls, [{"limit": 80}])
+        self.assertEqual(calls, ["refresh"])
 
     @unittest.skipIf(TestClient is None, "FastAPI is not installed in this environment")
     def test_refresh_latest_async_route_tracks_job_result(self):
         module = importlib.import_module("app.main")
 
-        def refresh_runner(*, limit):
+        def refresh_runner():
             return {
                 "status": "ok",
                 "report_date": "2026-07-07",
-                "limit": limit,
                 "article_count": 17,
             }
 
@@ -111,7 +110,7 @@ class APIMainTests(unittest.TestCase):
         client = TestClient(module.create_app(refresh_runner=refresh_runner))
         client.headers.update({"Authorization": "Bearer test-admin"})
 
-        response = client.post("/api/admin/refresh-latest-async?limit=20")
+        response = client.post("/api/admin/refresh-latest-async")
 
         self.assertEqual(response.status_code, 200)
         job_id = response.json()["job_id"]
@@ -125,7 +124,70 @@ class APIMainTests(unittest.TestCase):
 
         self.assertEqual(job_payload["status"], "succeeded")
         self.assertEqual(job_payload["result"]["article_count"], 17)
-        self.assertEqual(job_payload["result"]["limit"], 20)
+
+    @unittest.skipIf(TestClient is None, "FastAPI is not installed in this environment")
+    def test_public_hotspots_ranks_multi_source_first_and_respects_filters(self):
+        module = importlib.import_module("app.main")
+        now = datetime.now(timezone.utc)
+
+        def iso(hours_ago):
+            return (now - timedelta(hours=hours_ago)).isoformat()
+
+        repository = FakeRepository(
+            {},
+            admin_items=[
+                {
+                    "event_id": "single-top",
+                    "title": "Lone story",
+                    "category": "model_release",
+                    "final_score": 99,
+                    "source_count": 1,
+                    "published_at": iso(1),
+                },
+                {
+                    "event_id": "quad",
+                    "title": "Big model launch",
+                    "category": "model_release",
+                    "final_score": 70,
+                    "source_count": 4,
+                    "published_at": iso(3),
+                },
+                {
+                    "event_id": "pair",
+                    "title": "Product update",
+                    "category": "product_release",
+                    "final_score": 95,
+                    "source_count": 2,
+                    "published_at": iso(5),
+                },
+                {
+                    "event_id": "stale",
+                    "title": "Old giant",
+                    "category": "model_release",
+                    "final_score": 99,
+                    "source_count": 6,
+                    "published_at": iso(60),
+                },
+            ],
+        )
+        client = TestClient(module.create_app(report_repository_factory=lambda: repository))
+
+        payload = client.get("/api/public/hotspots").json()
+        self.assertEqual(
+            [item["event_id"] for item in payload["items"]],
+            ["quad", "pair", "single-top"],
+        )
+
+        filtered = client.get("/api/public/hotspots?category=model").json()
+        self.assertEqual(
+            [item["event_id"] for item in filtered["items"]],
+            ["quad", "single-top"],
+        )
+
+        searched = client.get("/api/public/hotspots?q=product").json()
+        self.assertEqual(
+            [item["event_id"] for item in searched["items"]], ["pair"]
+        )
 
     @unittest.skipIf(TestClient is None, "FastAPI is not installed in this environment")
     def test_admin_events_filters_by_title_and_category(self):

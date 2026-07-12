@@ -10,10 +10,12 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
 from app.api.public import (
+    _merge_daily_items,
     build_daily_payload,
     build_daily_payload_from_repository,
     build_events_payload,
     build_events_payload_from_items,
+    build_hotspots_payload,
     build_latest_payload,
     build_latest_selected_payload_from_repository,
     build_period_payload,
@@ -161,7 +163,7 @@ def create_app(
 
         return get_active_pipeline_run_in_database(database_url) is not None
 
-    def trigger_refresh_job(resolved_limit: int) -> dict[str, Any]:
+    def trigger_refresh_job() -> dict[str, Any]:
         job_id = uuid.uuid4().hex
         with refresh_jobs_lock:
             refresh_jobs[job_id] = {
@@ -170,7 +172,6 @@ def create_app(
                 "created_at": _utc_now_iso(),
                 "started_at": _utc_now_iso(),
                 "finished_at": None,
-                "limit": resolved_limit,
                 "result": None,
                 "error": None,
             }
@@ -179,7 +180,7 @@ def create_app(
             from app.services.refresh_service import RefreshAlreadyRunning
 
             try:
-                result = run_refresh(resolved_limit)
+                result = run_refresh()
                 with refresh_jobs_lock:
                     refresh_jobs[job_id].update(
                         {
@@ -219,13 +220,12 @@ def create_app(
         while True:
             await asyncio.sleep(SCHEDULER_POLL_SECONDS)
             try:
-                resolved_limit = resolve_refresh_limit(None)
                 with open_database_report_repository(database_url) as repository:
                     run_scheduler_tick(
                         repository,
                         now=datetime.now(timezone.utc),
                         is_refresh_running=is_refresh_running,
-                        trigger_refresh=lambda: trigger_refresh_job(resolved_limit),
+                        trigger_refresh=trigger_refresh_job,
                     )
             except Exception:  # pragma: no cover - defensive: scheduler must never die
                 continue
@@ -270,24 +270,14 @@ def create_app(
             return open_database_report_repository(database_url)
         return None
 
-    def resolve_refresh_limit(limit: Optional[int]) -> int:
-        return _resolve_refresh_int(
-            name="limit",
-            value=limit,
-            default=_env_int("DAILY_CANDIDATE_LIMIT", 100),
-            minimum=1,
-            maximum=200,
-        )
-
-    def run_refresh(resolved_limit: int) -> dict[str, Any]:
+    def run_refresh() -> dict[str, Any]:
         if refresh_runner is not None:
-            return refresh_runner(limit=resolved_limit)
+            return refresh_runner()
         from app.services.refresh_service import refresh_latest_report
 
         return refresh_latest_report(
             data_dir=data_dir,
             database_url=os.getenv("DATABASE_URL"),
-            limit=resolved_limit,
         )
 
     @app.get("/health")
@@ -377,6 +367,36 @@ def create_app(
         payloads = load_daily_reports_between(data_dir, start_date, end_date)
         return build_events_payload(
             payloads, category=category, q=q, topic=topic, limit=limit, offset=offset
+        )
+
+    @app.get("/api/public/hotspots")
+    def hotspots(
+        hours: int = 48,
+        limit: int = 5,
+        category: Optional[str] = None,
+        q: Optional[str] = None,
+    ) -> dict:
+        if hours < 1 or hours > 168:
+            raise HTTPException(status_code=400, detail="hours must be between 1 and 168")
+        if limit < 1 or limit > 20:
+            raise HTTPException(status_code=400, detail="limit must be between 1 and 20")
+        end_date = date.today()
+        # query window is day-granular and padded: the precise hour cutoff on
+        # last_seen_at/published_at happens inside build_hotspots_payload
+        start_date = end_date - timedelta(days=(hours // 24) + 2)
+        repository_context = report_repository_context()
+        if repository_context is not None:
+            with repository_context as repository:
+                items = repository.get_all_event_items_between(
+                    start_date, end_date, selected_only=True
+                )
+            return build_hotspots_payload(
+                items, category=category, q=q, hours=hours, limit=limit
+            )
+        payloads = load_daily_reports_between(data_dir, start_date, end_date)
+        merged_items, _report_dates, _updated_at = _merge_daily_items(payloads)
+        return build_hotspots_payload(
+            merged_items, category=category, q=q, hours=hours, limit=limit
         )
 
     @app.get("/api/public/topics")
@@ -631,12 +651,11 @@ def create_app(
         steps a real pipeline round would, so the admin can see which
         articles were fetched and which actually passed and got saved -
         not just a connectivity check."""
-        from datetime import datetime as _datetime, timezone as _timezone
+        from datetime import date as _date, datetime as _datetime, timezone as _timezone
 
         from app.crawlers import registry as crawler_registry
-        from app.crawlers.run import _source_limit
         from app.crawlers.base import stable_hash
-        from app.pipeline.runner import _process_candidate_article
+        from app.pipeline.runner import _process_candidate_article, filter_articles_published_on
         from app.services.ai_service import embedding_input, provider_from_env
 
         with _admin_repository_context() as repository:
@@ -644,11 +663,10 @@ def create_app(
             source = sources.get(source_id)
             if source is None:
                 raise HTTPException(status_code=404, detail="Source not found")
-            # same limit resolution the real crawl uses: config.crawl_limit,
-            # or 5 if the source has none configured
-            limit = _source_limit(source)
             try:
-                fetched = crawler_registry.crawler_for_source(source).fetch(limit=limit)
+                # 与自动同步同一口径:feed 全量拉元数据,只保留当天发布的
+                fetched = crawler_registry.crawler_for_source(source).fetch(limit=None)
+                fetched = filter_articles_published_on(fetched, _date.today())
             except Exception as exc:
                 result = {
                     "origin": "manual",
@@ -666,7 +684,7 @@ def create_app(
             ai_provider = provider_from_env()
             now = _datetime.now(_timezone.utc)
             article_results: list[dict[str, Any]] = []
-            for article in fetched[:limit]:
+            for article in fetched:
                 existing = repository.get_existing_outcome_by_url_hash(article.url_hash)
                 if existing is not None:
                     article_results.append(
@@ -843,29 +861,19 @@ def create_app(
         return {"status": "ok", "updated": sorted(fields)}
 
     @app.post("/api/admin/refresh-latest", dependencies=[admin_guard])
-    def refresh_latest(limit: Optional[int] = None) -> dict:
-        try:
-            resolved_limit = resolve_refresh_limit(limit)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
+    def refresh_latest() -> dict:
         from app.services.refresh_service import RefreshAlreadyRunning
 
         try:
-            return run_refresh(resolved_limit)
+            return run_refresh()
         except RefreshAlreadyRunning as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @app.post("/api/admin/refresh-latest-async", dependencies=[admin_guard])
-    def refresh_latest_async(limit: Optional[int] = None) -> dict:
-        try:
-            resolved_limit = resolve_refresh_limit(limit)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-        return trigger_refresh_job(resolved_limit)
+    def refresh_latest_async() -> dict:
+        return trigger_refresh_job()
 
     @app.get("/api/admin/refresh-jobs/{job_id}", dependencies=[admin_guard])
     def refresh_job(job_id: str) -> dict:

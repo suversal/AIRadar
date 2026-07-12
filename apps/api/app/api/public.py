@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import calendar
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from app.services.taxonomy import display_category
@@ -131,6 +131,75 @@ def build_events_payload_from_items(
         "offset": offset,
         "article_count": len(page),
         "items": page,
+    }
+
+
+def _hotspot_seen_at(item: dict[str, Any]) -> datetime | None:
+    # "48h 内被报道过" anchors on the event's latest coverage, so an older
+    # event that just gained a new source still qualifies
+    for key in ("last_seen_at", "published_at"):
+        raw = item.get(key)
+        if not raw:
+            continue
+        try:
+            parsed = datetime.fromisoformat(str(raw))
+        except ValueError:
+            continue
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+    return None
+
+
+def build_hotspots_payload(
+    items: list[dict[str, Any]],
+    *,
+    category: str | None = None,
+    q: str | None = None,
+    hours: int = 48,
+    limit: int = 5,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """多信源优先热点榜:窗口内 source_count >= 2 的事件按 (信源数, 评分)
+    降序排在前,剩余名额用其余事件按评分补足。"""
+    anchor = now or datetime.now(timezone.utc)
+    window_start = anchor - timedelta(hours=hours)
+    eligible: list[dict[str, Any]] = []
+    for item in items:
+        if item.get("hidden"):
+            continue
+        if not _item_matches(item, category=category, q=q):
+            continue
+        seen_at = _hotspot_seen_at(item)
+        if seen_at is None or seen_at < window_start:
+            continue
+        eligible.append(item)
+
+    def _score(item: dict[str, Any]) -> float:
+        try:
+            return float(item.get("final_score") or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _sources(item: dict[str, Any]) -> int:
+        try:
+            return max(int(item.get("source_count") or 1), 1)
+        except (TypeError, ValueError):
+            return 1
+
+    multi = sorted(
+        (item for item in eligible if _sources(item) >= 2),
+        key=lambda item: (-_sources(item), -_score(item)),
+    )
+    rest = sorted(
+        (item for item in eligible if _sources(item) < 2),
+        key=lambda item: -_score(item),
+    )
+    board = (multi + rest)[:limit]
+    return {
+        "window_hours": hours,
+        "item_count": len(board),
+        "items": board,
     }
 
 

@@ -352,6 +352,8 @@ export function EventsManager({
 
       <HoverCard
         card={titleHoverCard.card}
+        onMouseEnter={titleHoverCard.cancelHide}
+        onMouseLeave={titleHoverCard.hide}
         render={(event) => (
           <>
             <div className="font-semibold text-ink">{event.title}</div>

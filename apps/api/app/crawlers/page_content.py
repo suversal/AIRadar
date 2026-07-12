@@ -11,8 +11,11 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from app.crawlers.base import canonicalize_url, fetch_url_text, stable_hash
 from app.crawlers.sitemap import extract_page_article, main_content_region
@@ -20,6 +23,28 @@ from app.crawlers.article_content import extract_article_content
 from app.models.domain import RawArticle
 
 DEFAULT_PAGE_CACHE_DIR = Path("data") / "page_cache"
+
+# 正文拉取跑在 AI 并发池里(2026-07-12 流程重排),同域真实请求保持
+# 最小间隔,防止 20 并发同时打 Reddit 这类限流站点;缓存命中不节流
+_DOMAIN_MIN_INTERVAL_SECONDS = 2.0
+_DOMAIN_REGISTRY_LOCK = threading.Lock()
+_DOMAIN_LOCKS: dict[str, threading.Lock] = {}
+_DOMAIN_LAST_FETCH: dict[str, float] = {}
+
+
+def _throttle_domain(url: str) -> None:
+    domain = urlparse(url).netloc.lower()
+    if not domain:
+        return
+    with _DOMAIN_REGISTRY_LOCK:
+        lock = _DOMAIN_LOCKS.setdefault(domain, threading.Lock())
+    with lock:
+        last = _DOMAIN_LAST_FETCH.get(domain)
+        if last is not None:
+            wait = _DOMAIN_MIN_INTERVAL_SECONDS - (time.monotonic() - last)
+            if wait > 0:
+                time.sleep(wait)
+        _DOMAIN_LAST_FETCH[domain] = time.monotonic()
 
 
 def _is_bare_url(text: str) -> bool:
@@ -81,6 +106,7 @@ def fetch_page_payload(
         except (OSError, json.JSONDecodeError):
             pass
 
+    _throttle_domain(url)
     page_html = fetch_url_text(url, accept="text/html, */*")
     title, description = extract_page_article(page_html)
     region = main_content_region(page_html)

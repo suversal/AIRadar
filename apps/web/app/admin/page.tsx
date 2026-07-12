@@ -36,11 +36,21 @@ type PipelineRun = {
   raw_count: number;
   processed_count: number;
   cluster_count: number;
+  // 台账漏斗:抓取 = 重复 + 非AI(判定后直接丢弃) + 入库;精选 ⊂ 入库。
+  // null = 该行早于指标列上线
+  new_raw_count: number | null;
+  new_selected_count: number | null;
+  non_ai_dropped_count: number | null;
+  duplicate_count: number | null;
   skipped_reasons: Record<string, number>;
   error: string | null;
   phase: string | null;
   source_report: Record<string, SourceCrawlResult>;
 };
+
+function formatNullableCount(value: number | null | undefined) {
+  return typeof value === "number" ? value : "--";
+}
 
 function formatDuration(start?: string | null, end?: string | null, status?: string) {
   if (!start) return "--";
@@ -98,14 +108,6 @@ const COUNT_LABELS: Record<string, { label: string; help: string }> = {
   pipeline_runs: { label: "同步记录", help: "每次数据同步运行记录" },
 };
 
-const SKIPPED_REASON_LABELS: Record<string, string> = {
-  ai_error: "AI 返回异常",
-  below_threshold: "评分未达精选阈值",
-  candidate_limit: "超过候选上限",
-  not_ai_related: "非 AI 相关",
-  cached_not_ai_related: "命中历史非 AI 结果",
-};
-
 const STATUS_LABELS: Record<string, string> = {
   succeeded: "成功",
   failed: "失败",
@@ -124,16 +126,6 @@ const PHASE_LABELS: Record<string, string> = {
   persisting: "落库中",
   reports: "生成周期报告",
 };
-
-function skippedReasonText(reasons: Record<string, number>) {
-  const entries = Object.entries(reasons);
-  if (entries.length === 0) {
-    return "无";
-  }
-  return entries
-    .map(([reason, count]) => `${SKIPPED_REASON_LABELS[reason] ?? reason} ${count}`)
-    .join(" · ");
-}
 
 export default async function AdminDashboardPage() {
   const [response, scheduleResponse] = await Promise.all([
@@ -178,7 +170,7 @@ export default async function AdminDashboardPage() {
               <div>
                 <h2 className="text-base font-semibold text-ink">运行台账</h2>
                 <p className="mt-1 text-xs text-ink-dim">
-                  记录每次数据同步的抓取、AI 处理、聚类和跳过情况
+                  记录每次数据同步的抓取、重复、非AI 与入库情况
                 </p>
               </div>
               <RefreshReportButton />
@@ -193,9 +185,11 @@ export default async function AdminDashboardPage() {
                     <th className="py-2.5 pr-4 text-right font-semibold">耗时</th>
                     <th className="py-2.5 pr-4 font-semibold">状态</th>
                     <th className="py-2.5 pr-4 text-right font-semibold">抓取</th>
-                    <th className="py-2.5 pr-4 text-right font-semibold">AI 处理</th>
-                    <th className="py-2.5 pr-4 text-right font-semibold">事件簇</th>
-                    <th className="py-2.5 font-semibold">跳过说明</th>
+                    <th className="py-2.5 pr-4 text-right font-semibold">重复</th>
+                    <th className="py-2.5 pr-4 text-right font-semibold">非AI</th>
+                    <th className="py-2.5 pr-4 text-right font-semibold">入库</th>
+                    <th className="py-2.5 pr-4 text-right font-semibold">精选</th>
+                    <th className="py-2.5 font-semibold">信源明细</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
@@ -216,23 +210,30 @@ export default async function AdminDashboardPage() {
                         </Pill>
                       </td>
                       <td className="readout py-2.5 pr-4 text-right">{run.raw_count}</td>
-                      <td className="readout py-2.5 pr-4 text-right">{run.processed_count}</td>
-                      <td className="readout py-2.5 pr-4 text-right">{run.cluster_count}</td>
+                      <td className="readout py-2.5 pr-4 text-right">
+                        {formatNullableCount(run.duplicate_count)}
+                      </td>
+                      <td className="readout py-2.5 pr-4 text-right">
+                        {formatNullableCount(run.non_ai_dropped_count)}
+                      </td>
+                      <td className="readout py-2.5 pr-4 text-right">
+                        {formatNullableCount(run.new_raw_count)}
+                      </td>
+                      <td className="readout py-2.5 pr-4 text-right">
+                        {formatNullableCount(run.new_selected_count)}
+                      </td>
                       <td className="max-w-md py-2.5 text-xs leading-5 text-ink-dim">
-                        <div>{skippedReasonText(run.skipped_reasons)}</div>
-                        <div className="mt-1">
-                          <PipelineRunDetail
-                            error={run.error}
-                            runId={run.id}
-                            sourceReport={run.source_report ?? {}}
-                          />
-                        </div>
+                        <PipelineRunDetail
+                          error={run.error}
+                          runId={run.id}
+                          sourceReport={run.source_report ?? {}}
+                        />
                       </td>
                     </tr>
                   ))}
                   {overview.runs.length === 0 ? (
                     <tr>
-                      <td className="py-4 text-ink-dim" colSpan={9}>
+                      <td className="py-4 text-ink-dim" colSpan={11}>
                         暂无运行记录，触发一次手动刷新后这里会出现台账。
                       </td>
                     </tr>

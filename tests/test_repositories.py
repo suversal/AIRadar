@@ -337,6 +337,125 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(done.raw_count, 3)
         self.assertEqual(total, 1)
 
+    def test_non_ai_articles_are_stored_as_skip_markers(self):
+        # 四步流程(2026-07-12 晚):非AI文章保留行(status=skipped)作为
+        # "已存在跳过"标记——同一篇非AI文章永远只判一次
+        from app.db.models import RawArticleModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            non_ai_new = self._article(article_id="junk1", title="数码促销", url_hash="hash-junk")
+            non_ai_new.status = "skipped"
+            non_ai_new.skipped_reason = "not_ai_related"
+            kept_new = self._article(article_id="good1", title="AI 新文章", url_hash="hash-good")
+
+            result = repository.upsert_raw_articles([non_ai_new, kept_new])
+            session.commit()
+
+            stored_junk = session.scalar(
+                select(RawArticleModel).where(RawArticleModel.url_hash == "hash-junk")
+            )
+
+        self.assertIsNotNone(stored_junk)
+        self.assertEqual(stored_junk.status, "skipped")
+        self.assertEqual(stored_junk.skipped_reason, "not_ai_related")
+        self.assertEqual(sorted(result.inserted_ids), ["good1", "junk1"])
+
+    def test_insert_missing_raw_articles_is_insert_only_intake(self):
+        # 抓取后立即落库(默认未入选):只插入库里没有的,已存在的完全
+        # 跳过——不合并不更新,让"内容管理可见"先于 AI 处理发生
+        from app.db.models import RawArticleModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            existing = self._article(article_id="old1", title="旧标题", url_hash="hash-old")
+            repository.upsert_raw_articles([existing])
+            session.commit()
+
+            re_crawled = self._article(article_id="old1", title="新标题不应覆盖", url_hash="hash-old")
+            fresh = self._article(article_id="new1", title="新文章", url_hash="hash-new")
+            result = repository.insert_missing_raw_articles([re_crawled, fresh])
+            session.commit()
+
+            old_row = session.scalar(
+                select(RawArticleModel).where(RawArticleModel.url_hash == "hash-old")
+            )
+            total = session.scalar(select(func.count()).select_from(RawArticleModel))
+
+        self.assertEqual(result.inserted, 1)
+        self.assertEqual(result.inserted_ids, ["new1"])
+        self.assertEqual(old_row.title, "旧标题")  # 已存在的行原样不动
+        self.assertEqual(total, 2)
+
+    def test_upsert_raw_articles_reports_which_ids_were_newly_inserted(self):
+        # 台账"新入库/重复"指标的数据源:上层需要知道本轮哪些文章是首次入库
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_raw_articles(
+                [self._article(article_id="old1", title="已存在文章", url_hash="hash-old")]
+            )
+            session.commit()
+
+            result = repository.upsert_raw_articles(
+                [
+                    self._article(article_id="old1", title="已存在文章 更新", url_hash="hash-old"),
+                    self._article(article_id="new1", title="新文章一", url_hash="hash-new1"),
+                    self._article(article_id="new2", title="新文章二", url_hash="hash-new2"),
+                ]
+            )
+            session.commit()
+
+        self.assertEqual(result.inserted, 2)
+        self.assertEqual(sorted(result.inserted_ids), ["new1", "new2"])
+
+    def test_pipeline_run_persists_and_exposes_new_ingest_metrics(self):
+        # 台账指标重构(2026-07-12):精选=本轮新入库且入选;重复在读取时
+        # 由 raw_count - new_raw_count 派生;历史行(NULL)必须返回 None 而非 0
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            legacy_id = repository.start_pipeline_run()
+            repository.finish_pipeline_run(
+                legacy_id,
+                status="succeeded",
+                raw_count=100,
+                processed_count=90,
+                cluster_count=80,
+                skipped_reasons={},
+            )
+            new_id = repository.start_pipeline_run()
+            repository.finish_pipeline_run(
+                new_id,
+                status="succeeded",
+                raw_count=175,
+                processed_count=152,
+                cluster_count=142,
+                skipped_reasons={"not_ai_related": 23},
+                new_raw_count=18,
+                new_selected_count=3,
+                non_ai_dropped_count=12,
+            )
+            session.commit()
+
+            runs = {run["id"]: run for run in repository.get_recent_pipeline_runs()}
+
+        fresh = runs[new_id]
+        self.assertEqual(fresh["new_raw_count"], 18)
+        self.assertEqual(fresh["new_selected_count"], 3)
+        self.assertEqual(fresh["non_ai_dropped_count"], 12)
+        # 恒等式:抓取 = 重复 + 非AI + 入库 → 重复 = 175 - 18 - 12
+        self.assertEqual(fresh["duplicate_count"], 175 - 18 - 12)
+        legacy = runs[legacy_id]
+        self.assertIsNone(legacy["new_raw_count"])
+        self.assertIsNone(legacy["new_selected_count"])
+        self.assertIsNone(legacy["non_ai_dropped_count"])
+        self.assertIsNone(legacy["duplicate_count"])
+
     def test_active_run_guard_and_stale_sweep(self):
         # DB 级防重入：running 行是跨进程的"有任务在跑"事实源；
         # 进程死掉留下的超龄 running 行必须能被清扫，否则护栏永久卡死
@@ -1131,6 +1250,8 @@ class RepositoryTests(unittest.TestCase):
         article.metadata["translated_paragraphs"] = ["中文段落"]
         article.metadata["readme_status"] = "ok"
         article.metadata["readme_zh_probe"] = "failed"
+        # 非AI行是"已存在跳过"标记(2026-07-12 晚):缓存必须带出历史
+        # 非AI判定,让下一轮直接跳过、不再预筛
         skipped = self._article(
             article_id="a2", title="Office lunch menu", url_hash="hash-a2"
         )
@@ -1142,6 +1263,12 @@ class RepositoryTests(unittest.TestCase):
             repository.upsert_sources([self._source()])
             repository.upsert_raw_articles([article, skipped])
             repository.upsert_processed_articles([self._processed("a1")])
+            repository.upsert_article_embedding(
+                "a1",
+                embedding_model="bge",
+                vector=self._vec([0.5, 0.25]),
+                source_hash="h-a1",
+            )
             session.commit()
 
             cached = repository.get_cached_results_by_url_hash(
@@ -1149,6 +1276,9 @@ class RepositoryTests(unittest.TestCase):
             )
 
         self.assertEqual(set(cached), {article.url_hash, skipped.url_hash})
+        miss = cached[skipped.url_hash]
+        self.assertIsNone(miss["scoring"])
+        self.assertEqual(miss["skipped_reason"], "not_ai_related")
         hit = cached[article.url_hash]
         self.assertEqual(hit["raw_article_id"], "a1")
         self.assertEqual(hit["scoring"]["title_zh"], "中文标题")
@@ -1159,10 +1289,12 @@ class RepositoryTests(unittest.TestCase):
         # GitHub 匿名限额），限流自愈标记也传不到下一轮
         self.assertEqual(hit["metadata"]["readme_status"], "ok")
         self.assertEqual(hit["metadata"]["readme_zh_probe"], "failed")
-        miss = cached[skipped.url_hash]
-        self.assertEqual(miss["raw_article_id"], "a2")
-        self.assertIsNone(miss["scoring"])
-        self.assertEqual(miss["skipped_reason"], "not_ai_related")
+        # 流程重排(2026-07-12 晚)后缓存文章不再拉正文:必须带回库里的
+        # 全文和既有向量,否则 pipeline 会用 feed 摘要重算 embedding,
+        # 把全文向量覆盖成劣质向量(34 号运行险些造成的事故)
+        self.assertEqual(hit["content"], "AI model release")
+        self.assertEqual(hit["embedding"][0], 0.5)
+        self.assertEqual(hit["embedding"][1], 0.25)
 
     def test_translation_output_is_not_stored_in_raw_metadata(self):
         # architectural split: translation is AI output, not crawl data, so

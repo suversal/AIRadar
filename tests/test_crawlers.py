@@ -1008,12 +1008,47 @@ via AI HOT · https://aihot.virxact.com/items/cmrfiocpi0035ihjlcm4qu8af]]></desc
 
         self.assertEqual(len(articles), 1)
 
-    def test_hacker_news_crawler_fetches_full_page_for_linked_articles(self):
-        # regression: HN posts link out to external pages, and the Algolia
-        # API's own story_text is empty for link-type posts - the crawler
-        # was falling back to just the title with zero real body content.
-        # HN discovers articles same as RSS; the body must equally always
-        # come from the real linked page, not the HN metadata.
+    def test_page_fetch_throttles_same_domain_requests(self):
+        # 正文拉取现在跑在 20 并发的 AI 池里(2026-07-12 流程重排),
+        # 同域真实请求必须保持最小间隔,防止打爆 Reddit 这类限流站点
+        import tempfile
+        import time as time_module
+
+        from app.crawlers import page_content
+
+        html = """<!DOCTYPE html><html><head><title>Throttle test page</title></head>
+<body><article><h1>Throttle test page</h1>
+<p>Body paragraph one with enough real prose text to pass the extraction
+threshold used by the article content extractor in this project.</p>
+<p>Body paragraph two, also long enough to be treated as a legitimate
+paragraph of article prose rather than boilerplate or navigation.</p>
+</article></body></html>"""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(page_content, "_DOMAIN_MIN_INTERVAL_SECONDS", 0.3), patch(
+                "app.crawlers.page_content.fetch_url_text", return_value=html
+            ):
+                started = time_module.monotonic()
+                page_content.fetch_page_payload(
+                    "https://reddit.example/post-1", cache_dir=Path(tmpdir)
+                )
+                page_content.fetch_page_payload(
+                    "https://reddit.example/post-2", cache_dir=Path(tmpdir)
+                )
+                elapsed = time_module.monotonic() - started
+                # 缓存命中不节流
+                cache_started = time_module.monotonic()
+                page_content.fetch_page_payload(
+                    "https://reddit.example/post-1", cache_dir=Path(tmpdir)
+                )
+                cached_elapsed = time_module.monotonic() - cache_started
+
+        self.assertGreaterEqual(elapsed, 0.3)
+        self.assertLess(cached_elapsed, 0.1)
+
+    def test_hacker_news_crawler_defers_body_fetch_to_pipeline(self):
+        # 流程重排(2026-07-12 晚):HN 的 fetch() 只拉 Algolia 元数据,
+        # 外链正文延迟到预筛通过后由 pipeline 拉取(标 body_fetch=deferred)
         import tempfile
 
         source = Source(
@@ -1063,16 +1098,18 @@ tested on the same benchmark suite.</p>
             def read(self):
                 return __import__("json").dumps(hits_payload).encode("utf-8")
 
+        def fail_page_fetch(url, **kwargs):
+            raise AssertionError("fetch() must not pull article pages any more")
+
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("urllib.request.urlopen", return_value=FakeResponse()), patch(
-                "app.crawlers.page_content.fetch_url_text", return_value=page_html
+                "app.crawlers.page_content.fetch_url_text", side_effect=fail_page_fetch
             ):
                 crawler = HackerNewsCrawler(source, page_cache_dir=Path(tmpdir))
                 articles = crawler.fetch(limit=5)
 
-        self.assertIn("stronger reasoning", articles[0].content)
-        self.assertTrue(articles[0].metadata.get("original_paragraphs"))
-        self.assertEqual(articles[0].metadata.get("content_origin"), "full_page")
+        self.assertEqual(articles[0].metadata.get("body_fetch"), "deferred")
+        self.assertNotIn("stronger reasoning", articles[0].content)
 
 
 if __name__ == "__main__":
