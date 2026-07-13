@@ -696,6 +696,7 @@ def create_app(
                     "error": str(exc)[:300],
                     "fetched_count": 0,
                     "accepted_count": 0,
+                    "ingested_count": 0,
                     "articles": [],
                 }
                 repository.set_last_crawl_result(source_id, result)
@@ -705,6 +706,8 @@ def create_app(
             ai_provider = provider_from_env()
             now = _datetime.now(_timezone.utc)
             article_results: list[dict[str, Any]] = []
+            saved_count = 0
+            ingested_count = 0
             for article in fetched:
                 existing = repository.get_existing_outcome_by_url_hash(article.url_hash)
                 if existing is not None:
@@ -741,6 +744,10 @@ def create_app(
                     )
                     continue
                 repository.upsert_raw_articles([article])
+                # 口径对齐自动同步(refresh_service._build_auto_crawl_results):
+                # 入库只排除 not_ai_related,未达精选的 raw_articles 行同样保留
+                if skipped_reason != "not_ai_related":
+                    ingested_count += 1
                 if processed is None:
                     article_results.append(
                         {
@@ -762,6 +769,8 @@ def create_app(
                         vector=embedding,
                         source_hash=stable_hash(embedding_input(article.title, article.content)),
                     )
+                if processed.selected:
+                    saved_count += 1
                 article_results.append(
                     {
                         "title": processed.title_zh or article.title,
@@ -782,7 +791,8 @@ def create_app(
                 "status": "ok",
                 "error": None,
                 "fetched_count": len(fetched),
-                "accepted_count": len(article_results),
+                "accepted_count": saved_count,
+                "ingested_count": ingested_count,
                 "articles": article_results,
             }
             repository.set_last_crawl_result(source_id, result)

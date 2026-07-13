@@ -6,18 +6,19 @@ import { Pill, TABLE_HEAD_ROW, TABLE_ROW } from "./ui";
 type SourceCrawlResult = {
   status: string;
   accepted_count: number;
+  ingested_count?: number;
   fetched_count?: number;
   duration_ms: number;
   error: string | null;
 };
 
 function sortedSourceReport(report: Record<string, SourceCrawlResult>) {
-  // 失败的信源排最前，其余按入选文章数降序——一眼看到问题源
+  // 失败的信源排最前，其余按新入库文章数降序——一眼看到问题源
   return Object.entries(report).sort(([, a], [, b]) => {
     if ((a.status !== "ok") !== (b.status !== "ok")) {
       return a.status !== "ok" ? -1 : 1;
     }
-    return (b.accepted_count ?? 0) - (a.accepted_count ?? 0);
+    return (b.ingested_count ?? b.accepted_count ?? 0) - (a.ingested_count ?? a.accepted_count ?? 0);
   });
 }
 
@@ -95,7 +96,7 @@ export function PipelineRunDetail({
               <tr className={TABLE_HEAD_ROW}>
                 <th className="py-2 pr-2 text-left font-semibold">信源</th>
                 <th className="py-2 pr-2 text-left font-semibold">状态</th>
-                <th className="py-2 pr-2 text-right font-semibold">入选/抓取</th>
+                <th className="py-2 pr-2 text-right font-semibold">入库/抓取（精选）</th>
                 <th className="py-2 pr-2 text-right font-semibold">耗时</th>
                 <th className="py-2 text-left font-semibold">错误</th>
               </tr>
@@ -112,8 +113,9 @@ export function PipelineRunDetail({
                     </Pill>
                   </td>
                   <td className="readout py-1.5 pr-2 text-right text-ink-mid">
-                    {item.accepted_count}
+                    {item.ingested_count ?? item.accepted_count}
                     {typeof item.fetched_count === "number" ? `/${item.fetched_count}` : ""}
+                    {typeof item.ingested_count === "number" ? ` (${item.accepted_count})` : ""}
                   </td>
                   <td className="readout py-1.5 pr-2 text-right text-ink-mid">
                     {typeof item.duration_ms === "number" ? `${Math.round(item.duration_ms)}ms` : "--"}

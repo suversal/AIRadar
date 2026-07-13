@@ -23,6 +23,7 @@ type SourceHealth = {
 type SourceCrawlResult = {
   status: string;
   accepted_count: number;
+  ingested_count?: number;
   fetched_count?: number;
   duration_ms: number;
   error: string | null;

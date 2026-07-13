@@ -96,6 +96,9 @@ class BuildAutoCrawlResultsTests(unittest.TestCase):
         self.assertEqual(entry["fetched_count"], 3)
         # only a1 was actually selected/saved - not the fetched/accepted-into-batch count of 3
         self.assertEqual(entry["accepted_count"], 1)
+        # ingested (新入库) counts a1+a2 - both got a raw_articles row this
+        # round; only a3 (not_ai_related) is excluded
+        self.assertEqual(entry["ingested_count"], 2)
         by_id = {a["url"]: a for a in entry["articles"]}
         saved = by_id["https://example.com/a1"]
         rejected = by_id["https://example.com/a2"]
@@ -157,6 +160,8 @@ class BuildAutoCrawlResultsTests(unittest.TestCase):
         self.assertEqual(junk["reason"], "not_ai_related")
         # 通过 = 本轮新入选;旧文章再次入选不算
         self.assertEqual(entry["accepted_count"], 1)
+        # 入库 = 本轮新增(排除已存在的 old-sel/old-rej 和非AI 的 junk),只剩 fresh
+        self.assertEqual(entry["ingested_count"], 1)
 
     def test_passes_through_failed_crawl_stage_sources_without_articles(self):
         crawl_report = {
@@ -181,7 +186,42 @@ class BuildAutoCrawlResultsTests(unittest.TestCase):
         self.assertEqual(entry["error"], "HTTP 429")
         self.assertEqual(entry["fetched_count"], 0)
         self.assertEqual(entry["accepted_count"], 0)
+        self.assertEqual(entry["ingested_count"], 0)
         self.assertEqual(entry["articles"], [])
+
+    def test_ingested_count_includes_below_threshold_but_excludes_not_ai(self):
+        # 未达精选(below_threshold)的文章 raw_articles 行依然保留,算入库;
+        # 只有 not_ai_related 这一种跳过原因才不算入库(architecture decided
+        # 2026-07-12, see PipelineRunModel.non_ai_dropped_count)
+        crawl_report = {
+            "per_source": {
+                "good_source": {"status": "ok", "duration_ms": 1.0},
+            }
+        }
+        raw_articles = [
+            _article("below", "good_source"),
+            _article("no-content", "good_source"),
+            _article("non-ai", "good_source"),
+        ]
+        processed = [_processed("below", selected=False)]
+        result = PipelineResult(
+            raw_articles=raw_articles,
+            processed_articles=processed,
+            event_clusters=[],
+            daily_report=_daily_report(),
+            skipped_reasons={"no_content": 1, "not_ai_related": 1},
+            skipped_reason_by_raw_id={"no-content": "no_content", "non-ai": "not_ai_related"},
+        )
+
+        merged = _build_auto_crawl_results(
+            crawl_report, result, now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc)
+        )
+
+        entry = merged["good_source"]
+        # ingested = below(未达精选,仍入库) + no-content(未达精选,仍入库);
+        # non-ai(not_ai_related) 被排除
+        self.assertEqual(entry["ingested_count"], 2)
+        self.assertEqual(entry["accepted_count"], 0)
 
 
 if __name__ == "__main__":

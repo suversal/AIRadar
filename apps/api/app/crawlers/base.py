@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import subprocess
 import time
 import urllib.request
 from datetime import datetime, timezone
@@ -38,6 +39,36 @@ MANUAL_REDIRECT_STATUSES = {308}
 MAX_REDIRECTS = 5
 
 
+def _fetch_via_curl(url: str, *, accept: str, timeout: int) -> str:
+    """Some hosts (e.g. linux.do) TLS/JA3-fingerprint urllib's requests and
+    return a Cloudflare challenge, but let a real curl binary through -
+    confirmed by direct probe. Args are passed as a list (no shell=True), so
+    there is no shell-injection surface even though url comes from source
+    config."""
+    result = subprocess.run(
+        [
+            "curl",
+            "-sS",
+            "-L",
+            "--max-time",
+            str(timeout),
+            "-A",
+            BROWSER_USER_AGENT,
+            "-H",
+            f"Accept: {accept}",
+            "-H",
+            f"Accept-Language: {BROWSER_HEADERS['Accept-Language']}",
+            url,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=timeout + 5,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"curl exited {result.returncode} for {url}: {result.stderr.strip()}")
+    return result.stdout
+
+
 def fetch_url_text(
     url: str,
     *,
@@ -45,8 +76,18 @@ def fetch_url_text(
     timeout: int = 10,
     max_attempts: int = 3,
     backoff_seconds: float = 3.0,
+    use_curl: bool = False,
     _redirects_followed: int = 0,
 ) -> str:
+    if use_curl:
+        for attempt in range(max_attempts):
+            try:
+                return _fetch_via_curl(url, accept=accept, timeout=timeout)
+            except (RuntimeError, subprocess.TimeoutExpired):
+                if attempt == max_attempts - 1:
+                    raise
+                time.sleep(backoff_seconds * (attempt + 1))
+        raise RuntimeError(f"unreachable curl retry loop for {url}")  # pragma: no cover
     for attempt in range(max_attempts):
         request = Request(url, headers={"Accept": accept, **BROWSER_HEADERS})
         try:

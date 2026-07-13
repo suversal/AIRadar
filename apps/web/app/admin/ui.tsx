@@ -8,13 +8,14 @@ import {
   type ReactNode,
 } from "react";
 
-export type Tone = "success" | "warning" | "danger" | "signal" | "neutral";
+export type Tone = "success" | "warning" | "danger" | "signal" | "info" | "neutral";
 
 const PILL_TONE: Record<Tone, string> = {
   success: "border-success/40 bg-success/10 text-success",
   warning: "border-warning/40 bg-warning/10 text-warning",
   danger: "border-danger/40 bg-danger/10 text-danger",
   signal: "border-signal/40 bg-signal/10 text-signal",
+  info: "border-info/40 bg-info/10 text-info",
   neutral: "border-line text-ink-dim",
 };
 
@@ -23,6 +24,7 @@ const DOT_TONE: Record<Tone, string> = {
   warning: "bg-warning",
   danger: "bg-danger",
   signal: "bg-signal",
+  info: "bg-info",
   neutral: "bg-ink-dim",
 };
 
@@ -31,6 +33,7 @@ const TEXT_TONE: Record<Tone, string> = {
   warning: "text-warning",
   danger: "text-danger",
   signal: "text-signal",
+  info: "text-info",
   neutral: "text-ink-dim",
 };
 

@@ -40,6 +40,7 @@ type CrawlResult = {
   error?: string | null;
   fetched_count?: number;
   accepted_count?: number;
+  ingested_count?: number;
   articles?: CrawlArticleResult[];
 };
 
@@ -84,8 +85,16 @@ function resultSummary(result?: CrawlResult | null): { tone: Tone; text: string 
   if (!result.articles?.length) {
     return { tone: "neutral", text: `${origin} · 抓到 ${result.fetched_count ?? 0} 篇` };
   }
+  // 入库:新文章里除"非AI"之外都算(未达精选的 raw_articles 行同样保留);
+  // 精选单独标出,避免和"新入库了多少"这个更常被关心的数字混为一谈
+  const ingested = result.articles.filter(
+    (article) => article.outcome !== "duplicate" && article.reason !== "not_ai_related",
+  ).length;
   const saved = result.articles.filter((article) => article.outcome === "saved").length;
-  return { tone: "success", text: `${origin} · 抓到 ${result.articles.length} · 通过 ${saved}` };
+  return {
+    tone: "success",
+    text: `${origin} · 抓到 ${result.articles.length} · 入库 ${ingested} · 精选 ${saved}`,
+  };
 }
 
 const RESULT_BUTTON_TONE: Record<Tone, string> = {
@@ -93,11 +102,12 @@ const RESULT_BUTTON_TONE: Record<Tone, string> = {
   warning: "border-warning/30 bg-warning/10 text-warning",
   danger: "border-danger/30 bg-danger/10 text-danger",
   signal: "border-signal/30 bg-signal/10 text-signal",
+  info: "border-info/30 bg-info/10 text-info",
   neutral: "border-line text-ink-dim",
 };
 
 const OUTCOME_LABEL: Record<string, { text: string; tone: Tone }> = {
-  saved: { text: "已保存", tone: "success" },
+  saved: { text: "已精选", tone: "success" },
   rejected: { text: "未通过", tone: "neutral" },
   duplicate: { text: "已存在", tone: "warning" },
 };
@@ -107,7 +117,7 @@ function outcomeLabel(article: CrawlArticleResult): { text: string; tone: Tone }
   if (!article.outcome) return null;
   if (article.outcome === "rejected" && article.reason) {
     if (article.reason.startsWith("below_threshold")) {
-      return { text: "未达精选", tone: "neutral" };
+      return { text: "未达精选", tone: "info" };
     }
     if (article.reason.startsWith("not_ai_related")) {
       return { text: "非AI", tone: "neutral" };
@@ -219,9 +229,9 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
           <thead>
             <tr className={TABLE_HEAD_ROW}>
               <th className="w-[27%] px-4 py-3 font-semibold">信源</th>
-              <th className="w-[17%] px-4 py-3 font-semibold">类型</th>
-              <th className="w-[13%] px-4 py-3 font-semibold">状态与健康</th>
-              <th className="w-[18%] px-4 py-3 font-semibold">上次抓取结果</th>
+              <th className="w-[16%] px-4 py-3 font-semibold">类型</th>
+              <th className="w-[10%] px-4 py-3 font-semibold">状态与健康</th>
+              <th className="w-[22%] px-4 py-3 font-semibold">上次抓取结果</th>
               <th className="w-[25%] px-4 py-3 font-semibold">操作</th>
             </tr>
           </thead>

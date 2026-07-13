@@ -16,15 +16,23 @@ TELEGRAM_MAX_MESSAGE_LENGTH = 4000
 _STATUS_LABELS = {"succeeded": "✅ 成功", "failed": "❌ 失败"}
 
 
+def _ingested_count(entry: dict[str, Any]) -> int:
+    # 兼容修复前写入的历史 last_crawl_result(没有 ingested_count 字段)
+    ingested = entry.get("ingested_count")
+    if ingested is not None:
+        return int(ingested)
+    return int(entry.get("accepted_count") or 0)
+
+
 def _sorted_source_entries(
     source_report: dict[str, dict[str, Any]],
 ) -> list[tuple[str, dict[str, Any]]]:
-    # 失败源排最前,其余按入选数降序 - 与后台运行明细同一口径
+    # 失败源排最前,其余按入库数降序 - 与后台运行明细同一口径(2026-07-13
+    # 改为入库而非精选:精选数太稀疏,排序几乎没有区分度)
     def sort_key(item: tuple[str, dict[str, Any]]) -> tuple[int, int]:
         _source_id, entry = item
         failed = entry.get("status") != "ok"
-        accepted = int(entry.get("accepted_count") or 0)
-        return (0 if failed else 1, -accepted)
+        return (0 if failed else 1, -_ingested_count(entry))
 
     return sorted(source_report.items(), key=sort_key)
 
@@ -47,7 +55,7 @@ def format_sync_report(
     outcome as a Telegram-ready message."""
     source_names = source_names or {}
     status_label = _STATUS_LABELS.get(status, status)
-    lines = [f"🛰 AI·RADAR 同步{status_label} · {report_date}"]
+    lines = [f"🛰 AI·RADAR 同步 {status_label} · {report_date}"]
 
     if status != "succeeded":
         lines.append(f"错误：{error or '未知错误'}")
@@ -60,18 +68,33 @@ def format_sync_report(
     lines.append(f"精选 {new_selected_count} · 事件簇 {cluster_count}")
 
     entries = _sorted_source_entries(source_report or {})
-    if entries:
+    failed_lines: list[str] = []
+    active_lines: list[str] = []
+    idle_names: list[str] = []
+    for source_id, entry in entries:
+        name = source_names.get(source_id, source_id)
+        if entry.get("status") != "ok":
+            error_text = entry.get("error") or "未知错误"
+            failed_lines.append(f"❌ {name}：{error_text}")
+            continue
+        fetched = entry.get("fetched_count") or 0
+        if not fetched:
+            # 这一轮 feed 里压根没有新条目,列明细纯属噪音,归进底部汇总
+            idle_names.append(name)
+            continue
+        accepted = entry.get("accepted_count") or 0
+        ingested = _ingested_count(entry)
+        active_lines.append(f"✅ {name}：入库 {ingested} · 精选 {accepted} / 抓取 {fetched}")
+
+    if failed_lines or active_lines:
         lines.append("")
-        lines.append("信源明细：")
-        for source_id, entry in entries:
-            name = source_names.get(source_id, source_id)
-            if entry.get("status") != "ok":
-                error_text = entry.get("error") or "未知错误"
-                lines.append(f"❌ {name}：{error_text}")
-                continue
-            accepted = entry.get("accepted_count") or 0
-            fetched = entry.get("fetched_count") or 0
-            lines.append(f"✅ {name}：入选 {accepted} / 抓取 {fetched}")
+        lines.append(f"信源明细（{len(active_lines)}/{len(entries)} 有更新）：")
+        lines.extend(failed_lines)
+        lines.extend(active_lines)
+
+    if idle_names:
+        lines.append("")
+        lines.append(f"⚪ 本轮无抓取（{len(idle_names)}）：{'、'.join(idle_names)}")
 
     return "\n".join(lines)
 

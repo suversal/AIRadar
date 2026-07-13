@@ -31,12 +31,21 @@ class FormatSyncReportTests(unittest.TestCase):
                     "error": None,
                     "fetched_count": 20,
                     "accepted_count": 3,
+                    "ingested_count": 3,
                 },
                 "aihot_all": {
                     "status": "ok",
                     "error": None,
                     "fetched_count": 40,
                     "accepted_count": 6,
+                    "ingested_count": 12,
+                },
+                "quiet_source": {
+                    "status": "ok",
+                    "error": None,
+                    "fetched_count": 0,
+                    "accepted_count": 0,
+                    "ingested_count": 0,
                 },
             },
             source_names={
@@ -51,6 +60,9 @@ class FormatSyncReportTests(unittest.TestCase):
         self.assertIn("144", text)
         self.assertIn("入库 51", text)
         self.assertIn("精选 8", text)
+        # 每个信源明细行同时给出入库/精选/抓取三个数,不再只报"入选"
+        self.assertIn("AI HOT 全部AI动态：入库 12 · 精选 6 / 抓取 40", text)
+        self.assertIn("Google Developers Blog：入库 3 · 精选 3 / 抓取 20", text)
         # 失败源必须在成功源之前出现,且用改过的名称而非 id
         failed_pos = text.index("Reddit r/MachineLearning")
         aihot_pos = text.index("AI HOT 全部AI动态")
@@ -59,8 +71,11 @@ class FormatSyncReportTests(unittest.TestCase):
         self.assertLess(failed_pos, google_pos)
         # 错误原文要带出来
         self.assertIn("429", text)
-        # 按入选数降序:aihot(6) 排在 google(3) 前面
+        # 按入库数降序:aihot(12) 排在 google(3) 前面
         self.assertLess(aihot_pos, google_pos)
+        # 本轮完全没抓到东西的源不再单独占一行,归进底部汇总
+        self.assertNotIn("quiet_source：", text)
+        self.assertIn("本轮无抓取（1）：quiet_source", text)
 
     def test_failure_report_surfaces_error_prominently(self):
         text = format_sync_report(

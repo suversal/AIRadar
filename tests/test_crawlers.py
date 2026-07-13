@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
+from app.crawlers.attentionvc import parse_attentionvc_entries
 from app.crawlers.base import normalize_article
 from app.crawlers.article_content import extract_article_content
 from app.crawlers.github import parse_github_trending
@@ -18,7 +19,9 @@ from app.crawlers.github_readme import (
     repo_path_from_github_url,
 )
 from app.crawlers.hn import HackerNewsCrawler, parse_hn_hits
-from app.crawlers.rss import parse_rss
+from app.crawlers.huggingface_papers import parse_huggingface_papers
+from app.crawlers.rss import parse_datetime, parse_rss
+from app.crawlers.v2ex import parse_v2ex_topics
 from app.models.domain import Source
 
 
@@ -335,6 +338,53 @@ via AI HOT · https://aihot.virxact.com/items/cmrfiocpi0035ihjlcm4qu8af]]></desc
             ],
         )
         self.assertEqual(articles[0].metadata["original_blocks"][1]["type"], "image")
+
+    def test_parse_datetime_reinterprets_mislabeled_gmt_under_assume_tz(self):
+        # InfoQ 中文 labels pubDate "GMT" but the wall-clock numbers are
+        # actually Beijing time (confirmed against the real timestamp
+        # embedded in the article page) - assume_tz must discard the
+        # declared "GMT" and reinterpret the same numbers as +08:00
+        without_override = parse_datetime("Mon, 13 Jul 2026 12:07:33 GMT")
+        with_override = parse_datetime(
+            "Mon, 13 Jul 2026 12:07:33 GMT", assume_tz="+08:00"
+        )
+
+        self.assertEqual(without_override, datetime(2026, 7, 13, 12, 7, 33, tzinfo=timezone.utc))
+        self.assertEqual(with_override, datetime(2026, 7, 13, 4, 7, 33, tzinfo=timezone.utc))
+
+    def test_parse_rss_applies_pubdate_assume_tz_from_source_config(self):
+        source = Source(
+            id="infoq_cn",
+            name="InfoQ 中文",
+            source_role="context",
+            tier="T2",
+            type="rss",
+            category="media",
+            url="https://www.infoq.cn/feed",
+            homepage="https://www.infoq.cn",
+            allowed_domains=["infoq.cn"],
+            language="zh",
+            can_be_main_source=True,
+            config={"pubdate_assume_tz": "+08:00"},
+        )
+        xml = """<?xml version="1.0"?>
+        <rss version="2.0">
+          <channel>
+            <item>
+              <title>红帽发布 AI 平台 3.4</title>
+              <link>https://www.infoq.cn/article/aIP7uI00KLecpDYZBKXl</link>
+              <description>&lt;p&gt;正文。&lt;/p&gt;</description>
+              <pubDate>Mon, 13 Jul 2026 12:07:33 GMT</pubDate>
+            </item>
+          </channel>
+        </rss>
+        """
+
+        articles = parse_rss(xml, source)
+
+        self.assertEqual(
+            articles[0].published_at, datetime(2026, 7, 13, 4, 7, 33, tzinfo=timezone.utc)
+        )
 
     def test_parse_atom_handles_iso_dates_nested_author_and_href_links(self):
         source = Source(
@@ -806,6 +856,167 @@ via AI HOT · https://aihot.virxact.com/items/cmrfiocpi0035ihjlcm4qu8af]]></desc
             [article.title for article in articles],
             ["Modern AI foundations videos", "OpenAI releases an agent benchmark"],
         )
+
+    def test_parse_huggingface_papers_builds_articles_and_filters_by_query_terms(self):
+        source = Source(
+            id="huggingface_papers",
+            name="HuggingFace Trending Papers",
+            source_role="authority",
+            tier="T1_5",
+            type="huggingface_papers",
+            category="research",
+            url="https://huggingface.co/api/daily_papers",
+            homepage="https://huggingface.co/papers",
+            allowed_domains=["huggingface.co"],
+            can_be_main_source=True,
+            config={"query_terms": ["agent"]},
+        )
+        payload = [
+            {
+                "paper": {
+                    "id": "2607.00001",
+                    "title": "A Survey of Reasoning in LLMs",
+                    "summary": "We study reasoning.",
+                    "authors": [{"name": "Alice"}, {"name": "Bob"}],
+                    "publishedAt": "2026-07-10T00:00:00.000Z",
+                    "upvotes": 5,
+                },
+                "numComments": 2,
+            },
+            {
+                "paper": {
+                    "id": "2607.00002",
+                    "title": "Building Autonomous Agents",
+                    "summary": "We build an agent.",
+                    "authors": [{"name": "Carol"}],
+                    "publishedAt": "2026-07-11T00:00:00.000Z",
+                    "upvotes": 8,
+                },
+                "numComments": 0,
+            },
+        ]
+
+        articles = parse_huggingface_papers(payload, source)
+
+        self.assertEqual(len(articles), 1)
+        article = articles[0]
+        self.assertEqual(article.title, "Building Autonomous Agents")
+        self.assertEqual(article.source_url, "https://huggingface.co/papers/2607.00002")
+        self.assertEqual(article.author, "Carol")
+        self.assertEqual(article.raw_score["upvotes"], 8)
+
+    def test_parse_huggingface_papers_skips_entries_missing_id_or_title(self):
+        source = Source(
+            id="huggingface_papers",
+            name="HuggingFace Trending Papers",
+            source_role="authority",
+            tier="T1_5",
+            type="huggingface_papers",
+            category="research",
+            url="https://huggingface.co/api/daily_papers",
+            homepage="https://huggingface.co/papers",
+            allowed_domains=["huggingface.co"],
+            can_be_main_source=True,
+        )
+        payload = [{"paper": {"id": "", "title": "No id"}}, {"paper": {"id": "x"}}]
+
+        articles = parse_huggingface_papers(payload, source)
+
+        self.assertEqual(articles, [])
+
+    def test_parse_attentionvc_entries_builds_x_status_urls_and_filters_language(self):
+        source = Source(
+            id="attentionvc_x",
+            name="X 推文 (AttentionVC)",
+            source_role="signal",
+            tier="T2",
+            type="attentionvc",
+            category="community",
+            url="https://reply-vc-90459984647.us-central1.run.app/v1/articles/leaderboard",
+            homepage="https://x.com",
+            allowed_domains=["x.com"],
+            affects_heat_score=True,
+            can_be_main_source=True,
+        )
+        payload = {
+            "entries": [
+                {
+                    "tweetId": "111",
+                    "title": "English AI post",
+                    "tweetCreatedAt": "2026-07-10T07:57:13.000Z",
+                    "author": {"handle": "someone", "followers": 1000},
+                    "viewCount": 5000,
+                    "likeCount": 200,
+                    "retweetCount": 10,
+                    "previewText": "Some preview text.",
+                    "langsDetected": ["en"],
+                },
+                {
+                    "tweetId": "222",
+                    "title": "非英语帖子",
+                    "author": {"handle": "other"},
+                    "langsDetected": ["ja"],
+                },
+            ]
+        }
+
+        articles = parse_attentionvc_entries(payload, source)
+
+        self.assertEqual(len(articles), 1)
+        article = articles[0]
+        self.assertEqual(article.source_url, "https://x.com/someone/status/111")
+        self.assertEqual(article.raw_score["likes"], 200)
+
+    def test_parse_v2ex_topics_filters_by_min_replies_and_sorts_by_replies(self):
+        source = Source(
+            id="v2ex_ai",
+            name="V2EX",
+            source_role="signal",
+            tier="T2",
+            type="v2ex",
+            category="community",
+            url="https://www.v2ex.com/api/topics/show.json?node_name=openai",
+            homepage="https://www.v2ex.com/go/openai",
+            allowed_domains=["v2ex.com"],
+            language="zh",
+            affects_heat_score=True,
+            can_be_main_source=True,
+            config={"min_replies": 2},
+        )
+        payload = [
+            {
+                "id": 1,
+                "title": "零回复帖子",
+                "url": "https://www.v2ex.com/t/1",
+                "replies": 0,
+                "created": 1783900000,
+                "member": {"username": "u1"},
+                "node": {"name": "openai"},
+            },
+            {
+                "id": 2,
+                "title": "热门帖子",
+                "url": "https://www.v2ex.com/t/2",
+                "content": "内容",
+                "replies": 20,
+                "created": 1783900001,
+                "member": {"username": "u2"},
+                "node": {"name": "openai"},
+            },
+            {
+                "id": 3,
+                "title": "次热门帖子",
+                "url": "https://www.v2ex.com/t/3",
+                "replies": 5,
+                "created": 1783900002,
+                "member": {"username": "u3"},
+                "node": {"name": "openai"},
+            },
+        ]
+
+        articles = parse_v2ex_topics(payload, source)
+
+        self.assertEqual([a.title for a in articles], ["热门帖子", "次热门帖子"])
 
     def test_main_content_region_prefers_content_marker_div_over_main(self):
         # 真实案例（HuggingFace 博客）：正文在 <div class="blog-content …">，

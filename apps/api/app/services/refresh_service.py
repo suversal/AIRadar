@@ -121,6 +121,7 @@ def _build_auto_crawl_results(
                 "error": crawl_entry.get("error"),
                 "fetched_count": 0,
                 "accepted_count": 0,
+                "ingested_count": 0,
                 "duration_ms": crawl_entry.get("duration_ms"),
                 "articles": [],
             }
@@ -128,15 +129,21 @@ def _build_auto_crawl_results(
         source_articles = articles_by_source.get(source_id, [])
         article_results: list[dict[str, Any]] = []
         saved_count = 0
+        ingested_count = 0
         for article in source_articles:
             # 与手动抓取路径一致:库里已存在的标 duplicate,让"已存在"
-            # 和"非AI丢弃"在信源明细里一眼可分;"通过"只统计本轮新入选
+            # 和"非AI丢弃"在信源明细里一眼可分;"通过"只统计本轮新入选。
+            # ingested_count 口径对齐 pipeline_runs 的 new_raw_count:新文章
+            # 里除 not_ai_related 之外全算入库(未达精选的也算,因为它的
+            # raw_articles 行确实保留了),否则"入选"数会被误当成"新入库"数看
             existing = article.url_hash in existing_url_hashes
             processed = processed_by_raw_id.get(article.id)
             if processed is not None:
                 selected = bool(processed.selected)
-                if selected and not existing:
-                    saved_count += 1
+                if not existing:
+                    ingested_count += 1
+                    if selected:
+                        saved_count += 1
                 article_results.append(
                     {
                         "title": processed.title_zh or article.title,
@@ -151,6 +158,9 @@ def _build_auto_crawl_results(
                     }
                 )
                 continue
+            skipped_reason = result.skipped_reason_by_raw_id.get(article.id)
+            if not existing and skipped_reason != "not_ai_related":
+                ingested_count += 1
             article_results.append(
                 {
                     "title": article.title,
@@ -159,7 +169,7 @@ def _build_auto_crawl_results(
                     "selected": False,
                     "final_score": None,
                     "category": None,
-                    "reason": result.skipped_reason_by_raw_id.get(article.id),
+                    "reason": skipped_reason,
                 }
             )
         results[source_id] = {
@@ -169,6 +179,7 @@ def _build_auto_crawl_results(
             "error": None,
             "fetched_count": len(source_articles),
             "accepted_count": saved_count,
+            "ingested_count": ingested_count,
             "duration_ms": crawl_entry.get("duration_ms"),
             "articles": article_results,
         }

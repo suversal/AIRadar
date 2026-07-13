@@ -3,7 +3,7 @@ from __future__ import annotations
 import email.utils
 import re
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -18,7 +18,13 @@ def strip_html(value: str | None) -> str:
     return clean_text(re.sub(r"<[^>]+>", " ", value))
 
 
-def parse_datetime(value: str | None) -> datetime | None:
+def _fixed_offset(value: str) -> timezone:
+    sign = -1 if value.strip().startswith("-") else 1
+    hours_str, _, minutes_str = value.strip().lstrip("+-").partition(":")
+    return timezone(sign * timedelta(hours=int(hours_str), minutes=int(minutes_str or 0)))
+
+
+def parse_datetime(value: str | None, *, assume_tz: str | None = None) -> datetime | None:
     if not value:
         return None
     raw_value = value.strip()
@@ -33,7 +39,13 @@ def parse_datetime(value: str | None) -> datetime | None:
             return None
     if parsed is None:
         return None
-    if parsed.tzinfo is None:
+    if assume_tz:
+        # some feeds (observed: InfoQ 中文) label pubDate "GMT" but the
+        # wall-clock numbers are actually local time - discard whatever
+        # offset was parsed and reinterpret the same y/m/d/h/m/s under the
+        # configured offset instead of trusting the feed's own label
+        parsed = parsed.replace(tzinfo=_fixed_offset(assume_tz))
+    elif parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
 
@@ -122,8 +134,14 @@ def _original_url_from_description(description: str) -> str:
     return candidate
 
 
+# XML 1.0 disallows most C0 control chars; some feeds (e.g. Smol AI News,
+# whose posts embed raw code snippets) leak them in raw and trip
+# ElementTree's strict parser with "not well-formed (invalid token)".
+_INVALID_XML_CHARS_RE = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
 def parse_rss(xml_text: str, source: Source, limit: int | None = None) -> list[RawArticle]:
-    root = ET.fromstring(xml_text)
+    root = ET.fromstring(_INVALID_XML_CHARS_RE.sub("", xml_text))
     entries = root.findall(".//item")
     if not entries:
         entries = [node for node in root.iter() if node.tag.split("}")[-1] == "entry"]
@@ -162,7 +180,9 @@ def parse_rss(xml_text: str, source: Source, limit: int | None = None) -> list[R
                 title=title,
                 content=strip_html(content),
                 author=author,
-                published_at=parse_datetime(published),
+                published_at=parse_datetime(
+                    published, assume_tz=(source.config or {}).get("pubdate_assume_tz")
+                ),
                 language=source.language,
                 raw_score={},
                 metadata=metadata,
@@ -185,7 +205,8 @@ class RSSCrawler(BaseCrawler):
     def fetch(self, limit: int | None = None) -> list[RawArticle]:
         # 只拉 feed 元数据。正文拉取延迟到 AI 预筛通过之后由 pipeline 执行
         # (2026-07-12 流程重排):非 AI 文章因此零外站请求
-        xml_text = fetch_url_text(self.source.url)
+        use_curl = bool((self.source.config or {}).get("use_curl"))
+        xml_text = fetch_url_text(self.source.url, use_curl=use_curl)
         articles = parse_rss(xml_text, self.source, limit=limit)
         if (self.source.config or {}).get("use_feed_content_only"):
             return articles
