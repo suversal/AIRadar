@@ -63,6 +63,15 @@ function healthLabel(source: AdminSource): { text: string; tone: Tone } {
   return { text: "正常", tone: "success" };
 }
 
+// 抓取范围文案:ingest_all_dates 的精选全量流不受日期限制;其余按
+// config.recent_days(缺省 1 = 仅当天)展示,与后端 source_recent_days 同口径
+function crawlScopeLabel(source: AdminSource): string {
+  if ((source.config ?? {}).ingest_all_dates) return "不限日期";
+  const raw = (source.config ?? {}).recent_days;
+  const days = typeof raw === "number" && Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 1;
+  return days <= 1 ? "仅当天发布" : `最近 ${days} 天发布`;
+}
+
 function formatTime(value?: string | null) {
   if (!value) return "从未";
   const parsed = new Date(value);
@@ -205,12 +214,20 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
 
   async function saveEdit(form: FormData) {
     if (!editing) return;
+    // ingest_all_dates 的精选全量流不受 recent_days 约束,disabled 输入框
+    // 不随表单提交,此时按原样保留 config、不写入这个字段
+    const nextConfig: Record<string, unknown> = { ...(editing.config ?? {}) };
+    if (!nextConfig.ingest_all_dates) {
+      const recentDaysRaw = Number(form.get("recent_days") ?? 1);
+      nextConfig.recent_days =
+        Number.isFinite(recentDaysRaw) && recentDaysRaw >= 1 ? Math.floor(recentDaysRaw) : 1;
+    }
     const payload = {
       name: String(form.get("name") ?? "").trim(),
       url: String(form.get("url") ?? "").trim(),
       tier: String(form.get("tier") ?? "T2"),
       fetch_interval_min: Number(form.get("fetch_interval_min") ?? 240),
-      config: { ...(editing.config ?? {}) },
+      config: nextConfig,
     };
     await run(editing.id, "edit", async () => {
       await api(`sources/${editing.id}`, {
@@ -277,7 +294,7 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
                       {source.category} · {source.language}
                     </div>
                     <div className="readout mt-1 truncate text-ink-dim">
-                      {source.fetch_interval_min} min · 仅当天发布
+                      {source.fetch_interval_min} min · {crawlScopeLabel(source)}
                     </div>
                   </td>
                   <td className="min-w-0 px-4 py-3 text-xs">
@@ -416,8 +433,23 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
                   type="number"
                 />
               </label>
-              <p className="block self-end pb-2 text-xs text-ink-dim">
-                抓取范围:仅当天发布的文章(feed 全量拉取后按日期过滤)
+              <label className="block text-xs text-ink-dim">
+                抓取范围（最近 N 天）
+                <input
+                  className="readout mt-1 w-full rounded border border-line bg-canvas px-3 py-2 text-sm text-ink disabled:opacity-50"
+                  defaultValue={
+                    typeof editing.config?.recent_days === "number" ? editing.config.recent_days : 1
+                  }
+                  disabled={Boolean(editing.config?.ingest_all_dates)}
+                  min={1}
+                  name="recent_days"
+                  type="number"
+                />
+              </label>
+              <p className="col-span-2 text-xs text-ink-dim">
+                {editing.config?.ingest_all_dates
+                  ? "该信源为精选全量流,不受日期限制,忽略此项"
+                  : "feed 全量拉取后按发布日期过滤,仅保留最近 N 天内的文章(N=1 即仅当天)"}
               </p>
             </div>
             <div className="mt-5 flex justify-end gap-3 text-sm font-semibold">

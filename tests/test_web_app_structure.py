@@ -180,14 +180,16 @@ class WebAppStructureTests(unittest.TestCase):
             consumer_source = (WEB / "app" / "admin" / Path(consumer)).read_text(encoding="utf-8")
             self.assertIn("cancelHide", consumer_source)
 
-    def test_sources_manager_reflects_today_only_crawling(self):
-        # 2026-07-12 深夜决策:每源条数配置停用,只处理当天发布——
-        # UI 不再有 crawl_limit 输入与"每轮 N 条"文案
+    def test_sources_manager_reflects_configurable_recent_days_crawling(self):
+        # 2026-07-12 深夜决策:每源条数配置停用,改为按发布日期过滤——
+        # UI 不再有 crawl_limit 输入与"每轮 N 条"文案。2026-07-15:固定
+        # "仅当天"改为可在信源管理里编辑的"最近 N 天"(config.recent_days)
         manager_source = (
             WEB / "app" / "admin" / "sources" / "sources-manager.tsx"
         ).read_text(encoding="utf-8")
 
         self.assertIn("仅当天发布", manager_source)
+        self.assertIn("recent_days", manager_source)
         self.assertNotIn("crawl_limit", manager_source)
         self.assertNotIn("每轮", manager_source)
 

@@ -667,7 +667,11 @@ def create_app(
 
         from app.crawlers import registry as crawler_registry
         from app.crawlers.base import stable_hash
-        from app.pipeline.runner import _process_candidate_article, filter_articles_published_on
+        from app.pipeline.runner import (
+            _process_candidate_article,
+            filter_articles_published_on,
+            source_recent_days,
+        )
         from app.services.ai_service import embedding_input, provider_from_env
 
         with _admin_repository_context() as repository:
@@ -676,8 +680,9 @@ def create_app(
             if source is None:
                 raise HTTPException(status_code=404, detail="Source not found")
             try:
-                # 与自动同步同一口径:feed 全量拉元数据,只保留当天发布的
-                # (ingest_all_dates 源豁免)
+                # 与自动同步同一口径:feed 全量拉元数据,只保留最近 N 天发布的
+                # (N 由信源 config.recent_days 配置,默认 1;ingest_all_dates
+                # 源豁免)
                 fetched = crawler_registry.crawler_for_source(source).fetch(limit=None)
                 fetched = filter_articles_published_on(
                     fetched,
@@ -687,6 +692,7 @@ def create_app(
                         if (source.config or {}).get("ingest_all_dates")
                         else frozenset()
                     ),
+                    recent_days_by_source={source.id: source_recent_days(source)},
                 )
             except Exception as exc:
                 result = {

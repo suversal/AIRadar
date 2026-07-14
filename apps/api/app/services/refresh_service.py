@@ -321,10 +321,11 @@ def _run_refresh(
     sources = _load_sources(database_url, sources_path)
 
     raw_articles, crawl_report = crawl_sources(sources)
-    # 只处理当天发布(上海时区,2026-07-12 深夜决策):feed 的陈年存量在
+    # 只处理最近 N 天发布(上海时区,2026-07-12 深夜决策,2026-07-15 从固定
+    # "仅当天"改为按信源 config.recent_days 配置):feed 的陈年存量在
     # intake 之前出局,不入库、不进任何统计;标记 ingest_all_dates 的源
     # (AI HOT 全量流)豁免日期筛选,全部保留
-    from app.pipeline.runner import filter_articles_published_on
+    from app.pipeline.runner import filter_articles_published_on, source_recent_days
 
     raw_articles = filter_articles_published_on(
         raw_articles,
@@ -332,6 +333,7 @@ def _run_refresh(
         exempt_source_ids={
             source.id for source in sources if (source.config or {}).get("ingest_all_dates")
         },
+        recent_days_by_source={source.id: source_recent_days(source) for source in sources},
     )
     _persist_source_health(database_url, crawl_report.get("per_source", {}))
     # 缓存快照必须在 intake 之前拍:它代表"本轮开始前库里已有什么",

@@ -5,7 +5,7 @@ import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from app.crawlers.base import normalize_article
@@ -169,20 +169,36 @@ def _cached_scoring_result(cached: dict[str, Any] | None) -> ScoringResult | Non
         return None
 
 
+def source_recent_days(source: Source) -> int:
+    """信源的抓取回溯天数(config.recent_days,默认 1 天=仅当天,2026-07-15
+    从固定"仅当天"改为可配置):非法或缺失值一律回退到 1,保持改造前的
+    默认行为不变。"""
+    value = (source.config or {}).get("recent_days", 1)
+    try:
+        days = int(value)
+    except (TypeError, ValueError):
+        return 1
+    return days if days >= 1 else 1
+
+
 def filter_articles_published_on(
     articles: list[RawArticle],
     report_date: date,
     *,
     exempt_source_ids: set[str] | frozenset = frozenset(),
+    recent_days_by_source: dict[str, int] | None = None,
 ) -> list[RawArticle]:
-    """只处理发布日期(上海时区)等于报告日期的文章(2026-07-12 深夜决策):
-    feed 里的陈年存量一概出局。published_at 为 None 的保留——GitHub
-    Trending 这类聚合器条目本质上就是"当前"。exempt_source_ids 中的源
-    (config.ingest_all_dates,如 AI HOT 全量流)不筛日期全部保留,判重
-    仍由 url_hash 兜底。"""
+    """只处理发布日期(上海时区)落在[报告日期 - (N-1)天, 报告日期]窗口内的
+    文章(2026-07-12 深夜决策,2026-07-15 从固定"仅当天"改为按信源配置的
+    最近 N 天):N 由 recent_days_by_source 按 source_id 提供,缺失时视为
+    1(即仅当天,与改造前行为一致)。feed 里超出窗口的陈年存量一概出局。
+    published_at 为 None 的保留——GitHub Trending 这类聚合器条目本质上就
+    是"当前"。exempt_source_ids 中的源(config.ingest_all_dates,如 AI HOT
+    全量流)不筛日期全部保留,判重仍由 url_hash 兜底。"""
     from zoneinfo import ZoneInfo
 
     shanghai = ZoneInfo("Asia/Shanghai")
+    recent_days_by_source = recent_days_by_source or {}
     kept: list[RawArticle] = []
     for article in articles:
         if article.source_id in exempt_source_ids:
@@ -194,7 +210,11 @@ def filter_articles_published_on(
             continue
         if published.tzinfo is None:
             published = published.replace(tzinfo=timezone.utc)
-        if published.astimezone(shanghai).date() == report_date:
+        published_date = published.astimezone(shanghai).date()
+        window_start = report_date - timedelta(
+            days=recent_days_by_source.get(article.source_id, 1) - 1
+        )
+        if window_start <= published_date <= report_date:
             kept.append(article)
     return kept
 
@@ -673,8 +693,9 @@ def run_pipeline(
                     article.content = cached_content
             raw_articles.append(article)
 
-    # 只处理当天发布(2026-07-12 深夜决策):feed 的陈年存量在这里出局,
-    # 不入库、不进统计;总量由日期天然约束,不再依赖每源条数配置
+    # 只处理最近 N 天发布(2026-07-12 深夜决策,2026-07-15 从固定"仅当天"
+    # 改为按信源 config.recent_days 配置):feed 的陈年存量在这里出局,
+    # 不入库、不进统计;总量由日期窗口天然约束,不再依赖每源条数配置
     raw_articles = filter_articles_published_on(
         raw_articles,
         report_date,
@@ -683,6 +704,7 @@ def run_pipeline(
             for source in sources
             if (source.config or {}).get("ingest_all_dates")
         },
+        recent_days_by_source={source.id: source_recent_days(source) for source in sources},
     )
     raw_articles = dedupe_articles(raw_articles)
     candidate_articles = list(raw_articles)

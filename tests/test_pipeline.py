@@ -252,6 +252,50 @@ class PipelineTests(unittest.TestCase):
             ["aihot_all"],
         )
 
+        # 2026-07-15:仅当天发布 → 按信源 config.recent_days 配置的最近 N
+        # 天窗口过滤;窗口以外的仍出局,recent_days_by_source 里没有的
+        # source_id 按 1(仅当天,与改造前一致)处理
+        two_days_ago = dc_replace(
+            result.raw_articles[0],
+            published_at=datetime(2026, 6, 29, 0, 0, tzinfo=timezone.utc),
+        )
+        out_of_window = dc_replace(
+            result.raw_articles[0],
+            published_at=datetime(2026, 6, 28, 0, 0, tzinfo=timezone.utc),
+        )
+        kept = filter_articles_published_on(
+            [two_days_ago, out_of_window],
+            date(2026, 7, 1),
+            recent_days_by_source={"openai_blog": 3},
+        )
+        self.assertEqual([a.published_at for a in kept], [two_days_ago.published_at])
+
+    def test_source_recent_days_defaults_and_validates(self):
+        # 2026-07-15:config.recent_days 缺失/非法一律回退到 1(仅当天),
+        # 合法正整数原样使用
+        from app.pipeline.runner import source_recent_days
+
+        def source_with_config(config):
+            return Source(
+                id="s",
+                name="s",
+                source_role="authority",
+                tier="T1",
+                type="rss",
+                category="official",
+                url="https://example.com/rss.xml",
+                homepage="https://example.com",
+                allowed_domains=["example.com"],
+                can_be_main_source=True,
+                config=config,
+            )
+
+        self.assertEqual(source_recent_days(source_with_config({})), 1)
+        self.assertEqual(source_recent_days(source_with_config({"recent_days": 5})), 5)
+        self.assertEqual(source_recent_days(source_with_config({"recent_days": 0})), 1)
+        self.assertEqual(source_recent_days(source_with_config({"recent_days": -3})), 1)
+        self.assertEqual(source_recent_days(source_with_config({"recent_days": "not_a_number"})), 1)
+
     def test_each_scored_article_triggers_immediate_persist_callback(self):
         # 2026-07-12 深夜决策:每成功评分一条立即回调保存,数据库持续
         # 增长;跳过类不回调;回调抛异常不得炸掉整轮
