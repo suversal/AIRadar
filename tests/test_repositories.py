@@ -1895,6 +1895,278 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(item["selected"], False)
         self.assertFalse(missing)
 
+    def test_delete_raw_article_removes_standalone_article_and_all_dependents(self):
+        from app.db.models import (
+            ArticleEmbeddingModel,
+            ArticleTranslationModel,
+            EditorialOverrideModel,
+            ProcessedArticleModel,
+            RawArticleModel,
+        )
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([self._article(article_id="solo1", title="孤立文章")])
+            repository.upsert_processed_articles([self._processed("solo1")])
+            session.commit()
+            repository.upsert_article_embedding(
+                "solo1", embedding_model="fake", vector=self._vec([0.1]), source_hash="h1"
+            )
+            session.add(
+                ArticleTranslationModel(
+                    raw_article_id="solo1",
+                    translated_paragraphs=["译文"],
+                    translated_blocks=[],
+                    source_language="en",
+                    target_language="zh",
+                    source_hash="h1",
+                )
+            )
+            session.add(EditorialOverrideModel(raw_article_id="solo1", hidden=False))
+            session.commit()
+
+            deleted = repository.delete_raw_article("asolo1")
+            session.commit()
+
+            self.assertTrue(deleted)
+            self.assertIsNone(session.get(RawArticleModel, "solo1"))
+            self.assertIsNone(
+                session.scalar(
+                    select(ProcessedArticleModel).where(
+                        ProcessedArticleModel.raw_article_id == "solo1"
+                    )
+                )
+            )
+            self.assertIsNone(
+                session.scalar(
+                    select(ArticleEmbeddingModel).where(
+                        ArticleEmbeddingModel.raw_article_id == "solo1"
+                    )
+                )
+            )
+            self.assertIsNone(
+                session.scalar(
+                    select(ArticleTranslationModel).where(
+                        ArticleTranslationModel.raw_article_id == "solo1"
+                    )
+                )
+            )
+            self.assertIsNone(
+                session.scalar(
+                    select(EditorialOverrideModel).where(
+                        EditorialOverrideModel.raw_article_id == "solo1"
+                    )
+                )
+            )
+
+    def test_delete_raw_article_unknown_event_id_returns_false(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+
+            deleted = repository.delete_raw_article("anonexistent12")
+
+            self.assertFalse(deleted)
+
+    def test_delete_raw_article_removes_only_event_in_its_cluster(self):
+        from app.db.models import EventClusterModel
+        from app.repositories.radar_repository import RadarRepository
+        from dataclasses import replace as dc_replace
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([self._article(article_id="lone1", title="唯一主条", url_hash="ul1")])
+            repository.upsert_processed_articles(
+                [dc_replace(self._processed("lone1"), event_cluster_id="e-lone")]
+            )
+            repository.upsert_event_clusters([self._cluster("e-lone", main_article_id="lone1")])
+            session.commit()
+
+            deleted = repository.delete_raw_article("e-lone")
+            session.commit()
+
+            self.assertTrue(deleted)
+            self.assertIsNone(session.get(EventClusterModel, "e-lone"))
+
+    def test_delete_raw_article_reassigns_main_to_earliest_remaining_coverage(self):
+        from app.db.models import EventClusterArticleModel, EventClusterModel
+        from app.models.domain import RawArticle
+        from app.repositories.radar_repository import RadarRepository
+        from dataclasses import replace as dc_replace
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source(), self._other_source()])
+            repository.upsert_raw_articles(
+                [
+                    self._article(article_id="main1", title="主条", url_hash="um1"),
+                    RawArticle(
+                        id="cov1",
+                        source_id="techcrunch",
+                        source_name="TechCrunch",
+                        source_role="signal",
+                        source_tier="T2",
+                        source_url="https://techcrunch.com/cov1",
+                        title="较早的跟进报道",
+                        content="AI model release",
+                        author="TechCrunch",
+                        published_at=datetime(2026, 7, 1, 7, tzinfo=timezone.utc),
+                        language="en",
+                        raw_score={"score": 1},
+                        metadata={"origin": "fixture"},
+                        title_hash="title-cov1",
+                        url_hash="uc1",
+                    ),
+                    RawArticle(
+                        id="cov2",
+                        source_id="techcrunch",
+                        source_name="TechCrunch",
+                        source_role="signal",
+                        source_tier="T2",
+                        source_url="https://techcrunch.com/cov2",
+                        title="较晚的跟进报道",
+                        content="AI model release",
+                        author="TechCrunch",
+                        published_at=datetime(2026, 7, 1, 13, tzinfo=timezone.utc),
+                        language="en",
+                        raw_score={"score": 1},
+                        metadata={"origin": "fixture"},
+                        title_hash="title-cov2",
+                        url_hash="uc2",
+                    ),
+                ]
+            )
+            repository.upsert_processed_articles(
+                [
+                    dc_replace(self._processed("main1"), event_cluster_id="e-main"),
+                    dc_replace(self._processed("cov1"), event_cluster_id="e-main"),
+                    dc_replace(self._processed("cov2"), event_cluster_id="e-main"),
+                ]
+            )
+            cluster = self._cluster("e-main", main_article_id="main1")
+            cluster.article_ids = ["main1", "cov1", "cov2"]
+            repository.upsert_event_clusters([cluster])
+            session.commit()
+
+            deleted = repository.delete_raw_article("e-main")
+            session.commit()
+
+            self.assertTrue(deleted)
+            event_cluster = session.get(EventClusterModel, "e-main")
+            self.assertIsNotNone(event_cluster)
+            # cov1 (07:00) is earlier than cov2 (13:00) - must become the new main
+            self.assertEqual(event_cluster.main_article_id, "cov1")
+            self.assertEqual(event_cluster.source_count, 1)  # both remaining members are techcrunch
+            memberships = {
+                m.raw_article_id: m.is_main
+                for m in session.scalars(
+                    select(EventClusterArticleModel).where(
+                        EventClusterArticleModel.event_cluster_id == "e-main"
+                    )
+                ).all()
+            }
+            self.assertEqual(memberships, {"cov1": True, "cov2": False})
+
+    def test_delete_raw_article_non_main_member_keeps_cluster_and_recounts_sources(self):
+        from app.db.models import EventClusterArticleModel, EventClusterModel
+        from app.models.domain import RawArticle
+        from app.repositories.radar_repository import RadarRepository
+        from dataclasses import replace as dc_replace
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source(), self._other_source()])
+            repository.upsert_raw_articles(
+                [
+                    self._article(article_id="main2", title="主条", url_hash="um2"),
+                    RawArticle(
+                        id="cov3",
+                        source_id="techcrunch",
+                        source_name="TechCrunch",
+                        source_role="signal",
+                        source_tier="T2",
+                        source_url="https://techcrunch.com/cov3",
+                        title="待删除的跟进报道",
+                        content="AI model release",
+                        author="TechCrunch",
+                        published_at=datetime(2026, 7, 1, 11, tzinfo=timezone.utc),
+                        language="en",
+                        raw_score={"score": 1},
+                        metadata={"origin": "fixture"},
+                        title_hash="title-cov3",
+                        url_hash="uc3",
+                    ),
+                ]
+            )
+            repository.upsert_processed_articles(
+                [
+                    dc_replace(self._processed("main2"), event_cluster_id="e-nonmain"),
+                    dc_replace(self._processed("cov3"), event_cluster_id="e-nonmain"),
+                ]
+            )
+            cluster = self._cluster("e-nonmain", main_article_id="main2")
+            cluster.article_ids = ["main2", "cov3"]
+            repository.upsert_event_clusters([cluster])
+            session.commit()
+
+            deleted = repository.delete_raw_article("acov3")
+            session.commit()
+
+            self.assertTrue(deleted)
+            event_cluster = session.get(EventClusterModel, "e-nonmain")
+            self.assertIsNotNone(event_cluster)
+            self.assertEqual(event_cluster.main_article_id, "main2")
+            self.assertEqual(event_cluster.source_count, 1)
+            remaining_ids = {
+                m.raw_article_id
+                for m in session.scalars(
+                    select(EventClusterArticleModel).where(
+                        EventClusterArticleModel.event_cluster_id == "e-nonmain"
+                    )
+                ).all()
+            }
+            self.assertEqual(remaining_ids, {"main2"})
+
+    def test_delete_raw_article_removes_historical_daily_report_entry(self):
+        from app.db.models import DailyReportEntryModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([self._article(article_id="reported1", title="上过日报的文章")])
+            repository.upsert_processed_articles([self._processed("reported1")])
+            repository.upsert_daily_report(self._report(date(2026, 7, 1), article_count=1))
+            session.commit()
+            repository.replace_daily_report_entries(
+                date(2026, 7, 1),
+                [
+                    {
+                        "event_id": "areported1",
+                        "raw_article_id": "reported1",
+                        "reason": "推荐理由",
+                        "final_score": 90.0,
+                    }
+                ],
+            )
+            session.commit()
+
+            deleted = repository.delete_raw_article("areported1")
+            session.commit()
+
+            self.assertTrue(deleted)
+            self.assertIsNone(
+                session.scalar(
+                    select(DailyReportEntryModel).where(
+                        DailyReportEntryModel.raw_article_id == "reported1"
+                    )
+                )
+            )
+
     def test_period_reports_upsert_get_and_archive(self):
         from app.repositories.radar_repository import RadarRepository
 

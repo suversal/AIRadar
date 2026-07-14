@@ -1316,6 +1316,98 @@ class RadarRepository:
         self.session.flush()
         return True
 
+    def delete_raw_article(self, event_id: str) -> bool:
+        """Permanently remove one article and every row that references it,
+        in FK-dependency order, inside the caller's transaction. Mirrors
+        update_event_moderation's event_id resolution and commit contract:
+        returns False (session untouched) when event_id doesn't resolve to
+        a real article; the caller commits on True."""
+        row = self._resolve_processed_row(event_id)
+        if row is None:
+            return False
+        _processed, raw, _source, cluster = row
+        raw_article_id = raw.id
+
+        self.session.execute(
+            delete(DailyReportEntryModel).where(
+                DailyReportEntryModel.raw_article_id == raw_article_id
+            )
+        )
+        self.session.execute(
+            delete(ArticleEmbeddingModel).where(
+                ArticleEmbeddingModel.raw_article_id == raw_article_id
+            )
+        )
+        self.session.execute(
+            delete(ArticleTranslationModel).where(
+                ArticleTranslationModel.raw_article_id == raw_article_id
+            )
+        )
+        self.session.execute(
+            delete(EditorialOverrideModel).where(
+                EditorialOverrideModel.raw_article_id == raw_article_id
+            )
+        )
+
+        cluster_id = cluster.id if cluster is not None else None
+        if cluster_id is None:
+            found = self._find_cluster_for_raw_article(raw_article_id)
+            cluster_id = found.id if found is not None else None
+
+        if cluster_id is not None:
+            event_cluster = self.session.get(EventClusterModel, cluster_id)
+            remaining = self.session.scalars(
+                select(EventClusterArticleModel)
+                .where(EventClusterArticleModel.event_cluster_id == cluster_id)
+                .where(EventClusterArticleModel.raw_article_id != raw_article_id)
+            ).all()
+            self.session.execute(
+                delete(EventClusterArticleModel).where(
+                    EventClusterArticleModel.raw_article_id == raw_article_id
+                )
+            )
+            # flush before touching `remaining`'s is_main: the partial unique
+            # index (one main per event) is checked per statement, so the old
+            # main's membership row must actually be gone first (same
+            # ordering concern as upsert_event_clusters's demote/promote split)
+            self.session.flush()
+
+            if not remaining:
+                self.session.execute(
+                    delete(EventEditorialOverrideModel).where(
+                        EventEditorialOverrideModel.event_cluster_id == cluster_id
+                    )
+                )
+                self.session.execute(
+                    delete(EventClusterModel).where(EventClusterModel.id == cluster_id)
+                )
+            elif event_cluster is not None and event_cluster.main_article_id == raw_article_id:
+                earliest_id = self.session.execute(
+                    select(EventClusterArticleModel.raw_article_id)
+                    .join(
+                        RawArticleModel,
+                        RawArticleModel.id == EventClusterArticleModel.raw_article_id,
+                    )
+                    .where(EventClusterArticleModel.event_cluster_id == cluster_id)
+                    .order_by(RawArticleModel.published_at.asc())
+                    .limit(1)
+                ).scalar_one()
+                for member in remaining:
+                    member.is_main = member.raw_article_id == earliest_id
+                event_cluster.main_article_id = earliest_id
+                event_cluster.source_count = self._count_distinct_sources(cluster_id)
+            elif event_cluster is not None:
+                event_cluster.source_count = self._count_distinct_sources(cluster_id)
+
+        self.session.execute(
+            delete(ProcessedArticleModel).where(
+                ProcessedArticleModel.raw_article_id == raw_article_id
+            )
+        )
+        self.session.execute(delete(RawArticleModel).where(RawArticleModel.id == raw_article_id))
+        self.session.flush()
+        return True
+
     def get_event_item(self, event_id: str) -> Optional[dict[str, Any]]:
         row = self._resolve_processed_row(event_id)
         if row is None:
