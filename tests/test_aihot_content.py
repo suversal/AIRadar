@@ -8,11 +8,13 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
 from app.crawlers.aihot_content import (
     AIHOT_USER_AGENT,
+    _assign_original_and_translation,
     _decode_flight_chunk,
     _extract_chinese_body_html,
     _extract_english_original_html,
     fetch_aihot_item_content,
 )
+from app.crawlers.article_content import extract_article_content
 
 # Trimmed-down but structurally faithful reproduction of a real
 # https://aihot.virxact.com/items/{id} page, captured 2026-07-13:
@@ -106,6 +108,7 @@ class AihotContentTests(unittest.TestCase):
             self.assertEqual(metadata["translation_target_language"], "zh")
             self.assertEqual(metadata["translation_status"], "completed")
             self.assertTrue(metadata["translation_source_hash"])
+            self.assertEqual(payload["language"], "en")
 
             # fetch_url_text called with the identifying, non-browser UA
             self.assertEqual(mock_fetch.call_args.kwargs["user_agent"], AIHOT_USER_AGENT)
@@ -134,6 +137,77 @@ class AihotContentTests(unittest.TestCase):
                 )
 
             self.assertIsNone(payload)
+
+    def test_fetch_aihot_item_content_chinese_only_sets_original_not_translation(self):
+        # some AI HOT items never had an English original to begin with
+        # (zh-native source, e.g. a WeChat article) or the RSC chunk simply
+        # didn't match this deploy's format - either way, a lone Chinese DOM
+        # block must become the *original*, not get mislabeled as a
+        # "translation" of a non-existent English original
+        html = AIHOT_FIXTURE_HTML.replace(
+            f'<script>self.__next_f.push([1,"{_ENGLISH_HTML}"])</script>', ""
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("app.crawlers.aihot_content._throttle_domain"), patch(
+                "app.crawlers.aihot_content.fetch_url_text", return_value=html
+            ):
+                payload = fetch_aihot_item_content(
+                    "https://aihot.virxact.com/items/zh-only",
+                    cache_dir=Path(tmp),
+                )
+
+            self.assertIsNotNone(payload)
+            metadata = payload["metadata"]
+            self.assertTrue(any("德国研究联盟" in p for p in metadata["original_paragraphs"]))
+            self.assertNotIn("translated_paragraphs", metadata)
+            self.assertNotIn("translation_status", metadata)
+            self.assertEqual(payload["language"], "zh")
+
+    def test_fetch_aihot_item_content_english_only_sets_language_en(self):
+        # the mirror case: only the English RSC chunk extracted (no
+        # .dt-article DOM match) - must still surface as original with
+        # language=="en" so runner.py's generic translation fallback picks
+        # it up, rather than silently staying language-less
+        html = AIHOT_FIXTURE_HTML.replace(
+            '<div class="dt-article">', '<div class="not-matched-block">'
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("app.crawlers.aihot_content._throttle_domain"), patch(
+                "app.crawlers.aihot_content.fetch_url_text", return_value=html
+            ):
+                payload = fetch_aihot_item_content(
+                    "https://aihot.virxact.com/items/en-only",
+                    cache_dir=Path(tmp),
+                )
+
+            self.assertIsNotNone(payload)
+            metadata = payload["metadata"]
+            self.assertTrue(any("Soofi S" in p for p in metadata["original_paragraphs"]))
+            self.assertNotIn("translated_paragraphs", metadata)
+            self.assertNotIn("translation_status", metadata)
+            self.assertEqual(payload["language"], "en")
+
+    def test_assign_original_and_translation_same_language_picks_longer_no_translation(self):
+        # both extracted blocks resolve to the same detected language
+        # (heuristic drift, or genuinely no translation pair) - must not
+        # fabricate a translated_* pair out of two same-language blocks
+        short_zh = extract_article_content("<p>短句一。</p>", base_url="https://x.test")
+        long_zh = extract_article_content(
+            "<p>" + "这是一段更长的中文正文内容用来验证长度比较逻辑。" * 5 + "</p>",
+            base_url="https://x.test",
+        )
+
+        metadata, language = _assign_original_and_translation(long_zh, short_zh)
+
+        self.assertEqual(language, "zh")
+        self.assertEqual(metadata["original_paragraphs"], long_zh["original_paragraphs"])
+        self.assertNotIn("translated_paragraphs", metadata)
+
+    def test_assign_original_and_translation_no_blocks_returns_empty(self):
+        metadata, language = _assign_original_and_translation(None, None)
+
+        self.assertEqual(metadata, {})
+        self.assertIsNone(language)
 
 
 if __name__ == "__main__":

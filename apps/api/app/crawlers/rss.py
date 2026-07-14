@@ -141,11 +141,14 @@ def _original_url_from_description(description: str) -> str:
 _AIHOT_READ_ORIGINAL_MARKER_RE = re.compile(r"(?:🔗\s*)?阅读原文\s*[：:]")
 
 
+def _truncate_at_aihot_marker(text: str) -> str:
+    match = _AIHOT_READ_ORIGINAL_MARKER_RE.search(text)
+    return text[: match.start()] if match else text
+
+
 def _aihot_summary_from_description(description: str) -> str:
     text = strip_html(description)
-    match = _AIHOT_READ_ORIGINAL_MARKER_RE.search(text)
-    summary = text[: match.start()] if match else text
-    return clean_text(summary)
+    return clean_text(_truncate_at_aihot_marker(text))
 
 
 # XML 1.0 disallows most C0 control chars; some feeds (e.g. Smol AI News,
@@ -175,10 +178,17 @@ def parse_rss(xml_text: str, source: Source, limit: int | None = None) -> list[R
         # dedicated aihot full-content fetch (page_content-equivalent) knows
         # where to go without re-deriving it
         aihot_permalink = link if config.get("use_aihot_item_page") else ""
+        body_html = content_html
         if source.id == "aihot_feed" or config.get("original_url_from_description"):
+            # _original_url_from_description needs the full text (the URL sits
+            # right after the marker), so it must run before truncation; the
+            # marker itself and everything after it is our own generated
+            # link-out boilerplate, not article body - strip it before parsing
+            # content so it never leaks into original_blocks/original_text.
             link = _original_url_from_description(content_html) or link
-        original_content = extract_article_content(content_html, base_url=link, title=title)
-        content = original_content["original_text"] or strip_html(content_html)
+            body_html = _truncate_at_aihot_marker(content_html)
+        original_content = extract_article_content(body_html, base_url=link, title=title)
+        content = original_content["original_text"] or strip_html(body_html)
         author = _entry_author(entry)
         published = _child_text(entry, ["pubDate", "published", "updated"])
         if not title or not link:

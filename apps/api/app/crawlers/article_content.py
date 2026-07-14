@@ -62,9 +62,14 @@ _AVATAR_FILENAME_RE = re.compile(r"avatar", re.IGNORECASE)
 # mention "版权" mid-article is never touched.
 _TRAILING_BOILERPLATE_RE = re.compile(
     r"转载|版权所有|寻求报道|本文图片来自|如需转载|合作请联系|未经授权|未经许可|免责声明|原创出品|"
-    r"加入我们|商务合作|扫码关注|Subscribe to|all rights reserved",
+    r"加入我们|商务合作|扫码关注|Subscribe to|all rights reserved|"
+    r"阅读原文|查看原文|原文链接|点击查看原文|查看原帖|原帖地址",
     re.IGNORECASE,
 )
+# a trailing paragraph whose entire text is a single bare URL (aggregators
+# like AI HOT append a "阅读原文：<url>" style link-out line directly inside
+# the same content region as the real body, with no distinguishing markup)
+_BARE_URL_RE = re.compile(r"^https?://\S+$", re.IGNORECASE)
 # a bare "关于量子位"/"关于我们"/"关于36氪" site-info line - the exact site
 # name varies per source, so this can't be a fixed keyword; short length
 # guards against matching real prose like "关于这个问题的讨论仍在继续"
@@ -82,6 +87,8 @@ def _looks_like_trailing_boilerplate(block: dict[str, Any]) -> bool:
         return False
     text = str(block.get("text") or "").strip()
     if _TRAILING_BOILERPLATE_RE.search(text) or _TRAILING_ABOUT_LINE_RE.match(text):
+        return True
+    if _BARE_URL_RE.match(text):
         return True
     html = str(block.get("html") or "")
     if html and len(text) <= _TRAILING_SHORT_LINK_MAX_CHARS:
@@ -133,6 +140,27 @@ def _strip_trailing_boilerplate(
 
 def _normalize_for_comparison(text: str) -> str:
     return re.sub(r"[^\w一-鿿]", "", text or "").lower()
+
+
+# shared CJK/Latin script detection, used by page_content.py (re-labeling a
+# full-page fetch's language) and aihot_content.py (deciding which of the two
+# extracted language blocks is actually the original vs AI HOT's own
+# translation) - kept in one place so the two never drift apart
+_CJK_RE = re.compile(r"[一-鿿]")
+_LATIN_RE = re.compile(r"[A-Za-z]")
+
+
+def _detect_body_language(text: str) -> str | None:
+    """Best-effort script detection for an article body. Returns None when
+    the signal is ambiguous so the caller keeps whatever label it already
+    had."""
+    cjk = len(_CJK_RE.findall(text))
+    latin = len(_LATIN_RE.findall(text))
+    if cjk >= 50 or (cjk > 0 and cjk * 4 >= latin):
+        return "zh"
+    if latin >= 200 and cjk < 10:
+        return "en"
+    return None
 
 
 def _safe_color_value(value: str) -> str | None:

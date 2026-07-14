@@ -67,6 +67,10 @@ export type LatestEvent = {
   translated_content?: string;
   translated_paragraphs?: string[];
   translated_blocks?: OriginalBlock[];
+  // "aihot_item_page_link_only": known unscrapable read-original domain
+  // (e.g. WeChat) - the backend deliberately withheld original_* content,
+  // so the frontend must not synthesize a fake 原文 block from the summary
+  content_origin?: string;
 };
 
 export type LatestReport = {

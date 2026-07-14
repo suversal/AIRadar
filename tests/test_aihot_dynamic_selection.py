@@ -224,6 +224,120 @@ class AIHotDynamicSelectionTests(unittest.TestCase):
             ["A German research consortium released Soofi S."],
         )
 
+    def test_aihot_payload_language_field_updates_article_and_triggers_generic_translation(self):
+        # AI HOT sources are hardcoded language="zh" at ingestion. When their
+        # own bundled translation is missing (only the English side
+        # extracted), fetch_aihot_item_content now reports the actually
+        # detected language via payload["language"] - the pipeline must
+        # write that back onto article.language so the generic translation
+        # fallback (gated on article.language.startswith("en")) actually
+        # fires and fills in translated_paragraphs, instead of the
+        # 原文/译文 toggle staying permanently absent for this article.
+        source = aihot_source()
+        items = [
+            {
+                "source_url": "https://the-decoder.com/some-article",
+                "title": "条目 0",
+                "content": "薄摘要占位内容",
+                "author": "AI HOT",
+                "published_at": datetime(2026, 7, 1, 4, tzinfo=timezone.utc),
+                "language": "zh",
+                "raw_score": {},
+                "metadata": {
+                    "feed_position": 1,
+                    "body_fetch": "deferred",
+                    "aihot_permalink": "https://aihot.virxact.com/items/english-only",
+                },
+            }
+        ]
+        aihot_payload = {
+            "content": "A German research consortium released Soofi S.",
+            "metadata": {
+                "original_paragraphs": ["A German research consortium released Soofi S."],
+                "original_blocks": [
+                    {"type": "paragraph", "text": "A German research consortium released Soofi S."}
+                ],
+                "original_text": "A German research consortium released Soofi S.",
+                "original_images": [],
+            },
+            "language": "en",
+        }
+
+        with patch(
+            "app.crawlers.aihot_content.fetch_aihot_item_content",
+            return_value=aihot_payload,
+        ):
+            result = run_pipeline(
+                sources=[source],
+                raw_items_by_source={source.id: items},
+                ai_provider=LowScoreProvider(),
+                now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+                report_date=date(2026, 7, 1),
+            )
+
+        article = result.raw_articles[0]
+        self.assertEqual(article.language, "en")
+        self.assertTrue(article.metadata.get("translated_paragraphs"))
+        self.assertIn("译文：", article.metadata["translated_paragraphs"][0])
+
+    def test_aihot_branch_skips_payload_for_unfetchable_read_original_domain(self):
+        # when the "阅读原文" target resolves to a known unscrapable host
+        # (WeChat), AI HOT's own item page can itself have rendered a
+        # verification-wall artifact instead of real content - the pipeline
+        # must not trust fetch_aihot_item_content's payload at all in that
+        # case, and must leave the RSS-stage aihot_summary_zh/content
+        # untouched rather than risk showing fabricated body text
+        source = aihot_source()
+        items = [
+            {
+                "source_url": "https://mp.weixin.qq.com/s/some-article",
+                "title": "条目 0",
+                "content": "薄摘要占位内容",
+                "author": "AI HOT",
+                "published_at": datetime(2026, 7, 1, 4, tzinfo=timezone.utc),
+                "language": "zh",
+                "raw_score": {},
+                "metadata": {
+                    "feed_position": 1,
+                    "body_fetch": "deferred",
+                    "aihot_permalink": "https://aihot.virxact.com/items/wechat-source",
+                    "aihot_summary_zh": "薄摘要占位内容",
+                },
+            }
+        ]
+        # a payload that, if it were trusted, would look like a perfectly
+        # normal successful extraction
+        aihot_payload = {
+            "content": "可能是验证页伪正文",
+            "metadata": {
+                "original_paragraphs": ["可能是验证页伪正文"],
+                "original_blocks": [{"type": "paragraph", "text": "可能是验证页伪正文"}],
+                "original_text": "可能是验证页伪正文",
+                "original_images": [],
+            },
+            "language": "zh",
+        }
+
+        with patch(
+            "app.crawlers.aihot_content.fetch_aihot_item_content",
+            return_value=aihot_payload,
+        ) as mock_aihot_fetch:
+            result = run_pipeline(
+                sources=[source],
+                raw_items_by_source={source.id: items},
+                ai_provider=LowScoreProvider(),
+                now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+                report_date=date(2026, 7, 1),
+            )
+
+        mock_aihot_fetch.assert_not_called()
+
+        article = result.raw_articles[0]
+        self.assertEqual(article.metadata.get("content_origin"), "aihot_item_page_link_only")
+        self.assertEqual(article.content, "薄摘要占位内容")
+        self.assertEqual(article.metadata.get("aihot_summary_zh"), "薄摘要占位内容")
+        self.assertNotIn("original_paragraphs", article.metadata)
+
     def test_force_selection_never_keeps_aihot_all_out_of_selection_even_at_high_score(self):
         # aihot_all shares aihot_feed's trusted_curated prefilter skip, but
         # must never enter 精选 regardless of how well it scores - unlike

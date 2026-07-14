@@ -51,6 +51,12 @@ function hostFromUrl(value?: string) {
 }
 
 function originalBlocksFor(event: LatestEvent): OriginalBlock[] {
+  // known unscrapable read-original domain (e.g. WeChat) - the backend
+  // deliberately withheld original_*, so don't synthesize a fake 原文 block
+  // from the AI summary (which is already shown in its own section above)
+  if (event.content_origin === "aihot_item_page_link_only") {
+    return [];
+  }
   if (event.original_blocks?.length) {
     return event.original_blocks;
   }
@@ -168,7 +174,8 @@ export default async function EventDetailPage({ params }: { params: EventParams 
               </p>
             </section>
 
-            {translatedBlocks.length || event.original_markdown ? (
+            {event.content_origin === "aihot_item_page_link_only" ? null : translatedBlocks.length ||
+              event.original_markdown ? (
               <ArticleReadingToggle
                 originalBlocks={originalBlocks}
                 originalMarkdown={event.original_markdown}

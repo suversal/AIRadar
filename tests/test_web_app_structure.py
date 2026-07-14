@@ -396,6 +396,11 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("AI 翻译 · 中文", reading_toggle)
         self.assertIn("ReactMarkdown", reading_toggle)
         self.assertIn("remarkGfm", reading_toggle)
+        # known unscrapable read-original domains (WeChat) - backend
+        # withholds original_*, frontend must skip rendering a 原文 block
+        # entirely rather than synthesize one from the AI summary
+        self.assertIn("aihot_item_page_link_only", event_page)
+        self.assertIn("content_origin?: string", api_source)
         self.assertIn("originalMarkdown", reading_toggle)
         self.assertIn("hasOriginalMarkdown", reading_toggle)
         self.assertIn("translatedBlocks.length > 0 && !hasOriginalMarkdown", reading_toggle)

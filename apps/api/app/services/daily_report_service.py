@@ -145,6 +145,9 @@ def _original_article_payload(article: RawArticle) -> dict[str, Any]:
     original_markdown = str(metadata.get("original_markdown") or "").strip()
     if original_markdown:
         payload["original_markdown"] = original_markdown
+    content_origin = str(metadata.get("content_origin") or "").strip()
+    if content_origin:
+        payload["content_origin"] = content_origin
     for key in ("readme_name", "readme_language", "readme_selection"):
         value = str(metadata.get(key) or "").strip()
         if value:

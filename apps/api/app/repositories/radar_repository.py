@@ -1121,6 +1121,10 @@ class RadarRepository:
         "readme_name",
         "readme_language",
         "readme_selection",
+        # "aihot_item_page_link_only" tells the frontend to skip rendering a
+        # 原文 block entirely (known unscrapable domain, e.g. WeChat) rather
+        # than fall back to a synthesized summary-as-原文 paragraph
+        "content_origin",
     )
 
     def get_all_event_items_between(

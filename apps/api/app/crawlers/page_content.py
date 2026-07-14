@@ -19,8 +19,9 @@ from urllib.parse import urlparse
 
 from app.crawlers.base import canonicalize_url, fetch_url_text, stable_hash
 from app.crawlers.sitemap import extract_page_article, main_content_region
-from app.crawlers.article_content import extract_article_content
+from app.crawlers.article_content import _detect_body_language, extract_article_content
 from app.models.domain import RawArticle
+from app.services.source_policy import is_unfetchable_article_domain
 
 DEFAULT_PAGE_CACHE_DIR = Path("data") / "page_cache"
 
@@ -54,25 +55,6 @@ def _is_bare_url(text: str) -> bool:
     return bool(re.fullmatch(r"https?://\S+", text.strip()))
 
 
-_CJK_RE = re.compile(r"[一-鿿]")
-_LATIN_RE = re.compile(r"[A-Za-z]")
-
-
-def _detect_body_language(text: str) -> str | None:
-    """Best-effort script detection for a fetched article body. Aggregator
-    feeds label their own language (e.g. aihot's zh summaries), but the
-    阅读原文 page they point at is often English - and the translation
-    pipeline only picks up language=='en' articles. Returns None when the
-    signal is ambiguous so the caller keeps the source's label."""
-    cjk = len(_CJK_RE.findall(text))
-    latin = len(_LATIN_RE.findall(text))
-    if cjk >= 50 or (cjk > 0 and cjk * 4 >= latin):
-        return "zh"
-    if latin >= 200 and cjk < 10:
-        return "en"
-    return None
-
-
 def prefer_full_page_content(article: RawArticle, *, cache_dir: Path | None = None) -> None:
     """Replace an article's content with the real linked page's body, if it
     can be fetched and extracted. Best-effort: any crawler that only
@@ -80,6 +62,11 @@ def prefer_full_page_content(article: RawArticle, *, cache_dir: Path | None = No
     call this, since their own feed/API metadata is frequently a lossy
     teaser or entirely empty - the real content always lives at the
     original URL. Leaves the article untouched on any failure."""
+    if is_unfetchable_article_domain(article.source_url):
+        # known anti-crawler-walled hosts (e.g. WeChat) never return real
+        # article HTML - skip the network round-trip entirely rather than
+        # risk storing their verification page as if it were the body
+        return
     try:
         payload = fetch_page_payload(article.source_url, cache_dir=cache_dir or DEFAULT_PAGE_CACHE_DIR)
     except Exception:

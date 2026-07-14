@@ -194,6 +194,49 @@ via AI HOT · https://aihot.virxact.com/items/cmrj6actv0651bilkm5pfz6ub]]></desc
             "德国AI协会协调的研究联盟发布开源大语言模型Soofi S 30B-A3B。",
         )
 
+    def test_aihot_rss_content_excludes_read_original_marker_and_url(self):
+        # the "阅读原文：<url>" / "via AI HOT · <permalink>" tail is our own
+        # generated link-out boilerplate, not article body - it must not leak
+        # into article.content or original_paragraphs (it used to, since only
+        # aihot_summary_zh was cleaned, not the body fed to
+        # extract_article_content)
+        source = Source(
+            id="aihot_feed",
+            name="AI HOT 每日精选",
+            source_role="aggregator",
+            tier="T3",
+            type="rss",
+            category="media",
+            url="https://aihot.virxact.com/feed.xml",
+            homepage="https://aihot.virxact.com",
+            allowed_domains=["aihot.virxact.com"],
+            language="zh",
+            can_be_main_source=False,
+            config={"original_url_from_description": True},
+        )
+        xml = """<?xml version="1.0"?>
+        <rss version="2.0"><channel><item>
+          <title><![CDATA[德国AI协会发布开源模型Soofi S]]></title>
+          <link>https://aihot.virxact.com/items/cmrj6actv0651bilkm5pfz6ub</link>
+          <description><![CDATA[德国AI协会协调的研究联盟发布开源大语言模型Soofi S 30B-A3B。
+
+🔗 阅读原文：https://the-decoder.com/german-ai-consortium
+
+via AI HOT · https://aihot.virxact.com/items/cmrj6actv0651bilkm5pfz6ub]]></description>
+          <category>AI 模型</category>
+          <pubDate>Mon, 13 Jul 2026 11:41:01 GMT</pubDate>
+        </item></channel></rss>
+        """
+
+        articles = parse_rss(xml, source)
+
+        self.assertNotIn("阅读原文", articles[0].content)
+        self.assertNotIn("the-decoder.com", articles[0].content)
+        self.assertNotIn("via AI HOT", articles[0].content)
+        for paragraph in articles[0].metadata["original_paragraphs"]:
+            self.assertNotIn("阅读原文", paragraph)
+            self.assertNotIn("the-decoder.com", paragraph)
+
     def test_aihot_rss_captures_permalink_only_when_use_aihot_item_page(self):
         xml = """<?xml version="1.0"?>
         <rss version="2.0"><channel><item>
@@ -1355,6 +1398,49 @@ via AI HOT · https://aihot.virxact.com/items/abc123]]></description>
 
         self.assertEqual(article.metadata.get("content_origin"), "full_page")
         self.assertEqual(article.language, "zh")
+
+    def test_prefer_full_page_content_skips_known_unfetchable_domain(self):
+        # mp.weixin.qq.com/m.qq.com sit behind an anti-crawler verification
+        # wall - fetching them risks storing the verification page's own
+        # text as if it were the article body. Must not even attempt the
+        # network fetch, and must leave the article's existing (thin feed
+        # summary) content untouched.
+        import tempfile
+
+        from app.crawlers.page_content import prefer_full_page_content
+
+        source = Source(
+            id="some_wechat_source",
+            name="某公众号聚合",
+            source_role="signal",
+            tier="T2",
+            type="rss",
+            category="media",
+            url="https://example.com/rss",
+            homepage="https://example.com",
+            allowed_domains=["example.com"],
+            language="zh",
+        )
+        article = normalize_article(
+            source=source,
+            source_url="https://mp.weixin.qq.com/s/abc123",
+            title="公众号文章标题",
+            content="薄摘要占位内容",
+            author=None,
+            published_at=datetime(2026, 7, 10, 22, tzinfo=timezone.utc),
+            language=source.language,
+            raw_score={},
+            metadata={},
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("app.crawlers.page_content.fetch_url_text") as mock_fetch:
+                prefer_full_page_content(article, cache_dir=Path(tmpdir))
+
+        mock_fetch.assert_not_called()
+        self.assertEqual(article.content, "薄摘要占位内容")
+        self.assertNotIn("content_origin", article.metadata)
+        self.assertNotIn("original_paragraphs", article.metadata)
 
     def test_parse_hn_hits_drops_low_engagement_posts_by_default(self):
         # 实测两例（1分0评的 SPA 空壳、广告落地页）：HN 的价值信号就是

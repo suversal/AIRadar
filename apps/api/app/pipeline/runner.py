@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -27,7 +28,10 @@ from app.services.source_policy import (
     FORCE_SELECTION_NEVER,
     forced_selection,
     is_trusted_curated_source,
+    is_unfetchable_article_domain,
 )
+
+logger = logging.getLogger(__name__)
 
 # Total translation budget per article. Real full-page content now commonly
 # runs 3000-14000 chars (HF/bair/venturebeat observed up to ~14000), so this
@@ -246,11 +250,30 @@ def _process_candidate_article(
             # and running our own translation pipeline on it
             from app.crawlers.aihot_content import fetch_aihot_item_content
 
-            payload = fetch_aihot_item_content(aihot_permalink)
-            if payload:
-                article.content = payload["content"]
-                article.metadata.update(payload["metadata"])
-                article.metadata["content_origin"] = "aihot_item_page"
+            # article.source_url is already the third-party "阅读原文" target
+            # (rss.py's _original_url_from_description overrides it before
+            # normalize_article runs), not AI HOT's own permalink - if that
+            # target is a known unscrapable host (WeChat), AI HOT's own
+            # /items/{id} page can itself end up rendering a verification-
+            # wall artifact instead of real content, so don't trust the
+            # extracted payload at all; keep the RSS-stage aihot_summary_zh
+            # and let the frontend fall back to a link-out-only display
+            if is_unfetchable_article_domain(article.source_url):
+                article.metadata["content_origin"] = "aihot_item_page_link_only"
+            else:
+                payload = fetch_aihot_item_content(aihot_permalink)
+                if payload:
+                    article.content = payload["content"]
+                    article.metadata.update(payload["metadata"])
+                    article.metadata["content_origin"] = "aihot_item_page"
+                    # AI HOT sources are hardcoded language="zh" at
+                    # ingestion, but the actually-extracted original can turn
+                    # out to be English (or vice versa) - without this, the
+                    # generic translation fallback below (gated on
+                    # article.language) never fires for AI HOT articles whose
+                    # own bundled translation is missing
+                    if payload.get("language"):
+                        article.language = payload["language"]
         else:
             from app.crawlers.page_content import prefer_full_page_content
 
@@ -544,6 +567,16 @@ def _translate_one_article(article: RawArticle, translate: Any) -> None:
     except Exception as exc:
         article.metadata["translation_status"] = "failed"
         article.metadata["translation_error"] = str(exc)[:200]
+        # silent otherwise: has_translation stays False so this article is
+        # simply retried on the next pipeline run - this log is only so
+        # operators can see *why* a given refresh left some articles without
+        # a 原文/译文 toggle, not a behavior change
+        logger.warning(
+            "translation failed for article id=%s source_url=%s: %s",
+            article.id,
+            article.source_url,
+            exc,
+        )
         return
     if not translated_paragraphs:
         return

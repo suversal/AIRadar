@@ -938,6 +938,56 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(len(translated), 12)
         self.assertNotIn("translation_status", article.metadata)
 
+    def test_translation_failure_is_logged_and_stays_self_healing(self):
+        # a translation failure must still leave the article retriable on
+        # the next pipeline run (no translated_* written, has_translation
+        # stays False) - the only change is that it's no longer silent, so
+        # operators can see why a given refresh left some articles without
+        # a 原文/译文 toggle
+        source = Source(
+            id="anthropic_news",
+            name="Anthropic News",
+            source_role="authority",
+            tier="T1",
+            type="sitemap",
+            category="official",
+            url="https://www.anthropic.com/sitemap.xml",
+            homepage="https://www.anthropic.com/news",
+            allowed_domains=["anthropic.com"],
+            can_be_main_source=True,
+        )
+        raw_items = [
+            {
+                "source_url": "https://www.anthropic.com/news/broken-translation",
+                "title": "OpenAI and Anthropic release new AI agent model",
+                "content": "A short AI article.",
+                "author": "Anthropic",
+                "published_at": datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {},
+            }
+        ]
+
+        class AlwaysFailingProvider(FakeAIProvider):
+            def translate_paragraphs(self, paragraphs):
+                raise ValueError("provider rate limited")
+
+        with self.assertLogs("app.pipeline.runner", level="WARNING") as logs:
+            result = run_pipeline(
+                sources=[source],
+                raw_items_by_source={"anthropic_news": raw_items},
+                ai_provider=AlwaysFailingProvider(),
+                now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+                report_date=date(2026, 7, 1),
+            )
+
+        article = result.raw_articles[0]
+        self.assertEqual(article.metadata.get("translation_status"), "failed")
+        self.assertNotIn("translated_paragraphs", article.metadata)
+        self.assertNotIn("translation_source_hash", article.metadata)
+        self.assertTrue(any("translation failed" in message for message in logs.output))
+
     def test_translation_is_not_capped_at_twelve_paragraphs_for_long_articles(self):
         # 真实案例：HuggingFace 一篇 97 段的长文章之前只有前 12 段（大多是
         # 小标题）译文，正文完全没翻译。段落数上限已经和字符总量控制重复，
