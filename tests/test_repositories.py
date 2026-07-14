@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
 try:
-    from sqlalchemy import func, select
+    from sqlalchemy import event, func, select
     from sqlalchemy.orm import sessionmaker
     from sqlalchemy import create_engine
 except ModuleNotFoundError:  # pragma: no cover - local lightweight env may omit SQLAlchemy
@@ -23,6 +23,31 @@ class RepositoryTests(unittest.TestCase):
         self.engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(self.engine, future=True)
+
+    def _fk_enforcing_session_factory(self):
+        """A second sessionmaker bound to the same in-memory engine, but with
+        SQLite's foreign-key enforcement turned on for its connections.
+        SQLite ignores FKs by default, so the shared `self.Session` lets a
+        wrong delete/insert order against a real (Postgres) FK constraint
+        pass silently - it only blows up in production. Real case:
+        delete_raw_article deleted event_clusters before processed_articles,
+        which the default SQLite session let through but Postgres rejected
+        with a live 500. Scoped to a second sessionmaker (not applied to
+        `self.engine` globally) because turning this on for every test in
+        this file breaks ~15 unrelated pre-existing fixtures that insert
+        rows out of FK order for brevity - out of scope for this fix."""
+        from app.db.models import Base
+
+        fk_engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+
+        @event.listens_for(fk_engine, "connect")
+        def _enable_sqlite_fk(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+        Base.metadata.create_all(fk_engine)
+        return sessionmaker(fk_engine, future=True)
 
     def test_sources_are_upserted(self):
         from app.db.models import SourceModel
@@ -1972,18 +1997,33 @@ class RepositoryTests(unittest.TestCase):
             self.assertFalse(deleted)
 
     def test_delete_raw_article_removes_only_event_in_its_cluster(self):
+        # FK-enforcing session on purpose: processed_articles.event_cluster_id
+        # carries a real FK to event_clusters.id in Postgres. A version of
+        # delete_raw_article that deleted event_clusters before
+        # processed_articles passed under the default lenient SQLite session
+        # and only failed against the real database (live 500 in
+        # production) - this regression test needs FK enforcement to catch
+        # that class of bug.
         from app.db.models import EventClusterModel
         from app.repositories.radar_repository import RadarRepository
         from dataclasses import replace as dc_replace
 
-        with self.Session() as session:
+        fk_session_factory = self._fk_enforcing_session_factory()
+        with fk_session_factory() as session:
             repository = RadarRepository(session)
             repository.upsert_sources([self._source()])
             repository.upsert_raw_articles([self._article(article_id="lone1", title="唯一主条", url_hash="ul1")])
+            # cluster before processed_articles: matches the real order in
+            # pipeline/persistence.py (upsert_event_clusters, then
+            # upsert_processed_articles) - processed_articles.event_cluster_id
+            # has a real FK to event_clusters.id, so the reverse order fails
+            # under FK enforcement (and would only "work" here under the
+            # lenient default SQLite session, same class of gap this test
+            # exists to catch).
+            repository.upsert_event_clusters([self._cluster("e-lone", main_article_id="lone1")])
             repository.upsert_processed_articles(
                 [dc_replace(self._processed("lone1"), event_cluster_id="e-lone")]
             )
-            repository.upsert_event_clusters([self._cluster("e-lone", main_article_id="lone1")])
             session.commit()
 
             deleted = repository.delete_raw_article("e-lone")

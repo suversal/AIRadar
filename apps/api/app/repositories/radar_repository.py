@@ -1352,6 +1352,17 @@ class RadarRepository:
                 EditorialOverrideModel.raw_article_id == raw_article_id
             )
         )
+        # processed_articles must go before event_clusters below:
+        # processed_articles.event_cluster_id carries a real FK to
+        # event_clusters.id in Postgres (it's a read cache, per the model's
+        # docstring, but the FK is still enforced) - deleting the cluster
+        # first while this row still references it violates the constraint.
+        # Not caught by the SQLite test harness, which doesn't enforce FKs.
+        self.session.execute(
+            delete(ProcessedArticleModel).where(
+                ProcessedArticleModel.raw_article_id == raw_article_id
+            )
+        )
 
         cluster_id = cluster.id if cluster is not None else None
         if cluster_id is None:
@@ -1403,11 +1414,6 @@ class RadarRepository:
             elif event_cluster is not None:
                 event_cluster.source_count = self._count_distinct_sources(cluster_id)
 
-        self.session.execute(
-            delete(ProcessedArticleModel).where(
-                ProcessedArticleModel.raw_article_id == raw_article_id
-            )
-        )
         self.session.execute(delete(RawArticleModel).where(RawArticleModel.id == raw_article_id))
         self.session.flush()
         return True
