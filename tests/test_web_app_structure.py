@@ -202,6 +202,17 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn('source.category === "official"', manager_source)
         self.assertIn("官方", manager_source)
 
+    def test_events_manager_source_filter_sorts_by_name(self):
+        # 内容管理页的"主信源"筛选下拉框要和信源管理列表一样按名称
+        # (拼音) 排序，而不是沿用后端接口的原始顺序
+        manager_source = (
+            WEB / "app" / "admin" / "events" / "events-manager.tsx"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("sortedSources", manager_source)
+        self.assertIn('localeCompare(b.name, "zh-CN")', manager_source)
+        self.assertIn("sortedSources.map((source) =>", manager_source)
+
     def test_source_crawl_results_distinguish_duplicate_and_non_ai(self):
         # 信源明细(2026-07-12):判定标签必须区分 已存在/非AI/未达精选/异常,
         # 原因码要翻译成人话而不是原样输出 below_threshold:78

@@ -96,6 +96,12 @@ export function EventsManager({
     return initialEvents;
   }, [filter, initialEvents]);
 
+  // 按名称排序(中文按拼音),和信源管理列表保持一致，让下拉框可预期地定位
+  const sortedSources = useMemo(
+    () => [...sources].sort((a, b) => a.name.localeCompare(b.name, "zh-CN")),
+    [sources],
+  );
+
   async function run(eventId: string, action: () => Promise<void>) {
     setBusy(eventId);
     setMessage(null);
@@ -188,7 +194,7 @@ export function EventsManager({
                 value={sourceInput}
               >
                 <option value="">全部主信源</option>
-                {sources.map((source) => (
+                {sortedSources.map((source) => (
                   <option key={source.id} value={source.id}>
                     {source.name}
                   </option>
