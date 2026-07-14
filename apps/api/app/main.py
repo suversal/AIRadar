@@ -892,6 +892,19 @@ def create_app(
                 commit()
         return {"status": "ok", "updated": sorted(fields)}
 
+    @app.delete("/api/admin/events/{event_id}", dependencies=[admin_guard])
+    def admin_delete_event(event_id: str) -> dict:
+        from app.repositories.radar_repository import RadarRepository
+
+        with _admin_repository_context() as repository:
+            deleted = repository.delete_raw_article(event_id)
+            if not deleted:
+                raise HTTPException(status_code=404, detail="Event not found")
+            commit = getattr(getattr(repository, "session", None), "commit", None)
+            if callable(commit):
+                commit()
+        return {"status": "ok", "deleted_raw_article_id": event_id}
+
     @app.post("/api/admin/refresh-latest", dependencies=[admin_guard])
     def refresh_latest() -> dict:
         from app.services.refresh_service import RefreshAlreadyRunning
