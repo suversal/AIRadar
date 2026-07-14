@@ -88,6 +88,23 @@ class ScoringPromptTests(unittest.TestCase):
         # 共同底线：不得补写原文没有的内容
         self.assertTrue("编造" in prompt or "补写" in prompt)
 
+    def test_scoring_system_prompt_constrains_title_accuracy(self):
+        # 用户反馈（2026-07-14）：标题不准确——之前的提示词对 title_zh
+        # 没有任何事实性约束，只给了个 "中文标题" 的 schema 提示
+        from app.services.ai_service import scoring_system_prompt
+
+        prompt = scoring_system_prompt()
+
+        self.assertIn("title_zh", prompt)
+        self.assertIn("12", prompt)
+        self.assertIn("30", prompt)
+        self.assertIn("忠实于原文标题与正文事实", prompt)
+        self.assertIn("公司、产品或模型名称", prompt)
+        # 禁止编造 + 禁止夸张渲染词，双重约束准确性
+        self.assertIn("禁止编造", prompt)
+        self.assertIn("震惊", prompt)
+        self.assertIn("重磅", prompt)
+
     def test_deepseek_scoring_uses_shared_system_prompt(self):
         from app.services.ai_service import scoring_system_prompt
 
