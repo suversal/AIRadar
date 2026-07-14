@@ -83,6 +83,7 @@ export function EventsManager({
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [editing, setEditing] = useState<AdminEvent | null>(null);
+  const [deletingEvent, setDeletingEvent] = useState<AdminEvent | null>(null);
   const [titleInput, setTitleInput] = useState(title);
   const [categoryInput, setCategoryInput] = useState(category);
   const [sourceInput, setSourceInput] = useState(sourceId);
@@ -114,6 +115,13 @@ export function EventsManager({
         method: "PATCH",
         body: JSON.stringify({ hidden: !event.hidden }),
       });
+    });
+  }
+
+  async function deleteEvent(event: AdminEvent) {
+    await run(event.event_id, async () => {
+      await api(`events/${event.event_id}`, { method: "DELETE" });
+      setDeletingEvent(null);
     });
   }
 
@@ -336,6 +344,14 @@ export function EventsManager({
                     >
                       编辑
                     </button>
+                    <button
+                      className="shrink-0 whitespace-nowrap rounded border border-line px-2.5 py-1 text-ink-mid hover:border-danger/40 hover:text-danger"
+                      disabled={busy === event.event_id}
+                      onClick={() => setDeletingEvent(event)}
+                      type="button"
+                    >
+                      删除
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -480,6 +496,37 @@ export function EventsManager({
               </button>
             </div>
           </form>
+        </div>
+      ) : null}
+
+      {deletingEvent ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-md rounded-md border border-line bg-panel p-6">
+            <h2 className="text-lg font-semibold text-ink">删除文章</h2>
+            <p className="mt-3 text-sm text-ink-mid">
+              确定要彻底删除这篇文章吗？此操作不可恢复。
+            </p>
+            <p className="mt-2 truncate text-sm font-semibold text-ink" title={deletingEvent.title}>
+              {deletingEvent.title}
+            </p>
+            <div className="mt-5 flex justify-end gap-3 text-sm font-semibold">
+              <button
+                className="rounded border border-line px-4 py-2 text-ink-mid hover:text-ink"
+                onClick={() => setDeletingEvent(null)}
+                type="button"
+              >
+                取消
+              </button>
+              <button
+                className="rounded border border-danger bg-danger px-4 py-2 text-canvas hover:bg-danger/90"
+                disabled={busy === deletingEvent.event_id}
+                onClick={() => deleteEvent(deletingEvent)}
+                type="button"
+              >
+                确认删除
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
     </div>

@@ -244,6 +244,17 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn('全部主信源', manager)
         self.assertIn('params.set("source_id"', manager)
 
+    def test_admin_content_manager_supports_deleting_an_article(self):
+        manager_source = (
+            WEB / "app" / "admin" / "events" / "events-manager.tsx"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("deleteEvent", manager_source)
+        self.assertIn('method: "DELETE"', manager_source)
+        self.assertIn("确定要彻底删除这篇文章吗", manager_source)
+        self.assertIn("此操作不可恢复", manager_source)
+        self.assertIn("deletingEvent", manager_source)
+
     def test_article_images_are_proxied_against_hotlink_protection(self):
         # 中文媒体 CDN 防盗链分两派：infoq（无 Referer 放行）和 qbitai
         # （白名单制，无 Referer 也 403）。浏览器无法伪造 Referer，所以
