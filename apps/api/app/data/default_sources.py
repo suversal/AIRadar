@@ -417,8 +417,10 @@ def default_sources() -> list[Source]:
                 # feed.xml only ever returns the latest 50 items regardless of
                 # when they were published - a today-only filter would starve
                 # this source on any day it doesn't crawl often enough to
-                # catch each item while it's still "today"
-                "ingest_all_dates": True,
+                # catch each item while it's still "today". recent_days=0
+                # (2026-07-15,取代原来的 ingest_all_dates 开关) means no
+                # date restriction at all, editable from the admin UI.
+                "recent_days": 0,
                 # this feed is already a hand-curated "daily picks" list -
                 # every item should make it into 精选 by default, not just
                 # the ones that clear the usual score threshold
@@ -447,8 +449,10 @@ def default_sources() -> list[Source]:
             config={
                 "original_url_from_description": True,
                 # this feed only ever returns the latest N items regardless
-                # of when they were published - same rationale as aihot_feed
-                "ingest_all_dates": True,
+                # of when they were published - same rationale as aihot_feed;
+                # recent_days=0 (2026-07-15,取代原来的 ingest_all_dates
+                # 开关) means no date restriction, editable from the admin UI
+                "recent_days": 0,
                 # AI HOT already curates for AI relevance upstream - no need
                 # to spend a prefilter call re-verifying it
                 "selection_policy": "trusted_curated",

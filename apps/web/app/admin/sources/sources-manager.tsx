@@ -63,11 +63,13 @@ function healthLabel(source: AdminSource): { text: string; tone: Tone } {
   return { text: "正常", tone: "success" };
 }
 
-// 抓取范围文案:ingest_all_dates 的精选全量流不受日期限制;其余按
-// config.recent_days(缺省 1 = 仅当天)展示,与后端 source_recent_days 同口径
+// 抓取范围文案:config.recent_days(缺省 1 = 仅当天,0 = 不限日期)展示,
+// 与后端 source_recent_days 同口径;ingest_all_dates 是少数信源(如
+// attentionvc_x 的滚动趋势窗口)仍在用的另一条不受日期限制路径,继续兼容
 function crawlScopeLabel(source: AdminSource): string {
   if ((source.config ?? {}).ingest_all_dates) return "不限日期";
   const raw = (source.config ?? {}).recent_days;
+  if (typeof raw === "number" && Number.isFinite(raw) && raw === 0) return "不限日期";
   const days = typeof raw === "number" && Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 1;
   return days <= 1 ? "仅当天发布" : `最近 ${days} 天发布`;
 }
@@ -219,8 +221,9 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
     const nextConfig: Record<string, unknown> = { ...(editing.config ?? {}) };
     if (!nextConfig.ingest_all_dates) {
       const recentDaysRaw = Number(form.get("recent_days") ?? 1);
+      // 0 是合法值,表示不限日期(2026-07-15 起 AI HOT 精选源用这个约定)
       nextConfig.recent_days =
-        Number.isFinite(recentDaysRaw) && recentDaysRaw >= 1 ? Math.floor(recentDaysRaw) : 1;
+        Number.isFinite(recentDaysRaw) && recentDaysRaw >= 0 ? Math.floor(recentDaysRaw) : 1;
     }
     const payload = {
       name: String(form.get("name") ?? "").trim(),
@@ -441,7 +444,7 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
                     typeof editing.config?.recent_days === "number" ? editing.config.recent_days : 1
                   }
                   disabled={Boolean(editing.config?.ingest_all_dates)}
-                  min={1}
+                  min={0}
                   name="recent_days"
                   type="number"
                 />
@@ -449,7 +452,7 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
               <p className="col-span-2 text-xs text-ink-dim">
                 {editing.config?.ingest_all_dates
                   ? "该信源为精选全量流,不受日期限制,忽略此项"
-                  : "feed 全量拉取后按发布日期过滤,仅保留最近 N 天内的文章(N=1 即仅当天)"}
+                  : "feed 全量拉取后按发布日期过滤,仅保留最近 N 天内的文章(N=1 即仅当天,N=0 不限日期)"}
               </p>
             </div>
             <div className="mt-5 flex justify-end gap-3 text-sm font-semibold">

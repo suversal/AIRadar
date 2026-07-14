@@ -235,9 +235,29 @@ class PipelineTests(unittest.TestCase):
             ["https://openai.com/today"],
         )
 
-        # 豁免源(config.ingest_all_dates,如 AI HOT 全量流):不筛当天,
-        # 全部保留——判重仍由 url_hash 兜底
+        # 豁免源(config.ingest_all_dates,如 attentionvc_x 的滚动趋势窗口):
+        # 不筛当天,全部保留——判重仍由 url_hash 兜底。2026-07-15 起
+        # AI HOT 的两个精选源改用 recent_days=0(见下一条用例),不再走
+        # 这条 exempt_source_ids 路径,但该机制本身仍保留给其他场景使用
         ancient = dc_replace(
+            result.raw_articles[0],
+            source_id="attentionvc_x",
+            published_at=datetime(2025, 1, 1, 9, tzinfo=timezone.utc),
+        )
+        self.assertEqual(
+            [
+                a.source_id
+                for a in filter_articles_published_on(
+                    [ancient], date(2026, 7, 1), exempt_source_ids={"attentionvc_x"}
+                )
+            ],
+            ["attentionvc_x"],
+        )
+
+        # 2026-07-15:recent_days=0 表示不限日期,与 exempt_source_ids 是
+        # 两条并存的豁免路径——AI HOT 的两个精选源统一走这条,不再依赖
+        # 专属的 ingest_all_dates 开关
+        ancient_unlimited = dc_replace(
             result.raw_articles[0],
             source_id="aihot_all",
             published_at=datetime(2025, 1, 1, 9, tzinfo=timezone.utc),
@@ -246,7 +266,9 @@ class PipelineTests(unittest.TestCase):
             [
                 a.source_id
                 for a in filter_articles_published_on(
-                    [ancient], date(2026, 7, 1), exempt_source_ids={"aihot_all"}
+                    [ancient_unlimited],
+                    date(2026, 7, 1),
+                    recent_days_by_source={"aihot_all": 0},
                 )
             ],
             ["aihot_all"],
@@ -272,7 +294,7 @@ class PipelineTests(unittest.TestCase):
 
     def test_source_recent_days_defaults_and_validates(self):
         # 2026-07-15:config.recent_days 缺失/非法一律回退到 1(仅当天),
-        # 合法正整数原样使用
+        # 合法正整数原样使用,0 是合法值(不限日期),负数视为非法回退到 1
         from app.pipeline.runner import source_recent_days
 
         def source_with_config(config):
@@ -292,9 +314,22 @@ class PipelineTests(unittest.TestCase):
 
         self.assertEqual(source_recent_days(source_with_config({})), 1)
         self.assertEqual(source_recent_days(source_with_config({"recent_days": 5})), 5)
-        self.assertEqual(source_recent_days(source_with_config({"recent_days": 0})), 1)
+        self.assertEqual(source_recent_days(source_with_config({"recent_days": 0})), 0)
         self.assertEqual(source_recent_days(source_with_config({"recent_days": -3})), 1)
         self.assertEqual(source_recent_days(source_with_config({"recent_days": "not_a_number"})), 1)
+
+    def test_default_aihot_sources_use_unlimited_recent_days(self):
+        # 2026-07-15:AI HOT 的两个精选源(feed.xml 只返回最新 N 条,与发布
+        # 日期无关)改用 recent_days=0 表达不限日期,取代原来专属的
+        # ingest_all_dates 开关,与其他信源共用同一套可配置机制
+        from app.data.default_sources import default_sources
+        from app.pipeline.runner import source_recent_days
+
+        sources_by_id = {source.id: source for source in default_sources()}
+        self.assertEqual(source_recent_days(sources_by_id["aihot_feed"]), 0)
+        self.assertEqual(source_recent_days(sources_by_id["aihot_all"]), 0)
+        self.assertNotIn("ingest_all_dates", sources_by_id["aihot_feed"].config)
+        self.assertNotIn("ingest_all_dates", sources_by_id["aihot_all"].config)
 
     def test_each_scored_article_triggers_immediate_persist_callback(self):
         # 2026-07-12 深夜决策:每成功评分一条立即回调保存,数据库持续

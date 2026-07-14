@@ -171,14 +171,15 @@ def _cached_scoring_result(cached: dict[str, Any] | None) -> ScoringResult | Non
 
 def source_recent_days(source: Source) -> int:
     """信源的抓取回溯天数(config.recent_days,默认 1 天=仅当天,2026-07-15
-    从固定"仅当天"改为可配置):非法或缺失值一律回退到 1,保持改造前的
-    默认行为不变。"""
+    从固定"仅当天"改为可配置;同日追加 0=不限日期的统一约定,取代原来
+    单独的 config.ingest_all_dates 布尔开关):非法或负值一律回退到 1,
+    保持改造前的默认行为不变。"""
     value = (source.config or {}).get("recent_days", 1)
     try:
         days = int(value)
     except (TypeError, ValueError):
         return 1
-    return days if days >= 1 else 1
+    return days if days >= 0 else 1
 
 
 def filter_articles_published_on(
@@ -191,10 +192,13 @@ def filter_articles_published_on(
     """只处理发布日期(上海时区)落在[报告日期 - (N-1)天, 报告日期]窗口内的
     文章(2026-07-12 深夜决策,2026-07-15 从固定"仅当天"改为按信源配置的
     最近 N 天):N 由 recent_days_by_source 按 source_id 提供,缺失时视为
-    1(即仅当天,与改造前行为一致)。feed 里超出窗口的陈年存量一概出局。
+    1(即仅当天,与改造前行为一致);N=0 表示不限日期,全部保留(2026-07-15
+    起 AI HOT 的两个精选源用这个统一表达,取代原来专属的
+    config.ingest_all_dates 开关)。feed 里超出窗口的陈年存量一概出局。
     published_at 为 None 的保留——GitHub Trending 这类聚合器条目本质上就
-    是"当前"。exempt_source_ids 中的源(config.ingest_all_dates,如 AI HOT
-    全量流)不筛日期全部保留,判重仍由 url_hash 兜底。"""
+    是"当前"。exempt_source_ids 仍保留给其他"全量保留"场景(如
+    attentionvc_x 的滚动趋势窗口)使用,与 recent_days=0 是两条并存的
+    豁免路径;判重仍由 url_hash 兜底。"""
     from zoneinfo import ZoneInfo
 
     shanghai = ZoneInfo("Asia/Shanghai")
@@ -202,6 +206,9 @@ def filter_articles_published_on(
     kept: list[RawArticle] = []
     for article in articles:
         if article.source_id in exempt_source_ids:
+            kept.append(article)
+            continue
+        if recent_days_by_source.get(article.source_id, 1) == 0:
             kept.append(article)
             continue
         published = article.published_at
