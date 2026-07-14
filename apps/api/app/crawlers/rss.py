@@ -134,6 +134,20 @@ def _original_url_from_description(description: str) -> str:
     return candidate
 
 
+# AI HOT's own description already reads: "<AI 摘要>\n\n🔗 阅读原文：<url>\n\n
+# via AI HOT · <permalink>" - everything from the "阅读原文" marker onward is
+# boilerplate we generate ourselves elsewhere, only the summary paragraph
+# itself is useful as summary_zh
+_AIHOT_READ_ORIGINAL_MARKER_RE = re.compile(r"(?:🔗\s*)?阅读原文\s*[：:]")
+
+
+def _aihot_summary_from_description(description: str) -> str:
+    text = strip_html(description)
+    match = _AIHOT_READ_ORIGINAL_MARKER_RE.search(text)
+    summary = text[: match.start()] if match else text
+    return clean_text(summary)
+
+
 # XML 1.0 disallows most C0 control chars; some feeds (e.g. Smol AI News,
 # whose posts embed raw code snippets) leak them in raw and trip
 # ElementTree's strict parser with "not well-formed (invalid token)".
@@ -154,9 +168,14 @@ def parse_rss(xml_text: str, source: Source, limit: int | None = None) -> list[R
             _child_raw_text(entry, ["description", "summary", "content"])
             or _child_raw_text(entry, ["encoded"])
         )
-        if source.id == "aihot_feed" or (source.config or {}).get(
-            "original_url_from_description"
-        ):
+        config = source.config or {}
+        # AI HOT's own item permalink (/items/{id}) already IS the feed's
+        # native <link> - capture it before the "阅读原文" override below
+        # replaces `link` with the third-party original URL, so the
+        # dedicated aihot full-content fetch (page_content-equivalent) knows
+        # where to go without re-deriving it
+        aihot_permalink = link if config.get("use_aihot_item_page") else ""
+        if source.id == "aihot_feed" or config.get("original_url_from_description"):
             link = _original_url_from_description(content_html) or link
         original_content = extract_article_content(content_html, base_url=link, title=title)
         content = original_content["original_text"] or strip_html(content_html)
@@ -173,6 +192,10 @@ def parse_rss(xml_text: str, source: Source, limit: int | None = None) -> list[R
             "original_images": original_content["original_images"],
             "original_blocks": original_content["original_blocks"],
         }
+        if config.get("original_url_from_description"):
+            metadata["aihot_summary_zh"] = _aihot_summary_from_description(content_html)
+        if aihot_permalink:
+            metadata["aihot_permalink"] = aihot_permalink
         articles.append(
             normalize_article(
                 source=source,

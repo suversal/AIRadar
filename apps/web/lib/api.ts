@@ -18,6 +18,12 @@ export type OriginalBlock =
       html?: string;
     }
   | {
+      type: "heading";
+      level: 1 | 2 | 3 | 4 | 5 | 6;
+      text: string;
+      html?: string;
+    }
+  | {
       type: "image";
       url: string;
       alt?: string;

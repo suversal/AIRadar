@@ -252,6 +252,11 @@ class WebAppStructureTests(unittest.TestCase):
             encoding="utf-8"
         )
         detail = (WEB / "app" / "event" / "[id]" / "page.tsx").read_text(encoding="utf-8")
+        # paragraph/heading/image block rendering (used by both the plain
+        # no-translation path in page.tsx and ArticleReadingToggle) lives in
+        # one shared component so the hotlink-protection proxying only needs
+        # fixing once - see components/original-block.tsx
+        original_block = (WEB / "components" / "original-block.tsx").read_text(encoding="utf-8")
         proxy_route = (WEB / "app" / "api" / "image-proxy" / "route.ts").read_text(
             encoding="utf-8"
         )
@@ -261,8 +266,11 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("/api/image-proxy", helper)
         self.assertIn("Referer", proxy_route)
         self.assertIn("image/", proxy_route)
-        for source, name in [(toggle, "article-reading-toggle"), (detail, "event detail page")]:
-            self.assertIn("proxiedImageUrl", source, name)
+        self.assertIn("proxiedImageUrl", original_block)
+        # article-reading-toggle still proxies README markdown images directly
+        self.assertIn("proxiedImageUrl", toggle)
+        # page.tsx delegates to the shared renderer instead of proxying itself
+        self.assertIn("renderOriginalBlock", detail)
 
     def test_latest_page_supports_category_filter_links(self):
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
@@ -348,6 +356,7 @@ class WebAppStructureTests(unittest.TestCase):
         reading_toggle = (
             WEB / "app" / "event" / "[id]" / "article-reading-toggle.tsx"
         ).read_text(encoding="utf-8")
+        original_block = (WEB / "components" / "original-block.tsx").read_text(encoding="utf-8")
         event_helpers = (WEB / "lib" / "events.ts").read_text(encoding="utf-8")
         api_source = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
 
@@ -380,15 +389,18 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("translatedBlocks.length > 0 && !hasOriginalMarkdown", reading_toggle)
         self.assertIn('hasOriginalMarkdown ? "original" : "translated"', reading_toggle)
         self.assertIn("readmeImageClassName", reading_toggle)
-        self.assertIn("isReadmeInlineImage", reading_toggle)
-        self.assertIn("readmeImageClassName({ src: block.url })", reading_toggle)
+        # block-level image rendering (isReadmeInlineImage/readmeImageClassName
+        # applied to a block's own url) now lives in the shared renderer
+        self.assertIn("isReadmeInlineImage", original_block)
+        self.assertIn("readmeImageClassName({ src: block.url })", original_block)
+        self.assertIn("renderOriginalBlock", reading_toggle)
         self.assertIn("cleanTableElementProps", reading_toggle)
         self.assertIn("vAlign", reading_toggle)
         self.assertIn("tr({ node: _node, ...props })", reading_toggle)
         self.assertIn("cleanTableElementProps(props)", reading_toggle)
-        self.assertIn("img.shields.io", reading_toggle)
-        self.assertIn("inline-block h-auto w-auto max-w-full", reading_toggle)
-        self.assertIn("block h-auto max-w-full", reading_toggle)
+        self.assertIn("img.shields.io", original_block)
+        self.assertIn("inline-block h-auto w-auto max-w-full", original_block)
+        self.assertIn("block h-auto max-w-full", original_block)
         self.assertIn("use client", reading_toggle)
         self.assertNotIn("返回最新情报", event_page)
         self.assertNotIn("报告正文", event_page)

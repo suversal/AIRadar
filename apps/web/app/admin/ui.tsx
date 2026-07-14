@@ -97,9 +97,10 @@ type HoverCardState<T> = { data: T; top: number; left: number; flip: boolean };
  * the hovered element) instead of CSS-relative absolute positioning, so it
  * always renders in full even when the trigger sits inside a table wrapped
  * in `overflow-x-auto` (which per spec also clips overflow-y). */
-export function useHoverCard<T>() {
+export function useHoverCard<T>(delayMs = 0) {
   const [card, setCard] = useState<HoverCardState<T> | null>(null);
   const hideTimer = useRef<number | null>(null);
+  const showTimer = useRef<number | null>(null);
 
   function cancelHide() {
     if (hideTimer.current !== null) {
@@ -108,26 +109,48 @@ export function useHoverCard<T>() {
     }
   }
 
+  function cancelShow() {
+    if (showTimer.current !== null) {
+      window.clearTimeout(showTimer.current);
+      showTimer.current = null;
+    }
+  }
+
   function show(event: ReactMouseEvent<HTMLElement>, data: T) {
     cancelHide();
-    const rect = event.currentTarget.getBoundingClientRect();
-    const flip = rect.bottom + 90 > window.innerHeight;
-    setCard({
-      data,
-      left: Math.max(8, Math.min(rect.left, window.innerWidth - 340)),
-      top: flip ? rect.top - 8 : rect.bottom + 8,
-      flip,
-    });
+    cancelShow();
+    // capture the node now - event.currentTarget is nulled out once this
+    // handler returns, so it can't be read from inside the delayed callback
+    const target = event.currentTarget;
+    const reveal = () => {
+      const rect = target.getBoundingClientRect();
+      const flip = rect.bottom + 90 > window.innerHeight;
+      setCard({
+        data,
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - 340)),
+        top: flip ? rect.top - 8 : rect.bottom + 8,
+        flip,
+      });
+    };
+    if (delayMs > 0) {
+      showTimer.current = window.setTimeout(reveal, delayMs);
+    } else {
+      reveal();
+    }
   }
 
   // 延迟关闭:给鼠标留出从触发元素移入卡片的走廊,悬停卡片时取消关闭,
   // 这样卡片里的 URL 可以选中复制
   function hide() {
+    cancelShow();
     cancelHide();
     hideTimer.current = window.setTimeout(() => setCard(null), 200);
   }
 
-  useEffect(() => cancelHide, []);
+  useEffect(() => () => {
+    cancelHide();
+    cancelShow();
+  }, []);
 
   return { card, show, hide, cancelHide };
 }

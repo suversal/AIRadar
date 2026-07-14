@@ -22,7 +22,12 @@ from app.services.ai_service import FakeAIProvider, embedding_input
 from app.services.clustering_service import cluster_articles
 from app.services.daily_report_service import build_daily_json, render_daily_markdown
 from app.services.scoring_service import select_processed_article
-from app.services.source_policy import is_trusted_curated_source
+from app.services.source_policy import (
+    FORCE_SELECTION_ALWAYS,
+    FORCE_SELECTION_NEVER,
+    forced_selection,
+    is_trusted_curated_source,
+)
 
 # Total translation budget per article. Real full-page content now commonly
 # runs 3000-14000 chars (HF/bair/venturebeat observed up to ~14000), so this
@@ -35,6 +40,17 @@ TRANSLATION_CHAR_LIMIT = 20000
 # Chinese output tokens roughly track input chars, so keep each provider call
 # well under the smallest chat max_tokens (2048) to avoid truncated JSON.
 TRANSLATION_CHUNK_CHAR_LIMIT = 1600
+
+# The RSS crawler always writes these keys (even as empty list/string) when it
+# parses the feed's own thin summary, so a plain `setdefault` never lets the
+# cached (previously fully-extracted) value win. These need "use cached value
+# only if this round's is falsy" instead of "use cached value only if absent".
+_CACHED_CONTENT_STRUCTURE_KEYS = (
+    "original_paragraphs",
+    "original_blocks",
+    "original_text",
+    "original_images",
+)
 
 
 _SENTENCE_BOUNDARIES = ("。", "！", "？", ". ", "! ", "? ", "; ", "；")
@@ -223,9 +239,22 @@ def _process_candidate_article(
 
     # 通过预筛(或可信源/复用缓存)后,才为 deferred 文章拉取原文页
     if article.metadata.pop("body_fetch", None) == "deferred" and scoring is None:
-        from app.crawlers.page_content import prefer_full_page_content
+        aihot_permalink = article.metadata.get("aihot_permalink")
+        if aihot_permalink:
+            # AI HOT already extracted + translated this article themselves -
+            # reuse their result instead of fetching the third-party original
+            # and running our own translation pipeline on it
+            from app.crawlers.aihot_content import fetch_aihot_item_content
 
-        prefer_full_page_content(article)
+            payload = fetch_aihot_item_content(aihot_permalink)
+            if payload:
+                article.content = payload["content"]
+                article.metadata.update(payload["metadata"])
+                article.metadata["content_origin"] = "aihot_item_page"
+        else:
+            from app.crawlers.page_content import prefer_full_page_content
+
+            prefer_full_page_content(article)
 
     # 无正文门槛移到拉取之后:拉取失败仍是标题-only 的,绝不进入完整
     # 评分(LLM 对着一句标题也能编出高分),详情页也会是空的
@@ -259,15 +288,30 @@ def _process_candidate_article(
         now=now,
         source_count=1,
     )
-    if trusted_curated:
+    forced = forced_selection(source)
+    if forced == FORCE_SELECTION_ALWAYS:
         processed = replace(
             processed,
             selected=True,
             status="processed",
             rejection_reason=None,
             selection_origin="curated_source",
-            selection_reason=f"trusted_curated:{source.id}",
+            selection_reason=f"force_selection:always:{source.id}",
         )
+    elif forced == FORCE_SELECTION_NEVER:
+        processed = replace(
+            processed,
+            selected=False,
+            status="rejected",
+            rejection_reason=f"force_selection:never:{source.id}",
+            selection_origin="curated_source",
+            selection_reason=None,
+        )
+    # AI HOT's own RSS description already IS a written-by-them summary -
+    # use it verbatim instead of our own AI-generated one
+    aihot_summary_zh = article.metadata.get("aihot_summary_zh")
+    if aihot_summary_zh:
+        processed = replace(processed, summary_zh=aihot_summary_zh)
     # 缓存文章直接复用库里的向量:重算既浪费 CPU,又会在内容有差异时
     # 用劣质向量覆盖全文向量
     cached_embedding = (cached or {}).get("embedding") if scoring_was_cached else None
@@ -368,7 +412,7 @@ def _text_blocks_for_translation(article: RawArticle) -> list[dict[str, Any]]:
             block
             for block in blocks
             if isinstance(block, dict)
-            and block.get("type") == "paragraph"
+            and block.get("type") in ("paragraph", "heading")
             and str(block.get("text") or "").strip()
         ]
         if text_blocks:
@@ -400,6 +444,15 @@ def _translated_blocks_for(article: RawArticle, translated_paragraphs: list[str]
                     continue
                 translated_blocks.append(
                     {"type": "paragraph", "text": translated_paragraphs[paragraph_index]}
+                )
+                paragraph_index += 1
+            elif block.get("type") == "heading":
+                if paragraph_index >= len(translated_paragraphs):
+                    continue
+                level = block.get("level")
+                level = level if isinstance(level, int) and 1 <= level <= 6 else 2
+                translated_blocks.append(
+                    {"type": "heading", "level": level, "text": translated_paragraphs[paragraph_index]}
                 )
                 paragraph_index += 1
             elif block.get("type") == "image":
@@ -567,8 +620,18 @@ def run_pipeline(
                     article.id = persisted_id
                 # reuse expensive AI artifacts (translations, README selection)
                 # from earlier runs; freshly crawled metadata still wins
-                for key, value in (cached.get("metadata") or {}).items():
+                cached_metadata = cached.get("metadata") or {}
+                for key, value in cached_metadata.items():
+                    if key in _CACHED_CONTENT_STRUCTURE_KEYS:
+                        continue
                     article.metadata.setdefault(key, value)
+                # content-structure fields: this round's value already exists
+                # (RSS parsing sets it unconditionally, even to []/""), so
+                # setdefault would never apply the cached value - fall back
+                # to it explicitly whenever this round came up empty
+                for key in _CACHED_CONTENT_STRUCTURE_KEYS:
+                    if not article.metadata.get(key) and cached_metadata.get(key):
+                        article.metadata[key] = cached_metadata[key]
                 # 缓存文章不再拉正文(2026-07-12 流程重排):feed 只带摘要,
                 # 全文以库里存的为准——否则翻译哈希失配、embedding 会用
                 # 摘要重算并覆盖全文向量

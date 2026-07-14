@@ -39,7 +39,7 @@ MANUAL_REDIRECT_STATUSES = {308}
 MAX_REDIRECTS = 5
 
 
-def _fetch_via_curl(url: str, *, accept: str, timeout: int) -> str:
+def _fetch_via_curl(url: str, *, accept: str, timeout: int, user_agent: str) -> str:
     """Some hosts (e.g. linux.do) TLS/JA3-fingerprint urllib's requests and
     return a Cloudflare challenge, but let a real curl binary through -
     confirmed by direct probe. Args are passed as a list (no shell=True), so
@@ -53,7 +53,7 @@ def _fetch_via_curl(url: str, *, accept: str, timeout: int) -> str:
             "--max-time",
             str(timeout),
             "-A",
-            BROWSER_USER_AGENT,
+            user_agent,
             "-H",
             f"Accept: {accept}",
             "-H",
@@ -77,19 +77,26 @@ def fetch_url_text(
     max_attempts: int = 3,
     backoff_seconds: float = 3.0,
     use_curl: bool = False,
+    # a handful of sources (currently just AI HOT, per their own API docs)
+    # explicitly ask callers to identify themselves with a real, non-browser
+    # UA instead of pretending to be a browser - everything else keeps
+    # masquerading as Safari to get past Cloudflare-fronted sites
+    user_agent: str = BROWSER_USER_AGENT,
     _redirects_followed: int = 0,
 ) -> str:
     if use_curl:
         for attempt in range(max_attempts):
             try:
-                return _fetch_via_curl(url, accept=accept, timeout=timeout)
+                return _fetch_via_curl(url, accept=accept, timeout=timeout, user_agent=user_agent)
             except (RuntimeError, subprocess.TimeoutExpired):
                 if attempt == max_attempts - 1:
                     raise
                 time.sleep(backoff_seconds * (attempt + 1))
         raise RuntimeError(f"unreachable curl retry loop for {url}")  # pragma: no cover
     for attempt in range(max_attempts):
-        request = Request(url, headers={"Accept": accept, **BROWSER_HEADERS})
+        request = Request(
+            url, headers={"Accept": accept, **BROWSER_HEADERS, "User-Agent": user_agent}
+        )
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 return response.read().decode("utf-8", errors="replace")
@@ -104,6 +111,7 @@ def fetch_url_text(
                     timeout=timeout,
                     max_attempts=max_attempts,
                     backoff_seconds=backoff_seconds,
+                    user_agent=user_agent,
                     _redirects_followed=_redirects_followed + 1,
                 )
             if error.code not in RETRYABLE_HTTP_STATUSES or attempt == max_attempts - 1:

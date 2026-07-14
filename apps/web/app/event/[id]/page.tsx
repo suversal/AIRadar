@@ -3,10 +3,9 @@ import { ExternalLink } from "lucide-react";
 import type { LatestEvent, OriginalBlock } from "@/lib/api";
 import { getEventDetail, getLatestReport } from "@/lib/api";
 import { findEventById } from "@/lib/events";
-import { proxiedImageUrl } from "@/lib/images";
 import { formatRelativeTime } from "@/lib/time";
 import { ArticleReadingToggle } from "./article-reading-toggle";
-import { RichParagraph } from "@/components/rich-paragraph";
+import { renderOriginalBlock } from "@/components/original-block";
 import { BookmarkButton } from "@/components/bookmark-button";
 import { Sidebar } from "@/components/sidebar";
 
@@ -94,27 +93,6 @@ function translatedBlocksFor(event: LatestEvent): OriginalBlock[] {
     return [{ type: "paragraph", text: event.translated_content }];
   }
   return [];
-}
-
-function renderOriginalBlock(block: OriginalBlock, index: number) {
-  if (block.type === "image") {
-    return (
-      <figure key={`${block.url}-${index}`} className="my-8">
-        <img
-          src={proxiedImageUrl(block.url)}
-          alt={block.alt ?? ""}
-          className="max-h-[520px] w-full rounded-md border border-line object-contain"
-          referrerPolicy="no-referrer"
-        />
-        {block.caption ? (
-          <figcaption className="mt-2 text-center text-sm text-ink-mid">{block.caption}</figcaption>
-        ) : null}
-      </figure>
-    );
-  }
-  return (
-    <RichParagraph key={`${block.text.slice(0, 24)}-${index}`} text={block.text} html={block.html} />
-  );
 }
 
 export default async function EventDetailPage({ params }: { params: EventParams }) {

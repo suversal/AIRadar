@@ -1,6 +1,7 @@
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
+import { articleSanitizeSchema } from "@/lib/sanitize-schema";
 
 const inlineComponents: Components = {
   p({ node: _node, ...props }) {
@@ -30,10 +31,13 @@ const inlineComponents: Components = {
       />
     );
   },
+  span({ node: _node, ...props }) {
+    return <span {...props} />;
+  },
 };
 
 /** Renders one extracted paragraph, preserving sanitized inline markup
- *  (links, bold, emphasis, code) when the crawler captured any. */
+ *  (links, bold, emphasis, code, color) when the crawler captured any. */
 export function RichParagraph({ text, html }: { text: string; html?: string }) {
   if (!html) {
     return <p className="text-[17px] leading-8 text-ink">{text}</p>;
@@ -41,7 +45,7 @@ export function RichParagraph({ text, html }: { text: string; html?: string }) {
   return (
     <ReactMarkdown
       components={inlineComponents}
-      rehypePlugins={[rehypeRaw, rehypeSanitize]}
+      rehypePlugins={[rehypeRaw, [rehypeSanitize, articleSanitizeSchema]]}
       skipHtml={false}
     >
       {html}

@@ -113,6 +113,12 @@ class RadarRepository:
             # output is synced to article_translations below, never merged here.
             merged = dict(existing.raw_metadata or {})
             merged.update({"raw_score": article.raw_score, **_crawl_metadata(article.metadata)})
+            # content-structure fields regress silently if a later crawl only
+            # got a thin summary (empty blocks) - keep the last known-good
+            # value instead of letting dict.update() blank it out
+            for key in self._CACHED_CONTENT_STRUCTURE_KEYS:
+                if not merged.get(key) and (existing.raw_metadata or {}).get(key):
+                    merged[key] = existing.raw_metadata[key]
             existing.raw_metadata = merged
             if len(article.content) > len(existing.content or ""):
                 existing.content = article.content
@@ -981,6 +987,22 @@ class RadarRepository:
         # zh_probe=failed 的自愈重试标记也要传到下一轮
         "readme_status",
         "readme_zh_probe",
+        # 缓存命中时不会重新抓正文（见 pipeline/runner.py 的 cached 分支），
+        # 这四个字段必须带到下一轮，否则会被本轮薄摘要解析出的空结构覆盖
+        "original_paragraphs",
+        "original_blocks",
+        "original_text",
+        "original_images",
+    )
+
+    # 缓存命中时只应回填这几个"正文结构"字段——且只在本轮值为空时才用缓存
+    # 值，不能像 README 字段那样用 setdefault（RSS 抓取阶段已经无条件写入
+    # 这些 key，哪怕值是空列表，setdefault 也不会覆盖）
+    _CACHED_CONTENT_STRUCTURE_KEYS = (
+        "original_paragraphs",
+        "original_blocks",
+        "original_text",
+        "original_images",
     )
 
     def get_cached_results_by_url_hash(self, url_hashes: list[str]) -> dict[str, dict[str, Any]]:

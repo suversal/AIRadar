@@ -1640,6 +1640,48 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(stored.raw_metadata.get("original_markdown"), "# README")
         self.assertEqual(stored.status, "processed")
 
+    def test_upsert_raw_articles_preserves_original_blocks_when_later_run_is_thin(self):
+        # regression for the qbitai bug: a later crawl that only saw a thin
+        # feed summary (empty original_blocks/paragraphs/text/images) must
+        # not blank out a previously well-extracted article body.
+        from app.db.models import RawArticleModel
+        from app.repositories.radar_repository import RadarRepository
+
+        good_blocks = [
+            {"type": "heading", "level": 1, "text": "标题"},
+            {"type": "paragraph", "text": "正文第一段。"},
+        ]
+        first = self._article(article_id="a1", title="趋境科技完成A轮融资", url_hash="hash-a1")
+        first.metadata = {
+            "original_blocks": good_blocks,
+            "original_paragraphs": [b["text"] for b in good_blocks],
+            "original_text": "\n\n".join(b["text"] for b in good_blocks),
+            "original_images": [],
+        }
+
+        thin_rerun = self._article(article_id="a1", title="趋境科技完成A轮融资", url_hash="hash-a1")
+        thin_rerun.metadata = {
+            "original_blocks": [],
+            "original_paragraphs": [],
+            "original_text": "",
+            "original_images": [],
+        }
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([first])
+            session.commit()
+
+            repository.upsert_raw_articles([thin_rerun])
+            session.commit()
+
+            stored = session.get(RawArticleModel, "a1")
+
+        self.assertEqual(stored.raw_metadata.get("original_blocks"), good_blocks)
+        self.assertTrue(stored.raw_metadata.get("original_paragraphs"))
+        self.assertIn("正文第一段", stored.raw_metadata.get("original_text"))
+
     def test_source_health_updates_from_crawl_report(self):
         from app.db.models import SourceModel
         from app.repositories.radar_repository import RadarRepository

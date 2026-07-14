@@ -6,53 +6,15 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import type { OriginalBlock } from "@/lib/api";
+import { articleSanitizeSchema } from "@/lib/sanitize-schema";
 import { proxiedImageUrl } from "@/lib/images";
-import { RichParagraph } from "@/components/rich-paragraph";
+import { HEADING_CLASSNAMES, readmeImageClassName, renderOriginalBlock } from "@/components/original-block";
 
 type ArticleReadingToggleProps = {
   originalBlocks: OriginalBlock[];
   originalMarkdown?: string;
   translatedBlocks: OriginalBlock[];
 };
-
-function numericDimension(value: unknown) {
-  if (typeof value === "number") {
-    return value;
-  }
-  if (typeof value !== "string") {
-    return null;
-  }
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function isReadmeInlineImage({
-  src,
-  width,
-  height,
-}: {
-  src?: string;
-  width?: unknown;
-  height?: unknown;
-}) {
-  const imageUrl = src ?? "";
-  const imageWidth = numericDimension(width);
-  const imageHeight = numericDimension(height);
-  return (
-    imageUrl.includes("img.shields.io") ||
-    imageUrl.includes("badgen.net") ||
-    imageUrl.includes("badge.fury.io") ||
-    imageUrl.includes("/badge/") ||
-    (imageWidth !== null && imageWidth <= 360 && imageHeight !== null && imageHeight <= 120)
-  );
-}
-
-function readmeImageClassName(options: { src?: string; width?: unknown; height?: unknown }) {
-  if (isReadmeInlineImage(options)) {
-    return "inline-block h-auto w-auto max-w-full align-middle";
-  }
-  return "my-8 block h-auto max-w-full rounded-md border border-line object-contain";
-}
 
 function cleanTableElementProps<Props extends object>(props: Props) {
   const { vAlign: _vAlign, valign: _valign, ...cleanProps } = props as Props & {
@@ -64,13 +26,22 @@ function cleanTableElementProps<Props extends object>(props: Props) {
 
 const markdownComponents: Components = {
   h1({ node: _node, ...props }) {
-    return <h1 className="mt-8 text-2xl font-semibold leading-tight text-ink" {...props} />;
+    return <h1 className={HEADING_CLASSNAMES[1]} {...props} />;
   },
   h2({ node: _node, ...props }) {
-    return <h2 className="mt-7 border-b border-line pb-2 text-xl font-semibold text-ink" {...props} />;
+    return <h2 className={HEADING_CLASSNAMES[2]} {...props} />;
   },
   h3({ node: _node, ...props }) {
-    return <h3 className="mt-6 text-lg font-semibold text-ink" {...props} />;
+    return <h3 className={HEADING_CLASSNAMES[3]} {...props} />;
+  },
+  h4({ node: _node, ...props }) {
+    return <h4 className={HEADING_CLASSNAMES[4]} {...props} />;
+  },
+  h5({ node: _node, ...props }) {
+    return <h5 className={HEADING_CLASSNAMES[5]} {...props} />;
+  },
+  h6({ node: _node, ...props }) {
+    return <h6 className={HEADING_CLASSNAMES[6]} {...props} />;
   },
   p({ node: _node, ...props }) {
     return <p className="text-base leading-7 text-ink" {...props} />;
@@ -151,49 +122,17 @@ const markdownComponents: Components = {
   hr({ node: _node, ...props }) {
     return <hr className="border-line" {...props} />;
   },
+  span({ node: _node, ...props }) {
+    return <span {...props} />;
+  },
 };
-
-function renderBlock(block: OriginalBlock, index: number) {
-  if (block.type === "image") {
-    const imageClassName = readmeImageClassName({ src: block.url });
-    if (isReadmeInlineImage({ src: block.url })) {
-      return (
-        <img
-          key={`${block.url}-${index}`}
-          src={proxiedImageUrl(block.url)}
-          alt={block.alt ?? ""}
-          className={imageClassName}
-          loading="lazy"
-          referrerPolicy="no-referrer"
-        />
-      );
-    }
-    return (
-      <figure key={`${block.url}-${index}`} className="my-8">
-        <img
-          src={proxiedImageUrl(block.url)}
-          alt={block.alt ?? ""}
-          className={imageClassName}
-          loading="lazy"
-          referrerPolicy="no-referrer"
-        />
-        {block.caption ? (
-          <figcaption className="mt-2 text-center text-sm text-ink-mid">{block.caption}</figcaption>
-        ) : null}
-      </figure>
-    );
-  }
-  return (
-    <RichParagraph key={`${block.text.slice(0, 24)}-${index}`} text={block.text} html={block.html} />
-  );
-}
 
 function MarkdownArticle({ markdown }: { markdown: string }) {
   return (
     <div className="space-y-5">
       <ReactMarkdown
         components={markdownComponents}
-        rehypePlugins={[rehypeRaw, rehypeSanitize]}
+        rehypePlugins={[rehypeRaw, [rehypeSanitize, articleSanitizeSchema]]}
         remarkPlugins={[remarkGfm]}
       >
         {markdown}
@@ -234,7 +173,7 @@ export function ArticleReadingToggle({
         ) : null}
       </div>
       <div className="mt-6 space-y-6">
-        {isOriginal && markdown ? <MarkdownArticle markdown={markdown} /> : blocks.map(renderBlock)}
+        {isOriginal && markdown ? <MarkdownArticle markdown={markdown} /> : blocks.map(renderOriginalBlock)}
       </div>
     </article>
   );

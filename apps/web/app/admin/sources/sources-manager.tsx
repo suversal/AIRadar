@@ -119,6 +119,9 @@ function outcomeLabel(article: CrawlArticleResult): { text: string; tone: Tone }
     if (article.reason.startsWith("below_threshold")) {
       return { text: "未达精选", tone: "info" };
     }
+    if (article.reason.startsWith("force_selection:never:")) {
+      return { text: "未达精选", tone: "info" };
+    }
     if (article.reason.startsWith("not_ai_related")) {
       return { text: "非AI", tone: "neutral" };
     }
@@ -135,7 +138,8 @@ function formatVerdictReason(reason: string) {
   if (below) return `评分未达精选阈值(阈值 ${below[1]}),已入库可在全部动态查看`;
   const passed = reason.match(/^final_score:(\S+)>=threshold:(\S+)$/);
   if (passed) return `评分 ${passed[1]} ≥ 精选阈值 ${passed[2]}`;
-  if (reason.startsWith("trusted_curated:")) return "可信精选源直入";
+  if (reason.startsWith("force_selection:always:")) return "可信精选源直入";
+  if (reason.startsWith("force_selection:never:")) return "该信源配置为不进入精选,仅入库可在全部动态查看";
   if (reason === "not_ai_related") return "预筛判定与 AI 无关,未入库";
   if (reason === "no_content") return "未抓到正文,未评分";
   if (reason === "ai_error") return "AI 调用失败";
@@ -157,7 +161,8 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
   });
   const [editing, setEditing] = useState<AdminSource | null>(null);
   const [viewingResultFor, setViewingResultFor] = useState<string | null>(null);
-  const sourceHoverCard = useHoverCard<AdminSource>();
+  // 悬浮 1 秒后再展示,避免鼠标划过表格时到处弹卡片
+  const sourceHoverCard = useHoverCard<AdminSource>(1000);
   // 按名称排序(中文按拼音),让长列表可预期地定位
   const sortedSources = [...initialSources].sort((a, b) =>
     a.name.localeCompare(b.name, "zh-CN"),
@@ -352,7 +357,14 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
         render={(source) => (
           <>
             <div className="font-semibold text-ink">{source.name}</div>
-            <div className="readout mt-1 break-all text-ink-dim">{source.url}</div>
+            <a
+              className="readout mt-1 block break-all text-signal underline decoration-signal/40 underline-offset-2 hover:text-signal-bright"
+              href={source.url}
+              rel="noreferrer"
+              target="_blank"
+            >
+              {source.url}
+            </a>
           </>
         )}
       />

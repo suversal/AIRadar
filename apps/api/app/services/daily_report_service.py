@@ -84,6 +84,16 @@ def _clean_original_blocks(blocks: Any) -> list[dict[str, Any]]:
                 if html:
                     cleaned_block["html"] = html
                 cleaned.append(cleaned_block)
+        elif block_type == "heading":
+            text = str(block.get("text") or "").strip()
+            if text:
+                level = block.get("level")
+                level = level if isinstance(level, int) and 1 <= level <= 6 else 2
+                cleaned_heading: dict[str, Any] = {"type": "heading", "level": level, "text": text}
+                html = str(block.get("html") or "").strip()
+                if html:
+                    cleaned_heading["html"] = html
+                cleaned.append(cleaned_heading)
         elif block_type == "image":
             url = str(block.get("url") or "").strip()
             if url:

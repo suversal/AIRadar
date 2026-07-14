@@ -156,6 +156,85 @@ via AI HOT · https://aihot.virxact.com/items/cmrfiocpi0035ihjlcm4qu8af]]></desc
             "https://aihot.virxact.com/items/fallback",
         )
 
+    def test_aihot_rss_extracts_summary_zh_from_description(self):
+        # AI HOT's own description IS an AI-written summary - use it
+        # verbatim as summary_zh instead of re-summarizing ourselves
+        source = Source(
+            id="aihot_feed",
+            name="AI HOT 每日精选",
+            source_role="aggregator",
+            tier="T3",
+            type="rss",
+            category="media",
+            url="https://aihot.virxact.com/feed.xml",
+            homepage="https://aihot.virxact.com",
+            allowed_domains=["aihot.virxact.com"],
+            language="zh",
+            can_be_main_source=False,
+            config={"original_url_from_description": True},
+        )
+        xml = """<?xml version="1.0"?>
+        <rss version="2.0"><channel><item>
+          <title><![CDATA[德国AI协会发布开源模型Soofi S]]></title>
+          <link>https://aihot.virxact.com/items/cmrj6actv0651bilkm5pfz6ub</link>
+          <description><![CDATA[德国AI协会协调的研究联盟发布开源大语言模型Soofi S 30B-A3B。
+
+🔗 阅读原文：https://the-decoder.com/german-ai-consortium
+
+via AI HOT · https://aihot.virxact.com/items/cmrj6actv0651bilkm5pfz6ub]]></description>
+          <category>AI 模型</category>
+          <pubDate>Mon, 13 Jul 2026 11:41:01 GMT</pubDate>
+        </item></channel></rss>
+        """
+
+        articles = parse_rss(xml, source)
+
+        self.assertEqual(
+            articles[0].metadata["aihot_summary_zh"],
+            "德国AI协会协调的研究联盟发布开源大语言模型Soofi S 30B-A3B。",
+        )
+
+    def test_aihot_rss_captures_permalink_only_when_use_aihot_item_page(self):
+        xml = """<?xml version="1.0"?>
+        <rss version="2.0"><channel><item>
+          <title><![CDATA[条目标题]]></title>
+          <link>https://aihot.virxact.com/items/abc123</link>
+          <description><![CDATA[摘要正文。
+
+🔗 阅读原文：https://example.com/original
+
+via AI HOT · https://aihot.virxact.com/items/abc123]]></description>
+          <pubDate>Mon, 13 Jul 2026 11:41:01 GMT</pubDate>
+        </item></channel></rss>
+        """
+
+        def source_with(config):
+            return Source(
+                id="aihot_feed",
+                name="AI HOT 每日精选",
+                source_role="aggregator",
+                tier="T3",
+                type="rss",
+                category="media",
+                url="https://aihot.virxact.com/feed.xml",
+                homepage="https://aihot.virxact.com",
+                allowed_domains=["aihot.virxact.com"],
+                language="zh",
+                can_be_main_source=False,
+                config=config,
+            )
+
+        with_flag = parse_rss(xml, source_with({"use_aihot_item_page": True}))
+        self.assertEqual(
+            with_flag[0].metadata["aihot_permalink"],
+            "https://aihot.virxact.com/items/abc123",
+        )
+        # source_url itself is unaffected - still the third-party original
+        self.assertEqual(with_flag[0].source_url, "https://example.com/original")
+
+        without_flag = parse_rss(xml, source_with({}))
+        self.assertNotIn("aihot_permalink", without_flag[0].metadata)
+
     def test_extract_article_content_preserves_blocks_and_image_urls(self):
         html = """
         <article>
@@ -291,6 +370,145 @@ via AI HOT · https://aihot.virxact.com/items/cmrfiocpi0035ihjlcm4qu8af]]></desc
         self.assertNotIn("javascript:", html_payload)
         self.assertNotIn("onclick", html_payload)
         self.assertNotIn("<span", html_payload)
+
+    def test_extract_article_content_produces_heading_blocks_with_levels(self):
+        html = (
+            "<article>"
+            "<h1>主标题</h1>"
+            "<p>第一段正文。</p>"
+            "<h2>小节标题</h2>"
+            "<p>第二段正文。</p>"
+            "</article>"
+        )
+
+        content = extract_article_content(html, base_url="https://example.com/x")
+
+        self.assertEqual(
+            content["original_blocks"],
+            [
+                {"type": "heading", "level": 1, "text": "主标题"},
+                {"type": "paragraph", "text": "第一段正文。"},
+                {"type": "heading", "level": 2, "text": "小节标题"},
+                {"type": "paragraph", "text": "第二段正文。"},
+            ],
+        )
+        # heading text still flows into the flat paragraph/text fallback lists
+        self.assertIn("主标题", content["original_paragraphs"])
+        self.assertIn("主标题", content["original_text"])
+
+    def test_extract_article_content_preserves_valid_inline_color(self):
+        html = (
+            "<article>"
+            '<p>正常文字 <span style="color: #ff0000">红色文字</span> 结尾。</p>'
+            '<p>旧式标签 <font color="blue">蓝色文字</font> 结尾。</p>'
+            "</article>"
+        )
+
+        content = extract_article_content(html, base_url="https://example.com/x")
+
+        first, second = content["original_blocks"]
+        self.assertIn('<span style="color: #ff0000">红色文字</span>', first["html"])
+        self.assertIn('<span style="color: blue">蓝色文字</span>', second["html"])
+        self.assertIn("红色文字", first["text"])
+
+    def test_extract_article_content_rejects_unsafe_inline_style_values(self):
+        html = (
+            "<article>"
+            '<p>危险样式 <span style="color: url(javascript:alert(1))">文字</span> 结尾。</p>'
+            "</article>"
+        )
+
+        content = extract_article_content(html, base_url="https://example.com/x")
+
+        block = content["original_blocks"][0]
+        self.assertNotIn("html", block)
+        self.assertIn("文字", block["text"])
+        self.assertIn("危险样式", block["text"])
+
+    def test_extract_article_content_strips_trailing_boilerplate(self):
+        # 真实案例（36氪）：正文容器把版权声明/转载说明/图片来源和"寻求
+        # 报道"CTA 跟正文放在同一个容器里，之前会原样展示出来。
+        html = """
+        <article>
+          <p>36氪获悉，某公司披露业绩预告，预计净利润同比增长显著。</p>
+          <p>本文由「卜算籽」原创出品， 转载或内容合作请点击 <a href="https://x.com/repost">转载说明</a> ；违规转载必究。</p>
+          <p><a href="https://x.com/tip">寻求报道</a></p>
+          <p>本文图片来自：AI生成</p>
+        </article>
+        """
+
+        content = extract_article_content(html, base_url="https://36kr.com/p/x")
+
+        self.assertEqual(
+            content["original_paragraphs"],
+            ["36氪获悉，某公司披露业绩预告，预计净利润同比增长显著。"],
+        )
+        self.assertEqual(len(content["original_blocks"]), 1)
+
+    def test_extract_article_content_strips_qbitai_footer_past_trending_widget_and_qrcode(self):
+        # 真实案例（量子位）：正文容器末尾是"热门文章"推荐列表（标题+配图，
+        # 不含任何版权关键词，不应被误删），再往后才是真正的版权页脚
+        # （关于X/加入我们/寻求报道/商务合作/扫码关注X + 二维码图片）。
+        # 图片本身没有关键词可匹配，之前会直接把扫描打断在图片上。
+        html = """
+        <article>
+          <p>正文第一段，介绍产品发布的具体细节。</p>
+          <p>正文第二段，继续说明技术要点。</p>
+          <h5>热门文章</h5>
+          <h5>刚刚，OpenAI首席未来学家离职！曾被马斯克骂蠢驴</h5>
+          <p><img src="https://i.qbitai.com/thumb1.png"></p>
+          <h5>50FPS、成本打掉70%，魔芯MoWorld把世界模型带进产业时代</h5>
+          <p><img src="https://i.qbitai.com/thumb2.png"></p>
+          <p>关于量子位</p>
+          <p>加入我们</p>
+          <p><a href="https://www.qbitai.com/?page_id=103">寻求报道</a></p>
+          <p>商务合作</p>
+          <p>扫码关注量子位</p>
+          <p><img src="https://www.qbitai.com/wp-content/uploads/2019/01/qrcode_QbitAI_1.jpg"></p>
+        </article>
+        """
+
+        content = extract_article_content(html, base_url="https://www.qbitai.com/x")
+
+        # the trending-article widget (heading + thumbnail pairs) is a
+        # separate, harder problem - out of scope here, so it's expected to
+        # still survive; only the copyright/about footer + its qrcode go
+        block_texts_by_type = [(b["type"], b.get("text")) for b in content["original_blocks"]]
+        self.assertEqual(
+            block_texts_by_type,
+            [
+                ("paragraph", "正文第一段，介绍产品发布的具体细节。"),
+                ("paragraph", "正文第二段，继续说明技术要点。"),
+                ("heading", "热门文章"),
+                ("heading", "刚刚，OpenAI首席未来学家离职！曾被马斯克骂蠢驴"),
+                ("image", None),
+                ("heading", "50FPS、成本打掉70%，魔芯MoWorld把世界模型带进产业时代"),
+                ("image", None),
+            ],
+        )
+        self.assertNotIn(
+            "https://www.qbitai.com/wp-content/uploads/2019/01/qrcode_QbitAI_1.jpg",
+            [img["url"] for img in content["original_images"]],
+        )
+
+    def test_extract_article_content_keeps_legitimate_paragraph_mentioning_copyright(self):
+        # 反例：正文中间合法提到"版权"不应被误删（只扫描末尾几段）
+        html = """
+        <article>
+          <p>某公司陷入版权纠纷，法院一审判决其败诉并需赔偿。</p>
+          <p>该案件持续关注中，后续进展仍需观察行业反应。</p>
+        </article>
+        """
+
+        content = extract_article_content(html, base_url="https://example.com/x")
+
+        self.assertEqual(
+            content["original_paragraphs"],
+            [
+                "某公司陷入版权纠纷，法院一审判决其败诉并需赔偿。",
+                "该案件持续关注中，后续进展仍需观察行业反应。",
+            ],
+        )
 
     def test_parse_rss_preserves_original_text_blocks_and_images(self):
         source = Source(

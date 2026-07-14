@@ -414,6 +414,51 @@ def default_sources() -> list[Source]:
                 # body comes from the 阅读原文 page (feed summary is only the
                 # fallback when that fetch fails) - so NO use_feed_content_only
                 "original_url_from_description": True,
+                # feed.xml only ever returns the latest 50 items regardless of
+                # when they were published - a today-only filter would starve
+                # this source on any day it doesn't crawl often enough to
+                # catch each item while it's still "today"
+                "ingest_all_dates": True,
+                # this feed is already a hand-curated "daily picks" list -
+                # every item should make it into 精选 by default, not just
+                # the ones that clear the usual score threshold
+                "force_selection": "always",
+                # AI HOT already extracted + translated this article
+                # themselves (see crawlers/aihot_content.py) - fetch their
+                # own /items/{id} page for body+translation instead of the
+                # third-party original and our own AI translation
+                "use_aihot_item_page": True,
+            },
+        ),
+        Source(
+            id="aihot_all",
+            name="AI HOT 全部AI动态",
+            source_role="aggregator",
+            tier="T3",
+            type="rss",
+            category="media",
+            url="https://aihot.virxact.com/feed/all.xml",
+            homepage="https://aihot.virxact.com/all",
+            allowed_domains=["aihot.virxact.com"],
+            fetch_interval_min=60,
+            language="zh",
+            can_be_main_source=False,
+            affects_heat_score=False,
+            config={
+                "original_url_from_description": True,
+                # this feed only ever returns the latest N items regardless
+                # of when they were published - same rationale as aihot_feed
+                "ingest_all_dates": True,
+                # AI HOT already curates for AI relevance upstream - no need
+                # to spend a prefilter call re-verifying it
+                "selection_policy": "trusted_curated",
+                # unlike its "每日精选" sibling, this is the firehose of
+                # everything - it should never surface in 精选 regardless of
+                # score, only be browsable/ingested
+                "force_selection": "never",
+                # same rationale as aihot_feed - reuse AI HOT's own
+                # extraction+translation instead of doing it ourselves
+                "use_aihot_item_page": True,
             },
         ),
         Source(

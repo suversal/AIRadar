@@ -8,8 +8,13 @@ from unittest.mock import patch
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
-from app.models.domain import PrefilterResult, ScoreDimensions, ScoringResult, Source
-from app.pipeline.runner import _translate_in_chunks, run_pipeline
+from app.models.domain import PrefilterResult, RawArticle, ScoreDimensions, ScoringResult, Source
+from app.pipeline.runner import (
+    _text_blocks_for_translation,
+    _translate_in_chunks,
+    _translated_blocks_for,
+    run_pipeline,
+)
 from app.services.ai_service import FakeAIProvider
 
 
@@ -633,6 +638,156 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("persisted-raw-id", result.embeddings)
         self.assertEqual(cached_processed.raw_article_id, "persisted-raw-id")
         self.assertEqual(cached_article.metadata["translated_paragraphs"], ["缓存译文段落"])
+
+    def test_cached_original_blocks_survive_a_thin_rerun(self):
+        # regression for the qbitai bug: a cached article already has a fully
+        # extracted body (original_blocks non-empty), but this round's RSS
+        # crawl only re-parsed a thin feed summary with no recognizable <p>/
+        # <h*> tags - extract_article_content() still writes the keys, just
+        # empty. That empty value must not blank out the cached good one.
+        source = Source(
+            id="qbitai",
+            name="量子位",
+            source_role="media",
+            tier="T2",
+            type="rss",
+            category="media",
+            url="https://www.qbitai.com/feed",
+            homepage="https://www.qbitai.com",
+            allowed_domains=["qbitai.com"],
+            can_be_main_source=True,
+        )
+        raw_items = [
+            {
+                "source_url": "https://www.qbitai.com/2026/07/13/cached-article",
+                "title": "趋境科技完成A轮融资",
+                "content": "趋境科技完成A轮融资，半年内募资10亿",
+                "author": "量子位",
+                "published_at": datetime(2026, 7, 13, 8, tzinfo=timezone.utc),
+                "language": "zh",
+                "raw_score": {},
+                "metadata": {
+                    "original_paragraphs": [],
+                    "original_blocks": [],
+                    "original_text": "",
+                    "original_images": [],
+                },
+            },
+        ]
+
+        from app.crawlers.base import canonicalize_url, stable_hash
+
+        cached_hash = stable_hash(
+            canonicalize_url("https://www.qbitai.com/2026/07/13/cached-article")
+        )
+        good_blocks = [
+            {"type": "heading", "level": 1, "text": "高品质AI Token生产服务能力获产业和资本的双重认可"},
+            {"type": "paragraph", "text": "7月13日，全球领先的高效能 AI Token 生产服务商正式宣布完成 A 轮融资。"},
+            {"type": "paragraph", "text": "本轮融资由河南投资集团汇融基金重磅领投。"},
+        ]
+        cached_results = {
+            cached_hash: {
+                "raw_article_id": "persisted-qbitai-id",
+                "content": "趋境科技完成A轮融资，半年内募资10亿",
+                "embedding": [0.1] + [0.0] * 511,
+                "scoring": {
+                    "dimensions": {
+                        "ai_relevance": 8,
+                        "novelty": 6,
+                        "impact": 6,
+                        "information_density": 6,
+                        "actionability": 5,
+                        "creator_value": 5,
+                    },
+                    "category": "funding",
+                    "tags": ["融资"],
+                    "title_zh": "趋境科技完成A轮融资",
+                    "one_line_summary": "摘要。",
+                    "summary_zh": "核心摘要。",
+                    "reason_zh": "推荐理由。",
+                    "action_zh": "动作。",
+                },
+                "skipped_reason": None,
+                "metadata": {
+                    "original_paragraphs": [block["text"] for block in good_blocks],
+                    "original_blocks": good_blocks,
+                    "original_text": "\n\n".join(block["text"] for block in good_blocks),
+                    "original_images": [],
+                },
+            },
+        }
+
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={"qbitai": raw_items},
+            ai_provider=FakeAIProvider(),
+            now=datetime(2026, 7, 13, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 13),
+            top_n=12,
+            cached_results=cached_results,
+        )
+
+        cached_article = next(a for a in result.raw_articles if a.url_hash == cached_hash)
+        self.assertEqual(cached_article.metadata["original_blocks"], good_blocks)
+        self.assertTrue(cached_article.metadata["original_paragraphs"])
+        self.assertIn("高品质AI Token", cached_article.metadata["original_text"])
+
+    def test_heading_blocks_survive_the_translation_round_trip(self):
+        # a heading must be sent to translation alongside paragraphs (else
+        # the translated article loses its title) and come back tagged as
+        # "heading" with its original level - not silently demoted to a
+        # plain paragraph.
+        source = Source(
+            id="openai_blog",
+            name="OpenAI Blog",
+            source_role="authority",
+            tier="T1",
+            type="rss",
+            category="official",
+            url="https://openai.com/rss.xml",
+            homepage="https://openai.com",
+            allowed_domains=["openai.com"],
+            can_be_main_source=True,
+        )
+        article = RawArticle(
+            id="a1",
+            source_id="openai_blog",
+            source_name="OpenAI Blog",
+            source_role="authority",
+            source_tier="T1",
+            source_url="https://openai.com/a1",
+            title="Release notes",
+            content="Release notes",
+            author="OpenAI",
+            published_at=datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+            language="en",
+            raw_score={},
+            metadata={
+                "original_blocks": [
+                    {"type": "heading", "level": 1, "text": "Release notes"},
+                    {"type": "paragraph", "text": "Body text here."},
+                ],
+                "original_paragraphs": ["Release notes", "Body text here."],
+            },
+            title_hash="title-a1",
+            url_hash="hash-a1",
+        )
+
+        text_blocks = _text_blocks_for_translation(article)
+        self.assertEqual(
+            [block["type"] for block in text_blocks], ["heading", "paragraph"]
+        )
+
+        translated_paragraphs = [f"译:{block['text']}" for block in text_blocks]
+        translated_blocks = _translated_blocks_for(article, translated_paragraphs)
+
+        self.assertEqual(
+            translated_blocks,
+            [
+                {"type": "heading", "level": 1, "text": "译:Release notes"},
+                {"type": "paragraph", "text": "译:Body text here."},
+            ],
+        )
 
     def test_translate_in_chunks_bounds_each_call_and_preserves_order(self):
         calls: list[list[str]] = []

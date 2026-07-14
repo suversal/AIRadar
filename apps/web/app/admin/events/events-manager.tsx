@@ -86,7 +86,8 @@ export function EventsManager({
   const [titleInput, setTitleInput] = useState(title);
   const [categoryInput, setCategoryInput] = useState(category);
   const [sourceInput, setSourceInput] = useState(sourceId);
-  const titleHoverCard = useHoverCard<AdminEvent>();
+  // 悬浮 1 秒后再展示,避免鼠标划过表格时到处弹卡片
+  const titleHoverCard = useHoverCard<AdminEvent>(1000);
 
   const events = useMemo(() => {
     if (filter === "selected") return initialEvents.filter((event) => event.selected);
