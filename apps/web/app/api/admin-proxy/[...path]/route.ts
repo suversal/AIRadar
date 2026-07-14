@@ -58,3 +58,7 @@ export async function PATCH(request: Request, { params }: Params) {
 export async function PUT(request: Request, { params }: Params) {
   return forward(request, (await params).path, "PUT");
 }
+
+export async function DELETE(request: Request, { params }: Params) {
+  return forward(request, (await params).path, "DELETE");
+}

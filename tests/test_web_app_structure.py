@@ -229,6 +229,7 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("SchedulePanel", dashboard_page)
         self.assertIn("/api/admin/schedule", dashboard_page)
         self.assertIn("export async function PUT", proxy_route)
+        self.assertIn("export async function DELETE", proxy_route)
 
     def test_admin_content_manager_filters_by_configured_main_source(self):
         page = (WEB / "app" / "admin" / "events" / "page.tsx").read_text(encoding="utf-8")
