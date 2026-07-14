@@ -894,8 +894,6 @@ def create_app(
 
     @app.delete("/api/admin/events/{event_id}", dependencies=[admin_guard])
     def admin_delete_event(event_id: str) -> dict:
-        from app.repositories.radar_repository import RadarRepository
-
         with _admin_repository_context() as repository:
             deleted = repository.delete_raw_article(event_id)
             if not deleted:

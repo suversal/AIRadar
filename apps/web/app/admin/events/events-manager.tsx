@@ -509,6 +509,11 @@ export function EventsManager({
             <p className="mt-2 truncate text-sm font-semibold text-ink" title={deletingEvent.title}>
               {deletingEvent.title}
             </p>
+            {message ? (
+              <p className="mt-3 rounded border border-red-400/40 bg-red-400/10 px-3 py-2 text-sm text-red-200">
+                {message}
+              </p>
+            ) : null}
             <div className="mt-5 flex justify-end gap-3 text-sm font-semibold">
               <button
                 className="rounded border border-line px-4 py-2 text-ink-mid hover:text-ink"
