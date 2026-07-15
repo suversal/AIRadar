@@ -511,13 +511,18 @@ def _translation_paragraphs_for(article: RawArticle) -> list[str]:
 def _text_blocks_for_translation(article: RawArticle) -> list[dict[str, Any]]:
     blocks = article.metadata.get("original_blocks") if article.metadata else None
     if isinstance(blocks, list):
+        translate_code_blocks = article.source_id != "google_ai_blog"
+
         def collect(values: list[Any]) -> list[dict[str, Any]]:
             collected: list[dict[str, Any]] = []
             for block in values:
                 if not isinstance(block, dict):
                     continue
                 block_type = block.get("type")
-                if block_type in ("paragraph", "heading", "code") and str(
+                if (
+                    block_type in ("paragraph", "heading")
+                    or (block_type == "code" and translate_code_blocks)
+                ) and str(
                     block.get("text") or ""
                 ).strip():
                     collected.append(block)
@@ -616,12 +621,16 @@ def _translated_blocks_for(article: RawArticle, translated_paragraphs: list[str]
                     if items:
                         translated.append({"type": "list", "ordered": bool(block.get("ordered")), "items": items})
                 elif block_type == "code":
-                    text = next_text()
-                    if text is not None:
-                        translated_code = {"type": "code", "text": text}
-                        if block.get("language"):
-                            translated_code["language"] = block["language"]
-                        translated.append(translated_code)
+                    if article.source_id == "google_ai_blog":
+                        text = str(block.get("text") or "").strip()
+                    else:
+                        text = next_text()
+                    if text is None or not text:
+                        continue
+                    translated_code = {"type": "code", "text": text}
+                    if block.get("language"):
+                        translated_code["language"] = block["language"]
+                    translated.append(translated_code)
                 elif block_type == "table":
                     def translated_cells(values: list[Any]) -> list[dict[str, str]]:
                         cells = []

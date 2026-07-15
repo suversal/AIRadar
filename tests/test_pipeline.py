@@ -11,6 +11,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 from app.models.domain import PrefilterResult, RawArticle, ScoreDimensions, ScoringResult, Source
 from app.pipeline.runner import (
     _text_blocks_for_translation,
+    _translation_paragraphs_for,
     _translate_in_chunks,
     _translated_blocks_for,
     run_pipeline,
@@ -865,6 +866,45 @@ class PipelineTests(unittest.TestCase):
             [
                 {"type": "heading", "level": 1, "text": "译:Release notes"},
                 {"type": "paragraph", "text": "译:Body text here."},
+            ],
+        )
+
+    def test_google_blog_code_blocks_are_preserved_without_translation(self):
+        article = RawArticle(
+            id="google-code",
+            source_id="google_ai_blog",
+            source_name="Google AI Blog",
+            source_role="authority",
+            source_tier="T1",
+            source_url="https://blog.google/innovation-and-ai/example",
+            title="Managed Agents",
+            content="Before.\n\nconst enabled = true;\n\nAfter.",
+            author="Google",
+            published_at=datetime(2026, 7, 7, 9, tzinfo=timezone.utc),
+            language="en",
+            raw_score={},
+            metadata={
+                "original_blocks": [
+                    {"type": "paragraph", "text": "Before."},
+                    {
+                        "type": "code",
+                        "language": "ts",
+                        "text": "const enabled = true;",
+                    },
+                    {"type": "paragraph", "text": "After."},
+                ]
+            },
+            title_hash="google-code-title",
+            url_hash="google-code-url",
+        )
+
+        self.assertEqual(_translation_paragraphs_for(article), ["Before.", "After."])
+        self.assertEqual(
+            _translated_blocks_for(article, ["之前。", "之后。"]),
+            [
+                {"type": "paragraph", "text": "之前。"},
+                {"type": "code", "text": "const enabled = true;", "language": "ts"},
+                {"type": "paragraph", "text": "之后。"},
             ],
         )
 

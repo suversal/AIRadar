@@ -712,7 +712,7 @@ via AI HOT · https://aihot.virxact.com/items/abc123]]></description>
             content_extraction_version_for_url(
                 "https://blog.google/innovation-and-ai/example"
             ),
-            3,
+            4,
         )
 
     def test_extract_article_content_keeps_audio_fallback_for_other_sources(self):
@@ -726,6 +726,48 @@ via AI HOT · https://aihot.virxact.com/items/abc123]]></description>
             content["original_paragraphs"],
             ["Intro.", "Your browser does not support the audio element.", "Body."],
         )
+
+    def test_extract_article_content_reads_google_custom_code_blocks(self):
+        html = """
+        <article>
+          <p>Before the example.</p>
+          <uni-code-block
+            code="import { GoogleGenAI } from &quot;@google/genai&quot;;&#10;const client = new GoogleGenAI({});"
+            lang="ts"></uni-code-block>
+          <p>After the example.</p>
+        </article>
+        """
+
+        content = extract_article_content(
+            html,
+            base_url="https://blog.google/innovation-and-ai/example",
+        )
+
+        self.assertEqual(
+            [block["type"] for block in content["original_blocks"]],
+            ["paragraph", "code", "paragraph"],
+        )
+        code = content["original_blocks"][1]
+        self.assertEqual(code["language"], "ts")
+        self.assertEqual(
+            code["text"],
+            'import { GoogleGenAI } from "@google/genai";\nconst client = new GoogleGenAI({});',
+        )
+        self.assertEqual(
+            content_extraction_version_for_url(
+                "https://blog.google/innovation-and-ai/example"
+            ),
+            4,
+        )
+
+    def test_extract_article_content_ignores_google_custom_code_tag_on_other_sources(self):
+        content = extract_article_content(
+            '<article><p>Before.</p><uni-code-block code="secret()" lang="js">'
+            "</uni-code-block><p>After.</p></article>",
+            base_url="https://example.com/post",
+        )
+
+        self.assertEqual(content["original_paragraphs"], ["Before.", "After."])
 
     def test_parse_rss_preserves_original_text_blocks_and_images(self):
         source = Source(

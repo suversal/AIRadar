@@ -103,7 +103,9 @@ def content_extraction_version_for_url(base_url: str | None) -> int:
     """Return a source-aware cache version without invalidating every source."""
     parsed = urlparse(base_url or "")
     host = parsed.netloc.lower().split(":", 1)[0]
-    source_specific_v3 = host in {"blogs.nvidia.com", "blog.google"} or (
+    if host == "blog.google":
+        return 4
+    source_specific_v3 = host == "blogs.nvidia.com" or (
         host in {"anthropic.com", "www.anthropic.com"}
         and parsed.path.startswith("/news/")
     )
@@ -366,6 +368,18 @@ class DOMBlockExtractor:
         if len(self.blocks) >= MAX_BLOCKS or node.name in SKIP_TAGS:
             return
         tag = node.name.lower()
+        if tag == "uni-code-block" and urlparse(self.base_url or "").netloc.lower() == "blog.google":
+            # Google Blog renders code through a custom element whose source
+            # lives entirely in attributes, so it has no child <pre>/<code>
+            # nodes for the generic DOM walker to discover.
+            text = str(node.get("code") or "").strip()
+            if text:
+                block: dict[str, Any] = {"type": "code", "text": text}
+                language = str(node.get("lang") or "").strip()
+                if language:
+                    block["language"] = language[:40]
+                self.add(block)
+            return
         if tag in {"p", "h1", "h2", "h3", "h4", "h5", "h6"}:
             direct_images = node.find_all("img", recursive=False)
             if direct_images and not clean_text(node.get_text(" ", strip=True)):
