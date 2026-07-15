@@ -671,11 +671,14 @@ def create_app(
         from app.crawlers import registry as crawler_registry
         from app.crawlers.base import stable_hash
         from app.pipeline.runner import (
+            _hydrate_article_from_cache,
             _process_candidate_article,
+            _translate_processed_english_articles,
             filter_articles_published_on,
             source_recent_days,
         )
         from app.services.ai_service import embedding_input, provider_from_env
+        from app.services.refresh_service import crawl_result_url
 
         with _admin_repository_context() as repository:
             sources = {source.id: source for source in repository.get_all_sources()}
@@ -724,23 +727,34 @@ def create_app(
 
             ai_provider = provider_from_env()
             now = _datetime.now(_timezone.utc)
-            article_results: list[dict[str, Any]] = []
+            article_results: list[dict[str, Any] | None] = [None] * len(fetched)
+            pending: list[tuple[int, Any, Any, Any, Any, Any]] = []
             saved_count = 0
             ingested_count = 0
-            for article in fetched:
+            cached_results = repository.get_cached_results_by_url_hash(
+                [article.url_hash for article in fetched]
+            )
+            for index, article in enumerate(fetched):
+                cached = cached_results.get(article.url_hash)
+                if cached:
+                    _hydrate_article_from_cache(article, cached)
                 existing = repository.get_existing_outcome_by_url_hash(article.url_hash)
-                if existing is not None:
-                    article_results.append(
-                        {
-                            "title": existing["title"],
-                            "url": existing["url"],
-                            "outcome": "duplicate",
-                            "selected": existing["selected"],
-                            "final_score": existing["final_score"],
-                            "category": existing["category"],
-                            "reason": existing["reason"] or "此前已抓取，本次未重新评分",
-                        }
-                    )
+                cached_metadata = (cached or {}).get("metadata") or {}
+                has_translation = bool(
+                    cached_metadata.get("translated_paragraphs")
+                    or cached_metadata.get("translated_blocks")
+                )
+                needs_translation = article.language.lower().startswith("en") and not has_translation
+                if existing is not None and not needs_translation:
+                    article_results[index] = {
+                        "title": existing["title"],
+                        "url": existing["url"],
+                        "outcome": "duplicate",
+                        "selected": existing["selected"],
+                        "final_score": existing["final_score"],
+                        "category": existing["category"],
+                        "reason": existing["reason"] or "此前已抓取，本次未重新评分",
+                    }
                     continue
                 try:
                     processed, embedding, skipped_reason = _process_candidate_article(
@@ -748,37 +762,45 @@ def create_app(
                         source_by_id=sources,
                         ai_provider=ai_provider,
                         now=now,
+                        cached=cached,
                     )
                 except Exception as exc:
-                    article_results.append(
-                        {
-                            "title": article.title,
-                            "url": article.source_url,
-                            "outcome": "rejected",
-                            "selected": False,
-                            "final_score": None,
-                            "category": None,
-                            "reason": f"处理出错：{str(exc)[:200]}",
-                        }
-                    )
+                    article_results[index] = {
+                        "title": article.title,
+                        "url": crawl_result_url(article),
+                        "outcome": "rejected",
+                        "selected": False,
+                        "final_score": None,
+                        "category": None,
+                        "reason": f"处理出错：{str(exc)[:200]}",
+                    }
                     continue
+                pending.append(
+                    (index, article, processed, embedding, skipped_reason, existing)
+                )
+
+            _translate_processed_english_articles(
+                articles=[article for _, article, processed, _, _, _ in pending if processed],
+                ai_provider=ai_provider,
+                ai_concurrency=_env_int("AI_PIPELINE_CONCURRENCY", 1),
+            )
+
+            for index, article, processed, embedding, skipped_reason, existing in pending:
                 repository.upsert_raw_articles([article])
                 # 口径对齐自动同步(refresh_service._build_auto_crawl_results):
                 # 入库只排除 not_ai_related,未达精选的 raw_articles 行同样保留
-                if skipped_reason != "not_ai_related":
+                if existing is None and skipped_reason != "not_ai_related":
                     ingested_count += 1
                 if processed is None:
-                    article_results.append(
-                        {
-                            "title": article.title,
-                            "url": article.source_url,
-                            "outcome": "rejected",
-                            "selected": False,
-                            "final_score": None,
-                            "category": None,
-                            "reason": skipped_reason,
-                        }
-                    )
+                    article_results[index] = {
+                        "title": existing["title"] if existing else article.title,
+                        "url": existing["url"] if existing else crawl_result_url(article),
+                        "outcome": "duplicate" if existing else "rejected",
+                        "selected": existing["selected"] if existing else False,
+                        "final_score": existing["final_score"] if existing else None,
+                        "category": existing["category"] if existing else None,
+                        "reason": existing["reason"] if existing else skipped_reason,
+                    }
                     continue
                 repository.upsert_processed_articles([processed])
                 if embedding is not None:
@@ -788,21 +810,29 @@ def create_app(
                         vector=embedding,
                         source_hash=stable_hash(embedding_input(article.title, article.content)),
                     )
-                if processed.selected:
+                if existing is None and processed.selected:
                     saved_count += 1
-                article_results.append(
-                    {
-                        "title": processed.title_zh or article.title,
-                        "url": article.source_url,
-                        "outcome": "saved" if processed.selected else "rejected",
-                        "selected": processed.selected,
-                        "final_score": processed.final_score,
-                        "category": processed.category,
-                        "reason": processed.selection_reason
+                article_results[index] = {
+                    "title": existing["title"]
+                    if existing
+                    else (processed.title_zh or article.title),
+                    "url": existing["url"] if existing else crawl_result_url(article),
+                    "outcome": "duplicate"
+                    if existing
+                    else ("saved" if processed.selected else "rejected"),
+                    "selected": existing["selected"] if existing else processed.selected,
+                    "final_score": existing["final_score"]
+                    if existing
+                    else processed.final_score,
+                    "category": existing["category"] if existing else processed.category,
+                    "reason": existing["reason"]
+                    if existing
+                    else (
+                        processed.selection_reason
                         if processed.selected
-                        else processed.rejection_reason,
-                    }
-                )
+                        else processed.rejection_reason
+                    ),
+                }
 
             result = {
                 "origin": "manual",
@@ -812,7 +842,7 @@ def create_app(
                 "fetched_count": len(fetched),
                 "accepted_count": saved_count,
                 "ingested_count": ingested_count,
-                "articles": article_results,
+                "articles": [article for article in article_results if article is not None],
             }
             # Manual crawling is a real source-health observation just like
             # an automatic round. Keep the health columns and the detailed

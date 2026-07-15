@@ -1467,6 +1467,23 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(hit["embedding"][0], 0.5)
         self.assertEqual(hit["embedding"][1], 0.25)
 
+    def test_existing_aihot_outcome_links_to_aihot_permalink(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        article = self._article(
+            article_id="aihot1", title="AI HOT item", url_hash="hash-aihot"
+        )
+        article.metadata["aihot_permalink"] = "https://aihot.virxact.com/items/item-123"
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([article])
+            session.commit()
+            outcome = repository.get_existing_outcome_by_url_hash(article.url_hash)
+
+        self.assertEqual(outcome["url"], "https://aihot.virxact.com/items/item-123")
+
     def test_translation_output_is_not_stored_in_raw_metadata(self):
         # architectural split: translation is AI output, not crawl data, so
         # it must live in its own table rather than raw_articles.raw_metadata

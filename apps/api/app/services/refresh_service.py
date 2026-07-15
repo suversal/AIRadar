@@ -32,6 +32,11 @@ AUTO_SEEDED_SOURCE_IDS = {
 }
 
 
+def crawl_result_url(article: RawArticle) -> str:
+    """Keep public 阅读原文 URLs while linking admin AI HOT results to AI HOT."""
+    return str(article.metadata.get("aihot_permalink") or article.source_url)
+
+
 def ensure_auto_seeded_sources(repository: Any) -> list[Source]:
     """Return all configured sources after inserting newly shipped defaults.
 
@@ -168,7 +173,7 @@ def _build_auto_crawl_results(
                 article_results.append(
                     {
                         "title": processed.title_zh or article.title,
-                        "url": article.source_url,
+                        "url": crawl_result_url(article),
                         "outcome": "duplicate"
                         if existing
                         else ("saved" if selected else "rejected"),
@@ -185,7 +190,7 @@ def _build_auto_crawl_results(
             article_results.append(
                 {
                     "title": article.title,
-                    "url": article.source_url,
+                    "url": crawl_result_url(article),
                     "outcome": "duplicate" if existing else "rejected",
                     "selected": False,
                     "final_score": None,

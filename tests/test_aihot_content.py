@@ -12,6 +12,7 @@ from app.crawlers.aihot_content import (
     _decode_flight_chunk,
     _extract_chinese_body_html,
     _extract_english_original_html,
+    _edge_challenge_cookie,
     fetch_aihot_item_content,
 )
 from app.crawlers.article_content import extract_article_content
@@ -55,6 +56,19 @@ AIHOT_FIXTURE_HTML = f"""<!doctype html><html><head><title>test</title></head><b
 
 
 class AihotContentTests(unittest.TestCase):
+    def test_edge_challenge_cookie_reproduces_numeric_js_handshake(self):
+        challenge = """<script>
+        function n(){case"0":t+="EO_Bot_Ssid=";continue;
+        case"3":t=a[_0x649a("0x7")](t,3343908864);continue;case"4":var t="";}
+        var e={WTKkN:1879742297,bOYDu:51097517,dtzqS:function(a,n){return a+n},wyeCN:579119948};
+        document.cookie="__tst_status=";
+        </script>"""
+
+        self.assertEqual(
+            _edge_challenge_cookie(challenge),
+            "__tst_status=2509959762#; EO_Bot_Ssid=3343908864",
+        )
+
     def test_decode_flight_chunk_unescapes_real_next_js_format(self):
         # real capture from aihot.virxact.com/items/{id} (2026-07-13): the
         # RSC wire format escapes "<" and ">" as literal backslash-u003c /
@@ -79,6 +93,23 @@ class AihotContentTests(unittest.TestCase):
         self.assertIn("一个德国研究联盟", region)
         # must not spill past its own </div> into the following <script> tags
         self.assertNotIn("self.__next_f", region)
+
+    def test_extract_chinese_body_html_finds_x_item_dt_tweet_region(self):
+        html = """<article class="dt-detail">
+        <div class="dt-summary"><p>这只是摘要，不应当作正文。</p></div>
+        <div class="dt-tweet">
+          <p class="dt-p">第一段 AIHOT X 正文。</p>
+          <p class="dt-p">第二段继续说明。</p>
+        </div>
+        <div class="dt-tags">标签</div>
+        </article>"""
+
+        region = _extract_chinese_body_html(html)
+
+        self.assertIsNotNone(region)
+        self.assertIn("第一段 AIHOT X 正文", region)
+        self.assertNotIn("这只是摘要", region)
+        self.assertNotIn("dt-tags", region)
 
     def test_extract_english_original_html_picks_the_article_chunk_not_the_decoy(self):
         english_html = _extract_english_original_html(AIHOT_FIXTURE_HTML)
@@ -108,6 +139,7 @@ class AihotContentTests(unittest.TestCase):
             self.assertEqual(metadata["translation_target_language"], "zh")
             self.assertEqual(metadata["translation_status"], "completed")
             self.assertTrue(metadata["translation_source_hash"])
+            self.assertEqual(metadata["content_extraction_version"], 2)
             self.assertEqual(payload["language"], "en")
 
             # fetch_url_text called with the identifying, non-browser UA

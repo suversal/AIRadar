@@ -11,7 +11,11 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
 from app.crawlers.attentionvc import parse_attentionvc_entries
 from app.crawlers.base import normalize_article
-from app.crawlers.article_content import extract_article_content
+from app.crawlers.article_content import (
+    CONTENT_EXTRACTION_VERSION,
+    content_extraction_version_for_url,
+    extract_article_content,
+)
 from app.crawlers.github import parse_github_trending
 from app.crawlers.github_readme import (
     fetch_github_readme,
@@ -552,6 +556,175 @@ via AI HOT · https://aihot.virxact.com/items/abc123]]></description>
                 "某公司陷入版权纠纷，法院一审判决其败诉并需赔偿。",
                 "该案件持续关注中，后续进展仍需观察行业反应。",
             ],
+        )
+
+    def test_extract_article_content_removes_aws_ml_about_the_authors_line_only(self):
+        html = """
+        <article>
+          <h2>Related resources</h2>
+          <p>Amazon Bedrock documentation.</p>
+          <h2>About the authors</h2>
+        </article>
+        """
+
+        content = extract_article_content(
+            html,
+            base_url="https://aws.amazon.com/blogs/machine-learning/example-post/",
+        )
+
+        self.assertEqual(
+            content["original_paragraphs"],
+            ["Related resources", "Amazon Bedrock documentation."],
+        )
+        self.assertEqual(
+            [(block["type"], block.get("text")) for block in content["original_blocks"]],
+            [
+                ("heading", "Related resources"),
+                ("paragraph", "Amazon Bedrock documentation."),
+            ],
+        )
+
+    def test_extract_article_content_keeps_same_line_for_non_aws_sources(self):
+        content = extract_article_content(
+            "<article><h2>About the authors</h2></article>",
+            base_url="https://example.com/post",
+        )
+
+        self.assertEqual(content["original_paragraphs"], ["About the authors"])
+
+    def test_extract_article_content_removes_nvidia_trailing_categories_and_tags(self):
+        html = """
+        <article>
+          <p>Builders are adding Nemotron to their AI systems.</p>
+          <p>Learn more about NVIDIA Nemotron open models.</p>
+          <ul>
+            <li>Categories:</li>
+            <li><a href="/blog/category/generative-ai/">AI</a></li>
+          </ul>
+          <ul>
+            <li>Tags:</li>
+            <li><a href="/blog/tag/agentic-ai/">Agentic AI</a></li>
+            <li><a href="/blog/tag/nemotron/">Nemotron</a></li>
+          </ul>
+        </article>
+        """
+
+        content = extract_article_content(
+            html,
+            base_url="https://blogs.nvidia.com/blog/nemotron-open-models",
+        )
+
+        self.assertEqual(
+            content["original_paragraphs"],
+            [
+                "Builders are adding Nemotron to their AI systems.",
+                "Learn more about NVIDIA Nemotron open models.",
+            ],
+        )
+        self.assertEqual(
+            [block["type"] for block in content["original_blocks"]],
+            ["paragraph", "paragraph"],
+        )
+        self.assertEqual(
+            content_extraction_version_for_url("https://blogs.nvidia.com/blog/example"),
+            3,
+        )
+        self.assertEqual(
+            content_extraction_version_for_url("https://example.com/post"),
+            CONTENT_EXTRACTION_VERSION,
+        )
+
+    def test_extract_article_content_keeps_taxonomy_lists_for_non_nvidia_sources(self):
+        content = extract_article_content(
+            "<article><p>Body.</p><ul><li>Categories:</li><li>AI</li></ul></article>",
+            base_url="https://example.com/post",
+        )
+
+        self.assertEqual(content["original_paragraphs"], ["Body.", "Categories:", "AI"])
+
+    def test_extract_article_content_removes_anthropic_related_content_section(self):
+        html = """
+        <article>
+          <p>The final paragraph of the actual announcement.</p>
+          <h2>Related content</h2>
+          <h3>Introducing Claude for Teachers</h3>
+          <h3>Inviting hard questions</h3>
+          <p>We are asking the public for their hardest questions about AI.</p>
+        </article>
+        """
+
+        content = extract_article_content(
+            html,
+            base_url="https://www.anthropic.com/news/canadian-ai-research",
+        )
+
+        self.assertEqual(
+            content["original_paragraphs"],
+            ["The final paragraph of the actual announcement."],
+        )
+        self.assertEqual(
+            content_extraction_version_for_url(
+                "https://www.anthropic.com/news/canadian-ai-research"
+            ),
+            3,
+        )
+
+    def test_extract_article_content_keeps_related_content_for_other_sources(self):
+        content = extract_article_content(
+            "<article><p>Body.</p><h2>Related content</h2></article>",
+            base_url="https://example.com/post",
+        )
+
+        self.assertEqual(content["original_paragraphs"], ["Body.", "Related content"])
+
+    def test_extract_article_content_starts_google_blog_body_after_audio_fallback(self):
+        html = """
+        <article>
+          <h1>Expanding Managed Agents in Gemini API</h1>
+          <p>Jul 07, 2026</p>
+          <p>We are adding support for new capabilities.</p>
+          <img src="https://storage.googleapis.com/audio-presenter.webp">
+          <img src="https://storage.googleapis.com/audio-cover.webp">
+          <p>Your browser does not support the audio element.</p>
+          <p>Today we are announcing new capabilities for Managed Agents.</p>
+          <img src="https://storage.googleapis.com/body-diagram.webp">
+        </article>
+        """
+
+        content = extract_article_content(
+            html,
+            base_url="https://blog.google/innovation-and-ai/example",
+        )
+
+        self.assertEqual(
+            content["original_paragraphs"],
+            ["Today we are announcing new capabilities for Managed Agents."],
+        )
+        self.assertEqual(
+            [image["url"] for image in content["original_images"]],
+            ["https://storage.googleapis.com/body-diagram.webp"],
+        )
+        self.assertEqual(
+            [block["type"] for block in content["original_blocks"]],
+            ["paragraph", "image"],
+        )
+        self.assertEqual(
+            content_extraction_version_for_url(
+                "https://blog.google/innovation-and-ai/example"
+            ),
+            3,
+        )
+
+    def test_extract_article_content_keeps_audio_fallback_for_other_sources(self):
+        content = extract_article_content(
+            "<article><p>Intro.</p><p>Your browser does not support the audio element.</p>"
+            "<p>Body.</p></article>",
+            base_url="https://example.com/post",
+        )
+
+        self.assertEqual(
+            content["original_paragraphs"],
+            ["Intro.", "Your browser does not support the audio element.", "Body."],
         )
 
     def test_parse_rss_preserves_original_text_blocks_and_images(self):

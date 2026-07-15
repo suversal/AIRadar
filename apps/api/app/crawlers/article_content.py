@@ -99,6 +99,17 @@ def profile_for_url(base_url: str | None) -> ContentProfile | None:
     return next((profile for profile in CONTENT_PROFILES if host in profile.hosts), None)
 
 
+def content_extraction_version_for_url(base_url: str | None) -> int:
+    """Return a source-aware cache version without invalidating every source."""
+    parsed = urlparse(base_url or "")
+    host = parsed.netloc.lower().split(":", 1)[0]
+    source_specific_v3 = host in {"blogs.nvidia.com", "blog.google"} or (
+        host in {"anthropic.com", "www.anthropic.com"}
+        and parsed.path.startswith("/news/")
+    )
+    return 3 if source_specific_v3 else CONTENT_EXTRACTION_VERSION
+
+
 def _safe_url(value: str | None, base_url: str | None) -> str | None:
     if not value:
         return None
@@ -473,6 +484,16 @@ def _block_text(block: dict[str, Any]) -> list[str]:
     return []
 
 
+def _block_image_urls(block: dict[str, Any]) -> set[str]:
+    urls: set[str] = set()
+    if block.get("type") == "image" and block.get("url"):
+        urls.add(str(block["url"]))
+    for child in block.get("children") or []:
+        if isinstance(child, dict):
+            urls.update(_block_image_urls(child))
+    return urls
+
+
 def _strip_trailing_boilerplate(blocks: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], set[str]]:
     cutoff = len(blocks)
     for index in range(len(blocks) - 1, max(-1, len(blocks) - 12), -1):
@@ -487,6 +508,65 @@ def _strip_trailing_boilerplate(blocks: list[dict[str, Any]]) -> tuple[list[dict
     if cutoff == len(blocks):
         return blocks, set()
     return blocks[:cutoff], {str(block.get("url")) for block in blocks[cutoff:] if block.get("type") == "image"}
+
+
+def _strip_source_specific_blocks(
+    blocks: list[dict[str, Any]], *, base_url: str | None
+) -> list[dict[str, Any]]:
+    parsed = urlparse(base_url or "")
+    host = parsed.netloc.lower().split(":", 1)[0]
+    if host == "aws.amazon.com" and parsed.path.startswith("/blogs/machine-learning/"):
+        # AWS ML posts currently end with this standalone heading while the
+        # author cards themselves are outside the extracted article structure.
+        # Remove only that exact line; keep Conclusion, Related resources, etc.
+        return [
+            block
+            for block in blocks
+            if _normalize_for_comparison(" ".join(_block_text(block)))
+            != "abouttheauthors"
+        ]
+
+    if host == "blogs.nvidia.com":
+        # NVIDIA appends taxonomy navigation to the article body. Depending on
+        # the post, Categories and Tags are either one list or separate lists.
+        # Cut from the first exact taxonomy label near the tail so category/tag
+        # values cannot leak into either the original body or its translation.
+        taxonomy_labels = {"category", "categories", "tag", "tags"}
+        tail_start = max(0, len(blocks) - 6)
+        for index in range(tail_start, len(blocks)):
+            texts = _block_text(blocks[index])
+            if texts and _normalize_for_comparison(texts[0]) in taxonomy_labels:
+                return blocks[:index]
+
+    if host in {"anthropic.com", "www.anthropic.com"} and parsed.path.startswith(
+        "/news/"
+    ):
+        # Anthropic News pages append a Related content card collection inside
+        # the same semantic region as the article. The recommendation titles
+        # and descriptions are navigation, not part of the article body.
+        tail_start = max(0, len(blocks) - 10)
+        for index in range(tail_start, len(blocks)):
+            text = _normalize_for_comparison(" ".join(_block_text(blocks[index])))
+            if text == "relatedcontent":
+                return blocks[:index]
+
+    if host == "blog.google":
+        # Google Blog places its audio-player header inside the article region:
+        # duplicate title/date/deck, presenter artwork and the HTML audio
+        # fallback all precede the real written article. Preserve structured
+        # byline metadata, then begin the body after the exact fallback line.
+        audio_fallback = "yourbrowserdoesnotsupporttheaudioelement"
+        for index, block in enumerate(blocks[:20]):
+            text = _normalize_for_comparison(" ".join(_block_text(block)))
+            if text == audio_fallback:
+                bylines = [
+                    candidate
+                    for candidate in blocks[:index]
+                    if candidate.get("type") == "byline"
+                ]
+                return [*bylines, *blocks[index + 1 :]]
+
+    return blocks
 
 
 def extract_article_content(
@@ -535,7 +615,18 @@ def extract_article_content(
             extractor.parse_node(child)
     blocks.extend(extractor.blocks)
     blocks, dropped_images = _strip_trailing_boilerplate(blocks)
-    images = [image for image in extractor.images if image["url"] not in dropped_images]
+    source_blocks = blocks
+    blocks = _strip_source_specific_blocks(blocks, base_url=base_url)
+    source_specific_cleanup = blocks != source_blocks
+    retained_image_urls = {
+        url for block in blocks for url in _block_image_urls(block)
+    }
+    images = [
+        image
+        for image in extractor.images
+        if image["url"] not in dropped_images
+        and (not source_specific_cleanup or image["url"] in retained_image_urls)
+    ]
     paragraphs = [text for block in blocks if block.get("type") != "byline" for text in _block_text(block) if text]
     return {
         "original_text": "\n\n".join(paragraphs),

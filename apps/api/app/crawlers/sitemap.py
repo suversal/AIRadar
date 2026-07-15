@@ -10,7 +10,7 @@ from pathlib import Path
 from bs4 import BeautifulSoup, Tag
 
 from app.crawlers.article_content import (
-    CONTENT_EXTRACTION_VERSION,
+    content_extraction_version_for_url,
     extract_article_content,
     extract_page_byline,
     profile_for_url,
@@ -214,7 +214,9 @@ class SitemapCrawler(BaseCrawler):
         except (OSError, json.JSONDecodeError):
             return None
         metadata = cached.get("metadata") or {}
-        if int(metadata.get("content_extraction_version") or 0) != CONTENT_EXTRACTION_VERSION:
+        if int(metadata.get("content_extraction_version") or 0) != content_extraction_version_for_url(
+            loc
+        ):
             return None
         profile = profile_for_url(loc)
         if profile and metadata.get("content_profile") != profile.name:
@@ -260,7 +262,7 @@ class SitemapCrawler(BaseCrawler):
                         "original_images": extracted["original_images"],
                         "original_blocks": extracted["original_blocks"],
                         "original_text": extracted["original_text"],
-                        "content_extraction_version": CONTENT_EXTRACTION_VERSION,
+                        "content_extraction_version": content_extraction_version_for_url(loc),
                         "content_profile": extracted["content_profile"],
                         "content_extraction_diagnostics": {
                             "filtered_blocks": extracted["filtered_blocks"],

@@ -943,6 +943,27 @@ class PipelineTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 _translate_in_chunks(translate, ["only chunk"], chunk_char_limit=20)
 
+    def test_translate_in_chunks_falls_back_to_smaller_requests_after_retry(self):
+        attempts: list[list[str]] = []
+
+        def translate(paragraphs):
+            attempts.append(paragraphs)
+            if sum(len(paragraph) for paragraph in paragraphs) > 800:
+                raise ValueError("Chat response was not valid JSON: truncated")
+            return [f"译:{paragraph}" for paragraph in paragraphs]
+
+        paragraphs = ["first " * 100, "second " * 100]
+        from unittest.mock import patch as mock_patch
+
+        with mock_patch("app.pipeline.runner.time.sleep"):
+            translated = _translate_in_chunks(
+                translate, paragraphs, chunk_char_limit=1600
+            )
+
+        self.assertEqual(translated, [f"译:{paragraph}" for paragraph in paragraphs])
+        self.assertEqual(attempts[:2], [paragraphs, paragraphs])
+        self.assertEqual(attempts[2:], [[paragraphs[0]], [paragraphs[1]]])
+
     def test_translate_in_chunks_backs_off_before_retrying(self):
         # 真实案例：一次刷新里 3 篇长文章的翻译全都撞上同一个
         # "Chat response content is empty"，说明大概率是短时间内大量顺序

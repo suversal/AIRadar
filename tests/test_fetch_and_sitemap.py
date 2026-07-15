@@ -230,6 +230,46 @@ class PageContentTests(unittest.TestCase):
         self.assertEqual(second["content"], first["content"])
         self.assertTrue(first["metadata"]["original_paragraphs"])
 
+    def test_nvidia_cache_version_removes_trailing_taxonomy_without_global_invalidation(self):
+        import json
+        import tempfile
+
+        from app.crawlers.base import canonicalize_url, stable_hash
+        from app.crawlers.page_content import fetch_page_payload
+
+        url = "https://blogs.nvidia.com/blog/example-post"
+        page = """
+        <html><head><title>NVIDIA example</title></head><body><article>
+          <p>The actual NVIDIA article body explains how enterprises build,
+          evaluate and deploy specialized artificial intelligence systems with
+          open models while retaining control over their data and workflows.</p>
+          <ul><li>Categories:</li><li>AI</li></ul>
+          <ul><li>Tags:</li><li>Agentic AI</li></ul>
+        </article></body></html>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_dir = Path(tmpdir)
+            cache_path = cache_dir / f"{stable_hash(canonicalize_url(url))}.json"
+            cache_path.write_text(
+                json.dumps(
+                    {
+                        "content": "stale NVIDIA body\n\nCategories:\n\nAI",
+                        "metadata": {"content_extraction_version": 2},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch("app.crawlers.page_content.fetch_url_text", return_value=page) as fetch:
+                payload = fetch_page_payload(url, cache_dir=cache_dir)
+                cached = fetch_page_payload(url, cache_dir=cache_dir)
+
+        fetch.assert_called_once()
+        self.assertEqual(payload["metadata"]["content_extraction_version"], 3)
+        self.assertEqual(len(payload["metadata"]["original_paragraphs"]), 1)
+        self.assertIn("The actual NVIDIA article body", payload["content"])
+        self.assertNotIn("Categories:", payload["content"])
+        self.assertEqual(cached["content"], payload["content"])
+
     def test_fetch_page_payload_returns_none_without_main_region(self):
         import tempfile
 
@@ -711,6 +751,7 @@ class SitemapCrawlerTests(unittest.TestCase):
             [a.source_url for a in second], [a.source_url for a in first]
         )
         self.assertEqual(second[0].title, first[0].title)
+        self.assertEqual(first[0].metadata.get("content_extraction_version"), 3)
         self.assertEqual(
             second[0].metadata.get("original_paragraphs"),
             first[0].metadata.get("original_paragraphs"),

@@ -20,8 +20,8 @@ from urllib.parse import urlparse
 from app.crawlers.base import canonicalize_url, fetch_url_text, stable_hash
 from app.crawlers.sitemap import extract_page_article, main_content_region
 from app.crawlers.article_content import (
-    CONTENT_EXTRACTION_VERSION,
     _detect_body_language,
+    content_extraction_version_for_url,
     extract_article_content,
     extract_page_byline,
     profile_for_url,
@@ -105,6 +105,7 @@ def fetch_page_payload(
     cache_dir: Path = DEFAULT_PAGE_CACHE_DIR,
 ) -> dict[str, Any] | None:
     cache_path = Path(cache_dir) / f"{stable_hash(canonicalize_url(url))}.json"
+    extraction_version = content_extraction_version_for_url(url)
     if cache_path.exists():
         try:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -113,7 +114,7 @@ def fetch_page_payload(
             profile_matches = not profile or cached_metadata.get("content_profile") == profile.name
             if (
                 int(cached_metadata.get("content_extraction_version") or 0)
-                == CONTENT_EXTRACTION_VERSION
+                == extraction_version
                 and profile_matches
             ):
                 return cached
@@ -136,7 +137,7 @@ def fetch_page_payload(
             "article content extracted url=%s version=%s profile=%s kept_blocks=%s "
             "filtered_blocks=%s author_detected=%s",
             url,
-            CONTENT_EXTRACTION_VERSION,
+            extraction_version,
             extracted["content_profile"],
             len(extracted["original_blocks"]),
             extracted["filtered_blocks"],
@@ -150,7 +151,7 @@ def fetch_page_payload(
                 "original_images": extracted["original_images"],
                 "original_blocks": extracted["original_blocks"],
                 "original_text": extracted["original_text"],
-                "content_extraction_version": CONTENT_EXTRACTION_VERSION,
+                "content_extraction_version": extraction_version,
                 "content_profile": extracted["content_profile"],
                 "content_extraction_diagnostics": {
                     "filtered_blocks": extracted["filtered_blocks"],
@@ -170,7 +171,7 @@ def fetch_page_payload(
                 "original_text": description,
                 "original_images": [],
                 "original_blocks": [{"type": "paragraph", "text": description}],
-                "content_extraction_version": CONTENT_EXTRACTION_VERSION,
+                "content_extraction_version": extraction_version,
                 "content_profile": "meta-description-v2",
             },
         }
@@ -178,7 +179,7 @@ def fetch_page_payload(
         logger.warning(
             "article content extraction failed url=%s version=%s reason=no-semantic-content",
             url,
-            CONTENT_EXTRACTION_VERSION,
+            extraction_version,
         )
         return None
 

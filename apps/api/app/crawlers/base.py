@@ -39,14 +39,15 @@ MANUAL_REDIRECT_STATUSES = {308}
 MAX_REDIRECTS = 5
 
 
-def _fetch_via_curl(url: str, *, accept: str, timeout: int, user_agent: str) -> str:
+def _fetch_via_curl(
+    url: str, *, accept: str, timeout: int, user_agent: str, cookie: str | None = None
+) -> str:
     """Some hosts (e.g. linux.do) TLS/JA3-fingerprint urllib's requests and
     return a Cloudflare challenge, but let a real curl binary through -
     confirmed by direct probe. Args are passed as a list (no shell=True), so
     there is no shell-injection surface even though url comes from source
     config."""
-    result = subprocess.run(
-        [
+    args = [
             "curl",
             "-sS",
             "-L",
@@ -58,8 +59,12 @@ def _fetch_via_curl(url: str, *, accept: str, timeout: int, user_agent: str) -> 
             f"Accept: {accept}",
             "-H",
             f"Accept-Language: {BROWSER_HEADERS['Accept-Language']}",
-            url,
-        ],
+        ]
+    if cookie:
+        args.extend(["-H", f"Cookie: {cookie}"])
+    args.append(url)
+    result = subprocess.run(
+        args,
         capture_output=True,
         text=True,
         timeout=timeout + 5,
@@ -77,6 +82,7 @@ def fetch_url_text(
     max_attempts: int = 3,
     backoff_seconds: float = 3.0,
     use_curl: bool = False,
+    cookie: str | None = None,
     # a handful of sources (currently just AI HOT, per their own API docs)
     # explicitly ask callers to identify themselves with a real, non-browser
     # UA instead of pretending to be a browser - everything else keeps
@@ -87,16 +93,19 @@ def fetch_url_text(
     if use_curl:
         for attempt in range(max_attempts):
             try:
-                return _fetch_via_curl(url, accept=accept, timeout=timeout, user_agent=user_agent)
+                return _fetch_via_curl(
+                    url, accept=accept, timeout=timeout, user_agent=user_agent, cookie=cookie
+                )
             except (RuntimeError, subprocess.TimeoutExpired):
                 if attempt == max_attempts - 1:
                     raise
                 time.sleep(backoff_seconds * (attempt + 1))
         raise RuntimeError(f"unreachable curl retry loop for {url}")  # pragma: no cover
     for attempt in range(max_attempts):
-        request = Request(
-            url, headers={"Accept": accept, **BROWSER_HEADERS, "User-Agent": user_agent}
-        )
+        headers = {"Accept": accept, **BROWSER_HEADERS, "User-Agent": user_agent}
+        if cookie:
+            headers["Cookie"] = cookie
+        request = Request(url, headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 return response.read().decode("utf-8", errors="replace")
@@ -112,6 +121,7 @@ def fetch_url_text(
                     max_attempts=max_attempts,
                     backoff_seconds=backoff_seconds,
                     user_agent=user_agent,
+                    cookie=cookie,
                     _redirects_followed=_redirects_followed + 1,
                 )
             if error.code not in RETRYABLE_HTTP_STATUSES or attempt == max_attempts - 1:
@@ -197,4 +207,3 @@ class BaseCrawler:
 
     def fetch(self, limit: int | None = None) -> list[RawArticle]:
         raise NotImplementedError
-

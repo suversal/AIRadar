@@ -66,6 +66,29 @@ def _daily_report() -> DailyReport:
 
 
 class BuildAutoCrawlResultsTests(unittest.TestCase):
+    def test_aihot_result_title_links_to_aihot_item_not_third_party_original(self):
+        article = _article("aihot", "aihot_feed")
+        article.source_url = "https://x.com/example/status/123"
+        article.metadata["aihot_permalink"] = "https://aihot.virxact.com/items/item-123"
+        result = PipelineResult(
+            raw_articles=[article],
+            processed_articles=[_processed("aihot", selected=True)],
+            event_clusters=[],
+            daily_report=_daily_report(),
+            skipped_reasons={},
+        )
+
+        merged = _build_auto_crawl_results(
+            {"per_source": {"aihot_feed": {"status": "ok", "duration_ms": 1.0}}},
+            result,
+            now=datetime(2026, 7, 15, 12, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(
+            merged["aihot_feed"]["articles"][0]["url"],
+            "https://aihot.virxact.com/items/item-123",
+        )
+
     def test_reflects_real_saved_and_rejected_outcomes_not_just_fetch_count(self):
         # the crawl-stage report only knows "3 articles accepted into the
         # batch" - the real saved/rejected verdict only exists after AI

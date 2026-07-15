@@ -35,7 +35,13 @@ import re
 from pathlib import Path
 from typing import Any
 
-from app.crawlers.article_content import _CJK_RE, _LATIN_RE, _detect_body_language, extract_article_content
+from app.crawlers.article_content import (
+    CONTENT_EXTRACTION_VERSION,
+    _CJK_RE,
+    _LATIN_RE,
+    _detect_body_language,
+    extract_article_content,
+)
 from app.crawlers.base import canonicalize_url, fetch_url_text, stable_hash
 from app.crawlers.page_content import _throttle_domain
 from app.crawlers.sitemap import _balanced_div_region
@@ -44,10 +50,10 @@ DEFAULT_PAGE_CACHE_DIR = Path("data") / "page_cache"
 
 # identify ourselves instead of pretending to be a browser, per AI HOT's own
 # OpenAPI docs ("脚本和后端服务必须设置能识别自己的非浏览器 User-Agent")
-AIHOT_USER_AGENT = "Pixel"
+AIHOT_USER_AGENT = "HotAI/1.0"
 
-_DT_ARTICLE_OPEN_RE = re.compile(
-    r'<div\b[^>]*class="[^"]*\bdt-article\b[^"]*"[^>]*>', re.IGNORECASE
+_DT_BODY_OPEN_RE = re.compile(
+    r'<div\b[^>]*class="[^"]*\bdt-(?:article|tweet)\b[^"]*"[^>]*>', re.IGNORECASE
 )
 
 # Next.js RSC flight wire format: each streamed chunk is its own
@@ -58,6 +64,42 @@ _BLOCK_TAG_HINT_RE = re.compile(r"<(?:h[1-6]|p|figure|li)\b", re.IGNORECASE)
 # a real article-length chunk, not a stray short string also carrying a
 # couple of tag-looking characters
 _MIN_LATIN_CHARS_FOR_ARTICLE = 200
+
+# AI HOT's HTML route can return a small HTTP-200 JavaScript cookie challenge
+# before the real Next.js page. Its public JSON endpoint does not include the
+# item body, so reproduce that narrowly-scoped handshake and retry once.
+_EO_CHALLENGE_STATUS_RE = re.compile(
+    r"WTKkN:(\d+).*?bOYDu:(\d+).*?wyeCN:(\d+)", re.DOTALL
+)
+_EO_CHALLENGE_SSID_RE = re.compile(
+    r'EO_Bot_Ssid=.*?\]\(t,(\d+)\);continue;case"4"', re.DOTALL
+)
+
+
+def _edge_challenge_cookie(page_html: str) -> str | None:
+    if "EO_Bot_Ssid" not in page_html or "__tst_status" not in page_html:
+        return None
+    status_match = _EO_CHALLENGE_STATUS_RE.search(page_html)
+    ssid_match = _EO_CHALLENGE_SSID_RE.search(page_html)
+    if not status_match or not ssid_match:
+        return None
+    status = sum(int(value) for value in status_match.groups())
+    return f"__tst_status={status}#; EO_Bot_Ssid={ssid_match.group(1)}"
+
+
+def _fetch_aihot_page(permalink_url: str) -> str:
+    page_html = fetch_url_text(
+        permalink_url, accept="text/html, */*", user_agent=AIHOT_USER_AGENT
+    )
+    cookie = _edge_challenge_cookie(page_html)
+    if cookie:
+        page_html = fetch_url_text(
+            permalink_url,
+            accept="text/html, */*",
+            user_agent=AIHOT_USER_AGENT,
+            cookie=cookie,
+        )
+    return page_html
 
 
 def _decode_flight_chunk(raw: str) -> str | None:
@@ -92,7 +134,8 @@ def _extract_english_original_html(page_html: str) -> str | None:
 
 
 def _extract_chinese_body_html(page_html: str) -> str | None:
-    match = _DT_ARTICLE_OPEN_RE.search(page_html)
+    # Long-form/RSS items use dt-article; X items use dt-tweet.
+    match = _DT_BODY_OPEN_RE.search(page_html)
     if not match:
         return None
     return _balanced_div_region(page_html, match)
@@ -142,6 +185,7 @@ def _assign_original_and_translation(
         "original_paragraphs": original["original_paragraphs"],
         "original_images": original["original_images"],
         "original_blocks": original["original_blocks"],
+        "content_extraction_version": CONTENT_EXTRACTION_VERSION,
     }
     if translated and translated["original_paragraphs"]:
         metadata["translated_paragraphs"] = translated["original_paragraphs"]
@@ -169,15 +213,18 @@ def fetch_aihot_item_content(
     )
     if cache_path.exists():
         try:
-            return json.loads(cache_path.read_text(encoding="utf-8"))
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if isinstance(cached, dict) and isinstance(cached.get("metadata"), dict):
+                cached["metadata"].setdefault(
+                    "content_extraction_version", CONTENT_EXTRACTION_VERSION
+                )
+            return cached
         except (OSError, json.JSONDecodeError):
             pass
 
     try:
         _throttle_domain(permalink_url)
-        page_html = fetch_url_text(
-            permalink_url, accept="text/html, */*", user_agent=AIHOT_USER_AGENT
-        )
+        page_html = _fetch_aihot_page(permalink_url)
     except Exception:
         return None
 

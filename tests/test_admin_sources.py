@@ -141,6 +141,9 @@ class AdminSourcesApiTests(unittest.TestCase):
         # actually persisted, not just previewed
         self.assertEqual(len(self.repository.raw_upserts), 1)
         self.assertEqual(len(self.repository.processed_upserts), 1)
+        self.assertTrue(
+            self.repository.raw_upserts[0].metadata.get("translated_paragraphs")
+        )
         self.assertEqual(self.repository.crawl_results[-1][0], "openai_blog")
         self.assertEqual(self.repository.health_updates[-1]["openai_blog"]["status"], "ok")
 
@@ -158,6 +161,12 @@ class AdminSourcesApiTests(unittest.TestCase):
             "final_score": 88.0,
             "category": "model_release",
             "reason": "final_score:88.0>=threshold:65",
+        }
+        self.repository.cached_results["uh-dup"] = {
+            "raw_article_id": "manual-2",
+            "language": "en",
+            "content": "content",
+            "metadata": {"translated_paragraphs": ["缓存译文"]},
         }
 
         class FakeCrawler:
@@ -192,6 +201,187 @@ class AdminSourcesApiTests(unittest.TestCase):
         self.assertEqual(body["articles"][0]["final_score"], 88.0)
         # no re-processing spent on an article we already have a verdict for
         self.assertEqual(len(self.repository.processed_upserts), 0)
+
+    def test_test_endpoint_repairs_missing_translation_for_duplicate(self):
+        from datetime import datetime, timezone
+
+        from app.models.domain import RawArticle
+        from app.services.ai_service import FakeAIProvider
+
+        client = self._client()
+        self.repository.existing_outcomes["uh-repair"] = {
+            "title": "Previously seen article",
+            "url": "https://x.example/repair",
+            "selected": True,
+            "final_score": 88.0,
+            "category": "model_release",
+            "reason": "final_score:88.0>=threshold:65",
+        }
+        self.repository.cached_results["uh-repair"] = {
+            "raw_article_id": "manual-repair",
+            "language": "en",
+            "content": "Full English article body about an OpenAI agent model.",
+            "metadata": {
+                "content_extraction_version": 2,
+                "original_paragraphs": [
+                    "Full English article body about an OpenAI agent model."
+                ],
+                "original_blocks": [
+                    {
+                        "type": "paragraph",
+                        "text": "Full English article body about an OpenAI agent model.",
+                    }
+                ],
+            },
+            "scoring": {
+                "dimensions": {
+                    "ai_relevance": 9,
+                    "novelty": 8,
+                    "impact": 8,
+                    "information_density": 8,
+                    "actionability": 7,
+                    "creator_value": 7,
+                },
+                "category": "model_release",
+                "tags": ["OpenAI"],
+                "title_zh": "既有中文标题",
+                "one_line_summary": "摘要",
+                "summary_zh": "摘要",
+                "reason_zh": "理由",
+                "action_zh": "行动",
+            },
+        }
+
+        class FakeCrawler:
+            def fetch(self, limit=None):
+                return [
+                    RawArticle(
+                        id="fresh-id",
+                        source_id="openai_blog",
+                        source_name="OpenAI Blog",
+                        source_role="authority",
+                        source_tier="T1",
+                        source_url="https://x.example/repair",
+                        title="Previously seen article",
+                        content="RSS teaser",
+                        author="OpenAI",
+                        published_at=datetime.now(timezone.utc),
+                        language="en",
+                        raw_score={},
+                        metadata={"body_fetch": "deferred"},
+                        title_hash="th-repair",
+                        url_hash="uh-repair",
+                    )
+                ]
+
+        class NoRescoreProvider(FakeAIProvider):
+            def score_article(self, title, content):
+                raise AssertionError("cached duplicate must not be rescored")
+
+        with patch("app.crawlers.registry.crawler_for_source", return_value=FakeCrawler()), patch(
+            "app.services.ai_service.provider_from_env", return_value=NoRescoreProvider()
+        ):
+            response = client.post("/api/admin/sources/openai_blog/test", headers=AUTH)
+
+        body = response.json()
+        self.assertEqual(body["articles"][0]["outcome"], "duplicate")
+        self.assertEqual(body["ingested_count"], 0)
+        self.assertEqual(body["accepted_count"], 0)
+        repaired = self.repository.raw_upserts[0]
+        self.assertEqual(repaired.id, "manual-repair")
+        self.assertEqual(repaired.content, "Full English article body about an OpenAI agent model.")
+        self.assertTrue(repaired.metadata.get("translated_paragraphs"))
+
+    def test_test_endpoint_translation_failure_does_not_fail_source_sync(self):
+        from datetime import datetime, timezone
+
+        from app.models.domain import RawArticle
+        from app.services.ai_service import FakeAIProvider
+
+        class FakeCrawler:
+            def fetch(self, limit=None):
+                return [
+                    RawArticle(
+                        id="translation-fails",
+                        source_id="openai_blog",
+                        source_name="OpenAI Blog",
+                        source_role="authority",
+                        source_tier="T1",
+                        source_url="https://x.example/translation-fails",
+                        title="OpenAI agent model update",
+                        content="A sufficiently detailed English article about an AI agent model.",
+                        author="OpenAI",
+                        published_at=datetime.now(timezone.utc),
+                        language="en",
+                        raw_score={},
+                        metadata={},
+                        title_hash="th-translation-fails",
+                        url_hash="uh-translation-fails",
+                    )
+                ]
+
+        class TranslationFailsProvider(FakeAIProvider):
+            def translate_paragraphs(self, paragraphs):
+                raise RuntimeError("translation unavailable")
+
+        with patch("app.crawlers.registry.crawler_for_source", return_value=FakeCrawler()), patch(
+            "app.services.ai_service.provider_from_env",
+            return_value=TranslationFailsProvider(),
+        ):
+            response = self._client().post(
+                "/api/admin/sources/openai_blog/test", headers=AUTH
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "ok")
+        self.assertEqual(
+            self.repository.raw_upserts[0].metadata.get("translation_status"), "failed"
+        )
+
+    def test_test_endpoint_does_not_translate_chinese_article(self):
+        from datetime import datetime, timezone
+
+        from app.models.domain import RawArticle
+        from app.services.ai_service import FakeAIProvider
+
+        class FakeCrawler:
+            def fetch(self, limit=None):
+                return [
+                    RawArticle(
+                        id="manual-zh",
+                        source_id="openai_blog",
+                        source_name="OpenAI Blog",
+                        source_role="authority",
+                        source_tier="T1",
+                        source_url="https://x.example/zh",
+                        title="人工智能代理模型发布",
+                        content="这是一篇介绍人工智能代理模型发布及其工具调用能力的中文正文。",
+                        author="OpenAI",
+                        published_at=datetime.now(timezone.utc),
+                        language="zh",
+                        raw_score={},
+                        metadata={},
+                        title_hash="th-zh",
+                        url_hash="uh-zh",
+                    )
+                ]
+
+        class TranslationMustNotRunProvider(FakeAIProvider):
+            def translate_paragraphs(self, paragraphs):
+                raise AssertionError("Chinese content must not enter translation")
+
+        with patch("app.crawlers.registry.crawler_for_source", return_value=FakeCrawler()), patch(
+            "app.services.ai_service.provider_from_env",
+            return_value=TranslationMustNotRunProvider(),
+        ):
+            response = self._client().post(
+                "/api/admin/sources/openai_blog/test", headers=AUTH
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "ok")
+        self.assertNotIn("translation_status", self.repository.raw_upserts[0].metadata)
+        self.assertNotIn("translated_paragraphs", self.repository.raw_upserts[0].metadata)
 
     def test_test_endpoint_reports_fetch_errors(self):
         client = self._client()
@@ -294,6 +484,14 @@ class _FakeSourceRepository:
         self.crawl_results = []
         self.health_updates = []
         self.existing_outcomes = {}
+        self.cached_results = {}
+
+    def get_cached_results_by_url_hash(self, url_hashes):
+        return {
+            url_hash: self.cached_results[url_hash]
+            for url_hash in url_hashes
+            if url_hash in self.cached_results
+        }
 
     def get_existing_outcome_by_url_hash(self, url_hash):
         return self.existing_outcomes.get(url_hash)

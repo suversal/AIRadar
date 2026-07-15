@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from app.crawlers.base import normalize_article, stable_hash
-from app.crawlers.article_content import CONTENT_EXTRACTION_VERSION
+from app.crawlers.article_content import content_extraction_version_for_url
 from app.crawlers.github_readme import fetch_github_readme, repo_path_from_github_url
 from app.models.domain import (
     DailyReport,
@@ -102,10 +102,38 @@ def _translate_in_chunks(
             time.sleep(2.0)
             return translate(batch)
 
+    def translate_with_fallback(batch: list[str]) -> list[str]:
+        try:
+            return translate_with_retry(batch)
+        except Exception:
+            # Some providers return a truncated/invalid JSON response even when
+            # the request is below our normal chunk limit. Retrying the exact
+            # same payload cannot repair a deterministic output-size failure,
+            # so make one bounded fallback pass with half-sized requests while
+            # preserving the one-output-per-input-paragraph contract.
+            fallback_limit = max(1, chunk_char_limit // 2)
+            can_subdivide = len(batch) > 1 or any(
+                len(paragraph) > fallback_limit for paragraph in batch
+            )
+            if not can_subdivide:
+                raise
+
+            logger.warning(
+                "translation chunk failed after retry; falling back to smaller requests"
+            )
+            recovered: list[str] = []
+            for paragraph in batch:
+                pieces = _split_long_paragraph(paragraph, fallback_limit)
+                translated_pieces: list[str] = []
+                for piece in pieces:
+                    translated_pieces.extend(translate_with_retry([piece]))
+                recovered.append("".join(translated_pieces))
+            return recovered
+
     def flush() -> None:
         nonlocal chunk, chunk_chars
         if chunk:
-            translated.extend(translate_with_retry(chunk))
+            translated.extend(translate_with_fallback(chunk))
             chunk = []
             chunk_chars = 0
 
@@ -117,7 +145,7 @@ def _translate_in_chunks(
             pieces = _split_long_paragraph(paragraph, chunk_char_limit)
             translated_pieces: list[str] = []
             for piece in pieces:
-                translated_pieces.extend(translate_with_retry([piece]))
+                translated_pieces.extend(translate_with_fallback([piece]))
             translated.append("".join(translated_pieces))
             continue
         if chunk and chunk_chars + len(paragraph) > chunk_char_limit:
@@ -271,8 +299,9 @@ def _process_candidate_article(
 
     # 通过预筛(或可信源/复用缓存)后,才为 deferred 文章拉取原文页
     cached_version = int(((cached or {}).get("metadata") or {}).get("content_extraction_version") or 0)
+    required_extraction_version = content_extraction_version_for_url(article.source_url)
     if article.metadata.pop("body_fetch", None) == "deferred" and (
-        scoring is None or cached_version < CONTENT_EXTRACTION_VERSION
+        scoring is None or cached_version < required_extraction_version
     ):
         aihot_permalink = article.metadata.get("aihot_permalink")
         if aihot_permalink:
@@ -737,6 +766,42 @@ def _translate_processed_english_articles(
             future.result()
 
 
+def _hydrate_article_from_cache(article: RawArticle, cached: dict[str, Any]) -> None:
+    """Reuse persisted identity, full content, and expensive derived metadata.
+
+    Shared by the full pipeline and manual per-source sync so both paths make
+    the same cache decision before scoring and translation.
+    """
+    persisted_id = str(cached.get("raw_article_id") or "").strip()
+    if persisted_id:
+        article.id = persisted_id
+    cached_language = str(cached.get("language") or "").strip()
+    if cached_language:
+        article.language = cached_language
+    cached_metadata = cached.get("metadata") or {}
+    for key, value in cached_metadata.items():
+        if key in _CACHED_CONTENT_STRUCTURE_KEYS:
+            continue
+        article.metadata.setdefault(key, value)
+    cached_extraction_version = int(cached_metadata.get("content_extraction_version") or 0)
+    incoming_extraction_version = int(
+        article.metadata.get("content_extraction_version") or 0
+    )
+    needs_deferred_fetch = article.metadata.get("body_fetch") == "deferred"
+    required_extraction_version = content_extraction_version_for_url(article.source_url)
+    reuse_cached_content = cached_extraction_version >= required_extraction_version or (
+        not needs_deferred_fetch
+        and incoming_extraction_version < required_extraction_version
+    )
+    if reuse_cached_content:
+        for key in _CACHED_CONTENT_STRUCTURE_KEYS:
+            if not article.metadata.get(key) and cached_metadata.get(key):
+                article.metadata[key] = cached_metadata[key]
+    cached_content = cached.get("content") or ""
+    if reuse_cached_content and len(cached_content) > len(article.content or ""):
+        article.content = cached_content
+
+
 def run_pipeline(
     *,
     sources: list[Source],
@@ -762,39 +827,7 @@ def run_pipeline(
             article = normalize_article(source=source, **item)
             cached = cached_results.get(article.url_hash)
             if cached:
-                # URL hash is the database uniqueness boundary. A historical
-                # row can have an id derived from an older source URL while a
-                # fresh crawl derives a new id for the same canonical URL.
-                # Every downstream FK must reuse the persisted identity.
-                persisted_id = str(cached.get("raw_article_id") or "").strip()
-                if persisted_id:
-                    article.id = persisted_id
-                # reuse expensive AI artifacts (translations, README selection)
-                # from earlier runs; freshly crawled metadata still wins
-                cached_metadata = cached.get("metadata") or {}
-                for key, value in cached_metadata.items():
-                    if key in _CACHED_CONTENT_STRUCTURE_KEYS:
-                        continue
-                    article.metadata.setdefault(key, value)
-                # content-structure fields: this round's value already exists
-                # (RSS parsing sets it unconditionally, even to []/""), so
-                # setdefault would never apply the cached value - fall back
-                # to it explicitly whenever this round came up empty
-                cached_extraction_version = int(cached_metadata.get("content_extraction_version") or 0)
-                needs_deferred_fetch = article.metadata.get("body_fetch") == "deferred"
-                if cached_extraction_version >= CONTENT_EXTRACTION_VERSION or not needs_deferred_fetch:
-                    for key in _CACHED_CONTENT_STRUCTURE_KEYS:
-                        if not article.metadata.get(key) and cached_metadata.get(key):
-                            article.metadata[key] = cached_metadata[key]
-                # 缓存文章不再拉正文(2026-07-12 流程重排):feed 只带摘要,
-                # 全文以库里存的为准——否则翻译哈希失配、embedding 会用
-                # 摘要重算并覆盖全文向量
-                cached_content = cached.get("content") or ""
-                if (
-                    (cached_extraction_version >= CONTENT_EXTRACTION_VERSION or not needs_deferred_fetch)
-                    and len(cached_content) > len(article.content or "")
-                ):
-                    article.content = cached_content
+                _hydrate_article_from_cache(article, cached)
             raw_articles.append(article)
 
     # 只处理最近 N 天发布(2026-07-12 深夜决策,2026-07-15 从固定"仅当天"

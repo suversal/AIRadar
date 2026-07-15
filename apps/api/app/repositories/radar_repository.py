@@ -1090,6 +1090,7 @@ class RadarRepository:
                 }
             cached[raw.url_hash] = {
                 "raw_article_id": raw.id,
+                "language": raw.language,
                 "scoring": scoring,
                 "skipped_reason": raw.skipped_reason if scoring is None else None,
                 "metadata": metadata,
@@ -1121,10 +1122,11 @@ class RadarRepository:
         if row is None:
             return None
         raw, processed = row
+        result_url = str((raw.raw_metadata or {}).get("aihot_permalink") or raw.source_url)
         if processed is None:
             return {
                 "title": raw.title,
-                "url": raw.source_url,
+                "url": result_url,
                 "selected": None,
                 "final_score": None,
                 "category": None,
@@ -1133,7 +1135,7 @@ class RadarRepository:
         selected = processed.status == "processed"
         return {
             "title": processed.title_zh or raw.title,
-            "url": raw.source_url,
+            "url": result_url,
             "selected": selected,
             "final_score": processed.final_score,
             "category": processed.category,
