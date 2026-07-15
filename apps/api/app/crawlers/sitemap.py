@@ -7,7 +7,13 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.crawlers.article_content import extract_article_content
+from bs4 import BeautifulSoup, Tag
+
+from app.crawlers.article_content import (
+    CONTENT_EXTRACTION_VERSION,
+    extract_article_content,
+    extract_page_byline,
+)
 from app.crawlers.base import (
     BaseCrawler,
     canonicalize_url,
@@ -38,12 +44,12 @@ _CONTENT_DIV_OPEN_RE = re.compile(
 )
 _DIV_TOKEN_RE = re.compile(r"<div\b[^>]*>|</div\s*>", re.IGNORECASE)
 
-# WordPress 常见正文容器（如 qbitai 的 <div class="article">），页面没有
-# 语义化 article/main 标签时的最后回退；贪婪到最后一个 </div>，噪音由
-# 后续段落提取过滤
-_WP_ARTICLE_DIV_RE = re.compile(
-    r'<div\b[^>]*class="[^"]*\b(?:article|entry-content|post-content|article-content)\b[^"]*".*</div>',
-    re.IGNORECASE | re.DOTALL,
+# WordPress 常见正文容器。这里只匹配开标签，再用深度计数找到它自己的
+# 闭标签；绝不能贪婪到页面最后一个 </div>，否则作者列表和热门推荐都会
+# 混入正文。
+_WP_ARTICLE_DIV_OPEN_RE = re.compile(
+    r'<div\b[^>]*class="[^"]*\b(?:article|entry-content|post-content|article-content)\b[^"]*"[^>]*>',
+    re.IGNORECASE,
 )
 _TAG_STRIP_RE = re.compile(r"<[^>]+>")
 
@@ -134,27 +140,34 @@ def main_content_region(html_text: str) -> str | None:
     explicit content-marker divs (blog-content etc., tighter than <main>
     which can also hold comment/recommendation widgets), then <main>,
     then WordPress-style content divs (qbitai has no semantic tags)."""
-    html_text = _ASIDE_RE.sub("", html_text)
-    articles = _ARTICLE_REGION_RE.findall(html_text)
-    substantial = [a for a in articles if _region_text_length(a) >= REGION_MIN_TEXT_CHARS]
-    if substantial:
-        return max(substantial, key=_region_text_length)
-    marker_regions = [
-        region
-        for region in (
-            _balanced_div_region(html_text, open_match)
-            for open_match in _CONTENT_DIV_OPEN_RE.finditer(html_text)
-        )
-        if _region_text_length(region) >= REGION_MIN_TEXT_CHARS
-    ]
-    if marker_regions:
-        return max(marker_regions, key=_region_text_length)
-    match = _MAIN_REGION_RE.search(html_text)
-    if match and _region_text_length(match.group(0)) >= REGION_MIN_TEXT_CHARS:
-        return match.group(0)
-    match = _WP_ARTICLE_DIV_RE.search(html_text)
-    if match and _region_text_length(match.group(0)) >= REGION_MIN_TEXT_CHARS:
-        return match.group(0)
+    soup = BeautifulSoup(html_text, "html.parser")
+    for node in soup.select("nav, aside, footer, form, .comments, .related, .recommend, .sharing"):
+        node.decompose()
+
+    def pick(selectors: tuple[str, ...]) -> str | None:
+        candidates: list[Tag] = []
+        for selector in selectors:
+            candidates.extend(soup.select(selector))
+        substantial = [
+            candidate for candidate in candidates
+            if len(clean_text(candidate.get_text(" ", strip=True))) >= REGION_MIN_TEXT_CHARS
+        ]
+        if not substantial:
+            return None
+        return str(max(substantial, key=lambda value: len(clean_text(value.get_text(" ", strip=True)))))
+
+    # Semantic roots first, then explicit content containers, then broad main.
+    # A bare .article is intentionally last: it is a common WordPress fallback,
+    # but also a frequent card class.
+    for selectors in (
+        ("article",),
+        (".blog-content", ".entry-content", ".post-content", ".article-content", ".post-body", ".article-body"),
+        ("main",),
+        (".article",),
+    ):
+        region = pick(selectors)
+        if region:
+            return region
     return None
 
 
@@ -190,6 +203,8 @@ class SitemapCrawler(BaseCrawler):
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return None
+        if int((cached.get("metadata") or {}).get("content_extraction_version") or 0) != CONTENT_EXTRACTION_VERSION:
+            return None
         cached_lastmod = cached.get("lastmod")
         current_lastmod = lastmod.isoformat() if lastmod else None
         # refetch when the sitemap advertises a newer revision (or we cannot compare)
@@ -219,12 +234,25 @@ class SitemapCrawler(BaseCrawler):
         region = main_content_region(page_html)
         if region:
             extracted = extract_article_content(region, base_url=loc, title=title)
+            if not extracted.get("author_detected"):
+                byline = extract_page_byline(page_html, base_url=loc)
+                if byline:
+                    extracted["original_blocks"].insert(0, byline)
+                    extracted["author_detected"] = True
             if extracted["original_paragraphs"]:
                 metadata.update(
                     {
                         "original_paragraphs": extracted["original_paragraphs"],
                         "original_images": extracted["original_images"],
                         "original_blocks": extracted["original_blocks"],
+                        "original_text": extracted["original_text"],
+                        "content_extraction_version": CONTENT_EXTRACTION_VERSION,
+                        "content_profile": extracted["content_profile"],
+                        "content_extraction_diagnostics": {
+                            "filtered_blocks": extracted["filtered_blocks"],
+                            "author_detected": extracted["author_detected"],
+                            "kept_blocks": len(extracted["original_blocks"]),
+                        },
                     }
                 )
                 content = extracted["original_text"] or description

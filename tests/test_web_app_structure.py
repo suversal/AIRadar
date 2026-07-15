@@ -402,7 +402,7 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("ArticleReadingToggle", event_page)
         self.assertIn("translatedBlocksFor", event_page)
         self.assertIn("Sidebar", event_page)
-        self.assertIn("lg:grid-cols-[224px_1fr]", event_page)
+        self.assertIn("lg:grid-cols-[224px_minmax(0,1fr)]", event_page)
         self.assertIn("lg:sticky", (WEB / "components" / "sidebar.tsx").read_text(encoding="utf-8"))
         self.assertIn("显示原文", reading_toggle)
         self.assertIn("显示译文", reading_toggle)
@@ -422,7 +422,10 @@ class WebAppStructureTests(unittest.TestCase):
         # block-level image rendering (isReadmeInlineImage/readmeImageClassName
         # applied to a block's own url) now lives in the shared renderer
         self.assertIn("isReadmeInlineImage", original_block)
-        self.assertIn("readmeImageClassName({ src: block.url })", original_block)
+        self.assertIn(
+            "readmeImageClassName({ src: block.url, width: block.width, height: block.height })",
+            original_block,
+        )
         self.assertIn("renderOriginalBlock", reading_toggle)
         self.assertIn("cleanTableElementProps", reading_toggle)
         self.assertIn("vAlign", reading_toggle)
@@ -430,7 +433,7 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("cleanTableElementProps(props)", reading_toggle)
         self.assertIn("img.shields.io", original_block)
         self.assertIn("inline-block h-auto w-auto max-w-full", original_block)
-        self.assertIn("block h-auto max-w-full", original_block)
+        self.assertIn("block h-auto w-auto max-w-full", original_block)
         self.assertIn("use client", reading_toggle)
         self.assertNotIn("返回最新情报", event_page)
         self.assertNotIn("报告正文", event_page)

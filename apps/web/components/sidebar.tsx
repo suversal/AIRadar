@@ -2,7 +2,7 @@ import { navGroupItems } from "./nav";
 
 export function Sidebar({ activeNavId }: { activeNavId: string }) {
   return (
-    <aside className="border-b border-line bg-panel px-3 py-4 lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
+    <aside className="min-w-0 border-b border-line bg-panel px-3 py-4 lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
       <a className="block rounded-md border border-line bg-panel px-4 py-4" href="/latest">
         <div aria-label="AI·RADAR" className="text-lg font-semibold tracking-[0.15em] text-ink">
           AI<span className="text-signal">·RADAR</span>

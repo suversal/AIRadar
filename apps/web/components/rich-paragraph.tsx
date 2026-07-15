@@ -5,12 +5,12 @@ import { articleSanitizeSchema } from "@/lib/sanitize-schema";
 
 const inlineComponents: Components = {
   p({ node: _node, ...props }) {
-    return <p className="text-[17px] leading-8 text-ink" {...props} />;
+    return <p className="break-words text-[17px] leading-8 text-ink [overflow-wrap:anywhere]" {...props} />;
   },
   a({ node: _node, ...props }) {
     return (
       <a
-        className="text-signal underline decoration-signal/40 underline-offset-4 hover:text-signal-bright"
+        className="break-words text-signal underline decoration-signal/40 underline-offset-4 [overflow-wrap:anywhere] hover:text-signal-bright"
         rel="noreferrer"
         target="_blank"
         {...props}
@@ -40,7 +40,7 @@ const inlineComponents: Components = {
  *  (links, bold, emphasis, code, color) when the crawler captured any. */
 export function RichParagraph({ text, html }: { text: string; html?: string }) {
   if (!html) {
-    return <p className="text-[17px] leading-8 text-ink">{text}</p>;
+    return <p className="break-words text-[17px] leading-8 text-ink [overflow-wrap:anywhere]">{text}</p>;
   }
   return (
     <ReactMarkdown

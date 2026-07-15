@@ -122,10 +122,10 @@ export default async function EventDetailPage({ params }: { params: EventParams 
 
   return (
     <main className="min-h-screen bg-canvas text-ink">
-      <div className="grid min-h-screen lg:grid-cols-[224px_1fr]">
+      <div className="grid min-h-screen grid-cols-[minmax(0,1fr)] lg:grid-cols-[224px_minmax(0,1fr)]">
         <Sidebar activeNavId="latest" />
 
-        <section className="px-5 py-8 md:py-12">
+        <section className="min-w-0 px-5 py-8 md:py-12">
           <div className="mx-auto max-w-4xl">
             <header>
               <div className="flex flex-wrap items-center justify-end gap-2">

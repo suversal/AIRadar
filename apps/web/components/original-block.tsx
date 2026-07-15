@@ -2,6 +2,7 @@ import type { OriginalBlock } from "@/lib/api";
 import { proxiedImageUrl } from "@/lib/images";
 import { RichParagraph } from "@/components/rich-paragraph";
 import { ArticleImage } from "@/components/article-image";
+import { AuthorAvatar } from "@/components/author-avatar";
 
 // shared with markdownComponents' h1/h2/h3 in article-reading-toggle.tsx so
 // a heading looks the same whether it arrived as a structured block (this
@@ -52,7 +53,7 @@ export function readmeImageClassName(options: { src?: string; width?: unknown; h
   if (isReadmeInlineImage(options)) {
     return "inline-block h-auto w-auto max-w-full align-middle";
   }
-  return "my-8 block h-auto max-w-full rounded-md border border-line object-contain";
+  return "mx-auto my-8 block h-auto w-auto max-w-full rounded-md border border-line object-contain";
 }
 
 function renderHeading(block: Extract<OriginalBlock, { type: "heading" }>, index: number) {
@@ -76,8 +77,11 @@ export function renderOriginalBlock(block: OriginalBlock, index: number) {
     return renderHeading(block, index);
   }
   if (block.type === "image") {
-    const imageClassName = readmeImageClassName({ src: block.url });
-    if (isReadmeInlineImage({ src: block.url })) {
+    const imageClassName = readmeImageClassName({ src: block.url, width: block.width, height: block.height });
+    const imageStyle = block.width
+      ? { width: `min(100%, ${block.width}px)`, maxWidth: "100%" }
+      : undefined;
+    if (isReadmeInlineImage({ src: block.url, width: block.width, height: block.height })) {
       return (
         <ArticleImage
           key={`${block.url}-${index}`}
@@ -85,6 +89,9 @@ export function renderOriginalBlock(block: OriginalBlock, index: number) {
           alt={block.alt ?? ""}
           className={imageClassName}
           fallbackUrl={block.fallback_url}
+          width={block.width}
+          height={block.height}
+          style={imageStyle}
         />
       );
     }
@@ -95,12 +102,64 @@ export function renderOriginalBlock(block: OriginalBlock, index: number) {
           alt={block.alt ?? ""}
           className={imageClassName}
           fallbackUrl={block.fallback_url}
+          width={block.width}
+          height={block.height}
+          style={imageStyle}
         />
         {block.caption ? (
           <figcaption className="mt-2 text-center text-sm text-ink-mid">{block.caption}</figcaption>
         ) : null}
       </figure>
     );
+  }
+  if (block.type === "byline") {
+    const authorName = block.author.name;
+    const authorContent = <span className="font-semibold text-ink">{authorName}</span>;
+    return (
+      <section key={`byline-${index}`} className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 border-y border-line py-4 text-sm text-ink-mid">
+        <AuthorAvatar name={authorName} src={block.author.avatar_url} />
+        <div className="min-w-0 flex-1">
+          <div>{block.author.url ? <a href={block.author.url} target="_blank" rel="noopener noreferrer" className="hover:text-signal">{authorContent}</a> : authorContent}</div>
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-dim">
+            {block.published_at ? <time>{block.published_at}</time> : null}
+            {block.source ? (
+              <span>来源：{block.source.url ? <a className="text-signal hover:text-signal-bright" href={block.source.url} target="_blank" rel="noopener noreferrer">{block.source.name}</a> : block.source.name}</span>
+            ) : null}
+          </div>
+        </div>
+      </section>
+    );
+  }
+  if (block.type === "callout") {
+    return (
+      <aside key={`callout-${index}`} className={`rounded-md border px-5 py-4 ${block.kind === "lead" ? "border-signal/30 bg-signal/5" : "border-line-strong bg-panel-soft"}`}>
+        <div className="space-y-3">{block.children.map(renderOriginalBlock)}</div>
+      </aside>
+    );
+  }
+  if (block.type === "list") {
+    const Tag = block.ordered ? "ol" : "ul";
+    return (
+      <Tag key={`list-${index}`} className={`ml-6 space-y-2 text-[17px] leading-8 text-ink ${block.ordered ? "list-decimal" : "list-disc"}`}>
+        {block.items.map((item, itemIndex) => <li key={`${item.text}-${itemIndex}`} className="pl-1"><RichParagraph text={item.text} html={item.html} /></li>)}
+      </Tag>
+    );
+  }
+  if (block.type === "code") {
+    return <pre key={`code-${index}`} className="max-w-full overflow-x-auto rounded-md border border-line-strong bg-panel-soft p-4 text-sm leading-6 text-ink"><code>{block.text}</code></pre>;
+  }
+  if (block.type === "table") {
+    return (
+      <div key={`table-${index}`} className="max-w-full overflow-x-auto rounded-md border border-line-strong">
+        <table className="min-w-full border-collapse text-left text-sm text-ink">
+          {block.headers.length ? <thead className="bg-panel-soft"><tr>{block.headers.map((cell, cellIndex) => <th key={cellIndex} className="border-b border-line-strong px-4 py-3 font-semibold"><RichParagraph text={cell.text} html={cell.html} /></th>)}</tr></thead> : null}
+          <tbody>{block.rows.map((row, rowIndex) => <tr key={rowIndex} className="border-b border-line last:border-b-0">{row.map((cell, cellIndex) => <td key={cellIndex} className="min-w-36 px-4 py-3 align-top"><RichParagraph text={cell.text} html={cell.html} /></td>)}</tr>)}</tbody>
+        </table>
+      </div>
+    );
+  }
+  if (block.type === "divider") {
+    return <hr key={`divider-${index}`} className="border-0 border-t border-line-strong" />;
   }
   if (block.type === "source_list") {
     return (
@@ -127,8 +186,7 @@ export function renderOriginalBlock(block: OriginalBlock, index: number) {
     );
   }
   if (block.type === "quote") {
-    const label =
-      block.kind === "reply" ? "回复上文" : block.kind === "update" ? "更新记录" : "引用";
+    const label = block.kind === "reply" ? "回复上文" : block.kind === "update" ? "更新记录" : null;
     const tone =
       block.kind === "reply"
         ? "border-signal/45 bg-signal/5"
@@ -137,8 +195,8 @@ export function renderOriginalBlock(block: OriginalBlock, index: number) {
           : "border-line-strong bg-panel-soft";
     return (
       <aside key={`${block.kind}-${index}`} className={`border-l-2 p-4 ${tone}`}>
-        <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
-          <span className="font-semibold text-signal-bright">{block.label ?? label}</span>
+        {(block.label || label || block.source_url || block.author) ? <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+          {block.label || label ? <span className="font-semibold text-signal-bright">{block.label ?? label}</span> : <span />}
           {block.source_url ? (
             <a
               className="text-signal hover:text-signal-bright"
@@ -151,7 +209,7 @@ export function renderOriginalBlock(block: OriginalBlock, index: number) {
           ) : block.author ? (
             <span className="text-ink-dim">{block.author}</span>
           ) : null}
-        </div>
+        </div> : null}
         {block.children.length ? (
           <div className="mt-4 space-y-4">{block.children.map(renderOriginalBlock)}</div>
         ) : null}

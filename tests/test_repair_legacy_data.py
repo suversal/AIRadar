@@ -336,6 +336,30 @@ class RepairLegacyDataTests(unittest.TestCase):
         self.assertEqual(translation.translated_paragraphs, ["旧译文"])
         self.assertEqual(translation.status, "failed")
 
+    def test_full_page_candidate_scan_is_versioned_and_resumable(self):
+        from app.db.models import RawArticleModel
+
+        with self.Session() as session:
+            self._seed_event(session, drift_link=False)
+            first = session.get(RawArticleModel, "a1")
+            first.raw_metadata = {"content_origin": "full_page", "content_extraction_version": 1}
+            second = RawArticleModel(
+                id="a2", source_id=first.source_id,
+                source_url="https://openai.com/a2", title="A2", content="body",
+                author=None, published_at=first.published_at, language="en",
+                raw_metadata={"content_origin": "full_page", "content_extraction_version": 2},
+                title_hash="t-a2", url_hash="u-a2", status="raw",
+            )
+            session.add(second)
+            session.commit()
+
+            self.assertEqual(
+                repair_legacy_data.find_full_page_articles_needing_reextraction(session), ["a1"]
+            )
+            self.assertEqual(
+                repair_legacy_data.find_full_page_articles_needing_reextraction(session, resume_after="a1"), []
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

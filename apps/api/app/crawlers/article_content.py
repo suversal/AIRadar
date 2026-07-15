@@ -1,159 +1,83 @@
 from __future__ import annotations
 
 import html as html_module
+import json
 import re
-from html.parser import HTMLParser
-from typing import Any
-from urllib.parse import urljoin
+from dataclasses import dataclass
+from typing import Any, Iterable
+from urllib.parse import urljoin, urlparse
+
+from bs4 import BeautifulSoup, NavigableString, Tag
 
 from app.crawlers.base import clean_text
 
-BLOCK_TAGS = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "li"}
-HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
-SKIP_TAGS = {"script", "style", "noscript"}
-# inline markup preserved in the block's optional html payload
-INLINE_TAGS = {"a", "strong", "b", "em", "i", "code"}
-# span/font carry inline color, handled separately from INLINE_TAGS because
-# they need attribute parsing (style="color: ...") rather than a fixed tag
-# name - see _open_color_tag
-COLOR_INLINE_TAGS = {"span", "font"}
-_INLINE_CANONICAL = {"b": "strong", "i": "em", "font": "span"}
-SAFE_HREF_SCHEMES = ("http://", "https://")
+CONTENT_EXTRACTION_VERSION = 2
 MAX_BLOCKS = 120
 MAX_IMAGES = 30
+MAX_QUOTE_DEPTH = 4
+MAX_TABLE_ROWS = 100
+MAX_TABLE_COLUMNS = 20
 
-# Only a tightly-scoped color value is ever forwarded to the browser - this
-# guards against style-based injection (url(), expression(), embedded `;`
-# smuggling extra declarations) since the frontend renders it as an actual
-# inline `style` attribute.
+SAFE_HREF_SCHEMES = ("http://", "https://")
+INLINE_TAGS = {"a", "strong", "b", "em", "i", "code", "del", "s", "sup", "sub", "mark"}
+SKIP_TAGS = {"script", "style", "noscript", "iframe", "object", "embed", "form", "nav", "aside", "footer"}
+
 _HEX_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
 _RGB_COLOR_RE = re.compile(
     r"^rgba?\(\s*\d{1,3}%?\s*,\s*\d{1,3}%?\s*,\s*\d{1,3}%?\s*(?:,\s*(?:0|1|0?\.\d+)\s*)?\)$"
 )
 _NAMED_COLORS = {
     "red", "orange", "yellow", "green", "blue", "purple", "black", "white",
-    "gray", "grey", "pink", "brown", "cyan", "magenta", "gold", "navy",
-    "teal", "maroon", "olive", "silver", "crimson", "indigo", "violet",
-    "coral", "salmon", "khaki", "orchid", "tomato", "chocolate", "tan",
+    "gray", "grey", "pink", "brown", "cyan", "magenta", "gold", "navy", "teal",
+    "maroon", "olive", "silver", "crimson", "indigo", "violet", "coral", "salmon",
+    "khaki", "orchid", "tomato", "chocolate", "tan",
 }
-_STYLE_COLOR_RE = re.compile(r"color\s*:\s*([^;]+)", re.IGNORECASE)
-# User-avatar widgets (upvoters, commenters, byline author photo) sit inside
-# the same <article>/<main> region as the real post on some sites (e.g.
-# HuggingFace's "who liked this" avatar stack, the-decoder.com's byline) -
-# these are never article content regardless of which site hosts them.
-_AVATAR_HOST_MARKERS = (
-    "cdn-avatars.",
-    "avatars.githubusercontent.com",
-    "gravatar.com",
-    "/avatars/",
+_STYLE_COLOR_RE = re.compile(r"(?:^|;)\s*color\s*:\s*([^;]+)", re.IGNORECASE)
+_CJK_RE = re.compile(r"[一-鿿]")
+_LATIN_RE = re.compile(r"[A-Za-z]")
+_AVATAR_RE = re.compile(r"(?:avatar|author[-_ ]?(?:image|photo)|profile[-_ ]?(?:image|photo))", re.I)
+_LOGO_ICON_RE = re.compile(r"(?:logo|icon|qrcode|qr-code|wechat)", re.I)
+_BOILERPLATE_RE = re.compile(
+    r"转载|版权所有|寻求报道|如需转载|合作请联系|未经授权|未经许可|免责声明|原创出品|本文图片来自|"
+    r"加入我们|商务合作|扫码关注|all rights reserved|阅读原文|查看原文|点击查看原文",
+    re.I,
 )
-# "avatar" as a path/filename token (not just a specific host) - real cases:
-# the-decoder.com's own-origin /resources/images/avatar_matthias_bastian.jpg,
-# a WordPress theme's blank-avatar.png. Broad but low-risk: profile-picture
-# filenames reliably carry this word; genuine content images essentially
-# never do.
-_AVATAR_FILENAME_RE = re.compile(r"avatar", re.IGNORECASE)
-
-# Trailing site furniture (copyright notices, "seeking tips" CTAs, image
-# credit lines) that sites like qbitai/36kr render inside the same content
-# container as the real article body, with no markup boundary to separate
-# them. Only checked against the last few blocks (see
-# _TRAILING_BOILERPLATE_SCAN_DEPTH) so a legitimate paragraph that happens to
-# mention "版权" mid-article is never touched.
-_TRAILING_BOILERPLATE_RE = re.compile(
-    r"转载|版权所有|寻求报道|本文图片来自|如需转载|合作请联系|未经授权|未经许可|免责声明|原创出品|"
-    r"加入我们|商务合作|扫码关注|Subscribe to|all rights reserved|"
-    r"阅读原文|查看原文|原文链接|点击查看原文|查看原帖|原帖地址",
-    re.IGNORECASE,
+_GENERIC_EXCLUDE_SELECTORS = (
+    ".related", ".recommend", ".recommended", ".comments", ".comment", ".share",
+    ".sharing", ".subscribe", ".newsletter", ".tags", ".tag-list", ".post-tags",
+    ".author-posts", ".more-posts", ".popular-posts", ".hot-posts", ".person_box",
+    "[class*='related-']", "[class*='recommend-']", "[class*='comment-']",
+    "[class*='share-']", "[class*='subscribe-']",
 )
-# a trailing paragraph whose entire text is a single bare URL (aggregators
-# like AI HOT append a "阅读原文：<url>" style link-out line directly inside
-# the same content region as the real body, with no distinguishing markup)
-_BARE_URL_RE = re.compile(r"^https?://\S+$", re.IGNORECASE)
-# a bare "关于量子位"/"关于我们"/"关于36氪" site-info line - the exact site
-# name varies per source, so this can't be a fixed keyword; short length
-# guards against matching real prose like "关于这个问题的讨论仍在继续"
-_TRAILING_ABOUT_LINE_RE = re.compile(r"^关于.{0,8}$")
-# a short paragraph whose only content is a link's anchor text (e.g. a bare
-# "寻求报道" CTA) - real prose this short essentially never stands alone
-_TRAILING_SHORT_LINK_MAX_CHARS = 15
-# real qbitai footers run: 关于X / 加入我们 / 寻求报道 / 商务合作 / 扫码关注X
-# / qrcode image - deep enough to cover that plus a couple of copyright lines
-_TRAILING_BOILERPLATE_SCAN_DEPTH = 10
 
 
-def _looks_like_trailing_boilerplate(block: dict[str, Any]) -> bool:
-    if block.get("type") != "paragraph":
-        return False
-    text = str(block.get("text") or "").strip()
-    if _TRAILING_BOILERPLATE_RE.search(text) or _TRAILING_ABOUT_LINE_RE.match(text):
-        return True
-    if _BARE_URL_RE.match(text):
-        return True
-    html = str(block.get("html") or "")
-    if html and len(text) <= _TRAILING_SHORT_LINK_MAX_CHARS:
-        stripped = re.sub(r"</?a[^>]*>", "", html)
-        if stripped.strip() == text.strip():
-            return True
-    return False
+@dataclass(frozen=True)
+class ContentProfile:
+    name: str
+    hosts: tuple[str, ...]
+    root_selectors: tuple[str, ...] = ()
+    byline_selectors: tuple[str, ...] = ()
+    lead_selectors: tuple[str, ...] = ()
+    exclude_selectors: tuple[str, ...] = ()
 
 
-def _strip_trailing_boilerplate(
-    blocks: list[dict[str, Any]], paragraphs: list[str]
-) -> tuple[list[dict[str, Any]], list[str], set[str]]:
-    """Drop trailing paragraph blocks that are site furniture, not article
-    body. Scans backward from the end and stops at the first block that
-    doesn't match, so a legitimate paragraph earlier in the article (that
-    happens to mention "版权" or similar) is never removed. Trailing images
-    (a footer qrcode/logo, real case: qbitai) are skipped over rather than
-    treated as a stop condition, so the scan can still reach the boilerplate
-    paragraphs sitting right before them - but only actually dropped if the
-    scan finds a matching paragraph further back to anchor the cutoff on.
-    Returns the dropped image URLs too, so the caller can also filter them
-    out of the flat `original_images` list."""
-    cutoff = len(blocks)
-    scan_start = max(0, len(blocks) - _TRAILING_BOILERPLATE_SCAN_DEPTH)
-    for index in range(len(blocks) - 1, scan_start - 1, -1):
-        if blocks[index].get("type") == "image":
-            continue
-        if not _looks_like_trailing_boilerplate(blocks[index]):
-            break
-        cutoff = index
-    if cutoff == len(blocks):
-        return blocks, paragraphs, set()
-    # `paragraphs` only ever grows via the same append that adds a paragraph
-    # block, in the same order - so the tail of `paragraphs` lines up with
-    # the tail paragraph-type blocks being dropped here. Trim by count, not
-    # by text match, so a duplicate legitimate paragraph earlier in the
-    # article is never accidentally removed too.
-    dropped_paragraph_count = sum(
-        1 for block in blocks[cutoff:] if block.get("type") == "paragraph"
-    )
-    kept_paragraphs = (
-        paragraphs[:-dropped_paragraph_count] if dropped_paragraph_count else paragraphs
-    )
-    dropped_image_urls = {
-        block["url"] for block in blocks[cutoff:] if block.get("type") == "image"
-    }
-    return blocks[:cutoff], kept_paragraphs, dropped_image_urls
+CONTENT_PROFILES = (
+    ContentProfile(
+        name="qbitai-v1",
+        hosts=("qbitai.com", "www.qbitai.com"),
+        root_selectors=(".article",),
+        byline_selectors=(".article_info",),
+        lead_selectors=(".zhaiyao",),
+        exclude_selectors=(".copyright", ".article-copyright", ".post-copyright"),
+    ),
+)
 
 
 def _normalize_for_comparison(text: str) -> str:
     return re.sub(r"[^\w一-鿿]", "", text or "").lower()
 
 
-# shared CJK/Latin script detection, used by page_content.py (re-labeling a
-# full-page fetch's language) and aihot_content.py (deciding which of the two
-# extracted language blocks is actually the original vs AI HOT's own
-# translation) - kept in one place so the two never drift apart
-_CJK_RE = re.compile(r"[一-鿿]")
-_LATIN_RE = re.compile(r"[A-Za-z]")
-
-
 def _detect_body_language(text: str) -> str | None:
-    """Best-effort script detection for an article body. Returns None when
-    the signal is ambiguous so the caller keeps whatever label it already
-    had."""
     cjk = len(_CJK_RE.findall(text))
     latin = len(_LATIN_RE.findall(text))
     if cjk >= 50 or (cjk > 0 and cjk * 4 >= latin):
@@ -163,201 +87,419 @@ def _detect_body_language(text: str) -> str | None:
     return None
 
 
-def _safe_color_value(value: str) -> str | None:
-    candidate = value.strip().strip(";").strip()
-    if not candidate:
+def profile_for_url(base_url: str | None) -> ContentProfile | None:
+    host = urlparse(base_url or "").netloc.lower().split(":", 1)[0]
+    return next((profile for profile in CONTENT_PROFILES if host in profile.hosts), None)
+
+
+def _safe_url(value: str | None, base_url: str | None) -> str | None:
+    if not value:
         return None
-    if _HEX_COLOR_RE.match(candidate):
+    resolved = urljoin(base_url or "", value.strip())
+    return resolved if resolved.lower().startswith(SAFE_HREF_SCHEMES) else None
+
+
+def _safe_color(value: str | None) -> str | None:
+    candidate = (value or "").strip().strip(";").strip()
+    if _HEX_COLOR_RE.fullmatch(candidate):
         return candidate.lower()
-    if _RGB_COLOR_RE.match(candidate.replace(" ", "")):
+    if _RGB_COLOR_RE.fullmatch(candidate):
         return candidate
-    if candidate.lower() in _NAMED_COLORS:
-        return candidate.lower()
+    return candidate.lower() if candidate.lower() in _NAMED_COLORS else None
+
+
+def _inline_parts(node: Tag | NavigableString, *, base_url: str | None) -> tuple[str, str, bool]:
+    if isinstance(node, NavigableString):
+        value = str(node)
+        return value, html_module.escape(value, quote=False), False
+    if not isinstance(node, Tag) or node.name in SKIP_TAGS:
+        return "", "", False
+    text_parts: list[str] = []
+    html_parts: list[str] = []
+    has_markup = False
+    for child in node.children:
+        text, safe_html, child_markup = _inline_parts(child, base_url=base_url)
+        text_parts.append(text)
+        html_parts.append(safe_html)
+        has_markup = has_markup or child_markup
+    inner_text = "".join(text_parts)
+    inner_html = "".join(html_parts)
+    tag = node.name.lower()
+    if tag == "br":
+        return " ", " ", False
+    if tag not in INLINE_TAGS and tag not in {"span", "font"}:
+        return inner_text, inner_html, has_markup
+    canonical = {"b": "strong", "i": "em", "s": "del", "font": "span"}.get(tag, tag)
+    attrs = ""
+    if canonical == "a":
+        href = _safe_url(node.get("href"), base_url)
+        if not href:
+            return inner_text, inner_html, has_markup
+        attrs = f' href="{html_module.escape(href, quote=True)}"'
+    elif canonical == "span":
+        raw_color = node.get("color") if tag == "font" else None
+        if not raw_color:
+            match = _STYLE_COLOR_RE.search(str(node.get("style") or ""))
+            raw_color = match.group(1) if match else None
+        color = _safe_color(raw_color)
+        if not color:
+            return inner_text, inner_html, has_markup
+        attrs = f' style="color: {html_module.escape(color, quote=True)}"'
+    return inner_text, f"<{canonical}{attrs}>{inner_html}</{canonical}>", True
+
+
+def _inline_content(node: Tag, *, base_url: str | None) -> dict[str, str] | None:
+    text_raw, inline_html_raw, has_markup = _inline_parts(node, base_url=base_url)
+    text = clean_text(text_raw)
+    if not text:
+        return None
+    result = {"text": text}
+    inline_html = clean_text(inline_html_raw)
+    if has_markup and inline_html and inline_html != text:
+        result["html"] = inline_html
+    return result
+
+
+def _int_attr(value: Any) -> int | None:
+    match = re.search(r"\d+", str(value or ""))
+    if not match:
+        return None
+    number = int(match.group(0))
+    return number if 0 < number <= 10000 else None
+
+
+def _is_noncontent_image(node: Tag, url: str) -> bool:
+    tokens = " ".join(
+        [url, str(node.get("class") or ""), str(node.get("id") or ""),
+         str(node.parent.get("class") if isinstance(node.parent, Tag) else "")]
+    )
+    return bool(_AVATAR_RE.search(tokens) or _LOGO_ICON_RE.search(tokens))
+
+
+def _first_selected(root: Tag, selectors: Iterable[str]) -> Tag | None:
+    for selector in selectors:
+        selected = root.select_one(selector)
+        if selected:
+            return selected
     return None
 
 
-def _color_from_attrs(tag: str, attrs: dict[str, str | None]) -> str | None:
-    if tag == "font":
-        raw = attrs.get("color")
-    else:
-        style = attrs.get("style") or ""
-        match = _STYLE_COLOR_RE.search(style)
-        raw = match.group(1) if match else None
-    if not raw:
+def _byline_from_dom(root: Tag, profile: ContentProfile | None, base_url: str | None) -> dict[str, Any] | None:
+    container = _first_selected(root, profile.byline_selectors if profile else ())
+    if not container:
         return None
-    return _safe_color_value(raw)
+    author_node = container.select_one(".author")
+    author_link = author_node.select_one("a[href]") if author_node else container.select_one("[rel='author']")
+    author_name = clean_text((author_link or author_node or container).get_text(" ", strip=True))
+    if not author_name:
+        return None
+    author: dict[str, Any] = {"name": author_name}
+    if author_link:
+        author_url = _safe_url(author_link.get("href"), base_url)
+        if author_url:
+            author["url"] = author_url
+    avatar = author_node.select_one("img") if author_node else None
+    if avatar:
+        avatar_url = _safe_url(avatar.get("src") or avatar.get("data-src"), base_url)
+        if avatar_url:
+            author["avatar_url"] = avatar_url
+    result: dict[str, Any] = {"type": "byline", "author": author}
+    date_node = container.select_one(".date, time[datetime]")
+    time_node = container.select_one(".time")
+    published = " ".join(
+        part for part in [
+            str(date_node.get("datetime") or "") if date_node and date_node.has_attr("datetime") else clean_text(date_node.get_text(" ", strip=True)) if date_node else "",
+            clean_text(time_node.get_text(" ", strip=True)) if time_node else "",
+        ] if part
+    )
+    if published:
+        result["published_at"] = published
+    source_node = container.select_one(".from")
+    if source_node:
+        source_link = source_node.select_one("a[href]")
+        source_name = clean_text((source_link or source_node).get_text(" ", strip=True)).removeprefix("来源：").strip()
+        if source_name:
+            source: dict[str, str] = {"name": source_name}
+            source_url = _safe_url(source_link.get("href"), base_url) if source_link else None
+            if source_url:
+                source["url"] = source_url
+            result["source"] = source
+    return result
 
 
-class ArticleContentParser(HTMLParser):
-    def __init__(self, *, base_url: str | None = None):
-        super().__init__(convert_charrefs=True)
+def extract_page_byline(html_text: str, *, base_url: str | None = None) -> dict[str, Any] | None:
+    """Best-effort page-level fallback after the visible profile byline.
+    JSON-LD wins over meta because it can carry author URLs and images."""
+    soup = BeautifulSoup(html_text, "html.parser")
+    for script in soup.select("script[type='application/ld+json']"):
+        try:
+            payload = json.loads(script.string or script.get_text() or "null")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        values = payload.get("@graph", []) if isinstance(payload, dict) and isinstance(payload.get("@graph"), list) else [payload]
+        for value in values:
+            if not isinstance(value, dict):
+                continue
+            kind = value.get("@type")
+            kinds = set(kind if isinstance(kind, list) else [kind])
+            if not kinds.intersection({"Article", "NewsArticle", "BlogPosting", "Report"}):
+                continue
+            author_value = value.get("author")
+            if isinstance(author_value, list):
+                author_value = next((item for item in author_value if isinstance(item, (dict, str))), None)
+            if isinstance(author_value, str):
+                author_value = {"name": author_value}
+            if not isinstance(author_value, dict):
+                continue
+            name = clean_text(str(author_value.get("name") or ""))
+            if not name:
+                continue
+            author: dict[str, str] = {"name": name}
+            author_url = _safe_url(author_value.get("url"), base_url)
+            if author_url:
+                author["url"] = author_url
+            image_value = author_value.get("image")
+            if isinstance(image_value, dict):
+                image_value = image_value.get("url")
+            avatar_url = _safe_url(image_value, base_url)
+            if avatar_url:
+                author["avatar_url"] = avatar_url
+            result: dict[str, Any] = {"type": "byline", "author": author}
+            if value.get("datePublished"):
+                result["published_at"] = str(value["datePublished"])
+            publisher = value.get("publisher")
+            if isinstance(publisher, dict) and publisher.get("name"):
+                result["source"] = {"name": clean_text(str(publisher["name"]))}
+            return result
+    author_meta = soup.select_one("meta[name='author'], meta[property='article:author']")
+    author_name = clean_text(str(author_meta.get("content") or "")) if author_meta else ""
+    if not author_name:
+        return None
+    result = {"type": "byline", "author": {"name": author_name}}
+    published_meta = soup.select_one("meta[property='article:published_time'], meta[name='date']")
+    if published_meta and published_meta.get("content"):
+        result["published_at"] = str(published_meta["content"])
+    site_meta = soup.select_one("meta[property='og:site_name']")
+    if site_meta and site_meta.get("content"):
+        result["source"] = {"name": clean_text(str(site_meta["content"]))}
+    return result
+
+
+class DOMBlockExtractor:
+    def __init__(self, *, base_url: str | None, title: str | None):
         self.base_url = base_url
+        self.title = title or ""
         self.blocks: list[dict[str, Any]] = []
-        self.paragraphs: list[str] = []
-        self.images: list[dict[str, str]] = []
-        self._active_block: str | None = None
-        self._text_chunks: list[str] = []
-        self._html_chunks: list[str] = []
-        self._has_inline_markup = False
-        self._open_inline: list[str] = []
-        self._skip_depth = 0
-        self._seen_images: set[str] = set()
+        self.images: list[dict[str, Any]] = []
+        self.seen_images: set[str] = set()
+        self.filtered_blocks = 0
 
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        tag = tag.lower()
-        if tag in SKIP_TAGS:
-            self._skip_depth += 1
+    def add(self, block: dict[str, Any] | None) -> None:
+        if block and len(self.blocks) < MAX_BLOCKS:
+            self.blocks.append(block)
+
+    def parse_children(self, root: Tag, *, depth: int = 0) -> list[dict[str, Any]]:
+        previous = self.blocks
+        local: list[dict[str, Any]] = []
+        self.blocks = local
+        for child in root.children:
+            if isinstance(child, Tag):
+                self.parse_node(child, depth=depth)
+        self.blocks = previous
+        return local
+
+    def parse_node(self, node: Tag, *, depth: int = 0) -> None:
+        if len(self.blocks) >= MAX_BLOCKS or node.name in SKIP_TAGS:
             return
-        if self._skip_depth:
-            return
-        if tag in BLOCK_TAGS:
-            self._flush_text_block()
-            self._active_block = tag
-            return
-        if tag == "br":
-            self._text_chunks.append(" ")
-            self._html_chunks.append(" ")
+        tag = node.name.lower()
+        if tag in {"p", "h1", "h2", "h3", "h4", "h5", "h6"}:
+            direct_images = node.find_all("img", recursive=False)
+            if direct_images and not clean_text(node.get_text(" ", strip=True)):
+                for image in direct_images:
+                    self.add_image(image)
+                return
+            inline = _inline_content(node, base_url=self.base_url)
+            if not inline:
+                return
+            if self.title and _normalize_for_comparison(inline["text"]) == _normalize_for_comparison(self.title):
+                return
+            if tag.startswith("h"):
+                self.add({"type": "heading", "level": int(tag[1]), **inline})
+            else:
+                self.add({"type": "paragraph", **inline})
+            for image in node.find_all("img"):
+                self.add_image(image)
             return
         if tag == "img":
-            self._add_image(dict(attrs))
+            self.add_image(node)
             return
-        if self._active_block and tag in INLINE_TAGS:
-            self._open_inline_tag(tag, dict(attrs))
+        if tag == "figure":
+            caption_node = node.find("figcaption")
+            caption = clean_text(caption_node.get_text(" ", strip=True)) if caption_node else ""
+            for image in node.find_all("img"):
+                self.add_image(image, caption=caption)
             return
-        if self._active_block and tag in COLOR_INLINE_TAGS:
-            self._open_color_tag(tag, dict(attrs))
+        if tag == "blockquote":
+            if depth >= MAX_QUOTE_DEPTH:
+                return
+            children = self.parse_children(node, depth=depth + 1)
+            if not children:
+                inline = _inline_content(node, base_url=self.base_url)
+                children = [{"type": "paragraph", **inline}] if inline else []
+            self.add({"type": "quote", "kind": "quote", "children": children} if children else None)
+            return
+        if tag in {"ul", "ol"}:
+            items = []
+            for item in node.find_all("li", recursive=False):
+                inline = _inline_content(item, base_url=self.base_url)
+                if inline:
+                    items.append(inline)
+            self.add({"type": "list", "ordered": tag == "ol", "items": items} if items else None)
+            return
+        if tag == "pre":
+            text = node.get_text("\n", strip=False).strip()
+            if text:
+                code = node.find("code")
+                language = None
+                if code:
+                    classes = " ".join(code.get("class") or [])
+                    match = re.search(r"(?:language-|lang-)([\w+-]+)", classes)
+                    language = match.group(1) if match else None
+                block: dict[str, Any] = {"type": "code", "text": text}
+                if language:
+                    block["language"] = language
+                self.add(block)
+            return
+        if tag == "table":
+            rows = []
+            headers = []
+            for row in node.find_all("tr")[:MAX_TABLE_ROWS]:
+                cells = row.find_all(["th", "td"], recursive=False)[:MAX_TABLE_COLUMNS]
+                parsed = [value for cell in cells if (value := _inline_content(cell, base_url=self.base_url))]
+                if not parsed:
+                    continue
+                if not headers and row.find("th"):
+                    headers = parsed
+                else:
+                    rows.append(parsed)
+            self.add({"type": "table", "headers": headers, "rows": rows} if headers or rows else None)
+            return
+        if tag == "hr":
+            self.add({"type": "divider"})
+            return
+        for child in node.children:
+            if isinstance(child, Tag):
+                self.parse_node(child, depth=depth)
 
-    def handle_endtag(self, tag: str) -> None:
-        tag = tag.lower()
-        if tag in SKIP_TAGS and self._skip_depth:
-            self._skip_depth -= 1
+    def add_image(self, node: Tag, *, caption: str = "") -> None:
+        if len(self.images) >= MAX_IMAGES:
             return
-        if self._skip_depth:
+        src = node.get("src") or node.get("data-src") or node.get("data-original")
+        url = _safe_url(src, self.base_url)
+        if not url or url in self.seen_images or _is_noncontent_image(node, url):
             return
-        if tag in BLOCK_TAGS and self._active_block == tag:
-            self._flush_text_block()
-            self._active_block = None
-            return
-        if self._active_block and (tag in INLINE_TAGS or tag in COLOR_INLINE_TAGS):
-            canonical = _INLINE_CANONICAL.get(tag, tag)
-            if canonical in self._open_inline:
-                # close everything up to and including the tag to stay well-formed
-                while self._open_inline:
-                    open_tag = self._open_inline.pop()
-                    self._html_chunks.append(f"</{open_tag}>")
-                    if open_tag == canonical:
-                        break
-
-    def handle_data(self, data: str) -> None:
-        if self._skip_depth:
-            return
-        if self._active_block:
-            self._text_chunks.append(data)
-            self._html_chunks.append(html_module.escape(data, quote=False))
-
-    def close(self) -> None:
-        super().close()
-        self._flush_text_block()
-
-    def _open_inline_tag(self, tag: str, attrs: dict[str, str | None]) -> None:
-        canonical = _INLINE_CANONICAL.get(tag, tag)
-        if canonical == "a":
-            href = urljoin(self.base_url or "", (attrs.get("href") or "").strip())
-            if not href.lower().startswith(SAFE_HREF_SCHEMES):
-                return  # unsafe or empty link: keep its text, drop the markup
-            escaped = html_module.escape(href, quote=True)
-            self._html_chunks.append(f'<a href="{escaped}">')
-        else:
-            self._html_chunks.append(f"<{canonical}>")
-        self._open_inline.append(canonical)
-        self._has_inline_markup = True
-
-    def _open_color_tag(self, tag: str, attrs: dict[str, str | None]) -> None:
-        color = _color_from_attrs(tag, attrs)
-        if not color:
-            return  # no safe color found: keep the text, drop the wrapper
-        self._html_chunks.append(f'<span style="color: {color}">')
-        self._open_inline.append("span")
-        self._has_inline_markup = True
-
-    def _flush_text_block(self) -> None:
-        active_tag = self._active_block
-        while self._open_inline:
-            self._html_chunks.append(f"</{self._open_inline.pop()}>")
-        text = clean_text("".join(self._text_chunks))
-        inline_html = clean_text("".join(self._html_chunks))
-        has_markup = self._has_inline_markup
-        self._text_chunks = []
-        self._html_chunks = []
-        self._has_inline_markup = False
-        if not text or len(self.blocks) >= MAX_BLOCKS:
-            return
-        if active_tag in HEADING_TAGS:
-            block: dict[str, Any] = {"type": "heading", "level": int(active_tag[1]), "text": text}
-        else:
-            block = {"type": "paragraph", "text": text}
-        if has_markup and inline_html != text:
-            block["html"] = inline_html
-        self.blocks.append(block)
-        self.paragraphs.append(text)
-
-    def _add_image(self, attrs: dict[str, str | None]) -> None:
-        src = attrs.get("src") or attrs.get("data-src") or attrs.get("data-original")
-        if not src:
-            return
-        url = urljoin(self.base_url or "", src)
-        if not url or url in self._seen_images or len(self.images) >= MAX_IMAGES:
-            return
-        if any(marker in url for marker in _AVATAR_HOST_MARKERS):
-            return
-        if _AVATAR_FILENAME_RE.search(url):
-            return
-        self._flush_text_block()
-        image = {
+        width = _int_attr(node.get("width"))
+        height = _int_attr(node.get("height"))
+        image: dict[str, Any] = {
             "url": url,
-            "alt": clean_text(attrs.get("alt") or ""),
-            "caption": clean_text(attrs.get("title") or ""),
+            "alt": clean_text(str(node.get("alt") or "")),
+            "caption": caption or clean_text(str(node.get("title") or "")),
         }
-        self._seen_images.add(url)
+        if width:
+            image["width"] = width
+        if height:
+            image["height"] = height
+        if width or height:
+            image["role"] = "hero" if not self.images and (not width or width >= 720) else "content"
+        self.seen_images.add(url)
         self.images.append(image)
-        if len(self.blocks) < MAX_BLOCKS:
-            self.blocks.append({"type": "image", **image})
+        self.add({"type": "image", **image})
+
+
+def _block_text(block: dict[str, Any]) -> list[str]:
+    block_type = block.get("type")
+    if block_type in {"paragraph", "heading", "code"}:
+        return [str(block.get("text") or "").strip()]
+    if block_type in {"callout", "quote"}:
+        return [text for child in block.get("children") or [] for text in _block_text(child)]
+    if block_type == "list":
+        return [str(item.get("text") or "").strip() for item in block.get("items") or []]
+    if block_type == "table":
+        cells = list(block.get("headers") or []) + [cell for row in block.get("rows") or [] for cell in row]
+        return [str(cell.get("text") or "").strip() for cell in cells]
+    return []
+
+
+def _strip_trailing_boilerplate(blocks: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], set[str]]:
+    cutoff = len(blocks)
+    for index in range(len(blocks) - 1, max(-1, len(blocks) - 12), -1):
+        block = blocks[index]
+        if block.get("type") == "image":
+            continue
+        text = " ".join(_block_text(block))
+        if text and (_BOILERPLATE_RE.search(text) or re.fullmatch(r"关于.{0,12}", text)):
+            cutoff = index
+            continue
+        break
+    if cutoff == len(blocks):
+        return blocks, set()
+    return blocks[:cutoff], {str(block.get("url")) for block in blocks[cutoff:] if block.get("type") == "image"}
 
 
 def extract_article_content(
     html_text: str | None, *, base_url: str | None = None, title: str | None = None
 ) -> dict[str, Any]:
+    empty = {
+        "original_text": "", "original_paragraphs": [], "original_images": [],
+        "original_blocks": [], "content_profile": "generic-v2", "filtered_blocks": 0,
+    }
     if not html_text:
-        return {
-            "original_text": "",
-            "original_paragraphs": [],
-            "original_images": [],
-            "original_blocks": [],
-        }
-    parser = ArticleContentParser(base_url=base_url)
-    parser.feed(html_text)
-    parser.close()
-    blocks, paragraphs = parser.blocks, parser.paragraphs
-    # some sites render the <h1> headline inside the same content region as
-    # the body (the-decoder.com among others, ~40 articles affected on real
-    # data) - that duplicates the title as the article's own first paragraph
-    if (
-        title
-        and blocks
-        and blocks[0]["type"] in ("paragraph", "heading")
-        and _normalize_for_comparison(blocks[0]["text"]) == _normalize_for_comparison(title)
-    ):
-        blocks = blocks[1:]
-        paragraphs = paragraphs[1:]
-    blocks, paragraphs, dropped_image_urls = _strip_trailing_boilerplate(blocks, paragraphs)
-    images = (
-        [image for image in parser.images if image["url"] not in dropped_image_urls]
-        if dropped_image_urls
-        else parser.images
-    )
+        return empty
+    soup = BeautifulSoup(html_text, "html.parser")
+    profile = profile_for_url(base_url)
+    root: Tag = soup
+    if profile:
+        selected = _first_selected(soup, profile.root_selectors)
+        if selected:
+            root = selected
+    filtered_nodes = 0
+    for selector in (*_GENERIC_EXCLUDE_SELECTORS, *(profile.exclude_selectors if profile else ())):
+        for node in root.select(selector):
+            filtered_nodes += 1
+            node.decompose()
+    extractor = DOMBlockExtractor(base_url=base_url, title=title)
+    blocks: list[dict[str, Any]] = []
+    byline = _byline_from_dom(root, profile, base_url)
+    if byline:
+        blocks.append(byline)
+    lead_nodes: list[Tag] = []
+    if profile:
+        for selector in profile.lead_selectors:
+            lead_nodes.extend(root.select(selector))
+    for lead in lead_nodes:
+        children = extractor.parse_children(lead)
+        if not children:
+            inline = _inline_content(lead, base_url=base_url)
+            children = [{"type": "paragraph", **inline}] if inline else []
+        if children:
+            blocks.append({"type": "callout", "kind": "lead", "children": children})
+    skip_nodes = set(lead_nodes)
+    if profile:
+        for selector in profile.byline_selectors:
+            skip_nodes.update(root.select(selector))
+    for child in root.children:
+        if isinstance(child, Tag) and child not in skip_nodes:
+            extractor.parse_node(child)
+    blocks.extend(extractor.blocks)
+    blocks, dropped_images = _strip_trailing_boilerplate(blocks)
+    images = [image for image in extractor.images if image["url"] not in dropped_images]
+    paragraphs = [text for block in blocks if block.get("type") != "byline" for text in _block_text(block) if text]
     return {
         "original_text": "\n\n".join(paragraphs),
         "original_paragraphs": paragraphs,
         "original_images": images,
-        "original_blocks": blocks,
+        "original_blocks": blocks[:MAX_BLOCKS],
+        "content_profile": profile.name if profile else "generic-v2",
+        "filtered_blocks": filtered_nodes + extractor.filtered_blocks,
+        "author_detected": bool(byline),
     }

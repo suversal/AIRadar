@@ -10,7 +10,12 @@ export type OriginalImage = {
   alt?: string;
   caption?: string;
   fallback_url?: string;
+  width?: number;
+  height?: number;
+  role?: "hero" | "content";
 };
+
+export type InlineContent = { text: string; html?: string };
 
 export type ContentLink = {
   label: string;
@@ -36,6 +41,9 @@ export type OriginalBlock =
       alt?: string;
       caption?: string;
       fallback_url?: string;
+      width?: number;
+      height?: number;
+      role?: "hero" | "content";
     }
   | {
       type: "source_list";
@@ -48,7 +56,18 @@ export type OriginalBlock =
       author?: string;
       source_url?: string;
       children: OriginalBlock[];
-    };
+    }
+  | {
+      type: "byline";
+      author: { name: string; url?: string; avatar_url?: string };
+      published_at?: string;
+      source?: { name: string; url?: string };
+    }
+  | { type: "callout"; kind: "lead" | "note"; children: OriginalBlock[] }
+  | { type: "list"; ordered: boolean; items: InlineContent[] }
+  | { type: "code"; text: string; language?: string }
+  | { type: "table"; headers: InlineContent[]; rows: InlineContent[][] }
+  | { type: "divider" };
 
 export type EventCoverageItem = {
   raw_article_id: string;

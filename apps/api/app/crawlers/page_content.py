@@ -3,13 +3,13 @@
 Used by crawlers whose upstream feed carries little or no body text
 (e.g. OpenAI's RSS has no description at all). Extracts the page's
 <article>/<main> region into the standard original_* metadata contract.
-Article pages are treated as immutable: once cached by canonical URL
-hash they are never refetched.
+Cached pages are invalidated when the semantic extractor version changes.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import re
 import threading
 import time
@@ -19,11 +19,17 @@ from urllib.parse import urlparse
 
 from app.crawlers.base import canonicalize_url, fetch_url_text, stable_hash
 from app.crawlers.sitemap import extract_page_article, main_content_region
-from app.crawlers.article_content import _detect_body_language, extract_article_content
+from app.crawlers.article_content import (
+    CONTENT_EXTRACTION_VERSION,
+    _detect_body_language,
+    extract_article_content,
+    extract_page_byline,
+)
 from app.models.domain import RawArticle
 from app.services.source_policy import is_unfetchable_article_domain
 
 DEFAULT_PAGE_CACHE_DIR = Path("data") / "page_cache"
+logger = logging.getLogger(__name__)
 
 # 正文拉取跑在 AI 并发池里(2026-07-12 流程重排),同域真实请求保持
 # 最小间隔,防止 20 并发同时打 Reddit 这类限流站点;缓存命中不节流
@@ -76,6 +82,17 @@ def prefer_full_page_content(article: RawArticle, *, cache_dir: Path | None = No
     article.content = payload["content"]
     article.metadata.update(payload["metadata"])
     article.metadata["content_origin"] = "full_page"
+    blocks = article.metadata.get("original_blocks")
+    if isinstance(blocks, list) and not any(
+        isinstance(block, dict) and block.get("type") == "byline" for block in blocks
+    ) and article.author:
+        author: dict[str, str] = {"name": article.author}
+        byline: dict[str, Any] = {"type": "byline", "author": author}
+        if article.published_at:
+            byline["published_at"] = article.published_at.isoformat()
+        if article.source_name:
+            byline["source"] = {"name": article.source_name}
+        blocks.insert(0, byline)
     detected = _detect_body_language(article.content)
     if detected:
         article.language = detected
@@ -89,7 +106,9 @@ def fetch_page_payload(
     cache_path = Path(cache_dir) / f"{stable_hash(canonicalize_url(url))}.json"
     if cache_path.exists():
         try:
-            return json.loads(cache_path.read_text(encoding="utf-8"))
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if int((cached.get("metadata") or {}).get("content_extraction_version") or 0) == CONTENT_EXTRACTION_VERSION:
+                return cached
         except (OSError, json.JSONDecodeError):
             pass
 
@@ -98,8 +117,23 @@ def fetch_page_payload(
     title, description = extract_page_article(page_html)
     region = main_content_region(page_html)
     extracted = extract_article_content(region, base_url=url, title=title) if region else None
+    if extracted and not extracted.get("author_detected"):
+        byline = extract_page_byline(page_html, base_url=url)
+        if byline:
+            extracted["original_blocks"].insert(0, byline)
+            extracted["author_detected"] = True
 
     if extracted and extracted["original_paragraphs"]:
+        logger.info(
+            "article content extracted url=%s version=%s profile=%s kept_blocks=%s "
+            "filtered_blocks=%s author_detected=%s",
+            url,
+            CONTENT_EXTRACTION_VERSION,
+            extracted["content_profile"],
+            len(extracted["original_blocks"]),
+            extracted["filtered_blocks"],
+            extracted["author_detected"],
+        )
         payload = {
             "title": title,
             "content": extracted["original_text"] or description,
@@ -107,13 +141,37 @@ def fetch_page_payload(
                 "original_paragraphs": extracted["original_paragraphs"],
                 "original_images": extracted["original_images"],
                 "original_blocks": extracted["original_blocks"],
+                "original_text": extracted["original_text"],
+                "content_extraction_version": CONTENT_EXTRACTION_VERSION,
+                "content_profile": extracted["content_profile"],
+                "content_extraction_diagnostics": {
+                    "filtered_blocks": extracted["filtered_blocks"],
+                    "author_detected": extracted["author_detected"],
+                    "kept_blocks": len(extracted["original_blocks"]),
+                },
             },
         }
     elif description and not _is_bare_url(description):
         # no <article>/<main> region (e.g. video/preview pages) but the page
         # still carries a real meta description - better than nothing
-        payload = {"title": title, "content": description, "metadata": {}}
+        payload = {
+            "title": title,
+            "content": description,
+            "metadata": {
+                "original_paragraphs": [description],
+                "original_text": description,
+                "original_images": [],
+                "original_blocks": [{"type": "paragraph", "text": description}],
+                "content_extraction_version": CONTENT_EXTRACTION_VERSION,
+                "content_profile": "meta-description-v2",
+            },
+        }
     else:
+        logger.warning(
+            "article content extraction failed url=%s version=%s reason=no-semantic-content",
+            url,
+            CONTENT_EXTRACTION_VERSION,
+        )
         return None
 
     try:

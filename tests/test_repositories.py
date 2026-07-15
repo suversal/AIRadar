@@ -1738,6 +1738,39 @@ class RepositoryTests(unittest.TestCase):
         self.assertTrue(stored.raw_metadata.get("original_paragraphs"))
         self.assertIn("正文第一段", stored.raw_metadata.get("original_text"))
 
+    def test_newer_extraction_version_can_replace_longer_legacy_body(self):
+        from app.db.models import RawArticleModel
+        from app.repositories.radar_repository import RadarRepository
+
+        legacy = self._article(article_id="a1", title="量子位文章", url_hash="hash-a1")
+        legacy.content = "真实正文。" + "相关阅读噪音。" * 40
+        legacy.metadata = {
+            "content_origin": "full_page",
+            "original_blocks": [{"type": "paragraph", "text": legacy.content}],
+            "content_extraction_version": 1,
+        }
+        corrected = self._article(article_id="a1", title="量子位文章", url_hash="hash-a1")
+        corrected.content = "真实正文。"
+        corrected.metadata = {
+            "content_origin": "full_page",
+            "original_blocks": [{"type": "paragraph", "text": "真实正文。"}],
+            "content_extraction_version": 2,
+            "content_profile": "qbitai-v1",
+        }
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([legacy])
+            session.commit()
+            repository.upsert_raw_articles([corrected])
+            session.commit()
+            stored = session.get(RawArticleModel, "a1")
+
+        self.assertEqual(stored.content, "真实正文。")
+        self.assertEqual(stored.raw_metadata["content_extraction_version"], 2)
+        self.assertEqual(stored.raw_metadata["content_profile"], "qbitai-v1")
+
     def test_source_health_updates_from_crawl_report(self):
         from app.db.models import SourceModel
         from app.repositories.radar_repository import RadarRepository

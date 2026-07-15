@@ -116,16 +116,24 @@ class RadarRepository:
             # later runs enrich articles in memory (README, full-page body);
             # merge that back instead of freezing the first crawl. Translation
             # output is synced to article_translations below, never merged here.
+            previous_metadata = dict(existing.raw_metadata or {})
+            previous_extraction_version = int(previous_metadata.get("content_extraction_version") or 0)
+            incoming_extraction_version = int(article.metadata.get("content_extraction_version") or 0)
+            extraction_upgraded = incoming_extraction_version > previous_extraction_version
             merged = dict(existing.raw_metadata or {})
             merged.update({"raw_score": article.raw_score, **_crawl_metadata(article.metadata)})
             # content-structure fields regress silently if a later crawl only
             # got a thin summary (empty blocks) - keep the last known-good
             # value instead of letting dict.update() blank it out
             for key in self._CACHED_CONTENT_STRUCTURE_KEYS:
-                if not merged.get(key) and (existing.raw_metadata or {}).get(key):
-                    merged[key] = existing.raw_metadata[key]
+                if (
+                    not extraction_upgraded
+                    and not merged.get(key)
+                    and previous_metadata.get(key)
+                ):
+                    merged[key] = previous_metadata[key]
             existing.raw_metadata = merged
-            if len(article.content) > len(existing.content or ""):
+            if extraction_upgraded or len(article.content) > len(existing.content or ""):
                 existing.content = article.content
             # the crawl re-detects the body's language (a zh-labeled
             # aggregator often points at English originals); persist it or
@@ -1007,6 +1015,9 @@ class RadarRepository:
         "original_blocks",
         "original_text",
         "original_images",
+        "content_extraction_version",
+        "content_profile",
+        "content_extraction_diagnostics",
     )
 
     # 缓存命中时只应回填这几个"正文结构"字段——且只在本轮值为空时才用缓存
@@ -1092,6 +1103,7 @@ class RadarRepository:
                     if embedding is not None and embedding.content_vector is not None
                     else None
                 ),
+                "embedding_source_hash": embedding.source_hash if embedding is not None else None,
             }
         return cached
 

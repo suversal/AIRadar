@@ -65,6 +65,13 @@ def _clean_original_images(images: Any) -> list[dict[str, str]]:
             "alt": str(image.get("alt") or "").strip(),
             "caption": str(image.get("caption") or "").strip(),
         }
+        for key in ("width", "height"):
+            value = image.get(key)
+            if isinstance(value, int) and 0 < value <= 10000:
+                cleaned_image[key] = value
+        role = str(image.get("role") or "")
+        if role in {"hero", "content"}:
+            cleaned_image["role"] = role
         fallback_url = str(image.get("fallback_url") or "").strip()
         if _safe_content_url(fallback_url):
             cleaned_image["fallback_url"] = fallback_url
@@ -159,7 +166,99 @@ def _clean_original_blocks(
                 fallback_url = str(block.get("fallback_url") or "").strip()
                 if _safe_content_url(fallback_url):
                     cleaned_image["fallback_url"] = fallback_url
+                for key in ("width", "height"):
+                    value = block.get(key)
+                    if isinstance(value, int) and 0 < value <= 10000:
+                        cleaned_image[key] = value
+                role = str(block.get("role") or "")
+                if role in {"hero", "content"}:
+                    cleaned_image["role"] = role
                 cleaned.append(cleaned_image)
+        elif block_type == "byline":
+            author_value = block.get("author")
+            if not isinstance(author_value, dict):
+                continue
+            name = str(author_value.get("name") or "").strip()
+            if not name:
+                continue
+            author: dict[str, str] = {"name": name}
+            for key in ("url", "avatar_url"):
+                value = str(author_value.get(key) or "").strip()
+                if _safe_content_url(value):
+                    author[key] = value
+            cleaned_byline: dict[str, Any] = {"type": "byline", "author": author}
+            published_at = str(block.get("published_at") or "").strip()
+            if published_at:
+                cleaned_byline["published_at"] = published_at
+            source_value = block.get("source")
+            if isinstance(source_value, dict):
+                source_name = str(source_value.get("name") or "").strip()
+                if source_name:
+                    source: dict[str, str] = {"name": source_name}
+                    source_url = str(source_value.get("url") or "").strip()
+                    if _safe_content_url(source_url):
+                        source["url"] = source_url
+                    cleaned_byline["source"] = source
+            cleaned.append(cleaned_byline)
+        elif block_type == "callout":
+            kind = str(block.get("kind") or "note")
+            if kind not in {"lead", "note"}:
+                kind = "note"
+            children = _clean_original_blocks(
+                block.get("children"), depth=depth + 1,
+                strip_telegram_signatures=strip_telegram_signatures,
+            )
+            if children:
+                cleaned.append({"type": "callout", "kind": kind, "children": children})
+        elif block_type == "list":
+            values = block.get("items")
+            items = []
+            if isinstance(values, list):
+                for value in values[:100]:
+                    if not isinstance(value, dict):
+                        continue
+                    text = str(value.get("text") or "").strip()
+                    if not text:
+                        continue
+                    item = {"text": text}
+                    html = str(value.get("html") or "").strip()
+                    if html:
+                        item["html"] = html
+                    items.append(item)
+            if items:
+                cleaned.append({"type": "list", "ordered": bool(block.get("ordered")), "items": items})
+        elif block_type == "code":
+            text = str(block.get("text") or "").strip()
+            if text:
+                cleaned_code = {"type": "code", "text": text}
+                language = str(block.get("language") or "").strip()
+                if language:
+                    cleaned_code["language"] = language[:40]
+                cleaned.append(cleaned_code)
+        elif block_type == "table":
+            def clean_cells(values: Any) -> list[dict[str, str]]:
+                result = []
+                if not isinstance(values, list):
+                    return result
+                for value in values[:20]:
+                    if not isinstance(value, dict):
+                        continue
+                    text = str(value.get("text") or "").strip()
+                    if not text:
+                        continue
+                    cell = {"text": text}
+                    html = str(value.get("html") or "").strip()
+                    if html:
+                        cell["html"] = html
+                    result.append(cell)
+                return result
+            headers = clean_cells(block.get("headers"))
+            rows = [clean_cells(row) for row in (block.get("rows") or [])[:100]] if isinstance(block.get("rows"), list) else []
+            rows = [row for row in rows if row]
+            if headers or rows:
+                cleaned.append({"type": "table", "headers": headers, "rows": rows})
+        elif block_type == "divider":
+            cleaned.append({"type": "divider"})
         elif block_type == "source_list":
             links = _clean_content_links(block.get("links"))
             if links:
@@ -211,6 +310,26 @@ def _plain_paragraphs_from_blocks(blocks: list[dict[str, Any]]) -> list[str]:
             nested = _plain_paragraphs_from_blocks(block.get("children") or [])
             if nested:
                 paragraphs.append(f"[{prefix}] " + "\n".join(nested))
+        elif block_type == "callout":
+            paragraphs.extend(_plain_paragraphs_from_blocks(block.get("children") or []))
+        elif block_type == "list":
+            paragraphs.extend(
+                str(item.get("text") or "").strip()
+                for item in block.get("items") or []
+                if str(item.get("text") or "").strip()
+            )
+        elif block_type == "code":
+            text = str(block.get("text") or "").strip()
+            if text:
+                paragraphs.append(text)
+        elif block_type == "table":
+            for row in [block.get("headers") or [], *(block.get("rows") or [])]:
+                text = " | ".join(
+                    str(cell.get("text") or "").strip() for cell in row
+                    if str(cell.get("text") or "").strip()
+                )
+                if text:
+                    paragraphs.append(text)
     return paragraphs
 
 

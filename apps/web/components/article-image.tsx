@@ -1,15 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 
 type ArticleImageProps = {
   src: string;
   alt: string;
   className: string;
   fallbackUrl?: string;
+  width?: number;
+  height?: number;
+  style?: CSSProperties;
 };
 
-export function ArticleImage({ src, alt, className, fallbackUrl }: ArticleImageProps) {
+export function ArticleImage({ src, alt, className, fallbackUrl, width, height, style }: ArticleImageProps) {
   const [failed, setFailed] = useState(false);
 
   if (failed) {
@@ -35,6 +38,9 @@ export function ArticleImage({ src, alt, className, fallbackUrl }: ArticleImageP
       src={src}
       alt={alt}
       className={className}
+      width={width}
+      height={height}
+      style={style}
       loading="lazy"
       referrerPolicy="no-referrer"
       onError={() => setFailed(true)}

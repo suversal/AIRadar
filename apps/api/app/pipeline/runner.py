@@ -8,7 +8,8 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from app.crawlers.base import normalize_article
+from app.crawlers.base import normalize_article, stable_hash
+from app.crawlers.article_content import CONTENT_EXTRACTION_VERSION
 from app.crawlers.github_readme import fetch_github_readme, repo_path_from_github_url
 from app.models.domain import (
     DailyReport,
@@ -269,7 +270,10 @@ def _process_candidate_article(
             return None, None, "not_ai_related"
 
     # 通过预筛(或可信源/复用缓存)后,才为 deferred 文章拉取原文页
-    if article.metadata.pop("body_fetch", None) == "deferred" and scoring is None:
+    cached_version = int(((cached or {}).get("metadata") or {}).get("content_extraction_version") or 0)
+    if article.metadata.pop("body_fetch", None) == "deferred" and (
+        scoring is None or cached_version < CONTENT_EXTRACTION_VERSION
+    ):
         aihot_permalink = article.metadata.get("aihot_permalink")
         if aihot_permalink:
             # AI HOT already extracted + translated this article themselves -
@@ -372,7 +376,13 @@ def _process_candidate_article(
     # 缓存文章直接复用库里的向量:重算既浪费 CPU,又会在内容有差异时
     # 用劣质向量覆盖全文向量
     cached_embedding = (cached or {}).get("embedding") if scoring_was_cached else None
-    if cached_embedding:
+    embedding_source_hash = stable_hash(embedding_input(article.title, article.content))
+    cached_embedding_source_hash = (cached or {}).get("embedding_source_hash")
+    cached_version = int(((cached or {}).get("metadata") or {}).get("content_extraction_version") or 0)
+    if cached_embedding and (
+        cached_embedding_source_hash == embedding_source_hash
+        or (cached_embedding_source_hash is None and cached_version == 0)
+    ):
         # 双保险转纯 float:上游任何 numpy 标量混进相似度/JSON 都会炸
         embedding = [float(value) for value in cached_embedding]
     else:
@@ -477,12 +487,24 @@ def _text_blocks_for_translation(article: RawArticle) -> list[dict[str, Any]]:
             for block in values:
                 if not isinstance(block, dict):
                     continue
-                if block.get("type") in ("paragraph", "heading") and str(
+                block_type = block.get("type")
+                if block_type in ("paragraph", "heading", "code") and str(
                     block.get("text") or ""
                 ).strip():
                     collected.append(block)
-                elif block.get("type") == "quote" and isinstance(block.get("children"), list):
+                elif block_type in {"quote", "callout"} and isinstance(block.get("children"), list):
                     collected.extend(collect(block["children"]))
+                elif block_type == "list":
+                    collected.extend(
+                        {"type": "paragraph", "text": str(item.get("text") or "")}
+                        for item in block.get("items") or [] if isinstance(item, dict)
+                    )
+                elif block_type == "table":
+                    rows = [block.get("headers") or [], *(block.get("rows") or [])]
+                    collected.extend(
+                        {"type": "paragraph", "text": str(cell.get("text") or "")}
+                        for row in rows for cell in row if isinstance(cell, dict)
+                    )
             return collected
 
         text_blocks = collect(blocks)
@@ -507,6 +529,13 @@ def _translated_blocks_for(article: RawArticle, translated_paragraphs: list[str]
     if isinstance(source_blocks, list) and source_blocks:
         paragraph_index = [0]
 
+        def next_text() -> str | None:
+            if paragraph_index[0] >= len(translated_paragraphs):
+                return None
+            value = translated_paragraphs[paragraph_index[0]]
+            paragraph_index[0] += 1
+            return value
+
         def translate(values: list[Any]) -> list[dict[str, Any]]:
             translated: list[dict[str, Any]] = []
             for block in values:
@@ -514,13 +543,13 @@ def _translated_blocks_for(article: RawArticle, translated_paragraphs: list[str]
                     continue
                 block_type = block.get("type")
                 if block_type in ("paragraph", "heading"):
-                    if paragraph_index[0] >= len(translated_paragraphs):
+                    text = next_text()
+                    if text is None:
                         continue
                     translated_block: dict[str, Any] = {
                         "type": block_type,
-                        "text": translated_paragraphs[paragraph_index[0]],
+                        "text": text,
                     }
-                    paragraph_index[0] += 1
                     if block_type == "heading":
                         level = block.get("level")
                         translated_block["level"] = (
@@ -534,12 +563,14 @@ def _translated_blocks_for(article: RawArticle, translated_paragraphs: list[str]
                             {
                                 key: value
                                 for key, value in block.items()
-                                if key in {"type", "url", "alt", "caption", "fallback_url"}
+                                if key in {"type", "url", "alt", "caption", "fallback_url", "width", "height", "role"}
                             }
                         )
+                elif block_type == "byline" or block_type == "divider":
+                    translated.append(dict(block))
                 elif block_type == "source_list":
                     translated.append(dict(block))
-                elif block_type == "quote":
+                elif block_type in {"quote", "callout"}:
                     translated_quote = {
                         key: value
                         for key, value in block.items()
@@ -547,6 +578,32 @@ def _translated_blocks_for(article: RawArticle, translated_paragraphs: list[str]
                     }
                     translated_quote["children"] = translate(block.get("children") or [])
                     translated.append(translated_quote)
+                elif block_type == "list":
+                    items = []
+                    for item in block.get("items") or []:
+                        text = next_text()
+                        if text is not None:
+                            items.append({"text": text})
+                    if items:
+                        translated.append({"type": "list", "ordered": bool(block.get("ordered")), "items": items})
+                elif block_type == "code":
+                    text = next_text()
+                    if text is not None:
+                        translated_code = {"type": "code", "text": text}
+                        if block.get("language"):
+                            translated_code["language"] = block["language"]
+                        translated.append(translated_code)
+                elif block_type == "table":
+                    def translated_cells(values: list[Any]) -> list[dict[str, str]]:
+                        cells = []
+                        for _ in values:
+                            text = next_text()
+                            if text is not None:
+                                cells.append({"text": text})
+                        return cells
+                    headers = translated_cells(block.get("headers") or [])
+                    rows = [translated_cells(row) for row in block.get("rows") or []]
+                    translated.append({"type": "table", "headers": headers, "rows": rows})
             return translated
 
         translated_blocks = translate(source_blocks)
@@ -723,14 +780,20 @@ def run_pipeline(
                 # (RSS parsing sets it unconditionally, even to []/""), so
                 # setdefault would never apply the cached value - fall back
                 # to it explicitly whenever this round came up empty
-                for key in _CACHED_CONTENT_STRUCTURE_KEYS:
-                    if not article.metadata.get(key) and cached_metadata.get(key):
-                        article.metadata[key] = cached_metadata[key]
+                cached_extraction_version = int(cached_metadata.get("content_extraction_version") or 0)
+                needs_deferred_fetch = article.metadata.get("body_fetch") == "deferred"
+                if cached_extraction_version >= CONTENT_EXTRACTION_VERSION or not needs_deferred_fetch:
+                    for key in _CACHED_CONTENT_STRUCTURE_KEYS:
+                        if not article.metadata.get(key) and cached_metadata.get(key):
+                            article.metadata[key] = cached_metadata[key]
                 # 缓存文章不再拉正文(2026-07-12 流程重排):feed 只带摘要,
                 # 全文以库里存的为准——否则翻译哈希失配、embedding 会用
                 # 摘要重算并覆盖全文向量
                 cached_content = cached.get("content") or ""
-                if len(cached_content) > len(article.content or ""):
+                if (
+                    (cached_extraction_version >= CONTENT_EXTRACTION_VERSION or not needs_deferred_fetch)
+                    and len(cached_content) > len(article.content or "")
+                ):
                     article.content = cached_content
             raw_articles.append(article)
 

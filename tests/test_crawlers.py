@@ -21,6 +21,7 @@ from app.crawlers.github_readme import (
 from app.crawlers.hn import HackerNewsCrawler, parse_hn_hits
 from app.crawlers.huggingface_papers import parse_huggingface_papers
 from app.crawlers.rss import parse_datetime, parse_rss
+from app.crawlers.sitemap import main_content_region
 from app.crawlers.v2ex import parse_v2ex_topics
 from app.models.domain import Source
 
@@ -1318,8 +1319,6 @@ via AI HOT · https://aihot.virxact.com/items/abc123]]></description>
         # 评论区（Community/Sign up）和推荐卡片与它并列在同一个 <main> 里，
         # 页面没有可用的 <article>/<aside> 语义标签——选区必须缩到正文容器，
         # 否则评论区 UI 文案会被当成正文段落
-        from app.crawlers.sitemap import main_content_region
-
         html = """<!DOCTYPE html><html><body><main>
         <div class="blog-content copiable-code-container prose mx-auto">
           <p>vLLM now runs transformers models at native speed thanks to the new
@@ -1659,6 +1658,61 @@ tested on the same benchmark suite.</p>
 
         self.assertEqual(articles[0].metadata.get("body_fetch"), "deferred")
         self.assertNotIn("stronger reasoning", articles[0].content)
+
+    def test_qbitai_profile_extracts_byline_lead_and_strict_article_boundary(self):
+        html = """
+        <html><body>
+          <div class="article">
+            <h1>不是吧OpenAI首款硬件吹半天就是个AI音箱？？</h1>
+            <div class="article_info">
+              <span class="author"><img class="avatar avatar-200" width="200" height="200"
+                src="/wp-content/themes/liangziwei/imagesnew/head.jpg"><a rel="author"
+                href="/author/yuyang">鱼羊</a></span>
+              <span class="date">2026-07-15</span><span class="time">12:46:18</span>
+              <span class="from">来源：<a href="https://www.qbitai.com">量子位</a></span>
+            </div>
+            <div class="zhaiyao"><p>难怪苹果急眼了</p></div>
+            <blockquote><p>鱼羊 发自 凹非寺</p><p>量子位 | 公众号 QbitAI</p></blockquote>
+            <p><s>听上去，它肯定不能是长这样吧：</s></p>
+            <p><img src="https://i.qbitai.com/content.webp"></p>
+          </div>
+          <div class="person_box"><p>作者文章列表</p><img src="/head.jpg"></div>
+          <section class="related"><p>热门文章</p></section>
+        </body></html>
+        """
+        region = html
+        content = extract_article_content(
+            region,
+            base_url="https://www.qbitai.com/2026/07/450385.html",
+            title="不是吧OpenAI首款硬件吹半天就是个AI音箱？？",
+        )
+
+        self.assertEqual(content["content_profile"], "qbitai-v1")
+        self.assertEqual(content["original_blocks"][0]["type"], "byline")
+        self.assertEqual(content["original_blocks"][0]["author"]["name"], "鱼羊")
+        self.assertEqual(content["original_blocks"][1]["type"], "callout")
+        self.assertEqual(content["original_blocks"][2]["kind"], "quote")
+        self.assertIn("<del>", content["original_blocks"][3]["html"])
+        self.assertEqual([image["url"] for image in content["original_images"]], ["https://i.qbitai.com/content.webp"])
+        self.assertNotIn("热门文章", content["original_text"])
+        self.assertNotIn("作者文章列表", content["original_text"])
+
+    def test_dom_semantic_blocks_and_safety(self):
+        html = """
+        <article>
+          <p><a href="javascript:alert(1)" onclick="alert(1)">危险链接</a>，<sup>2</sup></p>
+          <ul><li><strong>第一项</strong></li><li>第二项</li></ul>
+          <pre><code class="language-python">print('ok')</code></pre>
+          <table><tr><th>名称</th><th>值</th></tr><tr><td>A</td><td>1</td></tr></table>
+          <hr><script>alert(1)</script>
+        </article>
+        """
+        content = extract_article_content(html, base_url="https://example.com/post")
+        types = [block["type"] for block in content["original_blocks"]]
+        self.assertEqual(types, ["paragraph", "list", "code", "table", "divider"])
+        self.assertNotIn("javascript:", content["original_blocks"][0].get("html", ""))
+        self.assertNotIn("onclick", content["original_blocks"][0].get("html", ""))
+        self.assertEqual(content["original_blocks"][2]["language"], "python")
 
 
 if __name__ == "__main__":
