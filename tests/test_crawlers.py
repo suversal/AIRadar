@@ -613,6 +613,40 @@ via AI HOT · https://aihot.virxact.com/items/abc123]]></description>
         self.assertEqual(without_override, datetime(2026, 7, 13, 12, 7, 33, tzinfo=timezone.utc))
         self.assertEqual(with_override, datetime(2026, 7, 13, 4, 7, 33, tzinfo=timezone.utc))
 
+    def test_parse_datetime_accepts_36kr_compact_offset_with_extra_spaces(self):
+        parsed = parse_datetime("2026-07-15 11:05:44  +0800")
+
+        self.assertEqual(parsed, datetime(2026, 7, 15, 3, 5, 44, tzinfo=timezone.utc))
+
+    def test_parse_rss_marks_valid_36kr_pubdate_for_future_correction(self):
+        source = Source(
+            id="kr36",
+            name="36氪",
+            source_role="context",
+            tier="T3",
+            type="rss",
+            category="media",
+            url="https://36kr.com/feed",
+            homepage="https://36kr.com",
+            allowed_domains=["36kr.com"],
+            language="zh",
+            can_be_main_source=True,
+        )
+        xml = """<?xml version="1.0"?>
+        <rss version="2.0"><channel><item>
+          <title>长鑫科技注册资本10年增超6000倍</title>
+          <link>https://36kr.com/newsflashes/3896306415568771?f=rss</link>
+          <pubDate>2026-07-15 11:05:44  +0800</pubDate>
+          <description>36氪获悉，长鑫科技IPO发行价敲定。</description>
+        </item></channel></rss>
+        """
+
+        article = parse_rss(xml, source)[0]
+
+        self.assertEqual(article.published_at, datetime(2026, 7, 15, 3, 5, 44, tzinfo=timezone.utc))
+        self.assertFalse(article.metadata["rss_pubdate_missing"])
+        self.assertEqual(article.metadata["rss_pubdate_raw"], "2026-07-15 11:05:44 +0800")
+
     def test_parse_rss_applies_pubdate_assume_tz_from_source_config(self):
         source = Source(
             id="infoq_cn",

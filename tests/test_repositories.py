@@ -1665,6 +1665,37 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(stored.raw_metadata.get("original_markdown"), "# README")
         self.assertEqual(stored.status, "processed")
 
+    def test_upsert_raw_articles_corrects_a_previously_unparsed_rss_pubdate(self):
+        from app.db.models import RawArticleModel
+        from app.repositories.radar_repository import RadarRepository
+
+        first = self._article(article_id="a1", title="36Kr item", url_hash="hash-a1")
+        first.published_at = datetime(2026, 7, 15, 5, 59, tzinfo=timezone.utc)
+        first.metadata = {"source_type": "rss", "rss_pubdate_missing": True}
+
+        corrected = self._article(article_id="a1", title="36Kr item", url_hash="hash-a1")
+        corrected.published_at = datetime(2026, 7, 15, 3, 5, 44, tzinfo=timezone.utc)
+        corrected.metadata = {
+            "source_type": "rss",
+            "rss_pubdate_missing": False,
+            "rss_pubdate_raw": "2026-07-15 11:05:44 +0800",
+        }
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([first])
+            session.commit()
+
+            repository.upsert_raw_articles([corrected])
+            session.commit()
+            stored = session.get(RawArticleModel, "a1")
+
+        self.assertEqual(
+            stored.published_at.replace(tzinfo=timezone.utc),
+            datetime(2026, 7, 15, 3, 5, 44, tzinfo=timezone.utc),
+        )
+
     def test_upsert_raw_articles_preserves_original_blocks_when_later_run_is_thin(self):
         # regression for the qbitai bug: a later crawl that only saw a thin
         # feed summary (empty original_blocks/paragraphs/text/images) must

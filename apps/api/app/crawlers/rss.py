@@ -33,8 +33,13 @@ def parse_datetime(value: str | None, *, assume_tz: str | None = None) -> dateti
     except (TypeError, ValueError, IndexError):
         parsed = None
     if parsed is None:
+        # A few Chinese feeds (observed: 36Kr) emit an ISO-like value such as
+        # ``2026-07-15 11:05:44  +0800``. Python 3.9's fromisoformat rejects
+        # both the whitespace before the offset and the compact +HHMM form.
+        iso_value = re.sub(r"\s+([+-]\d{2})(\d{2})$", r"\1:\2", raw_value)
+        iso_value = re.sub(r"\s+([+-]\d{2}:\d{2})$", r"\1", iso_value)
         try:
-            parsed = datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(iso_value.replace("Z", "+00:00"))
         except ValueError:
             return None
     if parsed is None:
@@ -191,12 +196,17 @@ def parse_rss(xml_text: str, source: Source, limit: int | None = None) -> list[R
         content = original_content["original_text"] or strip_html(body_html)
         author = _entry_author(entry)
         published = _child_text(entry, ["pubDate", "published", "updated"])
+        parsed_published = parse_datetime(
+            published, assume_tz=(source.config or {}).get("pubdate_assume_tz")
+        )
         if not title or not link:
             continue
         metadata = {
             "source_type": "rss",
             "feed_category": _child_text(entry, ["category"]),
             "feed_position": position,
+            "rss_pubdate_raw": published,
+            "rss_pubdate_missing": parsed_published is None,
             "original_text": original_content["original_text"],
             "original_paragraphs": original_content["original_paragraphs"],
             "original_images": original_content["original_images"],
@@ -213,9 +223,7 @@ def parse_rss(xml_text: str, source: Source, limit: int | None = None) -> list[R
                 title=title,
                 content=strip_html(content),
                 author=author,
-                published_at=parse_datetime(
-                    published, assume_tz=(source.config or {}).get("pubdate_assume_tz")
-                ),
+                published_at=parsed_published,
                 language=source.language,
                 raw_score={},
                 metadata=metadata,

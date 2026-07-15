@@ -131,6 +131,15 @@ class RadarRepository:
             # aggregator often points at English originals); persist it or
             # the translation toggle keeps using the stale label
             existing.language = article.language
+            # RSS timestamps can become correct after a parser fix or a feed
+            # correction. Update only when this crawl actually parsed a
+            # pubDate; an undated feed still uses normalize_article's fallback
+            # clock internally and must not make the stored time drift.
+            if (
+                "rss_pubdate_missing" in article.metadata
+                and not article.metadata.get("rss_pubdate_missing")
+            ):
+                existing.published_at = article.published_at
             existing.status = article.status
             existing.skipped_reason = article.skipped_reason
             updated += 1
