@@ -32,6 +32,9 @@ class SourceSeedingTests(unittest.TestCase):
         by_id = {source.id: source for source in loaded}
         self.assertEqual(by_id["openai_blog"].name, "Custom OpenAI Name")
         self.assertIn("aihot_feed", by_id)
+        self.assertIn("telegram_zaihuapd", by_id)
+        self.assertIn("telegram_xhqcankao", by_id)
+        self.assertIn("telegram_dnspodt", by_id)
 
 
 if __name__ == "__main__":

@@ -602,6 +602,9 @@ def create_app(
     @app.get("/api/admin/sources", dependencies=[admin_guard])
     def admin_sources() -> dict:
         with _admin_repository_context() as repository:
+            from app.services.refresh_service import ensure_auto_seeded_sources
+
+            ensure_auto_seeded_sources(repository)
             return {"sources": repository.list_sources_with_health()}
 
     @app.patch("/api/admin/sources/{source_id}", dependencies=[admin_guard])
@@ -705,6 +708,16 @@ def create_app(
                     "ingested_count": 0,
                     "articles": [],
                 }
+                repository.update_source_health(
+                    {
+                        source_id: {
+                            "status": "skipped",
+                            "article_count": 0,
+                            "fetched_count": 0,
+                            "error": result["error"],
+                        }
+                    }
+                )
                 repository.set_last_crawl_result(source_id, result)
                 repository.session.commit()
                 return result
@@ -801,6 +814,20 @@ def create_app(
                 "ingested_count": ingested_count,
                 "articles": article_results,
             }
+            # Manual crawling is a real source-health observation just like
+            # an automatic round. Keep the health columns and the detailed
+            # manual result in sync so a successful fetch never remains at
+            # the default 0% and gets mislabeled as a fault in the admin UI.
+            repository.update_source_health(
+                {
+                    source_id: {
+                        "status": "ok",
+                        "article_count": len(fetched),
+                        "fetched_count": len(fetched),
+                        "error": None,
+                    }
+                }
+            )
             repository.set_last_crawl_result(source_id, result)
             repository.session.commit()
         return result

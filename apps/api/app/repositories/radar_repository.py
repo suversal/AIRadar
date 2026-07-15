@@ -29,6 +29,11 @@ from app.db.models import (
 )
 from app.models.domain import DailyReport, EventCluster, ProcessedArticle, RawArticle, Source
 from app.services.clustering_service import cosine_similarity
+from app.services.daily_report_service import (
+    _clean_original_blocks,
+    _plain_paragraphs_from_blocks,
+    _strip_legacy_telegram_signature,
+)
 from app.services.taxonomy import category_label, display_category
 
 
@@ -1652,6 +1657,7 @@ def _event_item(
         published_at = published_at.replace(tzinfo=timezone.utc)
     if last_seen_at is not None and last_seen_at.tzinfo is None:
         last_seen_at = last_seen_at.replace(tzinfo=timezone.utc)
+    display_published_at = None if metadata.get("rss_pubdate_missing") else published_at
     # precedence: event-level moderation > article-level moderation > AI value
     title_zh = (
         (event_override.title_zh if event_override and event_override.title_zh else None)
@@ -1702,7 +1708,7 @@ def _event_item(
         "summary": processed.summary_zh,
         "reason": processed.reason_zh,
         "action": processed.action_zh,
-        "published_at": published_at.isoformat() if published_at else None,
+        "published_at": display_published_at.isoformat() if display_published_at else None,
         # the event's latest coverage time - hotspot recency anchors on this
         # so an older event that just gained a new source still counts
         "last_seen_at": (last_seen_at or published_at).isoformat()
@@ -1715,10 +1721,28 @@ def _event_item(
     if images:
         item["original_images"] = images
     if include_content:
-        paragraphs = metadata.get("original_paragraphs") or []
+        content_origin = str(metadata.get("content_origin") or "")
+        is_telegram_rss = content_origin == "telegram_rss_description"
+        blocks = _clean_original_blocks(
+            metadata.get("original_blocks") or [],
+            strip_telegram_signatures=is_telegram_rss,
+        )
+        paragraphs = (
+            _plain_paragraphs_from_blocks(blocks)
+            if is_telegram_rss and blocks
+            else metadata.get("original_paragraphs") or []
+        )
+        if is_telegram_rss and not blocks:
+            paragraphs = [
+                cleaned
+                for paragraph in paragraphs
+                if (cleaned := _strip_legacy_telegram_signature(str(paragraph)))
+            ]
         content = str(
             metadata.get("original_text") or "\n\n".join(str(p) for p in paragraphs)
         ).strip()
+        if is_telegram_rss and blocks:
+            content = "\n\n".join(str(p) for p in paragraphs)
         if not content:
             # fall back to the crawled body (e.g. a repo description) so the
             # detail page is never blank
@@ -1727,8 +1751,10 @@ def _event_item(
                 paragraphs = [content]
         item["original_content"] = content
         item["original_paragraphs"] = paragraphs
-        item["original_blocks"] = metadata.get("original_blocks") or []
+        item["original_blocks"] = blocks
         for key in RadarRepository._EVENT_CONTENT_METADATA_KEYS:
+            if key in {"original_paragraphs", "original_blocks"}:
+                continue
             value = metadata.get(key)
             if value:
                 item[key] = value
@@ -1736,7 +1762,10 @@ def _event_item(
             if translation.translated_paragraphs:
                 item["translated_paragraphs"] = translation.translated_paragraphs
             if translation.translated_blocks:
-                item["translated_blocks"] = translation.translated_blocks
+                item["translated_blocks"] = _clean_original_blocks(
+                    translation.translated_blocks,
+                    strip_telegram_signatures=is_telegram_rss,
+                )
             if translation.status:
                 item["translation_status"] = translation.status
             if translation.error:

@@ -1,6 +1,7 @@
 import type { OriginalBlock } from "@/lib/api";
 import { proxiedImageUrl } from "@/lib/images";
 import { RichParagraph } from "@/components/rich-paragraph";
+import { ArticleImage } from "@/components/article-image";
 
 // shared with markdownComponents' h1/h2/h3 in article-reading-toggle.tsx so
 // a heading looks the same whether it arrived as a structured block (this
@@ -67,6 +68,10 @@ function renderHeading(block: Extract<OriginalBlock, { type: "heading" }>, index
  *  detail page's no-translation path and ArticleReadingToggle, so heading/
  *  paragraph/image rendering only needs to be fixed in one place. */
 export function renderOriginalBlock(block: OriginalBlock, index: number) {
+  // Older cached Telegram payloads may still contain the retired signature block.
+  if ((block as { type: string }).type === "signature") {
+    return null;
+  }
   if (block.type === "heading") {
     return renderHeading(block, index);
   }
@@ -74,29 +79,83 @@ export function renderOriginalBlock(block: OriginalBlock, index: number) {
     const imageClassName = readmeImageClassName({ src: block.url });
     if (isReadmeInlineImage({ src: block.url })) {
       return (
-        <img
+        <ArticleImage
           key={`${block.url}-${index}`}
           src={proxiedImageUrl(block.url)}
           alt={block.alt ?? ""}
           className={imageClassName}
-          loading="lazy"
-          referrerPolicy="no-referrer"
+          fallbackUrl={block.fallback_url}
         />
       );
     }
     return (
       <figure key={`${block.url}-${index}`} className="my-8">
-        <img
+        <ArticleImage
           src={proxiedImageUrl(block.url)}
           alt={block.alt ?? ""}
           className={imageClassName}
-          loading="lazy"
-          referrerPolicy="no-referrer"
+          fallbackUrl={block.fallback_url}
         />
         {block.caption ? (
           <figcaption className="mt-2 text-center text-sm text-ink-mid">{block.caption}</figcaption>
         ) : null}
       </figure>
+    );
+  }
+  if (block.type === "source_list") {
+    return (
+      <section
+        key={`sources-${index}`}
+        className="rounded-md border border-line-strong bg-panel p-4"
+        aria-label="文章来源"
+      >
+        <div className="readout text-xs font-semibold uppercase tracking-wide text-ink-dim">文章来源</div>
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-3">
+          {block.links.map((link) => (
+            <a
+              key={link.url}
+              className="min-w-0 break-all text-sm font-semibold text-signal underline decoration-signal/35 underline-offset-4 hover:text-signal-bright"
+              href={link.url}
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              {link.label || link.host} ↗
+            </a>
+          ))}
+        </div>
+      </section>
+    );
+  }
+  if (block.type === "quote") {
+    const label =
+      block.kind === "reply" ? "回复上文" : block.kind === "update" ? "更新记录" : "引用";
+    const tone =
+      block.kind === "reply"
+        ? "border-signal/45 bg-signal/5"
+        : block.kind === "update"
+          ? "border-signal bg-panel"
+          : "border-line-strong bg-panel-soft";
+    return (
+      <aside key={`${block.kind}-${index}`} className={`border-l-2 p-4 ${tone}`}>
+        <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+          <span className="font-semibold text-signal-bright">{block.label ?? label}</span>
+          {block.source_url ? (
+            <a
+              className="text-signal hover:text-signal-bright"
+              href={block.source_url}
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              {block.author ? `${block.author} · ` : ""}查看原帖 ↗
+            </a>
+          ) : block.author ? (
+            <span className="text-ink-dim">{block.author}</span>
+          ) : null}
+        </div>
+        {block.children.length ? (
+          <div className="mt-4 space-y-4">{block.children.map(renderOriginalBlock)}</div>
+        ) : null}
+      </aside>
     );
   }
   return (

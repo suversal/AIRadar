@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timezone
 from typing import Any
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from app.models.domain import EventCluster, RawArticle, Source
@@ -58,18 +60,66 @@ def _clean_original_images(images: Any) -> list[dict[str, str]]:
         url = str(image.get("url") or "").strip()
         if not url:
             continue
+        cleaned_image = {
+            "url": url,
+            "alt": str(image.get("alt") or "").strip(),
+            "caption": str(image.get("caption") or "").strip(),
+        }
+        fallback_url = str(image.get("fallback_url") or "").strip()
+        if _safe_content_url(fallback_url):
+            cleaned_image["fallback_url"] = fallback_url
+        cleaned.append(cleaned_image)
+    return cleaned
+
+
+def _safe_content_url(value: str) -> bool:
+    parsed = urlsplit(value)
+    return parsed.scheme.lower() in {"http", "https"} and bool(parsed.netloc)
+
+
+def _clean_content_links(values: Any) -> list[dict[str, str]]:
+    if not isinstance(values, list):
+        return []
+    cleaned: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for value in values:
+        if not isinstance(value, dict):
+            continue
+        url = str(value.get("url") or "").strip()
+        if not _safe_content_url(url) or url in seen:
+            continue
+        seen.add(url)
         cleaned.append(
             {
+                "label": str(value.get("label") or value.get("host") or url).strip(),
                 "url": url,
-                "alt": str(image.get("alt") or "").strip(),
-                "caption": str(image.get("caption") or "").strip(),
+                "host": str(value.get("host") or urlsplit(url).hostname or "").strip(),
             }
         )
     return cleaned
 
 
-def _clean_original_blocks(blocks: Any) -> list[dict[str, Any]]:
+_LEGACY_TELEGRAM_SIGNATURE_RE = re.compile(
+    r"\s*(?:[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F]\s*|[·|｜•]\s*)"
+    r"[^。！？\n]{0,40}(?:频道|channel)[^。！？\n]{0,120}"
+    r"(?:投稿(?:通道|机器人)?|(?:交流群|讨论群|水群)|\b(?:chat|bot)\b).*$",
+    re.IGNORECASE,
+)
+
+
+def _strip_legacy_telegram_signature(value: str) -> str:
+    return _LEGACY_TELEGRAM_SIGNATURE_RE.sub("", value).rstrip(" ·|｜•")
+
+
+def _clean_original_blocks(
+    blocks: Any,
+    *,
+    depth: int = 0,
+    strip_telegram_signatures: bool = False,
+) -> list[dict[str, Any]]:
     if not isinstance(blocks, list):
+        return []
+    if depth > 4:
         return []
     cleaned = []
     for block in blocks:
@@ -78,10 +128,13 @@ def _clean_original_blocks(blocks: Any) -> list[dict[str, Any]]:
         block_type = block.get("type")
         if block_type == "paragraph":
             text = str(block.get("text") or "").strip()
+            original_text = text
+            if strip_telegram_signatures:
+                text = _strip_legacy_telegram_signature(text)
             if text:
                 cleaned_block: dict[str, Any] = {"type": "paragraph", "text": text}
                 html = str(block.get("html") or "").strip()
-                if html:
+                if html and text == original_text:
                     cleaned_block["html"] = html
                 cleaned.append(cleaned_block)
         elif block_type == "heading":
@@ -96,16 +149,69 @@ def _clean_original_blocks(blocks: Any) -> list[dict[str, Any]]:
                 cleaned.append(cleaned_heading)
         elif block_type == "image":
             url = str(block.get("url") or "").strip()
-            if url:
-                cleaned.append(
-                    {
-                        "type": "image",
-                        "url": url,
-                        "alt": str(block.get("alt") or "").strip(),
-                        "caption": str(block.get("caption") or "").strip(),
-                    }
-                )
+            if _safe_content_url(url):
+                cleaned_image: dict[str, Any] = {
+                    "type": "image",
+                    "url": url,
+                    "alt": str(block.get("alt") or "").strip(),
+                    "caption": str(block.get("caption") or "").strip(),
+                }
+                fallback_url = str(block.get("fallback_url") or "").strip()
+                if _safe_content_url(fallback_url):
+                    cleaned_image["fallback_url"] = fallback_url
+                cleaned.append(cleaned_image)
+        elif block_type == "source_list":
+            links = _clean_content_links(block.get("links"))
+            if links:
+                cleaned.append({"type": "source_list", "links": links})
+        elif block_type == "quote":
+            kind = str(block.get("kind") or "quote")
+            if kind not in {"reply", "update", "quote"}:
+                kind = "quote"
+            cleaned_quote: dict[str, Any] = {
+                "type": "quote",
+                "kind": kind,
+                "children": _clean_original_blocks(
+                    block.get("children"),
+                    depth=depth + 1,
+                    strip_telegram_signatures=strip_telegram_signatures,
+                ),
+            }
+            for key in ("label", "author"):
+                value = str(block.get(key) or "").strip()
+                if value:
+                    cleaned_quote[key] = value
+            source_url = str(block.get("source_url") or "").strip()
+            if _safe_content_url(source_url):
+                cleaned_quote["source_url"] = source_url
+            if cleaned_quote["children"] or cleaned_quote.get("source_url"):
+                cleaned.append(cleaned_quote)
     return cleaned
+
+
+def _plain_paragraphs_from_blocks(blocks: list[dict[str, Any]]) -> list[str]:
+    paragraphs: list[str] = []
+    for block in blocks:
+        block_type = block.get("type")
+        if block_type in {"paragraph", "heading"}:
+            text = str(block.get("text") or "").strip()
+            if text:
+                paragraphs.append(text)
+        elif block_type == "source_list":
+            links = block.get("links") or []
+            if links:
+                paragraphs.append(
+                    "文章来源："
+                    + " | ".join(str(link.get("label") or link.get("host")) for link in links)
+                )
+        elif block_type == "quote":
+            prefix = {"reply": "回复上文", "update": "更新", "quote": "引用"}.get(
+                str(block.get("kind") or "quote"), "引用"
+            )
+            nested = _plain_paragraphs_from_blocks(block.get("children") or [])
+            if nested:
+                paragraphs.append(f"[{prefix}] " + "\n".join(nested))
+    return paragraphs
 
 
 def _clean_text_list(values: Any) -> list[str]:
@@ -116,6 +222,8 @@ def _clean_text_list(values: Any) -> list[str]:
 
 def _original_article_payload(article: RawArticle) -> dict[str, Any]:
     metadata = article.metadata or {}
+    content_origin = str(metadata.get("content_origin") or "").strip()
+    is_telegram_rss = content_origin == "telegram_rss_description"
     raw_paragraphs = metadata.get("original_paragraphs")
     if not isinstance(raw_paragraphs, list):
         raw_paragraphs = []
@@ -124,14 +232,27 @@ def _original_article_payload(article: RawArticle) -> dict[str, Any]:
         for paragraph in raw_paragraphs
         if str(paragraph).strip()
     ]
+    if is_telegram_rss:
+        paragraphs = [
+            cleaned
+            for paragraph in paragraphs
+            if (cleaned := _strip_legacy_telegram_signature(paragraph))
+        ]
     if not paragraphs and article.content:
         paragraphs = [article.content]
     images = _clean_original_images(metadata.get("original_images"))
-    blocks = _clean_original_blocks(metadata.get("original_blocks"))
+    blocks = _clean_original_blocks(
+        metadata.get("original_blocks"),
+        strip_telegram_signatures=is_telegram_rss,
+    )
     if not blocks:
         blocks = [{"type": "paragraph", "text": paragraph} for paragraph in paragraphs]
         blocks.extend({"type": "image", **image} for image in images)
+    if is_telegram_rss and blocks:
+        paragraphs = _plain_paragraphs_from_blocks(blocks)
     original_text = str(metadata.get("original_text") or "").strip()
+    if is_telegram_rss and blocks:
+        original_text = "\n\n".join(paragraphs)
     if not original_text:
         original_text = "\n\n".join(paragraphs)
     payload = {
@@ -145,7 +266,6 @@ def _original_article_payload(article: RawArticle) -> dict[str, Any]:
     original_markdown = str(metadata.get("original_markdown") or "").strip()
     if original_markdown:
         payload["original_markdown"] = original_markdown
-    content_origin = str(metadata.get("content_origin") or "").strip()
     if content_origin:
         payload["content_origin"] = content_origin
     for key in ("readme_name", "readme_language", "readme_selection"):

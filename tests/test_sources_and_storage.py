@@ -42,6 +42,22 @@ class SourcesAndStorageTests(unittest.TestCase):
         self.assertNotIn("use_feed_content_only", aihot.config)
         self.assertTrue(aihot.config["original_url_from_description"])
 
+        telegram_ids = {
+            "telegram_zaihuapd",
+            "telegram_xhqcankao",
+            "telegram_dnspodt",
+        }
+        self.assertTrue(telegram_ids.issubset(source_ids))
+        for source in (source for source in sources if source.id in telegram_ids):
+            self.assertEqual(source.type, "telegram_rss")
+            self.assertEqual(source.source_role, "aggregator")
+            self.assertFalse(source.can_be_main_source)
+            self.assertFalse(source.affects_heat_score)
+            self.assertEqual(source.config["selection_policy"], "trusted_curated")
+            self.assertEqual(source.config["force_selection"], "always")
+            self.assertEqual(source.config["recent_days"], 1)
+            self.assertTrue(source.config["use_feed_content_only"])
+
     def test_default_sources_second_batch_replaces_dead_feeds(self):
         sources = default_sources()
         by_id = {source.id: source for source in sources}

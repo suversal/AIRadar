@@ -58,6 +58,9 @@ async function api(path: string, init?: RequestInit) {
 
 function healthLabel(source: AdminSource): { text: string; tone: Tone } {
   if (!source.is_active) return { text: "停用", tone: "neutral" };
+  if (!source.last_crawled_at && !source.last_crawl_result) {
+    return { text: "未检测", tone: "neutral" };
+  }
   if (source.error_count > 0 || source.success_rate < 0.5) return { text: "故障", tone: "danger" };
   if (source.success_rate < 0.9) return { text: "波动", tone: "warning" };
   return { text: "正常", tone: "success" };

@@ -24,6 +24,41 @@ from app.storage.json_store import (
 )
 
 
+AUTO_SEEDED_SOURCE_IDS = {
+    "aihot_feed",
+    "telegram_zaihuapd",
+    "telegram_xhqcankao",
+    "telegram_dnspodt",
+}
+
+
+def ensure_auto_seeded_sources(repository: Any) -> list[Source]:
+    """Return all configured sources after inserting newly shipped defaults.
+
+    Existing rows remain authoritative so admin edits are never overwritten.
+    An empty database still receives the complete default catalog; an existing
+    installation receives only the small allowlist of defaults intentionally
+    marked for automatic rollout.
+    """
+    sources = repository.get_all_sources()
+    if not sources:
+        missing = default_sources()
+    else:
+        existing_ids = {source.id for source in sources}
+        missing = [
+            source
+            for source in default_sources()
+            if source.id in AUTO_SEEDED_SOURCE_IDS and source.id not in existing_ids
+        ]
+    if missing:
+        repository.upsert_sources(missing)
+        commit = getattr(getattr(repository, "session", None), "commit", None)
+        if callable(commit):
+            commit()
+        sources.extend(missing)
+    return sources
+
+
 def _raw_items_by_source(raw_articles: list[RawArticle]) -> dict[str, list[dict[str, Any]]]:
     grouped: dict[str, list[dict[str, Any]]] = {}
     for article in raw_articles:
@@ -50,7 +85,7 @@ def _load_or_seed_sources(sources_path: Path) -> list[Source]:
     missing = [
         source
         for source in default_sources()
-        if source.id == "aihot_feed" and source.id not in existing_ids
+        if source.id in AUTO_SEEDED_SOURCE_IDS and source.id not in existing_ids
     ]
     if missing:
         sources.extend(missing)
@@ -68,21 +103,7 @@ def _load_sources(database_url: str | None, sources_path: Path) -> list[Source]:
         session = build_session_factory(database_url)()
         try:
             repository = RadarRepository(session)
-            sources = repository.get_all_sources()
-            if not sources:
-                missing = default_sources()
-            else:
-                existing_ids = {source.id for source in sources}
-                missing = [
-                    source
-                    for source in default_sources()
-                    if source.id == "aihot_feed" and source.id not in existing_ids
-                ]
-            if missing:
-                repository.upsert_sources(missing)
-                session.commit()
-                sources.extend(missing)
-            return sources
+            return ensure_auto_seeded_sources(repository)
         finally:
             session.close()
     return _load_or_seed_sources(sources_path)

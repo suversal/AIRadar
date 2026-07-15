@@ -362,6 +362,13 @@ def _process_candidate_article(
     aihot_summary_zh = article.metadata.get("aihot_summary_zh")
     if aihot_summary_zh:
         processed = replace(processed, summary_zh=aihot_summary_zh)
+    # Telegram RSS titles are editorial copy from the channel and are the
+    # product-visible headline. AI still generates summary/reason/category,
+    # but must never silently rewrite the RSS title (including its emoji and
+    # reply/update markers).
+    rss_title = article.metadata.get("rss_title")
+    if article.metadata.get("source_type") == "telegram_rss" and rss_title:
+        processed = replace(processed, title_zh=str(rss_title).strip())
     # 缓存文章直接复用库里的向量:重算既浪费 CPU,又会在内容有差异时
     # 用劣质向量覆盖全文向量
     cached_embedding = (cached or {}).get("embedding") if scoring_was_cached else None
@@ -394,14 +401,21 @@ def _trusted_curated_fallback_scoring(article: RawArticle) -> ScoringResult:
     }
     feed_category = str(article.metadata.get("feed_category") or "").strip()
     summary = (article.content or article.title).strip()
+    is_telegram = article.metadata.get("source_type") == "telegram_rss"
+    source_tag = "Telegram" if is_telegram else "AI HOT"
+    reason = (
+        f"来自可信精选信源“{article.source_name}”，模型处理失败后保留原始信息。"
+        if is_telegram
+        else "来自 AI HOT 每日精编候选池，模型处理失败后保留原始信息。"
+    )
     return ScoringResult(
         dimensions=ScoreDimensions(8, 5, 5, 5, 4, 4),
         category=category_map.get(feed_category, "industry"),
-        tags=[tag for tag in [feed_category, "AI HOT"] if tag],
+        tags=[tag for tag in [feed_category, source_tag] if tag],
         title_zh=article.title,
         one_line_summary=summary[:120],
         summary_zh=summary[:500],
-        reason_zh="来自 AI HOT 每日精编候选池，模型处理失败后保留原始信息。",
+        reason_zh=reason,
         action_zh="阅读原文并核对一手来源。",
     )
 
@@ -458,13 +472,20 @@ def _translation_paragraphs_for(article: RawArticle) -> list[str]:
 def _text_blocks_for_translation(article: RawArticle) -> list[dict[str, Any]]:
     blocks = article.metadata.get("original_blocks") if article.metadata else None
     if isinstance(blocks, list):
-        text_blocks = [
-            block
-            for block in blocks
-            if isinstance(block, dict)
-            and block.get("type") in ("paragraph", "heading")
-            and str(block.get("text") or "").strip()
-        ]
+        def collect(values: list[Any]) -> list[dict[str, Any]]:
+            collected: list[dict[str, Any]] = []
+            for block in values:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") in ("paragraph", "heading") and str(
+                    block.get("text") or ""
+                ).strip():
+                    collected.append(block)
+                elif block.get("type") == "quote" and isinstance(block.get("children"), list):
+                    collected.extend(collect(block["children"]))
+            return collected
+
+        text_blocks = collect(blocks)
         if text_blocks:
             return text_blocks
     paragraphs = article.metadata.get("original_paragraphs") if article.metadata else None
@@ -483,39 +504,52 @@ def _text_blocks_for_translation(article: RawArticle) -> list[dict[str, Any]]:
 
 def _translated_blocks_for(article: RawArticle, translated_paragraphs: list[str]) -> list[dict[str, Any]]:
     source_blocks = article.metadata.get("original_blocks") if article.metadata else None
-    paragraph_index = 0
     if isinstance(source_blocks, list) and source_blocks:
-        translated_blocks = []
-        for block in source_blocks:
-            if not isinstance(block, dict):
-                continue
-            if block.get("type") == "paragraph":
-                if paragraph_index >= len(translated_paragraphs):
+        paragraph_index = [0]
+
+        def translate(values: list[Any]) -> list[dict[str, Any]]:
+            translated: list[dict[str, Any]] = []
+            for block in values:
+                if not isinstance(block, dict):
                     continue
-                translated_blocks.append(
-                    {"type": "paragraph", "text": translated_paragraphs[paragraph_index]}
-                )
-                paragraph_index += 1
-            elif block.get("type") == "heading":
-                if paragraph_index >= len(translated_paragraphs):
-                    continue
-                level = block.get("level")
-                level = level if isinstance(level, int) and 1 <= level <= 6 else 2
-                translated_blocks.append(
-                    {"type": "heading", "level": level, "text": translated_paragraphs[paragraph_index]}
-                )
-                paragraph_index += 1
-            elif block.get("type") == "image":
-                url = str(block.get("url") or "").strip()
-                if url:
-                    translated_blocks.append(
-                        {
-                            "type": "image",
-                            "url": url,
-                            "alt": str(block.get("alt") or "").strip(),
-                            "caption": str(block.get("caption") or "").strip(),
-                        }
-                    )
+                block_type = block.get("type")
+                if block_type in ("paragraph", "heading"):
+                    if paragraph_index[0] >= len(translated_paragraphs):
+                        continue
+                    translated_block: dict[str, Any] = {
+                        "type": block_type,
+                        "text": translated_paragraphs[paragraph_index[0]],
+                    }
+                    paragraph_index[0] += 1
+                    if block_type == "heading":
+                        level = block.get("level")
+                        translated_block["level"] = (
+                            level if isinstance(level, int) and 1 <= level <= 6 else 2
+                        )
+                    translated.append(translated_block)
+                elif block_type == "image":
+                    url = str(block.get("url") or "").strip()
+                    if url:
+                        translated.append(
+                            {
+                                key: value
+                                for key, value in block.items()
+                                if key in {"type", "url", "alt", "caption", "fallback_url"}
+                            }
+                        )
+                elif block_type == "source_list":
+                    translated.append(dict(block))
+                elif block_type == "quote":
+                    translated_quote = {
+                        key: value
+                        for key, value in block.items()
+                        if key in {"type", "kind", "label", "author", "source_url"}
+                    }
+                    translated_quote["children"] = translate(block.get("children") or [])
+                    translated.append(translated_quote)
+            return translated
+
+        translated_blocks = translate(source_blocks)
         if translated_blocks:
             return translated_blocks
     return [{"type": "paragraph", "text": paragraph} for paragraph in translated_paragraphs]

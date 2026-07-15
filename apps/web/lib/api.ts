@@ -9,6 +9,13 @@ export type OriginalImage = {
   url: string;
   alt?: string;
   caption?: string;
+  fallback_url?: string;
+};
+
+export type ContentLink = {
+  label: string;
+  url: string;
+  host: string;
 };
 
 export type OriginalBlock =
@@ -28,6 +35,19 @@ export type OriginalBlock =
       url: string;
       alt?: string;
       caption?: string;
+      fallback_url?: string;
+    }
+  | {
+      type: "source_list";
+      links: ContentLink[];
+    }
+  | {
+      type: "quote";
+      kind: "reply" | "update" | "quote";
+      label?: string;
+      author?: string;
+      source_url?: string;
+      children: OriginalBlock[];
     };
 
 export type EventCoverageItem = {
@@ -67,9 +87,8 @@ export type LatestEvent = {
   translated_content?: string;
   translated_paragraphs?: string[];
   translated_blocks?: OriginalBlock[];
-  // "aihot_item_page_link_only": known unscrapable read-original domain
-  // (e.g. WeChat) - the backend deliberately withheld original_* content,
-  // so the frontend must not synthesize a fake 原文 block from the summary
+  // Includes "aihot_item_page_link_only" and
+  // "telegram_rss_description" content provenance markers.
   content_origin?: string;
 };
 

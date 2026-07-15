@@ -38,6 +38,14 @@ class AdminSourcesApiTests(unittest.TestCase):
         self.assertEqual(denied.status_code, 401)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["sources"][0]["id"], "openai_blog")
+        self.assertTrue(
+            {
+                "aihot_feed",
+                "telegram_zaihuapd",
+                "telegram_xhqcankao",
+                "telegram_dnspodt",
+            }.issubset({source.id for source in self.repository.created})
+        )
 
     def test_patch_source_updates_allowed_fields_only(self):
         client = self._client()
@@ -134,6 +142,7 @@ class AdminSourcesApiTests(unittest.TestCase):
         self.assertEqual(len(self.repository.raw_upserts), 1)
         self.assertEqual(len(self.repository.processed_upserts), 1)
         self.assertEqual(self.repository.crawl_results[-1][0], "openai_blog")
+        self.assertEqual(self.repository.health_updates[-1]["openai_blog"]["status"], "ok")
 
     def test_test_endpoint_reports_duplicate_without_rescoring(self):
         from datetime import datetime, timezone
@@ -198,6 +207,9 @@ class AdminSourcesApiTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["status"], "failed")
         self.assertIn("404", body["error"])
+        self.assertEqual(
+            self.repository.health_updates[-1]["openai_blog"]["status"], "skipped"
+        )
 
 
 @unittest.skipIf(TestClient is None, "FastAPI is not installed in this environment")
@@ -280,6 +292,7 @@ class _FakeSourceRepository:
         self.processed_upserts = []
         self.embedding_upserts = []
         self.crawl_results = []
+        self.health_updates = []
         self.existing_outcomes = {}
 
     def get_existing_outcome_by_url_hash(self, url_hash):
@@ -296,6 +309,9 @@ class _FakeSourceRepository:
 
     def set_last_crawl_result(self, source_id, result):
         self.crawl_results.append((source_id, result))
+
+    def update_source_health(self, per_source):
+        self.health_updates.append(per_source)
 
     def list_sources_with_health(self):
         return [{"id": "openai_blog", "name": "OpenAI Blog", "success_rate": 1.0}]

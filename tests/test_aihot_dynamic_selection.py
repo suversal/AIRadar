@@ -49,6 +49,43 @@ class HighScoreProvider(LowScoreProvider):
         )
 
 
+class TelegramProvider(FakeAIProvider):
+    def prefilter(self, text):
+        raise AssertionError("trusted Telegram items must bypass the relevance prefilter")
+
+    def score_article(self, title, content):
+        return ScoringResult(
+            dimensions=ScoreDimensions(2, 2, 2, 2, 2, 2),
+            category="industry",
+            tags=["Telegram"],
+            title_zh="AI 改写标题（不应展示）",
+            one_line_summary="AI 一句话摘要",
+            summary_zh="AI 根据结构化正文生成的摘要",
+            reason_zh="频道直接精选",
+            action_zh="查看上下文",
+        )
+
+    def embed_text(self, text, dimensions=512):
+        return [1.0, 0.0, 0.0]
+
+
+def telegram_source():
+    return Source(
+        id="telegram_zaihuapd",
+        name="在花频道",
+        source_role="aggregator",
+        tier="T3",
+        type="telegram_rss",
+        category="community",
+        url="https://rsshub.app/telegram/channel/zaihuapd",
+        homepage="https://t.me/zaihuapd",
+        allowed_domains=["t.me", "telegram.me"],
+        language="zh",
+        can_be_main_source=False,
+        config={"selection_policy": "trusted_curated", "force_selection": "always"},
+    )
+
+
 def aihot_all_source():
     return Source(
         id="aihot_all",
@@ -88,6 +125,79 @@ def aihot_source():
 
 
 class AIHotDynamicSelectionTests(unittest.TestCase):
+    def test_telegram_bypasses_prefilter_forces_selection_and_preserves_rss_title(self):
+        source = telegram_source()
+        rss_title = "↩️ 🖼 RSS 原始标题"
+        items = [
+            {
+                "source_url": "https://t.me/zaihuapd/42572",
+                "title": rss_title,
+                "content": "[回复上文] 旧消息。 当前正文。 [更新] 后续消息。",
+                "author": "在花频道",
+                "published_at": datetime(2026, 7, 15, 4, tzinfo=timezone.utc),
+                "language": "zh",
+                "raw_score": {},
+                "metadata": {
+                    "source_type": "telegram_rss",
+                    "content_origin": "telegram_rss_description",
+                    "rss_title": rss_title,
+                    "original_blocks": [{"type": "paragraph", "text": "当前正文。"}],
+                    "original_paragraphs": ["当前正文。"],
+                    "original_text": "当前正文。",
+                },
+            }
+        ]
+
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={source.id: items},
+            ai_provider=TelegramProvider(),
+            now=datetime(2026, 7, 15, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 15),
+        )
+
+        processed = result.processed_articles[0]
+        self.assertTrue(processed.selected)
+        self.assertEqual(processed.selection_origin, "curated_source")
+        self.assertEqual(processed.title_zh, rss_title)
+        self.assertEqual(processed.summary_zh, "AI 根据结构化正文生成的摘要")
+
+    def test_telegram_ai_failure_uses_generic_fallback_not_aihot_copy(self):
+        class FailingTelegramProvider(TelegramProvider):
+            def score_article(self, title, content):
+                raise RuntimeError("model unavailable")
+
+        source = telegram_source()
+        items = [
+            {
+                "source_url": "https://t.me/zaihuapd/42573",
+                "title": "Telegram 标题",
+                "content": "这是一段足够完整的正文内容。",
+                "author": "在花频道",
+                "published_at": datetime(2026, 7, 15, 4, tzinfo=timezone.utc),
+                "language": "zh",
+                "raw_score": {},
+                "metadata": {
+                    "source_type": "telegram_rss",
+                    "rss_title": "Telegram 标题",
+                },
+            }
+        ]
+
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={source.id: items},
+            ai_provider=FailingTelegramProvider(),
+            now=datetime(2026, 7, 15, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 15),
+        )
+
+        processed = result.processed_articles[0]
+        self.assertIn("Telegram", processed.tags)
+        self.assertNotIn("AI HOT", processed.tags)
+        self.assertIn("可信精选信源", processed.reason_zh)
+        self.assertNotIn("AI HOT", processed.reason_zh)
+
     def test_trusted_curated_items_bypass_candidate_budget_and_score_threshold(self):
         source = aihot_source()
         items = [

@@ -21,9 +21,9 @@ function formatScore(score?: number) {
   return Math.round(score).toString();
 }
 
-function formatDateTime(value?: string) {
+function formatDateTime(value?: string, contentOrigin?: string) {
   if (!value) {
-    return "暂无时间";
+    return contentOrigin === "telegram_rss_description" ? "RSS 未提供发布时间" : "暂无时间";
   }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -116,6 +116,7 @@ export default async function EventDetailPage({ params }: { params: EventParams 
 
   const originalUrl = event.original_url ?? event.main_source?.url;
   const originalHost = hostFromUrl(originalUrl);
+  const isTelegramRss = event.content_origin === "telegram_rss_description";
   const originalBlocks = originalBlocksFor(event);
   const translatedBlocks = translatedBlocksFor(event);
 
@@ -141,7 +142,7 @@ export default async function EventDetailPage({ params }: { params: EventParams 
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-mid">
                     <span className="font-semibold text-ink">{event.main_source?.name ?? "未知来源"}</span>
-                    <span>{formatDateTime(event.published_at)}</span>
+                    <span>{formatDateTime(event.published_at, event.content_origin)}</span>
                     <span>{event.category_label ?? event.category ?? "未分类"}</span>
                   </div>
                   <h1 className="mt-3 text-2xl font-semibold leading-tight tracking-normal text-ink md:text-3xl">
@@ -151,11 +152,12 @@ export default async function EventDetailPage({ params }: { params: EventParams 
                     <a
                       className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-signal hover:text-signal-bright"
                       href={originalUrl}
-                      rel="noreferrer"
+                      rel="noopener noreferrer"
                       target="_blank"
                     >
                       <ExternalLink aria-hidden className="h-4 w-4" strokeWidth={2} />
-                      阅读原文{originalHost ? <span className="text-ink-dim"> · {originalHost}</span> : null}
+                      {isTelegramRss ? "查看 Telegram 原帖" : "阅读原文"}
+                      {originalHost ? <span className="text-ink-dim"> · {originalHost}</span> : null}
                     </a>
                   ) : null}
                 </div>
@@ -205,10 +207,10 @@ export default async function EventDetailPage({ params }: { params: EventParams 
               <a
                 className="mt-8 inline-flex items-center gap-2 rounded-md border border-signal/50 bg-panel px-4 py-2.5 text-sm font-semibold text-signal transition hover:border-signal hover:text-signal-bright"
                 href={originalUrl}
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 target="_blank"
               >
-                阅读原文
+                {isTelegramRss ? "查看 Telegram 原帖" : "阅读原文"}
                 <ExternalLink aria-hidden className="h-4 w-4" strokeWidth={2} />
                 {originalHost ? <span className="text-ink-dim">{originalHost}</span> : null}
               </a>
