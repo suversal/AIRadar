@@ -6,7 +6,12 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
 from app.models.domain import RawArticle, Source
-from app.services.clustering_service import choose_main_article, cluster_articles, cosine_similarity
+from app.services.clustering_service import (
+    canonical_reference_key,
+    choose_main_article,
+    cluster_articles,
+    cosine_similarity,
+)
 
 
 def raw_article(article_id, source_id, role, tier, title, published_hour):
@@ -70,6 +75,43 @@ class ClusteringTests(unittest.TestCase):
         self.assertAlmostEqual(similarities["a1"], 1.0)
         self.assertAlmostEqual(
             similarities["a2"], cosine_similarity([1.0, 0.0, 0.0], [0.97, 0.03, 0.0])
+        )
+
+    def test_cluster_articles_merges_exact_cited_source_below_vector_threshold(self):
+        articles = [
+            raw_article("a1", "telegram_a", "aggregator", "T3", "马斯克宣布开源 X", 8),
+            raw_article("a2", "telegram_b", "aggregator", "T3", "X 整个代码库将开源", 9),
+        ]
+        articles[0].metadata["original_blocks"] = [
+            {
+                "type": "source_list",
+                "links": [
+                    {"url": "https://x.com/elonmusk/status/2077361679034118271"}
+                ],
+            }
+        ]
+        articles[1].metadata["original_blocks"] = [
+            {
+                "type": "source_list",
+                "links": [{"url": "https://x.com/i/status/2077361679034118271"}],
+            }
+        ]
+        embeddings = {
+            "a1": [1.0, 0.0, 0.0],
+            "a2": [0.0, 1.0, 0.0],
+        }
+
+        clusters = cluster_articles(articles, embeddings, threshold=0.93)
+
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(clusters[0].source_count, 2)
+        self.assertAlmostEqual(clusters[0].article_similarities["a2"], 0.0)
+
+    def test_reference_key_ignores_homepages_and_normalizes_tracking(self):
+        self.assertIsNone(canonical_reference_key("https://example.com/"))
+        self.assertEqual(
+            canonical_reference_key("https://example.com/news/42?utm_source=rss&id=7"),
+            "url:example.com/news/42?id=7",
         )
 
     def test_cluster_ids_are_stable_across_runs_and_orderings(self):
@@ -136,4 +178,3 @@ class ClusteringTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

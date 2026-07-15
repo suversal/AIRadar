@@ -1321,6 +1321,124 @@ class RepositoryTests(unittest.TestCase):
         # pre-existing member's joined_at is never reset by a later merge
         self.assertEqual(old_membership_after.joined_at, original_joined_at)
 
+    def test_split_events_reconcile_by_exact_reference_and_keep_old_id_redirects(self):
+        from app.db.models import (
+            EventClusterArticleModel,
+            EventClusterModel,
+            EventClusterRedirectModel,
+            RawArticleModel,
+        )
+        from app.repositories.radar_repository import RadarRepository
+
+        cited_status = "2077361679034118271"
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source(), self._other_source()])
+            first = self._article(article_id="a1", title="马斯克宣布开源 X", url_hash="u-a1")
+            second = RawArticle(
+                id="a2",
+                source_id="techcrunch",
+                source_name="TechCrunch",
+                source_role="signal",
+                source_tier="T2",
+                source_url="https://techcrunch.com/a2",
+                title="X 整个代码库将开源",
+                content="同一个事件的另一种表述",
+                author="TechCrunch",
+                published_at=datetime(2026, 7, 1, 10, tzinfo=timezone.utc),
+                language="zh",
+                raw_score={},
+                metadata={},
+                title_hash="title-a2",
+                url_hash="u-a2",
+            )
+            repository.upsert_raw_articles([first, second])
+            repository.upsert_processed_articles(
+                [self._processed("a1", final_score=70), self._processed("a2", final_score=80)]
+            )
+            repository.upsert_article_embedding(
+                "a1", embedding_model="m", vector=self._vec([1.0, 0.0]), source_hash="h-a1"
+            )
+            repository.upsert_article_embedding(
+                "a2", embedding_model="m", vector=self._vec([0.0, 1.0]), source_hash="h-a2"
+            )
+            first_cluster = self._cluster("e-first", main_article_id="a1")
+            first_cluster.final_score = 70
+            second_cluster = self._cluster("e-second", main_article_id="a2")
+            second_cluster.final_score = 80
+            second_cluster.first_seen_at = second.published_at
+            second_cluster.last_seen_at = second.published_at
+            repository.upsert_event_clusters([first_cluster])
+            repository.upsert_event_clusters([second_cluster])
+            repository.upsert_daily_report(self._report(date(2026, 7, 1), article_count=2))
+            repository.replace_daily_report_entries(
+                date(2026, 7, 1),
+                [
+                    {
+                        "event_id": "e-first",
+                        "raw_article_id": "a1",
+                        "reason": "first",
+                        "final_score": 70,
+                    },
+                    {
+                        "event_id": "e-second",
+                        "raw_article_id": "a2",
+                        "reason": "second",
+                        "final_score": 80,
+                    },
+                ],
+            )
+            session.commit()
+
+            first_row = session.get(RawArticleModel, "a1")
+            second_row = session.get(RawArticleModel, "a2")
+            first_row.raw_metadata = {
+                "original_blocks": [
+                    {
+                        "type": "source_list",
+                        "links": [
+                            {"url": f"https://x.com/elonmusk/status/{cited_status}"}
+                        ],
+                    }
+                ]
+            }
+            second_row.raw_metadata = {
+                "original_blocks": [
+                    {
+                        "type": "source_list",
+                        "links": [{"url": f"https://x.com/i/status/{cited_status}"}],
+                    }
+                ]
+            }
+            redirects = repository.reconcile_recent_events_by_reference(
+                since=datetime(2026, 7, 1, tzinfo=timezone.utc)
+            )
+            session.commit()
+
+            clusters = session.scalars(select(EventClusterModel)).all()
+            memberships = session.scalars(select(EventClusterArticleModel)).all()
+            redirect = session.get(EventClusterRedirectModel, "e-second")
+            old_url_item = repository.get_event_item("e-second")
+            report_entries = repository.get_daily_report_entries(date(2026, 7, 1))
+
+        self.assertEqual(redirects, {"e-second": "e-first"})
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(clusters[0].id, "e-first")
+        self.assertEqual(clusters[0].source_count, 2)
+        self.assertEqual({item.raw_article_id for item in memberships}, {"a1", "a2"})
+        similarity_by_article = {
+            item.raw_article_id: item.similarity_score for item in memberships
+        }
+        self.assertAlmostEqual(similarity_by_article["a1"], 1.0)
+        self.assertAlmostEqual(similarity_by_article["a2"], 0.0)
+        self.assertEqual(redirect.target_event_id, "e-first")
+        self.assertEqual(old_url_item["event_id"], "e-first")
+        self.assertEqual(len(old_url_item["coverage"]), 2)
+        self.assertEqual(
+            [entry["event_id"] for entry in report_entries],
+            ["e-first", "aa2"],
+        )
+
     def test_new_cluster_adopts_main_when_it_outscores_existing_event(self):
         from app.repositories.radar_repository import RadarRepository
         from app.db.models import EventClusterModel

@@ -20,6 +20,7 @@ from app.db.models import (
     PeriodReportModel,
     EventClusterArticleModel,
     EventClusterModel,
+    EventClusterRedirectModel,
     EventEditorialOverrideModel,
     PipelineRunModel,
     ProcessedArticleModel,
@@ -28,7 +29,12 @@ from app.db.models import (
     SourceModel,
 )
 from app.models.domain import DailyReport, EventCluster, ProcessedArticle, RawArticle, Source
-from app.services.clustering_service import cosine_similarity
+from app.services.clustering_service import (
+    ROLE_PRIORITY,
+    TIER_PRIORITY,
+    cosine_similarity,
+    reference_keys_from_metadata,
+)
 from app.services.daily_report_service import (
     _clean_original_blocks,
     _plain_paragraphs_from_blocks,
@@ -515,6 +521,228 @@ class RadarRepository:
             return None
         return cosine_similarity(left, right)
 
+    def _reference_keys_for_articles(self, article_ids: list[str]) -> set[str]:
+        if not article_ids:
+            return set()
+        metadata_rows = self.session.execute(
+            select(RawArticleModel.raw_metadata).where(RawArticleModel.id.in_(article_ids))
+        ).scalars()
+        keys: set[str] = set()
+        for metadata in metadata_rows:
+            keys.update(reference_keys_from_metadata(metadata))
+        return keys
+
+    def find_recent_event_by_reference_keys(
+        self, reference_keys: set[str], *, since: datetime
+    ) -> Optional[str]:
+        """Find an event citing the exact same article/status URL.
+
+        This is deliberately separate from vector similarity: an exact
+        non-homepage source link is deterministic same-event evidence and
+        safely recovers paraphrases that sit below the conservative vector
+        threshold.
+        """
+        if not reference_keys:
+            return None
+        rows = self.session.execute(
+            select(
+                EventClusterModel.id,
+                EventClusterModel.last_seen_at,
+                RawArticleModel.raw_metadata,
+            )
+            .join(
+                EventClusterArticleModel,
+                EventClusterArticleModel.event_cluster_id == EventClusterModel.id,
+            )
+            .join(
+                RawArticleModel,
+                RawArticleModel.id == EventClusterArticleModel.raw_article_id,
+            )
+        ).all()
+        candidates: set[str] = set()
+        for event_id, last_seen_at, metadata in rows:
+            if _ensure_utc(last_seen_at) < _ensure_utc(since):
+                continue
+            if reference_keys.intersection(reference_keys_from_metadata(metadata)):
+                candidates.add(event_id)
+        if not candidates:
+            return None
+        return max(candidates, key=self._event_merge_rank)
+
+    def _event_merge_rank(
+        self, event_id: str
+    ) -> tuple[int, int, int, float, int, datetime, str]:
+        model = self.session.get(EventClusterModel, event_id)
+        if model is None:
+            return (0, 0, 0, 0.0, 0, datetime.min.replace(tzinfo=timezone.utc), event_id)
+        source = self.session.execute(
+            select(SourceModel)
+            .join(RawArticleModel, RawArticleModel.source_id == SourceModel.id)
+            .where(RawArticleModel.id == model.main_article_id)
+        ).scalar_one_or_none()
+        return (
+            1 if source and source.can_be_main_source else 0,
+            ROLE_PRIORITY.get(source.source_role, 0) if source else 0,
+            TIER_PRIORITY.get(source.tier, 0) if source else 0,
+            float(model.final_score or 0.0),
+            int(model.source_count or 1),
+            _ensure_utc(model.last_seen_at),
+            event_id,
+        )
+
+    @staticmethod
+    def _follow_redirects(event_id: str, redirects: dict[str, str]) -> str:
+        seen: set[str] = set()
+        while event_id in redirects and event_id not in seen:
+            seen.add(event_id)
+            event_id = redirects[event_id]
+        return event_id
+
+    def _merge_event_cluster(
+        self,
+        source_id: str,
+        target_id: str,
+        redirects: dict[str, str],
+    ) -> str:
+        source_id = self._follow_redirects(source_id, redirects)
+        target_id = self._follow_redirects(target_id, redirects)
+        if source_id == target_id:
+            return target_id
+        source = self.session.get(EventClusterModel, source_id)
+        target = self.session.get(EventClusterModel, target_id)
+        if source is None or target is None:
+            return target_id
+
+        target.first_seen_at = min(
+            _ensure_utc(target.first_seen_at), _ensure_utc(source.first_seen_at)
+        )
+        target.last_seen_at = max(
+            _ensure_utc(target.last_seen_at), _ensure_utc(source.last_seen_at)
+        )
+        target.final_score = max(float(target.final_score or 0), float(source.final_score or 0))
+
+        target_memberships = {
+            membership.raw_article_id: membership
+            for membership in self.session.scalars(
+                select(EventClusterArticleModel).where(
+                    EventClusterArticleModel.event_cluster_id == target_id
+                )
+            ).all()
+        }
+        source_memberships = self.session.scalars(
+            select(EventClusterArticleModel).where(
+                EventClusterArticleModel.event_cluster_id == source_id
+            )
+        ).all()
+        next_priority = len(target_memberships)
+        for membership in source_memberships:
+            if membership.raw_article_id in target_memberships:
+                self.session.delete(membership)
+                continue
+            membership.event_cluster_id = target_id
+            membership.is_main = False
+            membership.source_priority = next_priority
+            next_priority += 1
+
+        for processed in self.session.scalars(
+            select(ProcessedArticleModel).where(
+                ProcessedArticleModel.event_cluster_id == source_id
+            )
+        ).all():
+            processed.event_cluster_id = target_id
+
+        source_override = self._get_event_override(source_id)
+        target_override = self._get_event_override(target_id)
+        if source_override is not None:
+            if target_override is None:
+                source_override.event_cluster_id = target_id
+            else:
+                self.session.delete(source_override)
+
+        # Historical report mastheads should keep resolving to the original
+        # article rather than rendering the canonical event's main article
+        # multiple times after consolidation. Article pseudo-ids are stable
+        # and still inherit the canonical cluster's coverage facts.
+        article_alias = f"a{source.main_article_id[:12]}"
+        for entry in self.session.scalars(
+            select(DailyReportEntryModel).where(DailyReportEntryModel.event_id == source_id)
+        ).all():
+            entry.event_id = article_alias
+        for period in self.session.scalars(select(PeriodReportModel)).all():
+            entries = list(period.entries or [])
+            changed = False
+            for entry in entries:
+                if isinstance(entry, dict) and entry.get("event_id") == source_id:
+                    entry["event_id"] = article_alias
+                    changed = True
+            if changed:
+                period.entries = entries
+
+        for redirect in self.session.scalars(
+            select(EventClusterRedirectModel).where(
+                EventClusterRedirectModel.target_event_id == source_id
+            )
+        ).all():
+            redirect.target_event_id = target_id
+        redirect = self.session.get(EventClusterRedirectModel, source_id)
+        if redirect is None:
+            self.session.add(
+                EventClusterRedirectModel(
+                    source_event_id=source_id,
+                    target_event_id=target_id,
+                )
+            )
+        else:
+            redirect.target_event_id = target_id
+
+        self.session.flush()
+        self.session.delete(source)
+        self.session.flush()
+        redirects[source_id] = target_id
+        for original_id, redirected_id in list(redirects.items()):
+            redirects[original_id] = self._follow_redirects(redirected_id, redirects)
+        target.source_count = self._count_distinct_sources(target_id)
+        self._refresh_event_similarity_scores(target_id)
+        return target_id
+
+    def reconcile_recent_events_by_reference(self, *, since: datetime) -> dict[str, str]:
+        """Consolidate recent split clusters that cite one exact source URL."""
+        rows = self.session.execute(
+            select(
+                EventClusterModel.id,
+                EventClusterModel.last_seen_at,
+                RawArticleModel.raw_metadata,
+            )
+            .join(
+                EventClusterArticleModel,
+                EventClusterArticleModel.event_cluster_id == EventClusterModel.id,
+            )
+            .join(
+                RawArticleModel,
+                RawArticleModel.id == EventClusterArticleModel.raw_article_id,
+            )
+            .where(EventClusterModel.last_seen_at >= _ensure_utc(since))
+        ).all()
+        event_ids_by_key: dict[str, set[str]] = {}
+        for event_id, _last_seen_at, metadata in rows:
+            for key in reference_keys_from_metadata(metadata):
+                event_ids_by_key.setdefault(key, set()).add(event_id)
+
+        redirects: dict[str, str] = {}
+        for event_ids in event_ids_by_key.values():
+            live_ids = {
+                self._follow_redirects(event_id, redirects)
+                for event_id in event_ids
+                if self.session.get(EventClusterModel, self._follow_redirects(event_id, redirects))
+                is not None
+            }
+            if len(live_ids) < 2:
+                continue
+            target_id = max(live_ids, key=self._event_merge_rank)
+            for source_id in sorted(live_ids - {target_id}):
+                self._merge_event_cluster(source_id, target_id, redirects)
+        return redirects
+
     def _count_distinct_sources(self, event_cluster_id: str) -> int:
         rows = self.session.execute(
             select(RawArticleModel.source_id)
@@ -526,6 +754,23 @@ class RadarRepository:
             .distinct()
         ).all()
         return len(rows)
+
+    def _refresh_event_similarity_scores(self, event_cluster_id: str) -> None:
+        cluster = self.session.get(EventClusterModel, event_cluster_id)
+        if cluster is None:
+            return
+        memberships = self.session.scalars(
+            select(EventClusterArticleModel).where(
+                EventClusterArticleModel.event_cluster_id == event_cluster_id
+            )
+        ).all()
+        for membership in memberships:
+            if membership.raw_article_id == cluster.main_article_id:
+                membership.similarity_score = 1.0
+                continue
+            membership.similarity_score = self._similarity_between_articles(
+                membership.raw_article_id, cluster.main_article_id
+            )
 
     def upsert_event_clusters(
         self,
@@ -542,9 +787,19 @@ class RadarRepository:
             target_id = cluster.id
 
             if model is None:
+                since = cluster.last_seen_at - timedelta(hours=cluster_window_hours)
+                reference_keys = self._reference_keys_for_articles(cluster.article_ids)
+                reference_match = self.find_recent_event_by_reference_keys(
+                    reference_keys, since=since
+                )
+                if reference_match is not None:
+                    target_id = reference_match
+                    model = self.session.get(EventClusterModel, target_id)
+                    redirects[cluster.id] = target_id
+
+            if model is None:
                 main_vector = self._get_embedding_vector(cluster.main_article_id)
                 if main_vector is not None:
-                    since = cluster.last_seen_at - timedelta(hours=cluster_window_hours)
                     match = self.find_similar_recent_event(
                         main_vector, since=since, threshold=similarity_threshold
                     )
@@ -568,6 +823,22 @@ class RadarRepository:
                     model.last_seen_at = max(
                         _ensure_utc(model.last_seen_at), _ensure_utc(cluster.last_seen_at)
                     )
+
+            # A previous run may already have put one of these articles in a
+            # separate event. Consolidate that entire old event before adding
+            # the member so raw_article_id remains globally one-event-only.
+            prior_memberships = self.session.scalars(
+                select(EventClusterArticleModel).where(
+                    EventClusterArticleModel.raw_article_id.in_(cluster.article_ids)
+                )
+            ).all()
+            for membership in prior_memberships:
+                if membership.event_cluster_id == target_id:
+                    continue
+                target_id = self._merge_event_cluster(
+                    membership.event_cluster_id, target_id, redirects
+                )
+                model = self.session.get(EventClusterModel, target_id)
 
             existing_memberships = self.session.scalars(
                 select(EventClusterArticleModel).where(
@@ -623,6 +894,14 @@ class RadarRepository:
                     membership.is_main = True
 
             model.source_count = self._count_distinct_sources(target_id)
+        if clusters:
+            since = min(cluster.last_seen_at for cluster in clusters) - timedelta(
+                hours=cluster_window_hours
+            )
+            reference_redirects = self.reconcile_recent_events_by_reference(since=since)
+            redirects.update(reference_redirects)
+            for original_id, target_id in list(redirects.items()):
+                redirects[original_id] = self._follow_redirects(target_id, redirects)
         self.session.flush()
         return WriteResult(inserted=inserted, updated=updated, redirects=redirects)
 
@@ -1286,12 +1565,23 @@ class RadarRepository:
             return None
         return self.session.get(EventClusterModel, membership.event_cluster_id)
 
+    def _canonical_event_id(self, event_id: str) -> str:
+        seen: set[str] = set()
+        while event_id not in seen:
+            seen.add(event_id)
+            redirect = self.session.get(EventClusterRedirectModel, event_id)
+            if redirect is None:
+                break
+            event_id = redirect.target_event_id
+        return event_id
+
     def _resolve_processed_row(self, event_id: str):
         """Resolve an event id to (processed, raw, source, cluster). `cluster`
         here is None whenever resolution went through the `a…` prefix path -
         that path matches by raw_article_id regardless of actual cluster
         membership (see get_event_item, which re-checks membership via
         _find_cluster_id_for_raw_article to still attach a coverage panel)."""
+        event_id = self._canonical_event_id(event_id)
         cluster = self.session.get(EventClusterModel, event_id)
         if cluster is not None:
             row = self.session.execute(
@@ -1419,6 +1709,11 @@ class RadarRepository:
                 self.session.execute(
                     delete(EventEditorialOverrideModel).where(
                         EventEditorialOverrideModel.event_cluster_id == cluster_id
+                    )
+                )
+                self.session.execute(
+                    delete(EventClusterRedirectModel).where(
+                        EventClusterRedirectModel.target_event_id == cluster_id
                     )
                 )
                 self.session.execute(

@@ -263,6 +263,18 @@ class EventClusterModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class EventClusterRedirectModel(Base):
+    """Persistent alias for event ids consolidated into a canonical event."""
+
+    __tablename__ = "event_cluster_redirects"
+
+    source_event_id: Mapped[str] = mapped_column(String, primary_key=True)
+    target_event_id: Mapped[str] = mapped_column(
+        ForeignKey("event_clusters.id"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class EventClusterArticleModel(Base):
     """THE source of truth for article↔event membership. The cache column
     processed_articles.event_cluster_id may drift; readers must resolve
@@ -273,6 +285,7 @@ class EventClusterArticleModel(Base):
         UniqueConstraint(
             "event_cluster_id", "raw_article_id", name="uq_event_cluster_articles_member"
         ),
+        UniqueConstraint("raw_article_id", name="uq_event_cluster_articles_raw_article"),
         # at most one main article per event, enforced by the DB itself
         Index(
             "uq_event_cluster_articles_main",
