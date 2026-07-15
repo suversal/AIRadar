@@ -54,7 +54,7 @@ class SourcesAndStorageTests(unittest.TestCase):
             self.assertFalse(source.can_be_main_source)
             self.assertFalse(source.affects_heat_score)
             self.assertEqual(source.config["selection_policy"], "trusted_curated")
-            self.assertEqual(source.config["force_selection"], "always")
+            self.assertNotIn("force_selection", source.config)
             self.assertEqual(source.config["recent_days"], 1)
             self.assertTrue(source.config["use_feed_content_only"])
 

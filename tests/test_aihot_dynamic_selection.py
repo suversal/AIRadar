@@ -82,7 +82,7 @@ def telegram_source():
         allowed_domains=["t.me", "telegram.me"],
         language="zh",
         can_be_main_source=False,
-        config={"selection_policy": "trusted_curated", "force_selection": "always"},
+        config={"selection_policy": "trusted_curated"},
     )
 
 
@@ -125,7 +125,7 @@ def aihot_source():
 
 
 class AIHotDynamicSelectionTests(unittest.TestCase):
-    def test_telegram_bypasses_prefilter_forces_selection_and_preserves_rss_title(self):
+    def test_telegram_bypasses_prefilter_uses_score_and_preserves_rss_title(self):
         source = telegram_source()
         rss_title = "↩️ 🖼 RSS 原始标题"
         items = [
@@ -157,8 +157,9 @@ class AIHotDynamicSelectionTests(unittest.TestCase):
         )
 
         processed = result.processed_articles[0]
-        self.assertTrue(processed.selected)
-        self.assertEqual(processed.selection_origin, "curated_source")
+        self.assertFalse(processed.selected)
+        self.assertEqual(processed.selection_origin, "score")
+        self.assertTrue(processed.rejection_reason.startswith("below_threshold:"))
         self.assertEqual(processed.title_zh, rss_title)
         self.assertEqual(processed.summary_zh, "AI 根据结构化正文生成的摘要")
 
