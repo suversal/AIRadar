@@ -70,6 +70,13 @@ CONTENT_PROFILES = (
         lead_selectors=(".zhaiyao",),
         exclude_selectors=(".copyright", ".article-copyright", ".post-copyright"),
     ),
+    ContentProfile(
+        name="ithome-v2",
+        hosts=("ithome.com", "www.ithome.com"),
+        root_selectors=("#paragraph", ".post_content"),
+        byline_selectors=(".info.clearfix",),
+        exclude_selectors=(".ad-tips",),
+    ),
 )
 
 
@@ -168,6 +175,38 @@ def _int_attr(value: Any) -> int | None:
     return number if 0 < number <= 10000 else None
 
 
+def _image_source(node: Tag) -> str | None:
+    """Prefer real lazy-loaded assets over transparent/thumbnail placeholders.
+
+    All returned values still pass through _safe_url, so protocol-relative and
+    path-relative image addresses are resolved against the article URL before
+    they reach storage or the frontend image proxy.
+    """
+    lazy_attributes = (
+        "data-original",
+        "data-src",
+        "data-lazy-src",
+        "data-actualsrc",
+        "data-echo",
+        "data-url",
+    )
+    for attribute in lazy_attributes:
+        value = node.get(attribute)
+        if value:
+            return str(value).strip()
+    picture = node.find_parent("picture")
+    if picture:
+        source = picture.find("source")
+        if source:
+            for attribute in ("data-srcset", "srcset"):
+                value = source.get(attribute)
+                if value:
+                    candidates = [part.strip().split()[0] for part in str(value).split(",") if part.strip()]
+                    if candidates:
+                        return candidates[-1]
+    return str(node.get("src") or "").strip() or None
+
+
 def _is_noncontent_image(node: Tag, url: str) -> bool:
     tokens = " ".join(
         [url, str(node.get("class") or ""), str(node.get("id") or ""),
@@ -188,7 +227,7 @@ def _byline_from_dom(root: Tag, profile: ContentProfile | None, base_url: str | 
     container = _first_selected(root, profile.byline_selectors if profile else ())
     if not container:
         return None
-    author_node = container.select_one(".author")
+    author_node = container.select_one(".author, #author_baidu strong")
     author_link = author_node.select_one("a[href]") if author_node else container.select_one("[rel='author']")
     author_name = clean_text((author_link or author_node or container).get_text(" ", strip=True))
     if not author_name:
@@ -204,7 +243,7 @@ def _byline_from_dom(root: Tag, profile: ContentProfile | None, base_url: str | 
         if avatar_url:
             author["avatar_url"] = avatar_url
     result: dict[str, Any] = {"type": "byline", "author": author}
-    date_node = container.select_one(".date, time[datetime]")
+    date_node = container.select_one(".date, time[datetime], #pubtime_baidu")
     time_node = container.select_one(".time")
     published = " ".join(
         part for part in [
@@ -214,7 +253,7 @@ def _byline_from_dom(root: Tag, profile: ContentProfile | None, base_url: str | 
     )
     if published:
         result["published_at"] = published
-    source_node = container.select_one(".from")
+    source_node = container.select_one(".from, #source_baidu")
     if source_node:
         source_link = source_node.select_one("a[href]")
         source_name = clean_text((source_link or source_node).get_text(" ", strip=True)).removeprefix("来源：").strip()
@@ -231,6 +270,10 @@ def extract_page_byline(html_text: str, *, base_url: str | None = None) -> dict[
     """Best-effort page-level fallback after the visible profile byline.
     JSON-LD wins over meta because it can carry author URLs and images."""
     soup = BeautifulSoup(html_text, "html.parser")
+    profile = profile_for_url(base_url)
+    visible_byline = _byline_from_dom(soup, profile, base_url)
+    if visible_byline:
+        return visible_byline
     for script in soup.select("script[type='application/ld+json']"):
         try:
             payload = json.loads(script.string or script.get_text() or "null")
@@ -394,7 +437,7 @@ class DOMBlockExtractor:
     def add_image(self, node: Tag, *, caption: str = "") -> None:
         if len(self.images) >= MAX_IMAGES:
             return
-        src = node.get("src") or node.get("data-src") or node.get("data-original")
+        src = _image_source(node)
         url = _safe_url(src, self.base_url)
         if not url or url in self.seen_images or _is_noncontent_image(node, url):
             return

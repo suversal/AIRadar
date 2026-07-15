@@ -242,6 +242,63 @@ class PageContentTests(unittest.TestCase):
 
         self.assertIsNone(payload)
 
+    def test_ithome_profile_extracts_full_body_and_invalidates_meta_fallback_cache(self):
+        import json
+        import tempfile
+
+        from app.crawlers.base import canonicalize_url, stable_hash
+        from app.crawlers.page_content import fetch_page_payload
+
+        url = "https://www.ithome.com/0/977/074.htm"
+        page = """
+        <html><head><title>Meta 高管预测 - IT之家</title>
+        <meta name="description" content="只有一小段摘要"></head><body>
+          <div class="info clearfix">
+            <span id="pubtime_baidu">2026/7/15 15:54:02</span>
+            <span id="source_baidu">来源：<a href="https://www.ithome.com/">IT之家</a></span>
+            <span id="author_baidu">作者：<strong>远洋</strong></span>
+          </div>
+          <div id="paragraph" class="post_content">
+            <p>第一段完整正文。这里补充足够多的文本用于模拟 IT之家真实文章正文容器。</p>
+            <p>第二段完整正文。Meta 正在重新评估企业内部人工智能 Token 的预算与资源分配方式。</p>
+            <p>第三段完整正文。未来工程师的使用额度可能根据投入产出和业务价值进行调整。</p>
+            <p>第四段完整正文。模型服务价格仍可能随着供应商竞争以及推理效率提升而逐步下降。</p>
+            <p>第五段完整正文。企业需要像管理 GPU、CPU、存储空间和运营费用一样管理模型计算预算。</p>
+            <p>第六段完整正文。单纯消耗大量人工智能资源并不意味着能够为产品和业务创造实际价值。</p>
+            <p><img src="//img.ithome.com/images/v2/t.png"
+              data-original="/newsuploadfiles/2026/7/real-image.png" width="972" height="529"></p>
+            <p class="ad-tips">广告声明：文内链接仅供参考，IT之家所有文章均包含本声明。</p>
+          </div>
+        </body></html>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = Path(tmpdir) / f"{stable_hash(canonicalize_url(url))}.json"
+            cache_path.write_text(
+                json.dumps(
+                    {
+                        "content": "只有一小段摘要",
+                        "metadata": {
+                            "content_extraction_version": 2,
+                            "content_profile": "meta-description-v2",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch("app.crawlers.page_content.fetch_url_text", return_value=page) as fetch:
+                payload = fetch_page_payload(url, cache_dir=Path(tmpdir))
+
+        fetch.assert_called_once()
+        self.assertEqual(payload["metadata"]["content_profile"], "ithome-v2")
+        self.assertEqual(len(payload["metadata"]["original_paragraphs"]), 6)
+        self.assertNotIn("广告声明", payload["metadata"]["original_text"])
+        self.assertEqual(payload["metadata"]["original_blocks"][0]["type"], "byline")
+        self.assertEqual(payload["metadata"]["original_blocks"][0]["author"]["name"], "远洋")
+        self.assertEqual(
+            payload["metadata"]["original_images"][0]["url"],
+            "https://www.ithome.com/newsuploadfiles/2026/7/real-image.png",
+        )
+
     def test_main_content_region_skips_short_sidebar_article_for_main(self):
         # HuggingFace 博客页有多个 <article>：第一个是侧栏模型卡片（几十字），
         # 真正文在 <main> 里。region 选择必须看文本量，不能盲取第一个 article。

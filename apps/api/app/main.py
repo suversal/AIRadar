@@ -839,6 +839,8 @@ def create_app(
         title: Optional[str] = None,
         category: Optional[str] = None,
         source_id: Optional[str] = None,
+        sort_by: str = "published_at",
+        sort_dir: str = "desc",
         limit: int = 20,
         offset: int = 0,
     ) -> dict:
@@ -848,6 +850,13 @@ def create_app(
             raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
         if offset < 0:
             raise HTTPException(status_code=400, detail="offset must be non-negative")
+        if sort_by not in {"published_at", "crawled_at"}:
+            raise HTTPException(
+                status_code=400,
+                detail="sort_by must be published_at or crawled_at",
+            )
+        if sort_dir not in {"asc", "desc"}:
+            raise HTTPException(status_code=400, detail="sort_dir must be asc or desc")
         from app.api.public import _item_matches
 
         end_date = date.today()
@@ -882,19 +891,25 @@ def create_app(
                 if str((item.get("main_source") or {}).get("id") or "")
                 == selected_source_id
             ]
-        # 按发布时间倒序(2026-07-12),抓取时间只作并列时的次序
-        items.sort(
-            key=lambda item: (
-                str(item.get("published_at") or ""),
-                str(item.get("crawled_at") or ""),
-            ),
-            reverse=True,
-        )
+        secondary_sort = "crawled_at" if sort_by == "published_at" else "published_at"
+
+        def sort_key(item: dict) -> tuple:
+            primary = str(item.get(sort_by) or "")
+            secondary = str(item.get(secondary_sort) or "")
+            event_id = str(item.get("event_id") or "")
+            # Missing timestamps always stay at the end in either direction.
+            if sort_dir == "asc":
+                return (not primary, primary, secondary, event_id)
+            return (bool(primary), primary, secondary, event_id)
+
+        items.sort(key=sort_key, reverse=sort_dir == "desc")
         return {
             "items": items[offset : offset + limit],
             "total": len(items),
             "limit": limit,
             "offset": offset,
+            "sort_by": sort_by,
+            "sort_dir": sort_dir,
         }
 
     @app.patch("/api/admin/events/{event_id}", dependencies=[admin_guard])

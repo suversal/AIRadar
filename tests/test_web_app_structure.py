@@ -257,6 +257,23 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn('全部主信源', manager)
         self.assertIn('params.set("source_id"', manager)
 
+    def test_admin_content_manager_supports_server_side_time_sorting(self):
+        page = (WEB / "app" / "admin" / "events" / "page.tsx").read_text(encoding="utf-8")
+        manager = (WEB / "app" / "admin" / "events" / "events-manager.tsx").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('sort_by?: string', page)
+        self.assertIn('sort_dir?: string', page)
+        self.assertIn('sort_by: sortBy', page)
+        self.assertIn('sort_dir: sortDirection', page)
+        self.assertIn('sortHref("published_at")', manager)
+        self.assertIn('sortHref("crawled_at")', manager)
+        self.assertIn('aria-sort=', manager)
+        self.assertIn('name="sort_by"', manager)
+        self.assertIn('name="sort_dir"', manager)
+        self.assertIn('点击时间表头可切换', manager)
+
     def test_admin_content_manager_supports_deleting_an_article(self):
         manager_source = (
             WEB / "app" / "admin" / "events" / "events-manager.tsx"

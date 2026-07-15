@@ -38,7 +38,10 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 from sqlalchemy import select  # noqa: E402
 
 from app.crawlers.base import stable_hash  # noqa: E402
-from app.crawlers.article_content import CONTENT_EXTRACTION_VERSION  # noqa: E402
+from app.crawlers.article_content import (  # noqa: E402
+    CONTENT_EXTRACTION_VERSION,
+    profile_for_url,
+)
 from app.db.models import (  # noqa: E402
     ArticleEmbeddingModel,
     ArticleTranslationModel,
@@ -144,7 +147,13 @@ def find_full_page_articles_needing_reextraction(
         metadata = row.raw_metadata or {}
         if metadata.get("content_origin") != "full_page":
             continue
-        if int(metadata.get("content_extraction_version") or 0) >= CONTENT_EXTRACTION_VERSION:
+        version_is_current = (
+            int(metadata.get("content_extraction_version") or 0)
+            >= CONTENT_EXTRACTION_VERSION
+        )
+        profile = profile_for_url(row.source_url)
+        profile_is_current = not profile or metadata.get("content_profile") == profile.name
+        if version_is_current and profile_is_current:
             continue
         if resume_after and row.id <= resume_after:
             continue
@@ -223,7 +232,7 @@ def main() -> int:
     parser.add_argument(
         "--reextract-full-page",
         action="store_true",
-        help="re-fetch every full_page row whose content_extraction_version is older than v2",
+        help="re-fetch every full_page row whose extractor version or domain profile is stale",
     )
     parser.add_argument("--dry-run", action="store_true", help="report candidate IDs without writing")
     parser.add_argument("--resume-after", help="resume after this raw article ID")

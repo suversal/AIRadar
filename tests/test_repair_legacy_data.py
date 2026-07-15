@@ -350,14 +350,25 @@ class RepairLegacyDataTests(unittest.TestCase):
                 raw_metadata={"content_origin": "full_page", "content_extraction_version": 2},
                 title_hash="t-a2", url_hash="u-a2", status="raw",
             )
-            session.add(second)
+            third = RawArticleModel(
+                id="a3", source_id=first.source_id,
+                source_url="https://www.ithome.com/0/977/074.htm", title="A3", content="short",
+                author=None, published_at=first.published_at, language="zh",
+                raw_metadata={
+                    "content_origin": "full_page",
+                    "content_extraction_version": 2,
+                    "content_profile": "meta-description-v2",
+                },
+                title_hash="t-a3", url_hash="u-a3", status="raw",
+            )
+            session.add_all([second, third])
             session.commit()
 
             self.assertEqual(
-                repair_legacy_data.find_full_page_articles_needing_reextraction(session), ["a1"]
+                repair_legacy_data.find_full_page_articles_needing_reextraction(session), ["a1", "a3"]
             )
             self.assertEqual(
-                repair_legacy_data.find_full_page_articles_needing_reextraction(session, resume_after="a1"), []
+                repair_legacy_data.find_full_page_articles_needing_reextraction(session, resume_after="a1"), ["a3"]
             )
 
 

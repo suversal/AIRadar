@@ -13,6 +13,7 @@ from app.crawlers.article_content import (
     CONTENT_EXTRACTION_VERSION,
     extract_article_content,
     extract_page_byline,
+    profile_for_url,
 )
 from app.crawlers.base import (
     BaseCrawler,
@@ -131,7 +132,7 @@ def _balanced_div_region(html_text: str, open_match: re.Match) -> str:
     return html_text[open_match.start() :]
 
 
-def main_content_region(html_text: str) -> str | None:
+def main_content_region(html_text: str, *, base_url: str | None = None) -> str | None:
     """Pick the page region most likely to hold the article body.
 
     Pages can carry multiple <article> tags where the first is a sidebar
@@ -155,6 +156,15 @@ def main_content_region(html_text: str) -> str | None:
         if not substantial:
             return None
         return str(max(substantial, key=lambda value: len(clean_text(value.get_text(" ", strip=True)))))
+
+    # A domain profile is the strongest signal. It catches deliberate but
+    # non-standard roots such as ITHome's #paragraph.post_content without
+    # making that site-specific class a global heuristic.
+    profile = profile_for_url(base_url)
+    if profile and profile.root_selectors:
+        region = pick(profile.root_selectors)
+        if region:
+            return region
 
     # Semantic roots first, then explicit content containers, then broad main.
     # A bare .article is intentionally last: it is a common WordPress fallback,
@@ -203,7 +213,11 @@ class SitemapCrawler(BaseCrawler):
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return None
-        if int((cached.get("metadata") or {}).get("content_extraction_version") or 0) != CONTENT_EXTRACTION_VERSION:
+        metadata = cached.get("metadata") or {}
+        if int(metadata.get("content_extraction_version") or 0) != CONTENT_EXTRACTION_VERSION:
+            return None
+        profile = profile_for_url(loc)
+        if profile and metadata.get("content_profile") != profile.name:
             return None
         cached_lastmod = cached.get("lastmod")
         current_lastmod = lastmod.isoformat() if lastmod else None
@@ -231,7 +245,7 @@ class SitemapCrawler(BaseCrawler):
             return None
         metadata: dict = {"crawler": "sitemap"}
         content = description
-        region = main_content_region(page_html)
+        region = main_content_region(page_html, base_url=loc)
         if region:
             extracted = extract_article_content(region, base_url=loc, title=title)
             if not extracted.get("author_detected"):

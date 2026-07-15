@@ -31,6 +31,8 @@ const CATEGORY_OPTIONS = [
 ] as const;
 
 type Filter = "all" | "selected" | "hidden";
+type SortBy = "published_at" | "crawled_at";
+type SortDirection = "asc" | "desc";
 
 function formatStamp(value?: string) {
   if (!value) return "--";
@@ -66,6 +68,8 @@ export function EventsManager({
   title,
   category,
   sourceId,
+  sortBy,
+  sortDirection,
   sources,
 }: {
   initialEvents: AdminEvent[];
@@ -76,6 +80,8 @@ export function EventsManager({
   title: string;
   category: string;
   sourceId: string;
+  sortBy: SortBy;
+  sortDirection: SortDirection;
   sources: { id: string; name: string }[];
 }) {
   const router = useRouter();
@@ -150,10 +156,17 @@ export function EventsManager({
     });
   }
 
-  function queryHref(nextPage: number, nextPageSize = pageSize) {
+  function queryHref(
+    nextPage: number,
+    nextPageSize = pageSize,
+    nextSortBy = sortBy,
+    nextSortDirection = sortDirection,
+  ) {
     const params = new URLSearchParams({
       page: String(nextPage),
       page_size: String(nextPageSize),
+      sort_by: nextSortBy,
+      sort_dir: nextSortDirection,
     });
     if (title) {
       params.set("title", title);
@@ -167,12 +180,35 @@ export function EventsManager({
     return `/admin/events?${params.toString()}`;
   }
 
+  function sortHref(nextSortBy: SortBy) {
+    const nextDirection =
+      sortBy === nextSortBy && sortDirection === "desc" ? "asc" : "desc";
+    return queryHref(1, pageSize, nextSortBy, nextDirection);
+  }
+
+  function sortIndicator(field: SortBy) {
+    if (sortBy !== field) return "↕";
+    return sortDirection === "desc" ? "↓" : "↑";
+  }
+
+  function clearHref() {
+    const params = new URLSearchParams({
+      page: "1",
+      page_size: String(pageSize),
+      sort_by: sortBy,
+      sort_dir: sortDirection,
+    });
+    return `/admin/events?${params.toString()}`;
+  }
+
   return (
     <div className="space-y-4">
       <section className="rounded-md border border-line bg-panel p-4">
         <form action="/admin/events" className="space-y-3" method="get">
           <input name="page" type="hidden" value="1" />
           <input name="page_size" type="hidden" value={pageSize} />
+          <input name="sort_by" type="hidden" value={sortBy} />
+          <input name="sort_dir" type="hidden" value={sortDirection} />
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_220px_auto] md:items-end">
             <label className="block text-xs font-semibold text-ink-dim">
               标题
@@ -220,7 +256,7 @@ export function EventsManager({
             <div className="flex items-center gap-2">
               <a
                 className="rounded-md border border-line px-3 py-2 text-sm text-ink-mid hover:border-signal/40 hover:text-signal"
-                href="/admin/events"
+                href={clearHref()}
               >
                 清除
               </a>
@@ -233,7 +269,9 @@ export function EventsManager({
             </div>
           </div>
           <p className="text-xs text-ink-dim">
-            标题、分类和主信源会同时生效；内容按最近抓取时间倒序排列。
+            标题、分类和主信源会同时生效；当前按
+            {sortBy === "published_at" ? "发布时间" : "抓取时间"}
+            {sortDirection === "desc" ? "倒序" : "正序"}排列，点击时间表头可切换。
           </p>
         </form>
       </section>
@@ -274,12 +312,27 @@ export function EventsManager({
         <table className="w-full table-fixed text-left text-sm">
           <thead>
             <tr className={TABLE_HEAD_ROW}>
-              <th className="w-[32%] px-4 py-3 font-semibold">标题</th>
-              <th className="w-[12%] px-4 py-3 font-semibold">来源</th>
-              <th className="w-[10%] px-4 py-3 font-semibold">分类</th>
-              <th className="w-[7%] px-4 py-3 text-right font-semibold">评分</th>
-              <th className="w-[13%] px-4 py-3 font-semibold">发布 / 抓取</th>
-              <th className="w-[8%] px-4 py-3 font-semibold">状态</th>
+              <th className="w-[29%] px-4 py-3 font-semibold">标题</th>
+              <th className="w-[11%] px-4 py-3 font-semibold">来源</th>
+              <th className="w-[9%] px-4 py-3 font-semibold">分类</th>
+              <th className="w-[6%] px-4 py-3 text-right font-semibold">评分</th>
+              <th
+                aria-sort={sortBy === "published_at" ? (sortDirection === "desc" ? "descending" : "ascending") : "none"}
+                className="w-[10%] px-4 py-3 font-semibold"
+              >
+                <a className="inline-flex items-center gap-1 hover:text-signal" href={sortHref("published_at")}>
+                  发布时间 <span aria-hidden>{sortIndicator("published_at")}</span>
+                </a>
+              </th>
+              <th
+                aria-sort={sortBy === "crawled_at" ? (sortDirection === "desc" ? "descending" : "ascending") : "none"}
+                className="w-[10%] px-4 py-3 font-semibold"
+              >
+                <a className="inline-flex items-center gap-1 hover:text-signal" href={sortHref("crawled_at")}>
+                  抓取时间 <span aria-hidden>{sortIndicator("crawled_at")}</span>
+                </a>
+              </th>
+              <th className="w-[7%] px-4 py-3 font-semibold">状态</th>
               <th className="w-[18%] px-4 py-3 font-semibold">操作</th>
             </tr>
           </thead>
@@ -320,6 +373,8 @@ export function EventsManager({
                 </td>
                 <td className="readout px-4 py-3 text-xs text-ink-dim">
                   <div className="truncate">{formatStamp(event.published_at)}</div>
+                </td>
+                <td className="readout px-4 py-3 text-xs text-ink-dim">
                   <div className="truncate">{formatStamp(event.crawled_at)}</div>
                 </td>
                 <td className="px-4 py-3">
@@ -364,7 +419,7 @@ export function EventsManager({
             ))}
             {events.length === 0 ? (
               <tr>
-                <td className="px-4 py-8 text-sm text-ink-dim" colSpan={7}>
+                <td className="px-4 py-8 text-sm text-ink-dim" colSpan={8}>
                   当前筛选下没有事件。
                 </td>
               </tr>
@@ -396,6 +451,8 @@ export function EventsManager({
             <input name="title" type="hidden" value={title} />
             <input name="category" type="hidden" value={category} />
             <input name="source_id" type="hidden" value={sourceId} />
+            <input name="sort_by" type="hidden" value={sortBy} />
+            <input name="sort_dir" type="hidden" value={sortDirection} />
             <input name="page" type="hidden" value="1" />
             每页
             <select
@@ -415,6 +472,8 @@ export function EventsManager({
             <input name="title" type="hidden" value={title} />
             <input name="category" type="hidden" value={category} />
             <input name="source_id" type="hidden" value={sourceId} />
+            <input name="sort_by" type="hidden" value={sortBy} />
+            <input name="sort_dir" type="hidden" value={sortDirection} />
             <input name="page_size" type="hidden" value={pageSize} />
             跳至
             <input

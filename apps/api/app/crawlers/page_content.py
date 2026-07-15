@@ -24,6 +24,7 @@ from app.crawlers.article_content import (
     _detect_body_language,
     extract_article_content,
     extract_page_byline,
+    profile_for_url,
 )
 from app.models.domain import RawArticle
 from app.services.source_policy import is_unfetchable_article_domain
@@ -107,7 +108,14 @@ def fetch_page_payload(
     if cache_path.exists():
         try:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
-            if int((cached.get("metadata") or {}).get("content_extraction_version") or 0) == CONTENT_EXTRACTION_VERSION:
+            cached_metadata = cached.get("metadata") or {}
+            profile = profile_for_url(url)
+            profile_matches = not profile or cached_metadata.get("content_profile") == profile.name
+            if (
+                int(cached_metadata.get("content_extraction_version") or 0)
+                == CONTENT_EXTRACTION_VERSION
+                and profile_matches
+            ):
                 return cached
         except (OSError, json.JSONDecodeError):
             pass
@@ -115,7 +123,7 @@ def fetch_page_payload(
     _throttle_domain(url)
     page_html = fetch_url_text(url, accept="text/html, */*")
     title, description = extract_page_article(page_html)
-    region = main_content_region(page_html)
+    region = main_content_region(page_html, base_url=url)
     extracted = extract_article_content(region, base_url=url, title=title) if region else None
     if extracted and not extracted.get("author_detected"):
         byline = extract_page_byline(page_html, base_url=url)

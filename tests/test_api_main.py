@@ -247,6 +247,13 @@ class APIMainTests(unittest.TestCase):
                     "crawled_at": "2026-07-11T11:00:00+00:00",
                     "published_at": "2026-07-11T09:00:00+00:00",
                 },
+                {
+                    "event_id": "undated",
+                    "title": "Missing timestamps",
+                    "main_source": {"id": "openai_blog", "name": "OpenAI"},
+                    "crawled_at": None,
+                    "published_at": None,
+                },
             ],
         )
 
@@ -266,8 +273,29 @@ class APIMainTests(unittest.TestCase):
         # newer 的 09:00,所以排在前——抓取时间只作并列时的次序
         self.assertEqual(
             [item["event_id"] for item in response.json()["items"]],
-            ["older", "newer"],
+            ["older", "newer", "undated"],
         )
+
+        crawled_desc = client.get(
+            "/api/admin/events?source_id=openai_blog&sort_by=crawled_at&sort_dir=desc"
+        )
+        self.assertEqual(
+            [item["event_id"] for item in crawled_desc.json()["items"]],
+            ["newer", "older", "undated"],
+        )
+        self.assertEqual(crawled_desc.json()["sort_by"], "crawled_at")
+        self.assertEqual(crawled_desc.json()["sort_dir"], "desc")
+
+        crawled_asc = client.get(
+            "/api/admin/events?source_id=openai_blog&sort_by=crawled_at&sort_dir=asc"
+        )
+        self.assertEqual(
+            [item["event_id"] for item in crawled_asc.json()["items"]],
+            ["older", "newer", "undated"],
+        )
+
+        invalid = client.get("/api/admin/events?sort_by=score&sort_dir=sideways")
+        self.assertEqual(invalid.status_code, 400)
 
 
 class FakeRepository:

@@ -8,6 +8,11 @@ export const metadata = {
 
 const DEFAULT_PAGE_SIZE = 20;
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
+const SORT_FIELDS = ["published_at", "crawled_at"] as const;
+const SORT_DIRECTIONS = ["asc", "desc"] as const;
+
+type SortBy = (typeof SORT_FIELDS)[number];
+type SortDirection = (typeof SORT_DIRECTIONS)[number];
 
 export default async function AdminEventsPage({
   searchParams,
@@ -17,6 +22,8 @@ export default async function AdminEventsPage({
     title?: string;
     category?: string;
     source_id?: string;
+    sort_by?: string;
+    sort_dir?: string;
     page?: string;
     page_size?: string;
   }>;
@@ -25,6 +32,12 @@ export default async function AdminEventsPage({
   const title = (params.title ?? params.q ?? "").trim();
   const category = (params.category ?? "").trim();
   const sourceId = (params.source_id ?? "").trim();
+  const sortBy = SORT_FIELDS.includes(params.sort_by as SortBy)
+    ? (params.sort_by as SortBy)
+    : "published_at";
+  const sortDirection = SORT_DIRECTIONS.includes(params.sort_dir as SortDirection)
+    ? (params.sort_dir as SortDirection)
+    : "desc";
   const requestedPageSize = Number(params.page_size ?? DEFAULT_PAGE_SIZE) || DEFAULT_PAGE_SIZE;
   const pageSize = PAGE_SIZE_OPTIONS.includes(requestedPageSize as (typeof PAGE_SIZE_OPTIONS)[number])
     ? requestedPageSize
@@ -32,7 +45,13 @@ export default async function AdminEventsPage({
   const page = Math.max(1, Number(params.page ?? "1") || 1);
   const offset = (page - 1) * pageSize;
 
-  const query = new URLSearchParams({ days: "30", limit: String(pageSize), offset: String(offset) });
+  const query = new URLSearchParams({
+    days: "30",
+    limit: String(pageSize),
+    offset: String(offset),
+    sort_by: sortBy,
+    sort_dir: sortDirection,
+  });
   if (title) {
     query.set("title", title);
   }
@@ -72,6 +91,8 @@ export default async function AdminEventsPage({
           title={title}
           category={category}
           sourceId={sourceId}
+          sortBy={sortBy}
+          sortDirection={sortDirection}
           sources={(sourcesPayload.sources ?? []).map((source: { id: string; name: string }) => ({
             id: source.id,
             name: source.name,
