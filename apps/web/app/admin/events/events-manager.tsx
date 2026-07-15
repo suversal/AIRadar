@@ -82,7 +82,7 @@ export function EventsManager({
   sourceId: string;
   sortBy: SortBy;
   sortDirection: SortDirection;
-  sources: { id: string; name: string }[];
+  sources: { id: string; name: string; is_active: boolean }[];
 }) {
   const router = useRouter();
   const [filter, setFilter] = useState<Filter>("all");
@@ -102,9 +102,13 @@ export function EventsManager({
     return initialEvents;
   }, [filter, initialEvents]);
 
-  // 按名称排序(中文按拼音),和信源管理列表保持一致，让下拉框可预期地定位
+  // 先启用后停用,同状态内按名称排序(中文按拼音),和信源管理列表保持一致，让下拉框可预期地定位
   const sortedSources = useMemo(
-    () => [...sources].sort((a, b) => a.name.localeCompare(b.name, "zh-CN")),
+    () =>
+      [...sources].sort((a, b) => {
+        if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
+        return a.name.localeCompare(b.name, "zh-CN");
+      }),
     [sources],
   );
 

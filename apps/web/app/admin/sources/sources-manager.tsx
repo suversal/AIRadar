@@ -177,10 +177,11 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
   const [viewingResultFor, setViewingResultFor] = useState<string | null>(null);
   // 悬浮 1 秒后再展示,避免鼠标划过表格时到处弹卡片
   const sourceHoverCard = useHoverCard<AdminSource>(1000);
-  // 按名称排序(中文按拼音),让长列表可预期地定位
-  const sortedSources = [...initialSources].sort((a, b) =>
-    a.name.localeCompare(b.name, "zh-CN"),
-  );
+  // 先启用后停用,同状态内按名称排序(中文按拼音),让长列表可预期地定位
+  const sortedSources = [...initialSources].sort((a, b) => {
+    if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
+    return a.name.localeCompare(b.name, "zh-CN");
+  });
 
   async function run(sourceId: string, kind: "toggle" | "edit", action: () => Promise<void>) {
     setBusy({ id: sourceId, kind });

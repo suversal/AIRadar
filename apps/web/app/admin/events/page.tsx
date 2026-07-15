@@ -93,10 +93,13 @@ export default async function AdminEventsPage({
           sourceId={sourceId}
           sortBy={sortBy}
           sortDirection={sortDirection}
-          sources={(sourcesPayload.sources ?? []).map((source: { id: string; name: string }) => ({
-            id: source.id,
-            name: source.name,
-          }))}
+          sources={(sourcesPayload.sources ?? []).map(
+            (source: { id: string; name: string; is_active: boolean }) => ({
+              id: source.id,
+              name: source.name,
+              is_active: source.is_active,
+            }),
+          )}
         />
       )}
     </AdminShell>

@@ -193,25 +193,29 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertNotIn("crawl_limit", manager_source)
         self.assertNotIn("每轮", manager_source)
 
-    def test_sources_list_sorts_by_name_and_flags_official(self):
-        # 信源管理(2026-07-12):列表按名称排序;官方信源带显眼"官方"标记
+    def test_sources_list_sorts_by_active_then_name_and_flags_official(self):
+        # 信源管理(2026-07-15):列表先按启用状态排序(启用在前),同状态内
+        # 再按名称排序;官方信源带显眼"官方"标记
         manager_source = (
             WEB / "app" / "admin" / "sources" / "sources-manager.tsx"
         ).read_text(encoding="utf-8")
 
         self.assertIn("sortedSources", manager_source)
+        self.assertIn("a.is_active !== b.is_active", manager_source)
         self.assertIn("localeCompare", manager_source)
         self.assertIn('source.category === "official"', manager_source)
         self.assertIn("官方", manager_source)
 
-    def test_events_manager_source_filter_sorts_by_name(self):
-        # 内容管理页的"主信源"筛选下拉框要和信源管理列表一样按名称
-        # (拼音) 排序，而不是沿用后端接口的原始顺序
+    def test_events_manager_source_filter_sorts_by_active_then_name(self):
+        # 内容管理页的"主信源"筛选下拉框要和信源管理列表一样,先按启用
+        # 状态排序,同状态内再按名称(拼音)排序，而不是沿用后端接口的
+        # 原始顺序
         manager_source = (
             WEB / "app" / "admin" / "events" / "events-manager.tsx"
         ).read_text(encoding="utf-8")
 
         self.assertIn("sortedSources", manager_source)
+        self.assertIn("a.is_active !== b.is_active", manager_source)
         self.assertIn('localeCompare(b.name, "zh-CN")', manager_source)
         self.assertIn("sortedSources.map((source) =>", manager_source)
 
