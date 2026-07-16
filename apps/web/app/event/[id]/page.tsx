@@ -114,7 +114,10 @@ export default async function EventDetailPage({ params }: { params: EventParams 
     notFound();
   }
 
-  const originalUrl = event.original_url ?? event.main_source?.url;
+  const originalUrl =
+    event.content_origin === "manual_editor"
+      ? undefined
+      : event.original_url ?? event.main_source?.url;
   const originalHost = hostFromUrl(originalUrl);
   const isTelegramRss = event.content_origin === "telegram_rss_description";
   const originalBlocks = originalBlocksFor(event);

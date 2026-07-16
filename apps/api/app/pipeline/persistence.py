@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Protocol
@@ -154,6 +155,12 @@ def persist_pipeline_result(
             }
         )
     repository.replace_daily_report_entries(result.daily_report.report_date, entries)
+    if os.getenv("MANUAL_ARTICLE_REPORTS_ENABLED", "false").strip().lower() in {
+        "1", "true", "yes", "on"
+    }:
+        append_manual = getattr(repository, "append_manual_daily_report_entries", None)
+        if callable(append_manual):
+            append_manual(result.daily_report.report_date)
     # ledger ingest metrics: what did this run actually contribute, as
     # opposed to re-processing already-known articles via the AI cache.
     # 新文章清单以 intake(抓取后立即落库)为准;CLI/JSON 模式没有 intake,

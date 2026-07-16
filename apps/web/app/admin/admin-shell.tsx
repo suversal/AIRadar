@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-const adminNav = [
+const baseAdminNav = [
   { id: "dashboard", label: "仪表盘", href: "/admin" },
   { id: "sources", label: "信源管理", href: "/admin/sources" },
   { id: "events", label: "内容管理", href: "/admin/events" },
@@ -17,6 +17,10 @@ export function AdminShell({
   subtitle?: string;
   children: ReactNode;
 }) {
+  const adminNav = [...baseAdminNav];
+  if ((process.env.ADMIN_MANUAL_ARTICLE_ENABLED ?? "false").toLowerCase() === "true") {
+    adminNav.push({ id: "drafts", label: "草稿管理", href: "/admin/drafts" });
+  }
   return (
     <main className="min-h-screen bg-canvas px-5 py-8 text-ink md:px-10">
       <div className="mx-auto max-w-6xl">

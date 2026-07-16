@@ -188,6 +188,17 @@ def extract_page_article(html_text: str) -> tuple[str, str]:
         title = clean_text(html.unescape(title_match.group(1)))
         title = _TITLE_SUFFIX_RE.sub("", title)
         title = _TITLE_TIGHT_HYPHEN_SUFFIX_RE.sub("", title).strip()
+    # WeChat deliberately leaves <title> empty but exposes the real headline
+    # in Open Graph metadata and the visible activity-name node.
+    if not title:
+        soup = BeautifulSoup(html_text, "html.parser")
+        title_meta = soup.select_one("meta[property='og:title'], meta[name='twitter:title']")
+        if title_meta and title_meta.get("content"):
+            title = clean_text(str(title_meta["content"]))
+        if not title:
+            visible_title = soup.select_one("#activity-name")
+            if visible_title:
+                title = clean_text(visible_title.get_text(" ", strip=True))
     description = ""
     meta_match = _META_RE.search(html_text)
     if meta_match:

@@ -295,7 +295,52 @@ class AIProviderTests(unittest.TestCase):
         self.assertEqual(calls[0][1]["model"], "deepseek-v4-flash")
         self.assertEqual(calls[0][1]["response_format"], {"type": "json_object"})
         self.assertEqual(calls[0][1]["user_id"], "ai-radar-test")
-        self.assertEqual(calls[0][1]["max_tokens"], 1234)
+        self.assertEqual(calls[0][1]["max_tokens"], 4096)
+
+    def test_deepseek_scoring_retries_a_truncated_json_response(self):
+        provider = DeepSeekProvider("test-key", max_tokens=2048)
+        calls = []
+        valid = {
+            "dimensions": {
+                "ai_relevance": 9,
+                "novelty": 8,
+                "impact": 7,
+                "information_density": 8,
+                "actionability": 7,
+                "creator_value": 6,
+            },
+            "category": "tutorial",
+            "tags": ["开源"],
+            "title_zh": "完整标题",
+            "one_line_summary": "一句话摘要",
+            "summary_zh": "完整摘要",
+            "reason_zh": "推荐理由",
+            "action_zh": "下一步动作",
+        }
+
+        def fake_post_json(_url, payload):
+            calls.append(payload)
+            if len(calls) == 1:
+                return {
+                    "choices": [{
+                        "finish_reason": "length",
+                        "message": {"content": '{"dimensions":{"ai_relevance":0},"tags":["开源'},
+                    }]
+                }
+            return {
+                "choices": [{
+                    "finish_reason": "stop",
+                    "message": {"content": json.dumps(valid, ensure_ascii=False)},
+                }]
+            }
+
+        provider._post_json = fake_post_json
+
+        result = provider.score_article("标题", "正文")
+
+        self.assertEqual(result.title_zh, "完整标题")
+        self.assertEqual([call["max_tokens"] for call in calls], [4096, 8192])
+        self.assertIn("Do not include reasoning", calls[1]["messages"][0]["content"])
 
     def test_deepseek_provider_uses_local_real_embedding_model(self):
         provider = DeepSeekProvider("test-key")

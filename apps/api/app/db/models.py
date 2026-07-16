@@ -216,11 +216,48 @@ class EditorialOverrideModel(Base):
     )
     hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     title_zh: Mapped[Optional[str]] = mapped_column(Text)
+    one_line_summary: Mapped[Optional[str]] = mapped_column(Text)
+    summary_zh: Mapped[Optional[str]] = mapped_column(Text)
     category: Mapped[Optional[str]] = mapped_column(String)
     tags: Mapped[Optional[list]] = mapped_column(JSON)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class ArticleSubmissionModel(Base):
+    """Private admin draft/job state for manually supplied articles.
+
+    Drafts deliberately live outside raw_articles/processed_articles.  Nothing
+    becomes public until the publisher materializes a ready submission in one
+    transaction.
+    """
+
+    __tablename__ = "article_submissions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    idempotency_key: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
+    mode: Mapped[str] = mapped_column(String, nullable=False)
+    publication_status: Mapped[str] = mapped_column(String, nullable=False, default="draft")
+    processing_status: Mapped[str] = mapped_column(String, nullable=False, default="idle")
+    processing_stage: Mapped[Optional[str]] = mapped_column(String)
+    original_url: Mapped[Optional[str]] = mapped_column(Text)
+    canonical_url_hash: Mapped[Optional[str]] = mapped_column(String, index=True)
+    editor_document: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    editor_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    manual_fields: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    extracted_fields: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    ai_fields: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    field_provenance: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    selection_mode: Mapped[str] = mapped_column(String, nullable=False, default="auto")
+    raw_article_id: Mapped[Optional[str]] = mapped_column(ForeignKey("raw_articles.id"), index=True)
+    last_error_code: Mapped[Optional[str]] = mapped_column(String)
+    last_error_detail: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
 class EventEditorialOverrideModel(Base):

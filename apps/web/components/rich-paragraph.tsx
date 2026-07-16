@@ -18,7 +18,7 @@ const inlineComponents: Components = {
     );
   },
   strong({ node: _node, ...props }) {
-    return <strong className="font-semibold text-ink" {...props} />;
+    return <strong className="font-semibold" {...props} />;
   },
   em({ node: _node, ...props }) {
     return <em {...props} />;
@@ -36,15 +36,48 @@ const inlineComponents: Components = {
   },
 };
 
+const inlineOnlyComponents: Components = {
+  ...inlineComponents,
+  p({ node: _node, ...props }) {
+    return <span {...props} />;
+  },
+};
+
+export function RichInline({ text, html }: { text: string; html?: string }) {
+  if (!html) return <>{text}</>;
+  return (
+    <ReactMarkdown
+      components={inlineOnlyComponents}
+      rehypePlugins={[rehypeRaw, [rehypeSanitize, articleSanitizeSchema]]}
+      skipHtml={false}
+    >
+      {html}
+    </ReactMarkdown>
+  );
+}
+
 /** Renders one extracted paragraph, preserving sanitized inline markup
  *  (links, bold, emphasis, code, color) when the crawler captured any. */
-export function RichParagraph({ text, html }: { text: string; html?: string }) {
+export function RichParagraph({
+  text,
+  html,
+  className = "break-words text-[17px] leading-8 text-ink [overflow-wrap:anywhere]",
+}: {
+  text: string;
+  html?: string;
+  className?: string;
+}) {
   if (!html) {
-    return <p className="break-words text-[17px] leading-8 text-ink [overflow-wrap:anywhere]">{text}</p>;
+    return <p className={className}>{text}</p>;
   }
   return (
     <ReactMarkdown
-      components={inlineComponents}
+      components={{
+        ...inlineComponents,
+        p({ node: _node, ...props }) {
+          return <p className={className} {...props} />;
+        },
+      }}
       rehypePlugins={[rehypeRaw, [rehypeSanitize, articleSanitizeSchema]]}
       skipHtml={false}
     >

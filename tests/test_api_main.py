@@ -221,6 +221,39 @@ class APIMainTests(unittest.TestCase):
         self.assertEqual(legacy_response.json()["items"][0]["event_id"], "evt-3")
 
     @unittest.skipIf(TestClient is None, "FastAPI is not installed in this environment")
+    def test_admin_events_filters_by_editorial_status(self):
+        module = importlib.import_module("app.main")
+        repository = FakeRepository(
+            {},
+            admin_items=[
+                {"event_id": "visible", "title": "Visible", "hidden": False, "selected": False},
+                {"event_id": "hidden", "title": "Hidden", "hidden": True, "selected": True},
+                {"event_id": "selected", "title": "Selected", "hidden": False, "selected": True},
+            ],
+        )
+
+        import os
+        from unittest.mock import patch as env_patch
+
+        env = env_patch.dict(os.environ, {"ADMIN_TOKEN": "test-admin"})
+        env.start()
+        self.addCleanup(env.stop)
+        client = TestClient(module.create_app(report_repository_factory=lambda: repository))
+        client.headers.update({"Authorization": "Bearer test-admin"})
+
+        hidden = client.get("/api/admin/events?status=hidden").json()
+        selected = client.get("/api/admin/events?status=selected").json()
+        visible = client.get("/api/admin/events?status=visible").json()
+
+        self.assertEqual([item["event_id"] for item in hidden["items"]], ["hidden"])
+        self.assertEqual(
+            {item["event_id"] for item in selected["items"]}, {"hidden", "selected"}
+        )
+        self.assertEqual(
+            {item["event_id"] for item in visible["items"]}, {"visible", "selected"}
+        )
+
+    @unittest.skipIf(TestClient is None, "FastAPI is not installed in this environment")
     def test_admin_events_filters_by_main_source_and_sorts_by_published_time(self):
         module = importlib.import_module("app.main")
         repository = FakeRepository(

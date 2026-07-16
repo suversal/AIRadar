@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import threading
 import uuid
@@ -8,6 +9,13 @@ from contextlib import asynccontextmanager, contextmanager, nullcontext
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
+
+logger = logging.getLogger(__name__)
+
+try:
+    from starlette.requests import Request as StarletteRequest
+except ModuleNotFoundError:  # pragma: no cover - lightweight dependency guard
+    StarletteRequest = Any
 
 from app.api.public import (
     _merge_daily_items,
@@ -148,6 +156,8 @@ def create_app(
 
     refresh_jobs: dict[str, dict[str, Any]] = {}
     refresh_jobs_lock = threading.Lock()
+    manual_jobs: set[str] = set()
+    manual_jobs_lock = threading.Lock()
 
     def is_refresh_running() -> bool:
         # in-memory jobs catch async triggers from this process; the DB
@@ -599,6 +609,52 @@ def create_app(
             )
         return repository_context
 
+    def _require_manual_feature(name: str = "ADMIN_MANUAL_ARTICLE_ENABLED") -> None:
+        from app.services.manual_articles import env_enabled
+
+        if not env_enabled("ADMIN_MANUAL_ARTICLE_ENABLED") or not env_enabled(name):
+            raise HTTPException(status_code=404, detail="Not found")
+
+    def _submission_error(exc: Exception) -> HTTPException:
+        from app.services.manual_articles import SubmissionError
+
+        if isinstance(exc, SubmissionError):
+            return HTTPException(
+                status_code=exc.status_code,
+                detail={"code": exc.code, "message": exc.detail},
+            )
+        return HTTPException(status_code=500, detail="manual_article_failed")
+
+    def _process_manual_submission_job(submission_id: str) -> None:
+        from app.services.manual_articles import (
+            SubmissionError,
+            process_and_materialize_submission,
+        )
+
+        try:
+            context = report_repository_context()
+            if context is None:
+                return
+            with context as repository:
+                try:
+                    process_and_materialize_submission(repository, submission_id)
+                    repository.session.commit()
+                except Exception as exc:
+                    repository.session.rollback()
+                    model = repository.get_submission_model(submission_id)
+                    if model is not None:
+                        model.processing_status = "failed"
+                        model.processing_stage = None
+                        model.last_error_code = (
+                            exc.code if isinstance(exc, SubmissionError) else "manual_article_failed"
+                        )
+                        model.last_error_detail = str(exc)[:500]
+                        repository.session.commit()
+                    logger.exception("manual article processing failed for %s", submission_id)
+        finally:
+            with manual_jobs_lock:
+                manual_jobs.discard(submission_id)
+
     @app.get("/api/admin/sources", dependencies=[admin_guard])
     def admin_sources() -> dict:
         with _admin_repository_context() as repository:
@@ -606,6 +662,179 @@ def create_app(
 
             ensure_auto_seeded_sources(repository)
             return {"sources": repository.list_sources_with_health()}
+
+    @app.post("/api/admin/article-submissions", dependencies=[admin_guard])
+    def admin_create_article_submission(payload: dict) -> dict:
+        _require_manual_feature()
+        from app.services.manual_articles import create_submission, submission_to_dict
+
+        try:
+            with _admin_repository_context() as repository:
+                model = create_submission(repository, payload or {})
+                repository.session.commit()
+                return submission_to_dict(model)
+        except Exception as exc:
+            raise _submission_error(exc) from exc
+
+    @app.get("/api/admin/article-submissions", dependencies=[admin_guard])
+    def admin_list_article_submissions(
+        limit: int = 100, publication_status: Optional[str] = None
+    ) -> dict:
+        _require_manual_feature()
+        from app.services.manual_articles import submission_to_dict
+
+        resolved_limit = max(1, min(limit, 200))
+        if publication_status not in {None, "draft", "published"}:
+            raise HTTPException(status_code=422, detail="invalid publication_status")
+        with _admin_repository_context() as repository:
+            models = repository.list_submission_models(
+                resolved_limit, publication_status=publication_status
+            )
+            return {
+                "items": [
+                    submission_to_dict(model)
+                    for model in models
+                ]
+            }
+
+    @app.get("/api/admin/article-submissions/{submission_id}", dependencies=[admin_guard])
+    def admin_get_article_submission(submission_id: str) -> dict:
+        _require_manual_feature()
+        from app.services.manual_articles import submission_to_dict
+
+        with _admin_repository_context() as repository:
+            model = repository.get_submission_model(submission_id)
+            if model is None:
+                raise HTTPException(status_code=404, detail="Submission not found")
+            return submission_to_dict(model)
+
+    @app.patch("/api/admin/article-submissions/{submission_id}", dependencies=[admin_guard])
+    def admin_update_article_submission(submission_id: str, payload: dict) -> dict:
+        _require_manual_feature()
+        from app.services.manual_articles import submission_to_dict, update_submission
+
+        try:
+            with _admin_repository_context() as repository:
+                model = repository.get_submission_model(submission_id)
+                if model is None:
+                    raise HTTPException(status_code=404, detail="Submission not found")
+                update_submission(model, payload or {})
+                repository.session.commit()
+                return submission_to_dict(model)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise _submission_error(exc) from exc
+
+    @app.delete("/api/admin/article-submissions/{submission_id}", dependencies=[admin_guard])
+    def admin_delete_article_submission(submission_id: str) -> dict:
+        _require_manual_feature()
+        try:
+            with _admin_repository_context() as repository:
+                if not repository.delete_submission(submission_id):
+                    raise HTTPException(status_code=404, detail="Submission not found")
+                repository.session.commit()
+                return {"deleted": True, "id": submission_id}
+        except HTTPException:
+            raise
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "already_published", "message": str(exc)},
+            ) from exc
+
+    @app.post(
+        "/api/admin/article-submissions/{submission_id}/process",
+        dependencies=[admin_guard],
+        status_code=202,
+    )
+    def admin_process_article_submission(submission_id: str) -> dict:
+        _require_manual_feature()
+        with _admin_repository_context() as repository:
+            model = repository.get_submission_model(submission_id)
+            if model is None:
+                raise HTTPException(status_code=404, detail="Submission not found")
+            if model.processing_status in {"fetching", "scoring"}:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "processing", "message": "Submission is processing"},
+                )
+        with manual_jobs_lock:
+            if submission_id in manual_jobs:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "processing", "message": "Submission is processing"},
+                )
+            manual_jobs.add(submission_id)
+        threading.Thread(
+            target=_process_manual_submission_job,
+            args=(submission_id,),
+            daemon=True,
+        ).start()
+        return {"id": submission_id, "processing_status": "queued"}
+
+    @app.get(
+        "/api/admin/article-submissions/{submission_id}/status",
+        dependencies=[admin_guard],
+    )
+    def admin_article_submission_status(submission_id: str) -> dict:
+        _require_manual_feature()
+        from app.services.manual_articles import submission_to_dict
+
+        with _admin_repository_context() as repository:
+            model = repository.get_submission_model(submission_id)
+            if model is None:
+                raise HTTPException(status_code=404, detail="Submission not found")
+            payload = submission_to_dict(model)
+            return {
+                key: payload[key]
+                for key in (
+                    "id", "publication_status", "processing_status", "processing_stage",
+                    "last_error_code", "last_error_detail", "raw_article_id",
+                )
+            }
+
+    @app.post(
+        "/api/admin/article-submissions/{submission_id}/publish",
+        dependencies=[admin_guard],
+    )
+    def admin_publish_article_submission(submission_id: str) -> dict:
+        _require_manual_feature("ADMIN_MANUAL_ARTICLE_PUBLISH_ENABLED")
+        from app.services.manual_articles import publish_submission, submission_to_dict
+
+        try:
+            with _admin_repository_context() as repository:
+                model = publish_submission(repository, submission_id)
+                repository.session.commit()
+                return submission_to_dict(model)
+        except Exception as exc:
+            raise _submission_error(exc) from exc
+
+    @app.post("/api/admin/uploads/images", dependencies=[admin_guard])
+    async def admin_upload_manual_image(request: StarletteRequest) -> dict:
+        _require_manual_feature("ADMIN_MANUAL_IMAGE_UPLOAD_ENABLED")
+        from app.services.manual_image_upload import ImageUploadError, upload_image_to_host
+        from starlette.concurrency import run_in_threadpool
+
+        try:
+            form = await request.form()
+            upload = form.get("file")
+            if upload is None or not hasattr(upload, "read"):
+                raise ImageUploadError("unsupported_image_type", "file is required", 415)
+            max_bytes = int(os.getenv("IMAGE_UPLOAD_MAX_BYTES", str(10 * 1024 * 1024)))
+            data = await upload.read(max_bytes + 1)
+            src = await run_in_threadpool(
+                upload_image_to_host,
+                filename=str(getattr(upload, "filename", None) or "image"),
+                content_type=str(getattr(upload, "content_type", None) or "application/octet-stream"),
+                data=data,
+            )
+            return {"src": src}
+        except ImageUploadError as exc:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail={"code": exc.code, "message": exc.detail},
+            ) from exc
 
     @app.patch("/api/admin/sources/{source_id}", dependencies=[admin_guard])
     def admin_update_source(source_id: str, payload: dict) -> dict:
@@ -869,6 +1098,7 @@ def create_app(
         title: Optional[str] = None,
         category: Optional[str] = None,
         source_id: Optional[str] = None,
+        status: str = "all",
         sort_by: str = "published_at",
         sort_dir: str = "desc",
         limit: int = 20,
@@ -887,6 +1117,8 @@ def create_app(
             )
         if sort_dir not in {"asc", "desc"}:
             raise HTTPException(status_code=400, detail="sort_dir must be asc or desc")
+        if status not in {"all", "visible", "hidden", "selected", "unselected"}:
+            raise HTTPException(status_code=400, detail="invalid status")
         from app.api.public import _item_matches
 
         end_date = date.today()
@@ -921,6 +1153,14 @@ def create_app(
                 if str((item.get("main_source") or {}).get("id") or "")
                 == selected_source_id
             ]
+        if status == "visible":
+            items = [item for item in items if not bool(item.get("hidden"))]
+        elif status == "hidden":
+            items = [item for item in items if bool(item.get("hidden"))]
+        elif status == "selected":
+            items = [item for item in items if bool(item.get("selected"))]
+        elif status == "unselected":
+            items = [item for item in items if not bool(item.get("selected"))]
         secondary_sort = "crawled_at" if sort_by == "published_at" else "published_at"
 
         def sort_key(item: dict) -> tuple:

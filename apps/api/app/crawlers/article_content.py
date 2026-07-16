@@ -63,6 +63,11 @@ class ContentProfile:
 
 CONTENT_PROFILES = (
     ContentProfile(
+        name="wechat-article-v1",
+        hosts=("mp.weixin.qq.com",),
+        root_selectors=("#js_content",),
+    ),
+    ContentProfile(
         name="qbitai-v1",
         hosts=("qbitai.com", "www.qbitai.com"),
         root_selectors=(".article",),
@@ -398,6 +403,22 @@ class DOMBlockExtractor:
             for image in node.find_all("img"):
                 self.add_image(image)
             return
+        if tag == "section":
+            # WeChat articles commonly use one <section><span>…</span></section>
+            # per paragraph and no <p> elements at all. Treat a leaf section
+            # as a paragraph, while structural sections containing child
+            # blocks continue through the normal recursive walker.
+            child_blocks = node.find(
+                ["section", "p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "blockquote", "pre", "table"],
+                recursive=False,
+            )
+            if child_blocks is None:
+                inline = _inline_content(node, base_url=self.base_url)
+                if inline:
+                    self.add({"type": "paragraph", **inline})
+                for image in node.find_all("img"):
+                    self.add_image(image)
+                return
         if tag == "img":
             self.add_image(node)
             return

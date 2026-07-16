@@ -13,6 +13,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard for lo
 
 from app.db.models import (
     ArticleEmbeddingModel,
+    ArticleSubmissionModel,
     ArticleTranslationModel,
     DailyReportEntryModel,
     DailyReportModel,
@@ -139,7 +140,10 @@ class RadarRepository:
                 ):
                     merged[key] = previous_metadata[key]
             existing.raw_metadata = merged
-            if extraction_upgraded or len(article.content) > len(existing.content or ""):
+            manual_content_locked = bool(previous_metadata.get("manual_content_locked"))
+            if not manual_content_locked and (
+                extraction_upgraded or len(article.content) > len(existing.content or "")
+            ):
                 existing.content = article.content
             # the crawl re-detects the body's language (a zh-labeled
             # aggregator often points at English originals); persist it or
@@ -313,6 +317,52 @@ class RadarRepository:
             )
         self.session.flush()
 
+    def append_manual_daily_report_entries(self, report_date: date) -> int:
+        """Append eligible manual articles without changing automatic order."""
+        shanghai = ZoneInfo("Asia/Shanghai")
+        start = datetime.combine(report_date, time.min, tzinfo=shanghai).astimezone(timezone.utc)
+        end = datetime.combine(report_date, time.max, tzinfo=shanghai).astimezone(timezone.utc)
+        existing = self.session.scalars(
+            select(DailyReportEntryModel).where(DailyReportEntryModel.report_date == report_date)
+        ).all()
+        existing_raw_ids = {entry.raw_article_id for entry in existing}
+        next_position = max((entry.position for entry in existing), default=-1) + 1
+        rows = self.session.execute(
+            select(ArticleSubmissionModel, RawArticleModel, ProcessedArticleModel)
+            .join(RawArticleModel, ArticleSubmissionModel.raw_article_id == RawArticleModel.id)
+            .join(ProcessedArticleModel, ProcessedArticleModel.raw_article_id == RawArticleModel.id)
+            .where(ArticleSubmissionModel.publication_status == "published")
+            .where(ProcessedArticleModel.status == "processed")
+            .where(RawArticleModel.published_at >= start)
+            .where(RawArticleModel.published_at <= end)
+            .order_by(ArticleSubmissionModel.published_at.asc())
+        ).all()
+        appended = 0
+        for _submission, raw, processed in rows:
+            if raw.id in existing_raw_ids:
+                continue
+            self.session.add(
+                DailyReportEntryModel(
+                    report_date=report_date,
+                    position=next_position,
+                    event_id=f"a{raw.id[:12]}",
+                    raw_article_id=raw.id,
+                    reason_snapshot=processed.reason_zh or "管理员手动添加",
+                    score_at_selection=float(processed.final_score or 0.0),
+                )
+            )
+            existing_raw_ids.add(raw.id)
+            next_position += 1
+            appended += 1
+        if appended:
+            report = self.session.scalar(
+                select(DailyReportModel).where(DailyReportModel.report_date == report_date)
+            )
+            if report is not None:
+                report.article_count = len(existing_raw_ids)
+        self.session.flush()
+        return appended
+
     def get_daily_report_entries(self, report_date: date) -> list[dict[str, Any]]:
         models = self.session.scalars(
             select(DailyReportEntryModel)
@@ -430,9 +480,18 @@ class RadarRepository:
                 model = ProcessedArticleModel(raw_article_id=processed.raw_article_id)
                 self.session.add(model)
                 inserted += 1
+                preserve_admin_selection = False
             else:
                 updated += 1
+                preserve_admin_selection = (
+                    model.selection_origin == "admin" and model.status == "processed"
+                )
             _apply_processed_article(model, processed)
+            if preserve_admin_selection:
+                model.status = "processed"
+                model.rejection_reason = None
+                model.selection_origin = "admin"
+                model.selection_reason = "admin:force_selected"
             if pipeline_run_id is not None:
                 model.pipeline_run_id = pipeline_run_id
         return WriteResult(inserted=inserted, updated=updated)
@@ -1638,6 +1697,81 @@ class RadarRepository:
         self.session.flush()
         return True
 
+    def upsert_article_manual_override(self, raw_article_id: str, fields: dict[str, Any]) -> None:
+        override = self._get_override(raw_article_id)
+        if override is None:
+            override = EditorialOverrideModel(raw_article_id=raw_article_id)
+            self.session.add(override)
+        for key in ("title_zh", "one_line_summary", "summary_zh", "category"):
+            if key in fields:
+                value = fields.get(key)
+                cleaned = str(value).strip() if value is not None else ""
+                setattr(override, key, cleaned or None)
+        if "tags" in fields:
+            override.tags = [
+                str(tag).strip()
+                for tag in (fields.get("tags") or [])
+                if str(tag).strip()
+            ][:5]
+        self.session.flush()
+
+    def get_submission_model(
+        self, submission_id: str, *, for_update: bool = False
+    ) -> Optional[ArticleSubmissionModel]:
+        if not for_update:
+            return self.session.get(ArticleSubmissionModel, submission_id)
+        return self.session.scalar(
+            select(ArticleSubmissionModel)
+            .where(ArticleSubmissionModel.id == submission_id)
+            .with_for_update()
+        )
+
+    def release_admin_selection(self, raw_article_id: str) -> None:
+        """Allow an explicit switch back to score-driven selection on republish."""
+        model = self.session.scalar(
+            select(ProcessedArticleModel).where(
+                ProcessedArticleModel.raw_article_id == raw_article_id
+            )
+        )
+        if model is not None and model.selection_origin == "admin":
+            model.selection_origin = "score"
+            model.selection_reason = None
+            self.session.flush()
+
+    def delete_submission(self, submission_id: str) -> bool:
+        model = self.get_submission_model(submission_id, for_update=True)
+        if model is None:
+            return False
+        if model.publication_status != "draft":
+            raise ValueError("only draft submissions can be deleted")
+        self.session.delete(model)
+        self.session.flush()
+        return True
+
+    def get_submission_by_idempotency_key(self, key: str) -> Optional[ArticleSubmissionModel]:
+        return self.session.scalar(
+            select(ArticleSubmissionModel).where(ArticleSubmissionModel.idempotency_key == key)
+        )
+
+    def list_submission_models(
+        self, limit: int = 100, *, publication_status: str | None = None
+    ) -> list[ArticleSubmissionModel]:
+        query = select(ArticleSubmissionModel)
+        if publication_status:
+            query = query.where(
+                ArticleSubmissionModel.publication_status == publication_status
+            )
+        return list(
+            self.session.scalars(
+                query.order_by(ArticleSubmissionModel.created_at.desc()).limit(limit)
+            ).all()
+        )
+
+    def find_raw_article_by_url_hash(self, url_hash: str) -> Optional[RawArticleModel]:
+        return self.session.scalar(
+            select(RawArticleModel).where(RawArticleModel.url_hash == url_hash)
+        )
+
     def delete_raw_article(self, event_id: str) -> bool:
         """Permanently remove one article and every row that references it,
         in FK-dependency order, inside the caller's transaction. Mirrors
@@ -1649,6 +1783,19 @@ class RadarRepository:
             return False
         _processed, raw, _source, cluster = row
         raw_article_id = raw.id
+
+        # Keep the private submission record useful after an administrator
+        # deletes its public materialization, while releasing the FK before
+        # raw_articles is removed.
+        submissions = self.session.scalars(
+            select(ArticleSubmissionModel).where(
+                ArticleSubmissionModel.raw_article_id == raw_article_id
+            )
+        ).all()
+        for submission in submissions:
+            submission.raw_article_id = None
+            submission.publication_status = "draft"
+            submission.published_at = None
 
         self.session.execute(
             delete(DailyReportEntryModel).where(
@@ -1982,6 +2129,14 @@ def _event_item(
         or (override.title_zh if override and override.title_zh else None)
         or processed.title_zh
     )
+    one_line_summary = (
+        (override.one_line_summary if override and override.one_line_summary else None)
+        or processed.one_line_summary
+    )
+    summary_zh = (
+        (override.summary_zh if override and override.summary_zh else None)
+        or processed.summary_zh
+    )
     category = (
         (event_override.category if event_override and event_override.category else None)
         or (override.category if override and override.category else None)
@@ -2022,8 +2177,8 @@ def _event_item(
             "tier": source.tier,
         },
         "source_language": raw.language,
-        "one_line_summary": processed.one_line_summary,
-        "summary": processed.summary_zh,
+        "one_line_summary": one_line_summary,
+        "summary": summary_zh,
         "reason": processed.reason_zh,
         "action": processed.action_zh,
         "published_at": display_published_at.isoformat() if display_published_at else None,
@@ -2033,8 +2188,9 @@ def _event_item(
         if (last_seen_at or published_at)
         else None,
         "crawled_at": raw.crawled_at.isoformat() if raw.crawled_at else None,
-        "original_url": raw.source_url,
     }
+    if metadata.get("ingest_origin") != "manual_editor":
+        item["original_url"] = raw.source_url
     images = metadata.get("original_images")
     if images:
         item["original_images"] = images

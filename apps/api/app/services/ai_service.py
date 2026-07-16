@@ -665,18 +665,46 @@ class DeepSeekProvider:
         return parse_prefilter_payload(parse_chat_json(content))
 
     def score_article(self, title: str, content: str) -> ScoringResult:
-        payload = self._chat_payload(
-            [
-                {
-                    "role": "system",
-                    "content": scoring_system_prompt(),
-                },
-                {"role": "user", "content": f"Title: {title}\n\nContent: {content[:4000]}"},
-            ]
-        )
-        response = self._post_json(f"{self.base_url}/chat/completions", payload)
-        content = response["choices"][0]["message"]["content"]
-        return parse_scoring_payload(parse_chat_json(content))
+        messages = [
+            {
+                "role": "system",
+                "content": scoring_system_prompt(),
+            },
+            {"role": "user", "content": f"Title: {title}\n\nContent: {content[:4000]}"},
+        ]
+        # Reasoning-capable DeepSeek models count hidden reasoning against
+        # max_tokens. With the old 2048-token default they could start a valid
+        # JSON object and then stop halfway through a tag or summary.
+        budgets = (max(self.max_tokens, 4096), max(self.max_tokens * 2, 8192))
+        last_error: ValueError | None = None
+        choice: dict[str, Any] = {}
+        for attempt, budget in enumerate(budgets):
+            retry_messages = messages
+            if attempt:
+                retry_messages = [
+                    {
+                        "role": "system",
+                        "content": (
+                            scoring_system_prompt()
+                            + " Return the JSON object directly and concisely. Do not include reasoning."
+                        ),
+                    },
+                    messages[1],
+                ]
+            payload = self._chat_payload(retry_messages, max_tokens=budget)
+            response = self._post_json(f"{self.base_url}/chat/completions", payload)
+            choice = response["choices"][0]
+            response_content = choice.get("message", {}).get("content") or ""
+            try:
+                return parse_scoring_payload(parse_chat_json(response_content))
+            except ValueError as exc:
+                last_error = exc
+                if attempt == len(budgets) - 1:
+                    break
+        finish_reason = str(choice.get("finish_reason") or "unknown")
+        raise ValueError(
+            f"AI scoring response was incomplete (finish_reason={finish_reason}); please retry"
+        ) from last_error
 
     def translate_paragraphs(self, paragraphs: list[str]) -> list[str]:
         schema_hint = _translation_schema_hint()

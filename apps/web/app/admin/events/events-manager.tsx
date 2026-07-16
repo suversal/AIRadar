@@ -30,7 +30,7 @@ const CATEGORY_OPTIONS = [
   ["tutorial", "技巧"],
 ] as const;
 
-type Filter = "all" | "selected" | "hidden";
+type StatusFilter = "all" | "visible" | "hidden" | "selected" | "unselected";
 type SortBy = "published_at" | "crawled_at";
 type SortDirection = "asc" | "desc";
 
@@ -68,6 +68,7 @@ export function EventsManager({
   title,
   category,
   sourceId,
+  status,
   sortBy,
   sortDirection,
   sources,
@@ -80,12 +81,12 @@ export function EventsManager({
   title: string;
   category: string;
   sourceId: string;
+  status: StatusFilter;
   sortBy: SortBy;
   sortDirection: SortDirection;
   sources: { id: string; name: string; is_active: boolean }[];
 }) {
   const router = useRouter();
-  const [filter, setFilter] = useState<Filter>("all");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [editing, setEditing] = useState<AdminEvent | null>(null);
@@ -96,11 +97,7 @@ export function EventsManager({
   // 悬浮 1 秒后再展示,避免鼠标划过表格时到处弹卡片
   const titleHoverCard = useHoverCard<AdminEvent>(1000);
 
-  const events = useMemo(() => {
-    if (filter === "selected") return initialEvents.filter((event) => event.selected);
-    if (filter === "hidden") return initialEvents.filter((event) => event.hidden);
-    return initialEvents;
-  }, [filter, initialEvents]);
+  const events = initialEvents;
 
   // 先启用后停用,同状态内按名称排序(中文按拼音),和信源管理列表保持一致，让下拉框可预期地定位
   const sortedSources = useMemo(
@@ -181,6 +178,9 @@ export function EventsManager({
     if (sourceId) {
       params.set("source_id", sourceId);
     }
+    if (status !== "all") {
+      params.set("status", status);
+    }
     return `/admin/events?${params.toString()}`;
   }
 
@@ -213,7 +213,7 @@ export function EventsManager({
           <input name="page_size" type="hidden" value={pageSize} />
           <input name="sort_by" type="hidden" value={sortBy} />
           <input name="sort_dir" type="hidden" value={sortDirection} />
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_220px_auto] md:items-end">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_160px_180px_auto] md:items-end">
             <label className="block text-xs font-semibold text-ink-dim">
               标题
               <input
@@ -239,6 +239,20 @@ export function EventsManager({
                     {source.name}
                   </option>
                 ))}
+              </select>
+            </label>
+            <label className="block text-xs font-semibold text-ink-dim">
+              状态
+              <select
+                className="mt-1 w-full rounded-md border border-line bg-canvas px-4 py-2 text-sm font-normal text-ink outline-none focus:border-signal/60"
+                defaultValue={status}
+                name="status"
+              >
+                <option value="all">全部状态</option>
+                <option value="visible">已展示</option>
+                <option value="hidden">已隐藏</option>
+                <option value="selected">已精选</option>
+                <option value="unselected">未精选</option>
               </select>
             </label>
             <label className="block text-xs font-semibold text-ink-dim">
@@ -280,27 +294,7 @@ export function EventsManager({
         </form>
       </section>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-1 rounded-md border border-line bg-panel p-1 text-sm font-semibold">
-          {(
-            [
-              ["all", `本页全部 ${initialEvents.length}`],
-              ["selected", `本页精选 ${initialEvents.filter((event) => event.selected).length}`],
-              ["hidden", `本页已隐藏 ${initialEvents.filter((event) => event.hidden).length}`],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              className={`rounded px-4 py-1.5 ${
-                filter === key ? "bg-signal/15 text-signal" : "text-ink-mid hover:text-ink"
-              }`}
-              onClick={() => setFilter(key)}
-              type="button"
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <p className="text-xs text-ink-dim">
           隐藏立即从全部动态与详情页消失；影响精选日报需再点仪表盘"刷新最新日报"
         </p>
@@ -455,6 +449,7 @@ export function EventsManager({
             <input name="title" type="hidden" value={title} />
             <input name="category" type="hidden" value={category} />
             <input name="source_id" type="hidden" value={sourceId} />
+            <input name="status" type="hidden" value={status} />
             <input name="sort_by" type="hidden" value={sortBy} />
             <input name="sort_dir" type="hidden" value={sortDirection} />
             <input name="page" type="hidden" value="1" />
@@ -476,6 +471,7 @@ export function EventsManager({
             <input name="title" type="hidden" value={title} />
             <input name="category" type="hidden" value={category} />
             <input name="source_id" type="hidden" value={sourceId} />
+            <input name="status" type="hidden" value={status} />
             <input name="sort_by" type="hidden" value={sortBy} />
             <input name="sort_dir" type="hidden" value={sortDirection} />
             <input name="page_size" type="hidden" value={pageSize} />

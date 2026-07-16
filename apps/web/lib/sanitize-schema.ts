@@ -7,8 +7,10 @@ import { defaultSchema } from "rehype-sanitize";
 // MarkdownArticle (GitHub README markdown) so both keep inline color intact.
 export const articleSanitizeSchema = {
   ...defaultSchema,
+  tagNames: [...(defaultSchema.tagNames ?? []), "mark", "u"],
   attributes: {
     ...defaultSchema.attributes,
     span: [...(defaultSchema.attributes?.span ?? []), "style"],
+    mark: [...(defaultSchema.attributes?.mark ?? []), "style"],
   },
 };

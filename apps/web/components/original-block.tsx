@@ -1,6 +1,6 @@
 import type { OriginalBlock } from "@/lib/api";
 import { proxiedImageUrl } from "@/lib/images";
-import { RichParagraph } from "@/components/rich-paragraph";
+import { RichInline, RichParagraph } from "@/components/rich-paragraph";
 import { ArticleImage } from "@/components/article-image";
 import { AuthorAvatar } from "@/components/author-avatar";
 
@@ -59,10 +59,20 @@ export function readmeImageClassName(options: { src?: string; width?: unknown; h
 function renderHeading(block: Extract<OriginalBlock, { type: "heading" }>, index: number) {
   const Tag = `h${block.level}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
   return (
-    <Tag key={`${block.text.slice(0, 24)}-${index}`} className={HEADING_CLASSNAMES[block.level]}>
-      {block.text}
+    <Tag key={`${block.text.slice(0, 24)}-${index}`} className={`${HEADING_CLASSNAMES[block.level]} ${alignmentClass(block.align)}`}>
+      <RichInline text={block.text} html={block.html} />
     </Tag>
   );
+}
+
+function alignmentClass(alignment?: "left" | "center" | "right" | "justify") {
+  return alignment === "center"
+    ? "text-center"
+    : alignment === "right"
+      ? "text-right"
+      : alignment === "justify"
+        ? "text-justify"
+        : "text-left";
 }
 
 /** Renders one original/translated content block, shared by the event
@@ -217,6 +227,11 @@ export function renderOriginalBlock(block: OriginalBlock, index: number) {
     );
   }
   return (
-    <RichParagraph key={`${block.text.slice(0, 24)}-${index}`} text={block.text} html={block.html} />
+    <RichParagraph
+      key={`${block.text.slice(0, 24)}-${index}`}
+      text={block.text}
+      html={block.html}
+      className={`break-words text-[17px] leading-8 text-ink [overflow-wrap:anywhere] ${alignmentClass(block.align)}`}
+    />
   );
 }

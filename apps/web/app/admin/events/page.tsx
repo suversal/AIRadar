@@ -13,6 +13,7 @@ const SORT_DIRECTIONS = ["asc", "desc"] as const;
 
 type SortBy = (typeof SORT_FIELDS)[number];
 type SortDirection = (typeof SORT_DIRECTIONS)[number];
+type StatusFilter = "all" | "visible" | "hidden" | "selected" | "unselected";
 
 export default async function AdminEventsPage({
   searchParams,
@@ -22,6 +23,7 @@ export default async function AdminEventsPage({
     title?: string;
     category?: string;
     source_id?: string;
+    status?: string;
     sort_by?: string;
     sort_dir?: string;
     page?: string;
@@ -32,6 +34,11 @@ export default async function AdminEventsPage({
   const title = (params.title ?? params.q ?? "").trim();
   const category = (params.category ?? "").trim();
   const sourceId = (params.source_id ?? "").trim();
+  const status: StatusFilter = ["visible", "hidden", "selected", "unselected"].includes(
+    params.status ?? "",
+  )
+    ? (params.status as StatusFilter)
+    : "all";
   const sortBy = SORT_FIELDS.includes(params.sort_by as SortBy)
     ? (params.sort_by as SortBy)
     : "published_at";
@@ -51,6 +58,7 @@ export default async function AdminEventsPage({
     offset: String(offset),
     sort_by: sortBy,
     sort_dir: sortDirection,
+    status,
   });
   if (title) {
     query.set("title", title);
@@ -70,6 +78,19 @@ export default async function AdminEventsPage({
   const events: AdminEvent[] = payload.items ?? [];
   const total: number = payload.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const sources: { id: string; name: string; is_active: boolean }[] = (
+    sourcesPayload.sources ?? []
+  ).map((source: { id: string; name: string; is_active: boolean }) => ({
+    id: source.id,
+    name: source.name,
+    is_active: source.is_active,
+  }));
+  if (
+    (process.env.ADMIN_MANUAL_ARTICLE_ENABLED ?? "false").toLowerCase() === "true"
+    && !sources.some((source) => source.id === "hotai_manual")
+  ) {
+    sources.push({ id: "hotai_manual", name: "AI·RADAR 手动添加", is_active: false });
+  }
 
   return (
     <AdminShell
@@ -91,15 +112,10 @@ export default async function AdminEventsPage({
           title={title}
           category={category}
           sourceId={sourceId}
+          status={status}
           sortBy={sortBy}
           sortDirection={sortDirection}
-          sources={(sourcesPayload.sources ?? []).map(
-            (source: { id: string; name: string; is_active: boolean }) => ({
-              id: source.id,
-              name: source.name,
-              is_active: source.is_active,
-            }),
-          )}
+          sources={sources}
         />
       )}
     </AdminShell>

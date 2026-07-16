@@ -7,8 +7,8 @@ Create Date: 2026-07-11 02:19:08.565142
 Creates the schema exactly as it stood when Alembic was adopted (the
 pre-Alembic init.sql plus the manual psql statements of that era), so a
 brand-new empty database can be built with `alembic upgrade head` alone.
-init.sql now only creates the pgvector extension (it needs superuser and
-runs in the postgres image's docker-entrypoint-initdb.d).
+The extension creation is repeated here with IF NOT EXISTS so a new database
+created outside docker-entrypoint-initdb.d can also be upgraded from scratch.
 
 Databases that predate Alembic were `alembic stamp`ed past this revision,
 so this DDL never runs there - which is why it must stay frozen at the
@@ -30,6 +30,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # Extensions are database-scoped: creating another database in the same
+    # Postgres cluster does not inherit pgvector from the original database.
+    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
     op.execute(
         """
 CREATE TABLE sources (

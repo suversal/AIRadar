@@ -28,12 +28,14 @@ export type OriginalBlock =
       type: "paragraph";
       text: string;
       html?: string;
+      align?: "left" | "center" | "right" | "justify";
     }
   | {
       type: "heading";
       level: 1 | 2 | 3 | 4 | 5 | 6;
       text: string;
       html?: string;
+      align?: "left" | "center" | "right" | "justify";
     }
   | {
       type: "image";
