@@ -63,6 +63,21 @@ class ContentProfile:
 
 CONTENT_PROFILES = (
     ContentProfile(
+        name="arxiv-abstract-v1",
+        hosts=("arxiv.org", "www.arxiv.org"),
+        root_selectors=("blockquote.abstract", ".abstract"),
+    ),
+    ContentProfile(
+        name="github-blog-v1",
+        hosts=("github.blog",),
+        root_selectors=(".post__content",),
+        exclude_selectors=(
+            ".post-content-cta",
+            "section:has(> .post-tags-separator)",
+            "div:has(> .author-bio)",
+        ),
+    ),
+    ContentProfile(
         name="wechat-article-v1",
         hosts=("mp.weixin.qq.com",),
         root_selectors=("#js_content",),
@@ -110,6 +125,18 @@ def content_extraction_version_for_url(base_url: str | None) -> int:
     host = parsed.netloc.lower().split(":", 1)[0]
     if host == "blog.google":
         return 4
+    if host == "github.blog":
+        # v3 selects .post__content instead of GitHub Blog's recommendation
+        # <article> cards; v4 also removes the tags and author-bio sections
+        # nested at the end of that content container. The host-specific bump
+        # invalidates only this source's stale page and persisted caches.
+        return 4
+    if host in {"arxiv.org", "www.arxiv.org"}:
+        # v3 narrows arXiv paper pages to the authoritative abstract block;
+        # v4 also keeps author metadata out of original_blocks so the detail
+        # body is literally the abstract and nothing else; v5 rebuilds cached
+        # translated blocks under the same abstract-only structure.
+        return 5
     source_specific_v3 = host == "blogs.nvidia.com" or (
         host in {"anthropic.com", "www.anthropic.com"}
         and parsed.path.startswith("/news/")
@@ -645,9 +672,15 @@ def extract_article_content(
     if profile:
         for selector in profile.byline_selectors:
             skip_nodes.update(root.select(selector))
-    for child in root.children:
-        if isinstance(child, Tag) and child not in skip_nodes:
-            extractor.parse_node(child)
+    if root.name == "blockquote":
+        # A profile may intentionally select the quote itself as its complete
+        # content root (arXiv abstracts do this). Parsing only child tags would
+        # lose direct text nodes that sit beside the "Abstract:" descriptor.
+        extractor.parse_node(root)
+    else:
+        for child in root.children:
+            if isinstance(child, Tag) and child not in skip_nodes:
+                extractor.parse_node(child)
     blocks.extend(extractor.blocks)
     blocks, dropped_images = _strip_trailing_boilerplate(blocks)
     source_blocks = blocks

@@ -282,6 +282,44 @@ class PageContentTests(unittest.TestCase):
 
         self.assertIsNone(payload)
 
+    def test_arxiv_page_payload_contains_only_the_abstract_block(self):
+        import tempfile
+
+        from app.crawlers.page_content import fetch_page_payload
+
+        page = """
+        <html><head>
+          <title>A useful AI paper</title>
+          <meta name="author" content="Ada Researcher">
+        </head><body><main>
+          <h1 class="title"><span class="descriptor">Title:</span>A useful AI paper</h1>
+          <div class="authors">Authors: Ada Researcher</div>
+          <blockquote class="abstract mathjax">
+            <span class="descriptor">Abstract:</span>
+            This paper introduces a robust AI method and evaluates it across three benchmarks.
+          </blockquote>
+          <table><tr><td>Subjects:</td><td>Artificial Intelligence (cs.AI)</td></tr></table>
+          <h2>Submission history</h2>
+          <p>[v1] Thu, 16 Jul 2026</p>
+          <h2>Access Paper:</h2>
+          <ul><li>View PDF</li></ul>
+        </main></body></html>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("app.crawlers.page_content.fetch_url_text", return_value=page):
+                payload = fetch_page_payload(
+                    "https://arxiv.org/abs/2607.14086v1",
+                    cache_dir=Path(tmpdir),
+                )
+
+        self.assertEqual(payload["metadata"]["content_profile"], "arxiv-abstract-v1")
+        self.assertEqual(payload["metadata"]["content_extraction_version"], 5)
+        self.assertEqual(len(payload["metadata"]["original_blocks"]), 1)
+        self.assertEqual(payload["metadata"]["original_blocks"][0]["type"], "quote")
+        self.assertNotIn("Subjects", payload["content"])
+        self.assertNotIn("Submission history", payload["content"])
+        self.assertNotIn("Ada Researcher", payload["content"])
+
     def test_ithome_profile_extracts_full_body_and_invalidates_meta_fallback_cache(self):
         import json
         import tempfile

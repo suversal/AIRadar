@@ -812,6 +812,112 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(cached_article.metadata["original_paragraphs"])
         self.assertIn("高品质AI Token", cached_article.metadata["original_text"])
 
+    def test_github_blog_profile_upgrade_refetches_and_rescores_only_stale_body(self):
+        from app.crawlers.base import canonicalize_url, stable_hash
+        from app.pipeline.runner import translation_source_hash
+
+        source = Source(
+            id="github_ai_blog",
+            name="GitHub AI & Copilot Blog",
+            source_role="authority",
+            tier="T1",
+            type="rss",
+            category="official",
+            url="https://github.blog/ai-and-ml/feed/",
+            homepage="https://github.blog/ai-and-ml/",
+            allowed_domains=["github.blog"],
+            can_be_main_source=True,
+        )
+        url = "https://github.blog/ai-and-ml/github-copilot/example-post"
+        real_body = "Real GitHub Blog body about Copilot code review tools and benchmark results."
+        raw_items = [{
+            "source_url": url,
+            "title": "Requested GitHub Blog article",
+            "content": "Short RSS teaser.",
+            "author": "GitHub",
+            "published_at": datetime(2026, 7, 16, 8, tzinfo=timezone.utc),
+            "language": "en",
+            "raw_score": {},
+            "metadata": {"body_fetch": "deferred"},
+        }]
+        url_hash = stable_hash(canonicalize_url(url))
+        cached_results = {url_hash: {
+            "raw_article_id": "github-existing-id",
+            "content": "Wrong recommendation card body.",
+            "scoring": {
+                "dimensions": {
+                    "ai_relevance": 8, "novelty": 6, "impact": 6,
+                    "information_density": 5, "actionability": 5, "creator_value": 5,
+                },
+                "category": "industry",
+                "tags": ["Wrong"],
+                "title_zh": "错误的推荐卡片标题",
+                "one_line_summary": "错误摘要",
+                "summary_zh": "错误正文摘要",
+                "reason_zh": "错误推荐理由",
+                "action_zh": "错误动作",
+            },
+            "metadata": {
+                "content_extraction_version": 2,
+                "content_profile": "generic-v2",
+                "original_blocks": [{"type": "paragraph", "text": "Wrong recommendation card body."}],
+                "translated_paragraphs": ["旧译文"],
+                "translated_blocks": [
+                    {"type": "byline", "author": {"name": "Stale Author"}},
+                    {"type": "paragraph", "text": "旧译文"},
+                ],
+                # Deliberately match the replacement text: extractor-version
+                # invalidation must rebuild block structure even when the
+                # text-only translation hash itself still matches.
+                "translation_source_hash": translation_source_hash([real_body]),
+            },
+        }}
+
+        class CountingProvider(FakeAIProvider):
+            def __init__(self):
+                self.score_calls = 0
+
+            def score_article(self, title, content):
+                self.score_calls += 1
+                self.asserted_content = content
+                return super().score_article(title, content)
+
+        def replace_with_full_page(article, **_kwargs):
+            article.content = real_body
+            article.metadata.update({
+                "content_extraction_version": 4,
+                "content_profile": "github-blog-v1",
+                "original_blocks": [{"type": "paragraph", "text": article.content}],
+                "original_paragraphs": [article.content],
+                "original_text": article.content,
+                "content_origin": "full_page",
+            })
+
+        provider = CountingProvider()
+        with patch(
+            "app.crawlers.page_content.prefer_full_page_content",
+            side_effect=replace_with_full_page,
+        ) as fetch:
+            result = run_pipeline(
+                sources=[source],
+                raw_items_by_source={source.id: raw_items},
+                ai_provider=provider,
+                now=datetime(2026, 7, 16, 12, tzinfo=timezone.utc),
+                report_date=date(2026, 7, 16),
+                cached_results=cached_results,
+                skip_prefilter=True,
+            )
+
+        fetch.assert_called_once()
+        self.assertEqual(provider.score_calls, 1)
+        self.assertIn("Real GitHub Blog body", provider.asserted_content)
+        self.assertNotEqual(result.processed_articles[0].title_zh, "错误的推荐卡片标题")
+        self.assertEqual(result.raw_articles[0].metadata["content_profile"], "github-blog-v1")
+        self.assertFalse(any(
+            block.get("type") == "byline"
+            for block in result.raw_articles[0].metadata["translated_blocks"]
+        ))
+
     def test_heading_blocks_survive_the_translation_round_trip(self):
         # a heading must be sent to translation alongside paragraphs (else
         # the translated article loses its title) and come back tagged as

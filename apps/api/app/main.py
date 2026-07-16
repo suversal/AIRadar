@@ -888,6 +888,25 @@ def create_app(
                 commit()
         return {"status": "ok", "id": source.id}
 
+    @app.delete("/api/admin/sources/{source_id}", dependencies=[admin_guard])
+    def admin_delete_source(source_id: str) -> dict:
+        from app.repositories.radar_repository import SourceHasArticlesError
+
+        with _admin_repository_context() as repository:
+            try:
+                deleted = repository.delete_source(source_id)
+            except SourceHasArticlesError as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"该信源下还有 {exc.count} 篇文章，请先清空文章后再删除",
+                ) from exc
+            if not deleted:
+                raise HTTPException(status_code=404, detail="Source not found")
+            commit = getattr(getattr(repository, "session", None), "commit", None)
+            if callable(commit):
+                commit()
+        return {"status": "ok", "deleted_source_id": source_id}
+
     @app.post("/api/admin/sources/{source_id}/test", dependencies=[admin_guard])
     def admin_test_source(source_id: str) -> dict:
         """Manual per-source fetch: crawl this source right now and run each
@@ -898,6 +917,7 @@ def create_app(
         from datetime import date as _date, datetime as _datetime, timezone as _timezone
 
         from app.crawlers import registry as crawler_registry
+        from app.crawlers.article_content import content_extraction_version_for_url
         from app.crawlers.base import stable_hash
         from app.pipeline.runner import (
             _hydrate_article_from_cache,
@@ -969,12 +989,17 @@ def create_app(
                     _hydrate_article_from_cache(article, cached)
                 existing = repository.get_existing_outcome_by_url_hash(article.url_hash)
                 cached_metadata = (cached or {}).get("metadata") or {}
+                cached_version = int(cached_metadata.get("content_extraction_version") or 0)
+                cached_content_stale = (
+                    article.metadata.get("body_fetch") == "deferred"
+                    and cached_version < content_extraction_version_for_url(article.source_url)
+                )
                 has_translation = bool(
                     cached_metadata.get("translated_paragraphs")
                     or cached_metadata.get("translated_blocks")
                 )
                 needs_translation = article.language.lower().startswith("en") and not has_translation
-                if existing is not None and not needs_translation:
+                if existing is not None and not needs_translation and not cached_content_stale:
                     article_results[index] = {
                         "title": existing["title"],
                         "url": existing["url"],

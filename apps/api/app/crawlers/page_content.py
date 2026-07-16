@@ -86,7 +86,7 @@ def prefer_full_page_content(article: RawArticle, *, cache_dir: Path | None = No
     blocks = article.metadata.get("original_blocks")
     if isinstance(blocks, list) and not any(
         isinstance(block, dict) and block.get("type") == "byline" for block in blocks
-    ) and article.author:
+    ) and article.author and article.metadata.get("content_profile") != "arxiv-abstract-v1":
         author: dict[str, str] = {"name": article.author}
         byline: dict[str, Any] = {"type": "byline", "author": author}
         if article.published_at:
@@ -126,7 +126,11 @@ def fetch_page_payload(
     title, description = extract_page_article(page_html)
     region = main_content_region(page_html, base_url=url)
     extracted = extract_article_content(region, base_url=url, title=title) if region else None
-    if extracted and not extracted.get("author_detected"):
+    if (
+        extracted
+        and not extracted.get("author_detected")
+        and extracted.get("content_profile") != "arxiv-abstract-v1"
+    ):
         byline = extract_page_byline(page_html, base_url=url)
         if byline:
             extracted["original_blocks"].insert(0, byline)

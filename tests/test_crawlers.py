@@ -1912,6 +1912,78 @@ tested on the same benchmark suite.</p>
         self.assertNotIn("热门文章", content["original_text"])
         self.assertNotIn("作者文章列表", content["original_text"])
 
+    def test_github_blog_profile_ignores_recommendation_article_cards(self):
+        from app.crawlers.sitemap import main_content_region
+
+        page = """
+        <html><body><main>
+          <section class="post__content">
+            <p>Give an agent better tools and it should do better work. This is the real opening paragraph of the requested GitHub Blog article.</p>
+            <p>When Copilot code review switched tools, benchmark cost increased and fewer useful issues were caught. The team inspected traces and changed the review workflow.</p>
+            <h2>The trace revealed a browsing loop</h2>
+            <p>The revised instructions started from the pull request diff, batched discovery, and read only the narrow code ranges needed for evidence.</p>
+            <p>The result was roughly twenty percent lower average review cost while maintaining review quality across the same evaluation tasks.</p>
+            <div class="post-content-cta"><p>Try GitHub Copilot now</p></div>
+            <section class="my-6 my-md-8 mt-md-0">
+              <hr class="post-tags-separator" />
+              <h2>Tags:</h2>
+              <ul class="post-tags"><li>GitHub Copilot</li><li>LLMs</li></ul>
+            </section>
+            <div class="mt-8 mb-8 mb-md-0">
+              <h2>Written by</h2>
+              <article class="author-bio">
+                <h3>Napalys Klicius</h3>
+                <p>@Napalys</p>
+                <p>Napalys Klicius is a Software Engineer at GitHub building agentic systems.</p>
+              </article>
+            </div>
+          </section>
+          <article class="post-card">
+            <h3>Evaluating performance and efficiency of the GitHub Copilot agentic harness across models and tasks</h3>
+            <p>Explore how the GitHub Copilot agentic harness delivers strong results across multiple benchmarks.</p>
+          </article>
+        </main></body></html>
+        """
+        url = "https://github.blog/ai-and-ml/github-copilot/example-post/"
+        region = main_content_region(page, base_url=url)
+        content = extract_article_content(region, base_url=url, title="Requested article")
+
+        self.assertEqual(content["content_profile"], "github-blog-v1")
+        self.assertIn("real opening paragraph", content["original_text"])
+        self.assertIn("twenty percent lower", content["original_text"])
+        self.assertNotIn("Evaluating performance", content["original_text"])
+        self.assertNotIn("Try GitHub Copilot now", content["original_text"])
+        self.assertNotIn("Tags:", content["original_text"])
+        self.assertNotIn("Written by", content["original_text"])
+        self.assertNotIn("Napalys Klicius", content["original_text"])
+
+    def test_arxiv_profile_keeps_only_the_abstract(self):
+        page = """
+        <html><body><main>
+          <h1 class="title"><span class="descriptor">Title:</span>A useful AI paper</h1>
+          <div class="authors">Authors: Ada Researcher</div>
+          <blockquote class="abstract mathjax">
+            <span class="descriptor">Abstract:</span>
+            This paper introduces a robust AI method and evaluates it across three benchmarks.
+            The results improve accuracy while reducing inference cost.
+          </blockquote>
+          <table><tr><td>Subjects:</td><td>Artificial Intelligence (cs.AI)</td></tr></table>
+          <h2>Submission history</h2>
+          <p>[v1] Thu, 16 Jul 2026</p>
+          <h2>Access Paper:</h2>
+          <ul><li>View PDF</li><li>TeX Source</li></ul>
+        </main></body></html>
+        """
+        url = "https://arxiv.org/abs/2607.14086v1"
+        content = extract_article_content(page, base_url=url, title="A useful AI paper")
+
+        self.assertEqual(content["content_profile"], "arxiv-abstract-v1")
+        self.assertEqual(len(content["original_blocks"]), 1)
+        self.assertIn("introduces a robust AI method", content["original_text"])
+        self.assertNotIn("Subjects", content["original_text"])
+        self.assertNotIn("Submission history", content["original_text"])
+        self.assertNotIn("View PDF", content["original_text"])
+
     def test_dom_semantic_blocks_and_safety(self):
         html = """
         <article>

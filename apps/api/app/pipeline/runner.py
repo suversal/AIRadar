@@ -280,7 +280,35 @@ def _process_candidate_article(
     # 拉正文 → 无正文拦截 → 评分。非 AI 文章零外站请求。
     source = source_by_id[article.source_id]
     trusted_curated = is_trusted_curated_source(source)
-    scoring = _cached_scoring_result(cached)
+    cached_version = int(((cached or {}).get("metadata") or {}).get("content_extraction_version") or 0)
+    required_extraction_version = content_extraction_version_for_url(article.source_url)
+    cached_content_stale = (
+        bool(cached)
+        and article.metadata.get("body_fetch") == "deferred"
+        and cached_version < required_extraction_version
+    )
+    if cached_content_stale:
+        # The visible text can stay identical while the semantic block shape
+        # changes (for example, arXiv v4 removed a cached byline but retained
+        # the same abstract). A text-only translation hash would incorrectly
+        # keep the old translated_blocks, so a content-extractor upgrade must
+        # invalidate all translation artifacts together with scoring.
+        for key in (
+            "translated_paragraphs",
+            "translated_blocks",
+            "translated_text",
+            "translation_source_hash",
+            "translation_source_language",
+            "translation_target_language",
+            "translation_status",
+            "translation_error",
+        ):
+            article.metadata.pop(key, None)
+    # A source-profile upgrade means the previous AI fields were generated
+    # from the wrong/partial body too. Reusing them after refreshing only the
+    # raw HTML would leave a correct detail body paired with a stale title and
+    # summary, so invalidate scoring together with the extracted content.
+    scoring = None if cached_content_stale else _cached_scoring_result(cached)
     scoring_was_cached = scoring is not None
     # 库里已判非AI的文章(不入选、仅作跳过标记)直接跳过,不再花任何调用
     if scoring is None and cached and cached.get("skipped_reason") == "not_ai_related":
@@ -298,8 +326,6 @@ def _process_candidate_article(
             return None, None, "not_ai_related"
 
     # 通过预筛(或可信源/复用缓存)后,才为 deferred 文章拉取原文页
-    cached_version = int(((cached or {}).get("metadata") or {}).get("content_extraction_version") or 0)
-    required_extraction_version = content_extraction_version_for_url(article.source_url)
     if article.metadata.pop("body_fetch", None) == "deferred" and (
         scoring is None or cached_version < required_extraction_version
     ):

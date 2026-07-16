@@ -50,7 +50,7 @@ export function Pill({
 }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${PILL_TONE[tone]}`}
+      className={`inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-semibold ${PILL_TONE[tone]}`}
       title={title}
     >
       {children}

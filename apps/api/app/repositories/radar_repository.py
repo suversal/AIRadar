@@ -6,7 +6,7 @@ from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 try:
-    from sqlalchemy import delete, select
+    from sqlalchemy import delete, func, select
     from sqlalchemy.orm import Session, aliased
 except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard for local stdlib tests
     raise RuntimeError("SQLAlchemy is required for database repositories.") from exc
@@ -42,6 +42,15 @@ from app.services.daily_report_service import (
     _strip_legacy_telegram_signature,
 )
 from app.services.taxonomy import category_label, display_category
+
+
+class SourceHasArticlesError(Exception):
+    """Raised when deleting a source that still has raw_articles referencing it."""
+
+    def __init__(self, source_id: str, count: int):
+        super().__init__(f"Source {source_id} still has {count} raw article(s)")
+        self.source_id = source_id
+        self.count = count
 
 
 @dataclass(frozen=True)
@@ -1260,6 +1269,18 @@ class RadarRepository:
                 model.config_json = dict(value or {})
             else:
                 setattr(model, key, value)
+        return True
+
+    def delete_source(self, source_id: str) -> bool:
+        model = self.session.get(SourceModel, source_id)
+        if model is None:
+            return False
+        article_count = self.session.scalar(
+            select(func.count()).select_from(RawArticleModel).where(RawArticleModel.source_id == source_id)
+        )
+        if article_count:
+            raise SourceHasArticlesError(source_id, article_count)
+        self.session.delete(model)
         return True
 
     def get_all_sources(self) -> list[Source]:

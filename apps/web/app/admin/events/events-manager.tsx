@@ -330,8 +330,8 @@ export function EventsManager({
                   抓取时间 <span aria-hidden>{sortIndicator("crawled_at")}</span>
                 </a>
               </th>
-              <th className="w-[7%] px-4 py-3 font-semibold">状态</th>
-              <th className="w-[18%] px-4 py-3 font-semibold">操作</th>
+              <th className="w-[10%] px-4 py-3 font-semibold">状态</th>
+              <th className="w-[15%] px-4 py-3 font-semibold">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">

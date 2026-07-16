@@ -162,7 +162,7 @@ function formatVerdictReason(reason: string) {
 
 export function SourcesManager({ initialSources }: { initialSources: AdminSource[] }) {
   const router = useRouter();
-  const [busy, setBusy] = useState<{ id: string; kind: "toggle" | "fetch" | "edit" } | null>(null);
+  const [busy, setBusy] = useState<{ id: string; kind: "toggle" | "fetch" | "edit" | "delete" } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, CrawlResult>>(() => {
     const seeded: Record<string, CrawlResult> = {};
@@ -174,6 +174,7 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
     return seeded;
   });
   const [editing, setEditing] = useState<AdminSource | null>(null);
+  const [deleting, setDeleting] = useState<AdminSource | null>(null);
   const [viewingResultFor, setViewingResultFor] = useState<string | null>(null);
   // 悬浮 1 秒后再展示,避免鼠标划过表格时到处弹卡片
   const sourceHoverCard = useHoverCard<AdminSource>(1000);
@@ -183,7 +184,7 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
     return a.name.localeCompare(b.name, "zh-CN");
   });
 
-  async function run(sourceId: string, kind: "toggle" | "edit", action: () => Promise<void>) {
+  async function run(sourceId: string, kind: "toggle" | "edit" | "delete", action: () => Promise<void>) {
     setBusy({ id: sourceId, kind });
     setMessage(null);
     try {
@@ -242,6 +243,13 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
         body: JSON.stringify(payload),
       });
       setEditing(null);
+    });
+  }
+
+  async function deleteSource(source: AdminSource) {
+    await run(source.id, "delete", async () => {
+      await api(`sources/${source.id}`, { method: "DELETE" });
+      setDeleting(null);
     });
   }
 
@@ -365,6 +373,14 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
                       >
                         编辑
                       </button>
+                      <button
+                        className="flex-1 rounded border border-line px-2 py-1.5 text-ink-mid hover:border-danger/40 hover:text-danger disabled:cursor-wait disabled:opacity-70"
+                        disabled={busy?.id === source.id}
+                        onClick={() => setDeleting(source)}
+                        type="button"
+                      >
+                        删除
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -475,6 +491,42 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
               </button>
             </div>
           </form>
+        </div>
+      ) : null}
+
+      {deleting ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-md rounded-md border border-line bg-panel p-6">
+            <h2 className="text-lg font-semibold text-ink">删除信源</h2>
+            <p className="mt-3 text-sm text-ink-mid">
+              确定要彻底删除这个信源吗？此操作不可恢复。
+            </p>
+            <p className="mt-2 truncate text-sm font-semibold text-ink" title={deleting.name}>
+              {deleting.name}
+            </p>
+            {message ? (
+              <p className="mt-3 rounded border border-red-400/40 bg-red-400/10 px-3 py-2 text-sm text-red-200">
+                {message}
+              </p>
+            ) : null}
+            <div className="mt-5 flex justify-end gap-3 text-sm font-semibold">
+              <button
+                className="rounded border border-line px-4 py-2 text-ink-mid hover:text-ink"
+                onClick={() => setDeleting(null)}
+                type="button"
+              >
+                取消
+              </button>
+              <button
+                className="rounded border border-danger bg-danger px-4 py-2 text-canvas hover:bg-danger/90"
+                disabled={busy?.id === deleting.id}
+                onClick={() => deleteSource(deleting)}
+                type="button"
+              >
+                确认删除
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 
