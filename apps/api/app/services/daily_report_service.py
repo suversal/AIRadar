@@ -95,6 +95,20 @@ def _safe_youtube_embed_url(value: str) -> bool:
     )
 
 
+def _safe_x_status_url(value: str) -> bool:
+    parsed = urlsplit(value)
+    return (
+        parsed.scheme.lower() == "https"
+        and (parsed.hostname or "").lower() == "x.com"
+        and re.fullmatch(
+            r"/[A-Za-z0-9_]{1,30}/status/\d+", parsed.path
+        )
+        is not None
+        and not parsed.query
+        and not parsed.fragment
+    )
+
+
 def _clean_content_links(values: Any) -> list[dict[str, str]]:
     if not isinstance(values, list):
         return []
@@ -231,6 +245,50 @@ def _clean_original_blocks(
                 if isinstance(value, int) and 0 < value <= 10000:
                     cleaned_video[key] = value
             cleaned.append(cleaned_video)
+        elif block_type == "social_embed":
+            provider = str(block.get("provider") or "").strip()
+            url = str(block.get("url") or "").strip()
+            if provider != "x" or not _safe_x_status_url(url):
+                continue
+            cleaned_embed: dict[str, Any] = {
+                "type": "social_embed",
+                "provider": "x",
+                "url": url,
+            }
+            for key in (
+                "author_name",
+                "username",
+                "text",
+                "published_at",
+            ):
+                value = str(block.get(key) or "").strip()
+                if value:
+                    cleaned_embed[key] = value
+            for key in ("avatar_url", "poster_url"):
+                value = str(block.get(key) or "").strip()
+                if (
+                    _safe_content_url(value)
+                    and urlsplit(value).scheme.lower() == "https"
+                ):
+                    cleaned_embed[key] = value
+            video_url = str(block.get("video_url") or "").strip()
+            if (
+                _safe_content_url(video_url)
+                and urlsplit(video_url).scheme.lower() == "https"
+                and str(block.get("video_mime_type") or "") == "video/mp4"
+            ):
+                cleaned_embed["video_url"] = video_url
+                cleaned_embed["video_mime_type"] = "video/mp4"
+            for key in (
+                "reply_count",
+                "repost_count",
+                "like_count",
+                "view_count",
+            ):
+                value = block.get(key)
+                if isinstance(value, int) and 0 <= value <= 10**12:
+                    cleaned_embed[key] = value
+            cleaned.append(cleaned_embed)
         elif block_type == "byline":
             author_value = block.get("author")
             if not isinstance(author_value, dict):

@@ -329,6 +329,8 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn('block.type === "video"', original_block)
         self.assertIn("<iframe", original_block)
         self.assertIn("<video", original_block)
+        self.assertIn('block.type === "social_embed"', original_block)
+        self.assertIn("在 X 上查看", original_block)
         # article-reading-toggle still proxies README markdown images directly
         self.assertIn("proxiedImageUrl", toggle)
         # page.tsx delegates to the shared renderer instead of proxying itself

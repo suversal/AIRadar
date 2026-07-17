@@ -62,6 +62,23 @@ export type OriginalBlock =
       muted?: boolean;
     }
   | {
+      type: "social_embed";
+      provider: "x";
+      url: string;
+      author_name?: string;
+      username?: string;
+      avatar_url?: string;
+      text?: string;
+      published_at?: string;
+      video_url?: string;
+      video_mime_type?: "video/mp4";
+      poster_url?: string;
+      reply_count?: number;
+      repost_count?: number;
+      like_count?: number;
+      view_count?: number;
+    }
+  | {
       type: "source_list";
       links: ContentLink[];
     }

@@ -188,6 +188,38 @@ class TelegramDescriptionParserTests(unittest.TestCase):
         self.assertTrue(cleaned[1]["autoplay"])
         self.assertTrue(cleaned[1]["muted"])
 
+    def test_x_embed_sanitization_keeps_safe_card_and_rejects_other_hosts(self):
+        safe = {
+            "type": "social_embed",
+            "provider": "x",
+            "url": "https://x.com/Kimi_Moonshot/status/2077521842080817296",
+            "author_name": "Kimi.ai",
+            "username": "Kimi_Moonshot",
+            "avatar_url": "https://pbs.substack.com/profile.jpg",
+            "video_url": "https://video.twimg.com/media/demo.mp4",
+            "video_mime_type": "video/mp4",
+            "like_count": 11466,
+        }
+
+        cleaned = _clean_original_blocks(
+            [
+                safe,
+                {
+                    **safe,
+                    "url": "https://untrusted.example/status/2077521842080817296",
+                },
+                {
+                    **safe,
+                    "video_url": "http://video.twimg.com/media/insecure.mp4",
+                },
+            ]
+        )
+
+        self.assertEqual(len(cleaned), 2)
+        self.assertEqual(cleaned[0], safe)
+        self.assertNotIn("video_url", cleaned[1])
+        self.assertNotIn("video_mime_type", cleaned[1])
+
 
 class TelegramRSSCrawlerTests(unittest.TestCase):
     XML = """<?xml version="1.0" encoding="UTF-8"?>

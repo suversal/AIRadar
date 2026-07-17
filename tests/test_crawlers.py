@@ -310,6 +310,102 @@ via AI HOT · https://aihot.virxact.com/items/abc123]]></description>
         )
         self.assertEqual(content["original_images"][0]["url"], "https://www.ithome.com/images/demo.jpg")
 
+    def test_substack_srcset_and_x_embed_are_preserved(self):
+        image_url = (
+            "https://substackcdn.com/image/fetch/$s_!abc!,w_1456,c_limit,"
+            "f_webp,q_auto:good,fl_progressive:steep/"
+            "https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fimage.png"
+        )
+        html = f"""
+        <article>
+          <p>Before media.</p>
+          <figure><picture>
+            <source srcset="
+              https://substackcdn.com/image/fetch/$s_!abc!,w_424,c_limit,f_webp,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fimage.png 424w,
+              {image_url} 1456w">
+            <img src="{image_url}" width="1456" height="863">
+          </picture></figure>
+          <div class="tweet twitter-embed" data-attrs='{{"url":"https://twitter.com/Kimi_Moonshot/status/2077521842080817296?s=12","username":"Kimi_Moonshot","name":"Kimi.ai","profile_image_url":"https://pbs.substack.com/profile.jpg","date":"2026-07-15T22:33:00.000Z","video_url":"https://video.twimg.com/media/demo.mp4","photos":[{{"img_url":"https://pbs.substack.com/poster.jpg"}}],"reply_count":634,"retweet_count":931,"like_count":11466,"impression_count":1888250}}'>
+            <video src="https://video.twimg.com/media/demo.mp4"></video>
+          </div>
+          <p>After media.</p>
+        </article>
+        """
+
+        content = extract_article_content(
+            html,
+            base_url="https://www.latent.space/p/example",
+        )
+
+        self.assertEqual(content["original_images"][0]["url"], image_url)
+        self.assertNotIn("www.latent.space/p/fl_progressive", str(content))
+        social_blocks = [
+            block
+            for block in content["original_blocks"]
+            if block["type"] == "social_embed"
+        ]
+        self.assertEqual(len(social_blocks), 1)
+        self.assertEqual(
+            social_blocks[0]["url"],
+            "https://x.com/Kimi_Moonshot/status/2077521842080817296",
+        )
+        self.assertEqual(social_blocks[0]["author_name"], "Kimi.ai")
+        self.assertEqual(social_blocks[0]["video_mime_type"], "video/mp4")
+        self.assertEqual(social_blocks[0]["view_count"], 1888250)
+        self.assertFalse(
+            any(block["type"] == "video" for block in content["original_blocks"])
+        )
+        self.assertEqual(
+            content_extraction_version_for_url(
+                "https://www.latent.space/p/example"
+            ),
+            4,
+        )
+
+    def test_latent_space_drops_discussion_and_free_trial_tails(self):
+        cases = (
+            (
+                "Discussion about this episode",
+                "<img src='https://cdn.example/discussion-avatar.jpg'>",
+            ),
+            (
+                "Keep reading with a 7-day free trial",
+                "<p>Subscribe to keep reading this post.</p>",
+            ),
+        )
+        for boundary, tail in cases:
+            with self.subTest(boundary=boundary):
+                html = f"""
+                <article>
+                  <p>Useful article body.</p>
+                  <h4>{boundary}</h4>
+                  {tail}
+                </article>
+                """
+                content = extract_article_content(
+                    html,
+                    base_url="https://www.latent.space/p/example",
+                )
+
+                self.assertEqual(
+                    content["original_blocks"],
+                    [{"type": "paragraph", "text": "Useful article body."}],
+                )
+                self.assertEqual(content["original_images"], [])
+                self.assertNotIn(boundary, content["original_text"])
+
+        other_source = extract_article_content(
+            """
+            <article>
+              <p>Useful article body.</p>
+              <h4>Discussion about this episode</h4>
+              <p>A legitimate section on another site.</p>
+            </article>
+            """,
+            base_url="https://example.com/post",
+        )
+        self.assertIn("Discussion about this episode", other_source["original_text"])
+
     def test_extract_article_content_skips_avatar_cdn_images(self):
         # 真实案例：HuggingFace 博客页把"点赞用户头像"小组件跟正文放在
         # 同一个 <main> 容器里，之前会把这些头像当成正文插图存下来。

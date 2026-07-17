@@ -30,6 +30,7 @@ YOUTUBE_EMBED_HOSTS = {
     "www.youtube-nocookie.com",
 }
 YOUTUBE_VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,20}$")
+X_STATUS_HOSTS = {"x.com", "www.x.com", "twitter.com", "www.twitter.com"}
 
 _HEX_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
 _RGB_COLOR_RE = re.compile(
@@ -156,6 +157,11 @@ def content_extraction_version_for_url(base_url: str | None) -> int:
         # removes the fixed Related posts section from the article tail. v4
         # retains safe YouTube embeds and direct video files as media blocks.
         return 4
+    if host in {"latent.space", "www.latent.space"}:
+        # v3 fixes Substack srcset URLs containing transformation commas and
+        # preserves embedded X posts as attributed, clickable media cards. v4
+        # removes Substack's discussion widget and free-trial paywall tail.
+        return 4
     source_specific_v3 = host == "blogs.nvidia.com" or (
         host in {"anthropic.com", "www.anthropic.com"}
         and parsed.path.startswith("/news/")
@@ -208,6 +214,21 @@ def _direct_video_source(node: Tag, base_url: str | None) -> tuple[str, str] | N
         if mime_type in VIDEO_MIME_TYPES:
             return url, mime_type
     return None
+
+
+def _x_status_url(value: str | None, base_url: str | None) -> str | None:
+    resolved = _safe_url(value, base_url)
+    if not resolved:
+        return None
+    parsed = urlparse(resolved)
+    match = re.fullmatch(r"/([A-Za-z0-9_]{1,30})/status/(\d+)", parsed.path.rstrip("/"))
+    if (
+        parsed.scheme.lower() != "https"
+        or (parsed.hostname or "").lower() not in X_STATUS_HOSTS
+        or match is None
+    ):
+        return None
+    return f"https://x.com/{match.group(1)}/status/{match.group(2)}"
 
 
 def _safe_color(value: str | None) -> str | None:
@@ -305,7 +326,17 @@ def _image_source(node: Tag) -> str | None:
             for attribute in ("data-srcset", "srcset"):
                 value = source.get(attribute)
                 if value:
-                    candidates = [part.strip().split()[0] for part in str(value).split(",") if part.strip()]
+                    # A naive split(",") corrupts Substack's transform URLs,
+                    # whose path contains comma-delimited options such as
+                    # `w_1456,c_limit,f_webp`. A candidate ends at its width/
+                    # density descriptor, not at every comma in the URL.
+                    candidates = [
+                        match.group(1)
+                        for match in re.finditer(
+                            r"(?:^|,\s*)(\S+?)(?:\s+\d+(?:\.\d+)?[wx])(?=\s*(?:,|$))",
+                            str(value),
+                        )
+                    ]
                     if candidates:
                         return candidates[-1]
     return str(node.get("src") or "").strip() or None
@@ -440,6 +471,7 @@ class DOMBlockExtractor:
         self.images: list[dict[str, Any]] = []
         self.seen_images: set[str] = set()
         self.seen_videos: set[str] = set()
+        self.seen_social_embeds: set[str] = set()
         self.filtered_blocks = 0
 
     def add(self, block: dict[str, Any] | None) -> None:
@@ -468,6 +500,9 @@ class DOMBlockExtractor:
         if tag == "video":
             self.add_direct_video(node)
             return
+        if "twitter-embed" in set(node.get("class") or []):
+            if self.add_x_embed(node):
+                return
         if tag == "uni-code-block" and urlparse(self.base_url or "").netloc.lower() == "blog.google":
             # Google Blog renders code through a custom element whose source
             # lives entirely in attributes, so it has no child <pre>/<code>
@@ -673,6 +708,64 @@ class DOMBlockExtractor:
         self.add(block)
         return True
 
+    def add_x_embed(self, node: Tag) -> bool:
+        try:
+            attrs = json.loads(str(node.get("data-attrs") or "{}"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return False
+        if not isinstance(attrs, dict):
+            return False
+        url = _x_status_url(str(attrs.get("url") or ""), self.base_url)
+        if not url or url in self.seen_social_embeds:
+            return False
+        block: dict[str, Any] = {
+            "type": "social_embed",
+            "provider": "x",
+            "url": url,
+        }
+        for source_key, target_key in (
+            ("name", "author_name"),
+            ("username", "username"),
+            ("full_text", "text"),
+            ("date", "published_at"),
+        ):
+            value = clean_text(str(attrs.get(source_key) or ""))
+            if value:
+                block[target_key] = value
+        avatar_url = _safe_url(str(attrs.get("profile_image_url") or ""), self.base_url)
+        if avatar_url and urlparse(avatar_url).scheme.lower() == "https":
+            block["avatar_url"] = avatar_url
+        video_url = _safe_url(str(attrs.get("video_url") or ""), self.base_url)
+        if (
+            video_url
+            and urlparse(video_url).scheme.lower() == "https"
+            and urlparse(video_url).path.lower().endswith(".mp4")
+        ):
+            block["video_url"] = video_url
+            block["video_mime_type"] = "video/mp4"
+        photos = attrs.get("photos")
+        if isinstance(photos, list):
+            first_photo = next((photo for photo in photos if isinstance(photo, dict)), None)
+            if first_photo:
+                poster_url = _safe_url(str(first_photo.get("img_url") or ""), self.base_url)
+                if poster_url and urlparse(poster_url).scheme.lower() == "https":
+                    block["poster_url"] = poster_url
+        for source_key, target_key in (
+            ("reply_count", "reply_count"),
+            ("retweet_count", "repost_count"),
+            ("like_count", "like_count"),
+            ("impression_count", "view_count"),
+        ):
+            try:
+                value = int(attrs.get(source_key))
+            except (TypeError, ValueError):
+                continue
+            if 0 <= value <= 10**12:
+                block[target_key] = value
+        self.seen_social_embeds.add(url)
+        self.add(block)
+        return True
+
 
 def _block_text(block: dict[str, Any]) -> list[str]:
     block_type = block.get("type")
@@ -777,6 +870,20 @@ def _strip_source_specific_blocks(
         for index, block in enumerate(blocks):
             text = _normalize_for_comparison(" ".join(_block_text(block)))
             if text == "relatedposts":
+                return blocks[:index]
+
+    if host in {"latent.space", "www.latent.space"}:
+        # These exact headings are Substack UI boundaries, not article prose.
+        # Everything after them belongs to the discussion widget or paywall
+        # CTA. Exact normalized equality avoids cutting legitimate sentences
+        # that merely mention a discussion or a free trial.
+        tail_boundaries = {
+            "discussionaboutthisepisode",
+            "keepreadingwitha7dayfreetrial",
+        }
+        for index, block in enumerate(blocks):
+            text = _normalize_for_comparison(" ".join(_block_text(block)))
+            if text in tail_boundaries:
                 return blocks[:index]
 
     return blocks

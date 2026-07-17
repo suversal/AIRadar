@@ -1019,6 +1019,50 @@ class PipelineTests(unittest.TestCase):
             ],
         )
 
+    def test_social_embed_survives_the_translation_round_trip(self):
+        social = {
+            "type": "social_embed",
+            "provider": "x",
+            "url": "https://x.com/Kimi_Moonshot/status/2077521842080817296",
+            "author_name": "Kimi.ai",
+            "username": "Kimi_Moonshot",
+            "video_url": "https://video.twimg.com/media/demo.mp4",
+            "video_mime_type": "video/mp4",
+            "like_count": 11466,
+        }
+        article = RawArticle(
+            id="latent-social",
+            source_id="latent_space",
+            source_name="Latent Space",
+            source_role="context",
+            source_tier="T2",
+            source_url="https://www.latent.space/p/example",
+            title="Example",
+            content="Before.\n\nAfter.",
+            author="Latent Space",
+            published_at=datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+            language="en",
+            raw_score={},
+            metadata={
+                "original_blocks": [
+                    {"type": "paragraph", "text": "Before."},
+                    social,
+                    {"type": "paragraph", "text": "After."},
+                ]
+            },
+            title_hash="latent-social-title",
+            url_hash="latent-social-url",
+        )
+
+        self.assertEqual(
+            _translated_blocks_for(article, ["之前。", "之后。"]),
+            [
+                {"type": "paragraph", "text": "之前。"},
+                social,
+                {"type": "paragraph", "text": "之后。"},
+            ],
+        )
+
     def test_google_blog_code_blocks_are_preserved_without_translation(self):
         article = RawArticle(
             id="google-code",

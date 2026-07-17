@@ -75,6 +75,16 @@ function alignmentClass(alignment?: "left" | "center" | "right" | "justify") {
         : "text-left";
 }
 
+function compactCount(value?: number) {
+  if (typeof value !== "number") {
+    return null;
+  }
+  return new Intl.NumberFormat("zh-CN", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
 /** Renders one original/translated content block, shared by the event
  *  detail page's no-translation path and ArticleReadingToggle, so heading/
  *  paragraph/image rendering only needs to be fixed in one place. */
@@ -168,6 +178,77 @@ export function renderOriginalBlock(block: OriginalBlock, index: number) {
           <figcaption className="mt-2 text-center text-sm text-ink-mid">{caption}</figcaption>
         ) : null}
       </figure>
+    );
+  }
+  if (block.type === "social_embed") {
+    const authorName = block.author_name || block.username || "X 用户";
+    const stats = [
+      ["回复", compactCount(block.reply_count)],
+      ["转发", compactCount(block.repost_count)],
+      ["喜欢", compactCount(block.like_count)],
+      ["浏览", compactCount(block.view_count)],
+    ].filter((entry) => entry[1]);
+    return (
+      <article
+        key={`${block.url}-${index}`}
+        className="mx-auto my-8 max-w-2xl overflow-hidden rounded-2xl border border-line-strong bg-panel"
+      >
+        <div className="flex items-center gap-3 px-5 py-4">
+          <AuthorAvatar name={authorName} src={block.avatar_url} />
+          <div className="min-w-0 flex-1">
+            <a
+              className="block truncate font-semibold text-ink hover:text-signal"
+              href={block.url}
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              {authorName}
+            </a>
+            {block.username ? (
+              <div className="truncate text-sm text-ink-dim">@{block.username}</div>
+            ) : null}
+          </div>
+          <span className="text-xl font-semibold text-ink" aria-label="X">
+            𝕏
+          </span>
+        </div>
+        {block.text ? (
+          <p className="px-5 pb-4 text-[16px] leading-7 text-ink">{block.text}</p>
+        ) : null}
+        {block.video_url ? (
+          <video
+            className="block aspect-video w-full bg-black object-contain"
+            controls
+            playsInline
+            preload="metadata"
+            poster={block.poster_url ? proxiedImageUrl(block.poster_url) : undefined}
+          >
+            <source src={block.video_url} type={block.video_mime_type} />
+            当前浏览器不支持视频播放。
+          </video>
+        ) : block.poster_url ? (
+          <ArticleImage
+            src={proxiedImageUrl(block.poster_url)}
+            alt={block.text || `${authorName} 的 X 帖子图片`}
+            className="block h-auto w-full border-y border-line object-contain"
+          />
+        ) : null}
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 text-xs text-ink-dim">
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {stats.map(([label, value]) => (
+              <span key={label}>{value} {label}</span>
+            ))}
+          </div>
+          <a
+            className="font-semibold text-signal hover:text-signal-bright"
+            href={block.url}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            在 X 上查看 ↗
+          </a>
+        </div>
+      </article>
     );
   }
   if (block.type === "byline") {

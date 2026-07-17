@@ -650,6 +650,33 @@ def _translated_blocks_for(article: RawArticle, translated_paragraphs: list[str]
                                 }
                             }
                         )
+                elif block_type == "social_embed":
+                    url = str(block.get("url") or "").strip()
+                    if url:
+                        translated.append(
+                            {
+                                key: value
+                                for key, value in block.items()
+                                if key
+                                in {
+                                    "type",
+                                    "provider",
+                                    "url",
+                                    "author_name",
+                                    "username",
+                                    "avatar_url",
+                                    "text",
+                                    "published_at",
+                                    "video_url",
+                                    "video_mime_type",
+                                    "poster_url",
+                                    "reply_count",
+                                    "repost_count",
+                                    "like_count",
+                                    "view_count",
+                                }
+                            }
+                        )
                 elif block_type == "byline" or block_type == "divider":
                     translated.append(dict(block))
                 elif block_type == "source_list":
