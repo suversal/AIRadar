@@ -1984,6 +1984,120 @@ tested on the same benchmark suite.</p>
         self.assertNotIn("Submission history", content["original_text"])
         self.assertNotIn("View PDF", content["original_text"])
 
+    def test_deepmind_profile_preserves_paragraphs_and_drops_related_posts(self):
+        page = """
+        <html><body><main id="page-content">
+          <section class="grid section-default">
+            <div class="grid__inner"><div class="rich-text">
+              <p>The first paragraph explains the biosecurity challenge.</p>
+              <p>The second paragraph introduces the joint response.</p>
+              <h2>Inside our bioresilience program</h2>
+              <p>The program supports prevention, detection, and response.</p>
+              <h4>Prevent:</h4>
+              <p>Models follow a four-step safety process.</p>
+              <h4>Detect:</h4>
+              <p>Agents help identify emerging threats faster.</p>
+            </div></div>
+          </section>
+          <section class="grid section-default">
+            <div class="section-header__heading">
+              <h2 class="section-header__title">Related posts</h2>
+            </div>
+            <article class="card"><h3>Another DeepMind article</h3></article>
+          </section>
+        </main></body></html>
+        """
+        content = extract_article_content(
+            page,
+            base_url="https://deepmind.google/blog/our-approach-to-bioresilience/",
+        )
+
+        self.assertEqual(content["content_profile"], "deepmind-blog-v1")
+        self.assertEqual(
+            [block["type"] for block in content["original_blocks"]],
+            [
+                "paragraph",
+                "paragraph",
+                "heading",
+                "paragraph",
+                "heading",
+                "paragraph",
+                "heading",
+                "paragraph",
+            ],
+        )
+        self.assertEqual(
+            content["original_paragraphs"][:2],
+            [
+                "The first paragraph explains the biosecurity challenge.",
+                "The second paragraph introduces the joint response.",
+            ],
+        )
+        self.assertNotIn("Related posts", content["original_text"])
+        self.assertNotIn("Another DeepMind article", content["original_text"])
+
+    def test_deepmind_profile_preserves_safe_youtube_and_direct_videos(self):
+        page = """
+        <html><body><main id="page-content">
+          <section class="grid section-default">
+            <div class="rich-text"><p>Before the videos.</p></div>
+            <div class="media-embed">
+              <iframe
+                src="https://www.youtube.com/embed/xJ94HFpGM4Y?enablejsapi=1&origin=https://deepmind.google"
+                title="ATL Saathi overview"
+                width="200"
+                height="113"></iframe>
+            </div>
+            <iframe src="https://untrusted.example/embed/tracker"></iframe>
+            <figure class="media-video-figure">
+              <div data-width="3840" data-height="2160">
+                <video autoplay loop muted poster="/poster.jpg">
+                  <source
+                    data-src="https://storage.googleapis.com/example/animation.webm#t=0.1"
+                    type="video/webm">
+                  Your browser does not support the video tag.
+                </video>
+                <noscript>
+                  <video><source src="https://storage.googleapis.com/example/animation.webm" type="video/webm"></video>
+                </noscript>
+              </div>
+              <figcaption><p>Animation of the project planner.</p></figcaption>
+            </figure>
+            <div class="rich-text"><p>After the videos.</p></div>
+          </section>
+        </main></body></html>
+        """
+        content = extract_article_content(
+            page,
+            base_url="https://deepmind.google/blog/example/",
+        )
+
+        videos = [
+            block
+            for block in content["original_blocks"]
+            if block["type"] == "video"
+        ]
+        self.assertEqual(len(videos), 2)
+        self.assertEqual(
+            videos[0],
+            {
+                "type": "video",
+                "provider": "youtube",
+                "url": "https://www.youtube-nocookie.com/embed/xJ94HFpGM4Y",
+                "title": "ATL Saathi overview",
+                "width": 200,
+                "height": 113,
+            },
+        )
+        self.assertEqual(videos[1]["provider"], "file")
+        self.assertEqual(videos[1]["mime_type"], "video/webm")
+        self.assertEqual(videos[1]["caption"], "Animation of the project planner.")
+        self.assertTrue(videos[1]["autoplay"])
+        self.assertTrue(videos[1]["loop"])
+        self.assertTrue(videos[1]["muted"])
+        self.assertNotIn("untrusted.example", str(content["original_blocks"]))
+        self.assertNotIn("browser does not support", content["original_text"].lower())
+
     def test_dom_semantic_blocks_and_safety(self):
         html = """
         <article>

@@ -626,6 +626,30 @@ def _translated_blocks_for(article: RawArticle, translated_paragraphs: list[str]
                                 if key in {"type", "url", "alt", "caption", "fallback_url", "width", "height", "role"}
                             }
                         )
+                elif block_type == "video":
+                    url = str(block.get("url") or "").strip()
+                    if url:
+                        translated.append(
+                            {
+                                key: value
+                                for key, value in block.items()
+                                if key
+                                in {
+                                    "type",
+                                    "provider",
+                                    "url",
+                                    "title",
+                                    "caption",
+                                    "mime_type",
+                                    "poster_url",
+                                    "width",
+                                    "height",
+                                    "autoplay",
+                                    "loop",
+                                    "muted",
+                                }
+                            }
+                        )
                 elif block_type == "byline" or block_type == "divider":
                     translated.append(dict(block))
                 elif block_type == "source_list":

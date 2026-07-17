@@ -975,6 +975,50 @@ class PipelineTests(unittest.TestCase):
             ],
         )
 
+    def test_video_blocks_survive_the_translation_round_trip(self):
+        article = RawArticle(
+            id="deepmind-video",
+            source_id="deepmind_blog",
+            source_name="Google DeepMind Blog",
+            source_role="authority",
+            source_tier="T1",
+            source_url="https://deepmind.google/blog/example/",
+            title="Example",
+            content="Before.\n\nAfter.",
+            author="Google DeepMind",
+            published_at=datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+            language="en",
+            raw_score={},
+            metadata={
+                "original_blocks": [
+                    {"type": "paragraph", "text": "Before."},
+                    {
+                        "type": "video",
+                        "provider": "youtube",
+                        "url": "https://www.youtube-nocookie.com/embed/xJ94HFpGM4Y",
+                        "title": "Overview",
+                    },
+                    {"type": "paragraph", "text": "After."},
+                ]
+            },
+            title_hash="deepmind-video-title",
+            url_hash="deepmind-video-url",
+        )
+
+        self.assertEqual(
+            _translated_blocks_for(article, ["之前。", "之后。"]),
+            [
+                {"type": "paragraph", "text": "之前。"},
+                {
+                    "type": "video",
+                    "provider": "youtube",
+                    "url": "https://www.youtube-nocookie.com/embed/xJ94HFpGM4Y",
+                    "title": "Overview",
+                },
+                {"type": "paragraph", "text": "之后。"},
+            ],
+        )
+
     def test_google_blog_code_blocks_are_preserved_without_translation(self):
         article = RawArticle(
             id="google-code",

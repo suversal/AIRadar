@@ -48,6 +48,20 @@ export type OriginalBlock =
       role?: "hero" | "content";
     }
   | {
+      type: "video";
+      provider: "youtube" | "file";
+      url: string;
+      title?: string;
+      caption?: string;
+      mime_type?: "video/mp4" | "video/webm" | "video/ogg";
+      poster_url?: string;
+      width?: number;
+      height?: number;
+      autoplay?: boolean;
+      loop?: boolean;
+      muted?: boolean;
+    }
+  | {
       type: "source_list";
       links: ContentLink[];
     }

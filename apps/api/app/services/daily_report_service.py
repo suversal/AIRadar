@@ -84,6 +84,17 @@ def _safe_content_url(value: str) -> bool:
     return parsed.scheme.lower() in {"http", "https"} and bool(parsed.netloc)
 
 
+def _safe_youtube_embed_url(value: str) -> bool:
+    parsed = urlsplit(value)
+    return (
+        parsed.scheme.lower() == "https"
+        and (parsed.hostname or "").lower() == "www.youtube-nocookie.com"
+        and re.fullmatch(r"/embed/[A-Za-z0-9_-]{6,20}", parsed.path) is not None
+        and not parsed.query
+        and not parsed.fragment
+    )
+
+
 def _clean_content_links(values: Any) -> list[dict[str, str]]:
     if not isinstance(values, list):
         return []
@@ -174,6 +185,52 @@ def _clean_original_blocks(
                 if role in {"hero", "content"}:
                     cleaned_image["role"] = role
                 cleaned.append(cleaned_image)
+        elif block_type == "video":
+            provider = str(block.get("provider") or "").strip()
+            url = str(block.get("url") or "").strip()
+            if provider == "youtube":
+                if not _safe_youtube_embed_url(url):
+                    continue
+                cleaned_video: dict[str, Any] = {
+                    "type": "video",
+                    "provider": "youtube",
+                    "url": url,
+                }
+            elif provider == "file":
+                parsed_url = urlsplit(url)
+                mime_type = str(block.get("mime_type") or "").strip().lower()
+                if (
+                    parsed_url.scheme.lower() != "https"
+                    or not parsed_url.netloc
+                    or mime_type not in {"video/mp4", "video/webm", "video/ogg"}
+                ):
+                    continue
+                cleaned_video = {
+                    "type": "video",
+                    "provider": "file",
+                    "url": url,
+                    "mime_type": mime_type,
+                }
+                poster_url = str(block.get("poster_url") or "").strip()
+                if (
+                    _safe_content_url(poster_url)
+                    and urlsplit(poster_url).scheme.lower() == "https"
+                ):
+                    cleaned_video["poster_url"] = poster_url
+                for key in ("autoplay", "loop", "muted"):
+                    if block.get(key) is True:
+                        cleaned_video[key] = True
+            else:
+                continue
+            for key in ("title", "caption"):
+                value = str(block.get(key) or "").strip()
+                if value:
+                    cleaned_video[key] = value
+            for key in ("width", "height"):
+                value = block.get(key)
+                if isinstance(value, int) and 0 < value <= 10000:
+                    cleaned_video[key] = value
+            cleaned.append(cleaned_video)
         elif block_type == "byline":
             author_value = block.get("author")
             if not isinstance(author_value, dict):

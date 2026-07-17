@@ -21,6 +21,15 @@ MAX_TABLE_COLUMNS = 20
 SAFE_HREF_SCHEMES = ("http://", "https://")
 INLINE_TAGS = {"a", "strong", "b", "em", "i", "code", "del", "s", "sup", "sub", "mark"}
 SKIP_TAGS = {"script", "style", "noscript", "iframe", "object", "embed", "form", "nav", "aside", "footer"}
+VIDEO_MIME_TYPES = {"video/mp4", "video/webm", "video/ogg"}
+VIDEO_EXTENSIONS = {".mp4": "video/mp4", ".webm": "video/webm", ".ogv": "video/ogg", ".ogg": "video/ogg"}
+YOUTUBE_EMBED_HOSTS = {
+    "youtube.com",
+    "www.youtube.com",
+    "youtube-nocookie.com",
+    "www.youtube-nocookie.com",
+}
+YOUTUBE_VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,20}$")
 
 _HEX_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
 _RGB_COLOR_RE = re.compile(
@@ -66,6 +75,11 @@ CONTENT_PROFILES = (
         name="arxiv-abstract-v1",
         hosts=("arxiv.org", "www.arxiv.org"),
         root_selectors=("blockquote.abstract", ".abstract"),
+    ),
+    ContentProfile(
+        name="deepmind-blog-v1",
+        hosts=("deepmind.google",),
+        root_selectors=("main#page-content", "main"),
     ),
     ContentProfile(
         name="github-blog-v1",
@@ -137,6 +151,11 @@ def content_extraction_version_for_url(base_url: str | None) -> int:
         # body is literally the abstract and nothing else; v5 rebuilds cached
         # translated blocks under the same abstract-only structure.
         return 5
+    if host == "deepmind.google":
+        # v3 preserves nested rich-text paragraph/heading boundaries and
+        # removes the fixed Related posts section from the article tail. v4
+        # retains safe YouTube embeds and direct video files as media blocks.
+        return 4
     source_specific_v3 = host == "blogs.nvidia.com" or (
         host in {"anthropic.com", "www.anthropic.com"}
         and parsed.path.startswith("/news/")
@@ -149,6 +168,46 @@ def _safe_url(value: str | None, base_url: str | None) -> str | None:
         return None
     resolved = urljoin(base_url or "", value.strip())
     return resolved if resolved.lower().startswith(SAFE_HREF_SCHEMES) else None
+
+
+def _youtube_embed_url(value: str | None, base_url: str | None) -> str | None:
+    resolved = _safe_url(value, base_url)
+    if not resolved:
+        return None
+    parsed = urlparse(resolved)
+    host = (parsed.hostname or "").lower()
+    match = re.fullmatch(r"/embed/([^/?#]+)", parsed.path.rstrip("/"))
+    if (
+        parsed.scheme.lower() != "https"
+        or host not in YOUTUBE_EMBED_HOSTS
+        or match is None
+        or not YOUTUBE_VIDEO_ID_RE.fullmatch(match.group(1))
+    ):
+        return None
+    return f"https://www.youtube-nocookie.com/embed/{match.group(1)}"
+
+
+def _direct_video_source(node: Tag, base_url: str | None) -> tuple[str, str] | None:
+    candidates = [node, *node.find_all("source")]
+    for candidate in candidates:
+        source = str(candidate.get("data-src") or candidate.get("src") or "").strip()
+        url = _safe_url(source, base_url)
+        if not url or urlparse(url).scheme.lower() != "https":
+            continue
+        mime_type = str(candidate.get("type") or "").strip().lower().split(";", 1)[0]
+        extension = next(
+            (
+                extension
+                for extension in VIDEO_EXTENSIONS
+                if urlparse(url).path.lower().endswith(extension)
+            ),
+            None,
+        )
+        if mime_type not in VIDEO_MIME_TYPES:
+            mime_type = VIDEO_EXTENSIONS.get(extension or "", "")
+        if mime_type in VIDEO_MIME_TYPES:
+            return url, mime_type
+    return None
 
 
 def _safe_color(value: str | None) -> str | None:
@@ -380,6 +439,7 @@ class DOMBlockExtractor:
         self.blocks: list[dict[str, Any]] = []
         self.images: list[dict[str, Any]] = []
         self.seen_images: set[str] = set()
+        self.seen_videos: set[str] = set()
         self.filtered_blocks = 0
 
     def add(self, block: dict[str, Any] | None) -> None:
@@ -397,9 +457,17 @@ class DOMBlockExtractor:
         return local
 
     def parse_node(self, node: Tag, *, depth: int = 0) -> None:
-        if len(self.blocks) >= MAX_BLOCKS or node.name in SKIP_TAGS:
+        if len(self.blocks) >= MAX_BLOCKS:
             return
         tag = node.name.lower()
+        if tag == "iframe":
+            self.add_youtube_video(node)
+            return
+        if tag in SKIP_TAGS:
+            return
+        if tag == "video":
+            self.add_direct_video(node)
+            return
         if tag == "uni-code-block" and urlparse(self.base_url or "").netloc.lower() == "blog.google":
             # Google Blog renders code through a custom element whose source
             # lives entirely in attributes, so it has no child <pre>/<code>
@@ -435,9 +503,17 @@ class DOMBlockExtractor:
             # per paragraph and no <p> elements at all. Treat a leaf section
             # as a paragraph, while structural sections containing child
             # blocks continue through the normal recursive walker.
+            preserve_nested_blocks = (
+                urlparse(self.base_url or "").netloc.lower().split(":", 1)[0]
+                == "deepmind.google"
+            )
             child_blocks = node.find(
-                ["section", "p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "blockquote", "pre", "table"],
-                recursive=False,
+                [
+                    "section", "p", "h1", "h2", "h3", "h4", "h5", "h6",
+                    "ul", "ol", "blockquote", "pre", "table", "figure",
+                    "iframe", "video",
+                ],
+                recursive=preserve_nested_blocks,
             )
             if child_blocks is None:
                 inline = _inline_content(node, base_url=self.base_url)
@@ -452,6 +528,12 @@ class DOMBlockExtractor:
         if tag == "figure":
             caption_node = node.find("figcaption")
             caption = clean_text(caption_node.get_text(" ", strip=True)) if caption_node else ""
+            iframe = node.find("iframe")
+            if iframe and self.add_youtube_video(iframe, caption=caption):
+                return
+            video = node.find("video")
+            if video and self.add_direct_video(video, caption=caption):
+                return
             for image in node.find_all("img"):
                 self.add_image(image, caption=caption)
             return
@@ -530,6 +612,66 @@ class DOMBlockExtractor:
         self.seen_images.add(url)
         self.images.append(image)
         self.add({"type": "image", **image})
+
+    def add_youtube_video(self, node: Tag, *, caption: str = "") -> bool:
+        url = _youtube_embed_url(str(node.get("src") or ""), self.base_url)
+        if not url or url in self.seen_videos:
+            return False
+        block: dict[str, Any] = {
+            "type": "video",
+            "provider": "youtube",
+            "url": url,
+        }
+        title = clean_text(str(node.get("title") or ""))
+        if title:
+            block["title"] = title
+        if caption:
+            block["caption"] = caption
+        width = _int_attr(node.get("width"))
+        height = _int_attr(node.get("height"))
+        if width:
+            block["width"] = width
+        if height:
+            block["height"] = height
+        self.seen_videos.add(url)
+        self.add(block)
+        return True
+
+    def add_direct_video(self, node: Tag, *, caption: str = "") -> bool:
+        source = _direct_video_source(node, self.base_url)
+        if source is None:
+            return False
+        url, mime_type = source
+        if url in self.seen_videos:
+            return False
+        block: dict[str, Any] = {
+            "type": "video",
+            "provider": "file",
+            "url": url,
+            "mime_type": mime_type,
+        }
+        poster_url = _safe_url(str(node.get("poster") or ""), self.base_url)
+        if poster_url and urlparse(poster_url).scheme.lower() == "https":
+            block["poster_url"] = poster_url
+        if caption:
+            block["caption"] = caption
+        width = _int_attr(node.get("width"))
+        height = _int_attr(node.get("height"))
+        if not width or not height:
+            container = node.find_parent(attrs={"data-width": True, "data-height": True})
+            if container:
+                width = width or _int_attr(container.get("data-width"))
+                height = height or _int_attr(container.get("data-height"))
+        if width:
+            block["width"] = width
+        if height:
+            block["height"] = height
+        for key in ("autoplay", "loop", "muted"):
+            if node.has_attr(key):
+                block[key] = True
+        self.seen_videos.add(url)
+        self.add(block)
+        return True
 
 
 def _block_text(block: dict[str, Any]) -> list[str]:
@@ -627,6 +769,15 @@ def _strip_source_specific_blocks(
                     if candidate.get("type") == "byline"
                 ]
                 return [*bylines, *blocks[index + 1 :]]
+
+    if host == "deepmind.google":
+        # DeepMind renders recommendation cards inside the same <main> as the
+        # article. Once nested rich-text sections are parsed semantically, the
+        # fixed heading is a reliable boundary between body and navigation.
+        for index, block in enumerate(blocks):
+            text = _normalize_for_comparison(" ".join(_block_text(block)))
+            if text == "relatedposts":
+                return blocks[:index]
 
     return blocks
 

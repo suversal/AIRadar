@@ -122,6 +122,54 @@ export function renderOriginalBlock(block: OriginalBlock, index: number) {
       </figure>
     );
   }
+  if (block.type === "video") {
+    const caption = block.caption ?? block.title;
+    if (block.provider === "youtube") {
+      return (
+        <figure key={`${block.url}-${index}`} className="my-8">
+          <div className="aspect-video w-full overflow-hidden rounded-xl border border-line bg-black shadow-sm">
+            <iframe
+              src={block.url}
+              title={block.title ?? block.caption ?? "YouTube 视频"}
+              className="h-full w-full"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+              loading="lazy"
+              referrerPolicy="strict-origin-when-cross-origin"
+            />
+          </div>
+          {caption ? (
+            <figcaption className="mt-2 text-center text-sm text-ink-mid">{caption}</figcaption>
+          ) : null}
+        </figure>
+      );
+    }
+    const videoStyle =
+      block.width && block.height
+        ? { aspectRatio: `${block.width} / ${block.height}` }
+        : undefined;
+    return (
+      <figure key={`${block.url}-${index}`} className="my-8">
+        <video
+          className="mx-auto block h-auto w-full overflow-hidden rounded-xl border border-line bg-black shadow-sm"
+          style={videoStyle}
+          controls
+          playsInline
+          preload="metadata"
+          poster={block.poster_url ? proxiedImageUrl(block.poster_url) : undefined}
+          autoPlay={block.autoplay}
+          loop={block.loop}
+          muted={block.muted || block.autoplay}
+        >
+          <source src={block.url} type={block.mime_type} />
+          当前浏览器不支持视频播放。
+        </video>
+        {caption ? (
+          <figcaption className="mt-2 text-center text-sm text-ink-mid">{caption}</figcaption>
+        ) : null}
+      </figure>
+    );
+  }
   if (block.type === "byline") {
     const authorName = block.author.name;
     const authorContent = <span className="font-semibold text-ink">{authorName}</span>;

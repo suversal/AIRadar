@@ -151,6 +151,43 @@ class TelegramDescriptionParserTests(unittest.TestCase):
         self.assertEqual([block["type"] for block in cleaned], ["quote", "image", "paragraph"])
         self.assertEqual(cleaned[2]["text"], "有效正文 MacRumors")
 
+    def test_video_blocks_require_safe_providers_and_https_urls(self):
+        blocks = [
+            {
+                "type": "video",
+                "provider": "youtube",
+                "url": "https://www.youtube-nocookie.com/embed/xJ94HFpGM4Y",
+                "title": "Safe embed",
+            },
+            {
+                "type": "video",
+                "provider": "youtube",
+                "url": "https://untrusted.example/embed/xJ94HFpGM4Y",
+            },
+            {
+                "type": "video",
+                "provider": "file",
+                "url": "https://cdn.example/animation.webm",
+                "mime_type": "video/webm",
+                "autoplay": True,
+                "muted": True,
+            },
+            {
+                "type": "video",
+                "provider": "file",
+                "url": "http://cdn.example/insecure.mp4",
+                "mime_type": "video/mp4",
+            },
+        ]
+
+        cleaned = _clean_original_blocks(blocks)
+
+        self.assertEqual(len(cleaned), 2)
+        self.assertEqual(cleaned[0]["provider"], "youtube")
+        self.assertEqual(cleaned[1]["provider"], "file")
+        self.assertTrue(cleaned[1]["autoplay"])
+        self.assertTrue(cleaned[1]["muted"])
+
 
 class TelegramRSSCrawlerTests(unittest.TestCase):
     XML = """<?xml version="1.0" encoding="UTF-8"?>
