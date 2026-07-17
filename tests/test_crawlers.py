@@ -434,6 +434,78 @@ via AI HOT · https://aihot.virxact.com/items/abc123]]></description>
         )
         self.assertEqual(content["original_paragraphs"], ["第一段正文。", "第二段正文。"])
 
+    def test_huggingface_blog_ignores_svelte_markers_and_non_prose_widgets(self):
+        # Hugging Face 的 Svelte SSR 会在点赞头像组件周围输出 <!--[0-->
+        # 一类 hydration 注释。注释与空链接此前被拼成 [0] 列表，且组件
+        # 本身位于 .blog-content 内，不能只依靠通用正文根节点过滤。
+        html = """
+        <main>
+          <div class="blog-content prose">
+            <h1>Routing Models</h1>
+            <div class="not-prose">
+              <ul>
+                <li><!--[0--><a href="/alice"></a><!--]--></li>
+                <li><!--[0--><a href="/bob"></a><!--]--></li>
+                <li><!--[--><!--[0--><!--[0--><!--]--><!--]-->+23<!--]--></li>
+              </ul>
+            </div>
+            <!--[--><!--[0--><!--[0--><!--]--><!--]--><!--]--><p>
+              Building a router into your agent sounds like an easy win.
+            </p>
+            <p>A real array index such as values[0] remains meaningful.</p>
+          </div>
+        </main>
+        """
+
+        content = extract_article_content(
+            html,
+            base_url="https://huggingface.co/blog/example",
+            title="Routing Models",
+        )
+
+        self.assertEqual(content["content_profile"], "huggingface-blog-v1")
+        self.assertEqual(
+            content["original_blocks"],
+            [
+                {
+                    "type": "paragraph",
+                    "text": "Building a router into your agent sounds like an easy win.",
+                },
+                {
+                    "type": "paragraph",
+                    "text": "A real array index such as values[0] remains meaningful.",
+                },
+            ],
+        )
+        self.assertEqual(
+            content_extraction_version_for_url(
+                "https://huggingface.co/blog/example"
+            ),
+            3,
+        )
+        paper_page = extract_article_content(
+            "<main><p>Daily paper page content.</p></main>",
+            base_url="https://huggingface.co/papers/2607.00001",
+        )
+        self.assertEqual(paper_page["content_profile"], "generic-v2")
+        self.assertEqual(
+            content_extraction_version_for_url(
+                "https://huggingface.co/papers/2607.00001"
+            ),
+            CONTENT_EXTRACTION_VERSION,
+        )
+
+    def test_html_comments_never_become_visible_article_text(self):
+        content = extract_article_content(
+            "<article><p>Before <!--[0-->visible<!--]--> after.</p></article>",
+            base_url="https://example.com/post",
+        )
+
+        self.assertEqual(
+            content["original_paragraphs"],
+            ["Before visible after."],
+        )
+
     def test_extract_article_content_drops_leading_block_that_duplicates_title(self):
         # 真实案例（the-decoder.com）：正文区域是整个 <article>，其中包含
         # 独立渲染的 <h1> 标题——提取时把它当成了第一段正文，导致标题在

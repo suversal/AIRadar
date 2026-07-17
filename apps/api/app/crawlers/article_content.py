@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 from urllib.parse import urljoin, urlparse
 
-from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 
 from app.crawlers.base import clean_text
 
@@ -65,6 +65,7 @@ _GENERIC_EXCLUDE_SELECTORS = (
 class ContentProfile:
     name: str
     hosts: tuple[str, ...]
+    path_prefixes: tuple[str, ...] = ()
     root_selectors: tuple[str, ...] = ()
     byline_selectors: tuple[str, ...] = ()
     lead_selectors: tuple[str, ...] = ()
@@ -112,6 +113,17 @@ CONTENT_PROFILES = (
         byline_selectors=(".info.clearfix",),
         exclude_selectors=(".ad-tips",),
     ),
+    ContentProfile(
+        name="huggingface-blog-v1",
+        hosts=("huggingface.co", "www.huggingface.co"),
+        path_prefixes=("/blog/",),
+        root_selectors=(".blog-content",),
+        # Hugging Face deliberately nests upvotes, author cards and the
+        # floating table of contents inside its prose container. Tailwind's
+        # `not-prose` class is the page's explicit signal that these nodes are
+        # interface chrome rather than article content.
+        exclude_selectors=(".not-prose",),
+    ),
 )
 
 
@@ -130,8 +142,20 @@ def _detect_body_language(text: str) -> str | None:
 
 
 def profile_for_url(base_url: str | None) -> ContentProfile | None:
-    host = urlparse(base_url or "").netloc.lower().split(":", 1)[0]
-    return next((profile for profile in CONTENT_PROFILES if host in profile.hosts), None)
+    parsed = urlparse(base_url or "")
+    host = parsed.netloc.lower().split(":", 1)[0]
+    return next(
+        (
+            profile
+            for profile in CONTENT_PROFILES
+            if host in profile.hosts
+            and (
+                not profile.path_prefixes
+                or any(parsed.path.startswith(prefix) for prefix in profile.path_prefixes)
+            )
+        ),
+        None,
+    )
 
 
 def content_extraction_version_for_url(base_url: str | None) -> int:
@@ -162,6 +186,12 @@ def content_extraction_version_for_url(base_url: str | None) -> int:
         # preserves embedded X posts as attributed, clickable media cards. v4
         # removes Substack's discussion widget and free-trial paywall tail.
         return 4
+    if host in {"huggingface.co", "www.huggingface.co"} and parsed.path.startswith(
+        "/blog/"
+    ):
+        # v3 excludes Hugging Face's nested upvote/byline/TOC widgets and
+        # ignores Svelte hydration comments that previously surfaced as [0].
+        return 3
     source_specific_v3 = host == "blogs.nvidia.com" or (
         host in {"anthropic.com", "www.anthropic.com"}
         and parsed.path.startswith("/news/")
@@ -241,6 +271,11 @@ def _safe_color(value: str | None) -> str | None:
 
 
 def _inline_parts(node: Tag | NavigableString, *, base_url: str | None) -> tuple[str, str, bool]:
+    # HTML comments are never visible article content. Framework hydration
+    # markers such as Svelte's `<!--[0-->` are Comment subclasses of
+    # NavigableString, so they must be rejected before the generic text case.
+    if isinstance(node, Comment):
+        return "", "", False
     if isinstance(node, NavigableString):
         value = str(node)
         return value, html_module.escape(value, quote=False), False
