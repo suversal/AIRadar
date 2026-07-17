@@ -347,7 +347,9 @@ export function EventsManager({
                       className={`block truncate text-sm font-semibold hover:text-signal ${
                         event.hidden ? "text-ink-dim line-through" : "text-ink"
                       }`}
-                      href={`/event/${encodeURIComponent(event.event_id)}`}
+                      href={`/event/${encodeURIComponent(event.event_id)}${
+                        event.hidden ? "?admin_preview=1" : ""
+                      }`}
                       rel="noreferrer"
                       target="_blank"
                     >

@@ -426,6 +426,18 @@ class AdminEventsApiTests(unittest.TestCase):
         self.assertEqual(body["items"][0]["event_id"], "aa1")
         self.assertTrue(self.repository.admin_listed_with_hidden)
 
+    def test_admin_event_detail_can_read_hidden_item(self):
+        client = self._client()
+
+        denied = client.get("/api/admin/events/aa1")
+        response = client.get("/api/admin/events/aa1", headers=AUTH)
+
+        self.assertEqual(denied.status_code, 401)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["event_id"], "aa1")
+        self.assertTrue(response.json()["hidden"])
+        self.assertTrue(self.repository.admin_detail_included_hidden)
+
     def test_admin_events_supports_search_and_pagination(self):
         client = self._client()
         self.repository.event_items = [
@@ -541,6 +553,7 @@ class _FakeSourceRepository:
         self.created.extend(sources)
 
     admin_listed_with_hidden = False
+    admin_detail_included_hidden = False
     moderations: list = []
 
     event_items = None
@@ -550,6 +563,12 @@ class _FakeSourceRepository:
         if self.event_items is not None:
             return list(self.event_items)
         return [{"event_id": "aa1", "title": "t", "hidden": False}]
+
+    def get_event_item(self, event_id, *, include_hidden=False):
+        self.admin_detail_included_hidden = include_hidden
+        if event_id != "aa1":
+            return None
+        return {"event_id": "aa1", "title": "t", "hidden": True}
 
     def update_event_moderation(self, event_id, fields):
         if event_id == "a-none":

@@ -8,11 +8,15 @@ import { ArticleReadingToggle } from "./article-reading-toggle";
 import { renderOriginalBlock } from "@/components/original-block";
 import { BookmarkButton } from "@/components/bookmark-button";
 import { Sidebar } from "@/components/sidebar";
+import { adminFetch } from "@/lib/admin-api";
 
 type EventParams = Promise<{
   id: string;
 }>;
 
+type EventSearchParams = Promise<{
+  admin_preview?: string;
+}>;
 
 function formatScore(score?: number) {
   if (typeof score !== "number") {
@@ -101,14 +105,31 @@ function translatedBlocksFor(event: LatestEvent): OriginalBlock[] {
   return [];
 }
 
-export default async function EventDetailPage({ params }: { params: EventParams }) {
+export default async function EventDetailPage({
+  params,
+  searchParams,
+}: {
+  params: EventParams;
+  searchParams: EventSearchParams;
+}) {
   const { id } = await params;
+  const { admin_preview: adminPreview } = await searchParams;
+  let adminEvent: LatestEvent | null = null;
+  if (adminPreview === "1") {
+    const response = await adminFetch(
+      `/api/admin/events/${encodeURIComponent(id)}`,
+    );
+    if (response.ok) {
+      adminEvent = (await response.json()) as LatestEvent;
+    }
+  }
   const report = await getLatestReport();
   // getEventDetail is the only path that resolves full article content and
   // per-source coverage (report.items is a lightweight list-view payload) -
   // it must win whenever it resolves; the list match is just a fallback for
   // when there's no database repository configured at all.
-  const event = (await getEventDetail(id)) ?? findEventById(report.items, id);
+  const event =
+    adminEvent ?? (await getEventDetail(id)) ?? findEventById(report.items, id);
 
   if (!event) {
     notFound();
@@ -130,6 +151,17 @@ export default async function EventDetailPage({ params }: { params: EventParams 
 
         <section className="min-w-0 px-5 py-8 md:py-12">
           <div className="mx-auto max-w-4xl">
+            {adminPreview === "1" && event.hidden ? (
+              <aside className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-md border border-yellow-400/40 bg-yellow-400/10 px-4 py-3 text-sm text-yellow-100">
+                <span>管理员预览：该文章当前处于隐藏状态，公开页面仍不可访问。</span>
+                <a
+                  className="font-semibold underline underline-offset-4 hover:text-white"
+                  href="/admin/events?status=hidden"
+                >
+                  返回隐藏文章列表
+                </a>
+              </aside>
+            ) : null}
             <header>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <span className="rounded-full border border-signal/60 bg-signal/15 px-2.5 py-1 text-xs font-semibold text-signal-bright">

@@ -1909,7 +1909,9 @@ class RadarRepository:
         self.session.flush()
         return True
 
-    def get_event_item(self, event_id: str) -> Optional[dict[str, Any]]:
+    def get_event_item(
+        self, event_id: str, *, include_hidden: bool = False
+    ) -> Optional[dict[str, Any]]:
         row = self._resolve_processed_row(event_id)
         if row is None:
             return None
@@ -1927,9 +1929,11 @@ class RadarRepository:
         )
         override = self._get_override(processed.raw_article_id)
         event_override = self._get_event_override(cluster.id) if cluster is not None else None
-        if (override is not None and override.hidden) or (
-            event_override is not None and event_override.hidden
-        ):
+        hidden = bool(
+            (override is not None and override.hidden)
+            or (event_override is not None and event_override.hidden)
+        )
+        if hidden and not include_hidden:
             return None
         translation = self._get_translation_model(processed.raw_article_id)
         # never let _event_item fall back to processed.event_cluster_id (a

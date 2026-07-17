@@ -103,6 +103,7 @@ export type LatestEvent = {
   category_label?: string;
   tags?: string[];
   final_score?: number;
+  hidden?: boolean;
   source_count?: number;
   main_source?: RadarSource;
   coverage?: EventCoverageItem[];

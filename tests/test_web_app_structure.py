@@ -289,6 +289,19 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("此操作不可恢复", manager_source)
         self.assertIn("deletingEvent", manager_source)
 
+    def test_admin_can_preview_hidden_article_without_public_visibility(self):
+        manager = (
+            WEB / "app" / "admin" / "events" / "events-manager.tsx"
+        ).read_text(encoding="utf-8")
+        detail = (WEB / "app" / "event" / "[id]" / "page.tsx").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("?admin_preview=1", manager)
+        self.assertIn("/api/admin/events/", detail)
+        self.assertIn("管理员预览", detail)
+        self.assertIn("该文章当前处于隐藏状态", detail)
+
     def test_article_images_are_proxied_against_hotlink_protection(self):
         # 中文媒体 CDN 防盗链分两派：infoq（无 Referer 放行）和 qbitai
         # （白名单制，无 Referer 也 403）。浏览器无法伪造 Referer，所以

@@ -1207,6 +1207,14 @@ def create_app(
             "sort_dir": sort_dir,
         }
 
+    @app.get("/api/admin/events/{event_id}", dependencies=[admin_guard])
+    def admin_event_detail(event_id: str) -> dict:
+        with _admin_repository_context() as repository:
+            item = repository.get_event_item(event_id, include_hidden=True)
+        if item is None:
+            raise HTTPException(status_code=404, detail="Event not found")
+        return item
+
     @app.patch("/api/admin/events/{event_id}", dependencies=[admin_guard])
     def admin_moderate_event(event_id: str, payload: dict) -> dict:
         from app.repositories.radar_repository import RadarRepository

@@ -1102,9 +1102,14 @@ class RepositoryTests(unittest.TestCase):
                 date(2026, 7, 1), date(2026, 7, 1)
             )
             main_detail = repository.get_event_item("e-hide")
+            main_admin_detail = repository.get_event_item(
+                "e-hide", include_hidden=True
+            )
             member_detail = repository.get_event_item("ab1")
 
         self.assertIsNone(main_detail)  # 主条自己被隐藏
+        self.assertIsNotNone(main_admin_detail)  # 管理员仍可预览隐藏主条
+        self.assertTrue(main_admin_detail["hidden"])
         self.assertIsNotNone(member_detail)  # 非主条不受影响
         remaining_ids = {item["event_id"] for item in listing_after_main_hidden}
         self.assertEqual(remaining_ids, {"ab1"})  # 列表里只剩非主条
@@ -1122,9 +1127,14 @@ class RepositoryTests(unittest.TestCase):
 
             main_detail_2 = repository.get_event_item("e-hide")
             member_detail_2 = repository.get_event_item("ab1")
+            member_admin_detail_2 = repository.get_event_item(
+                "ab1", include_hidden=True
+            )
 
         self.assertIsNotNone(main_detail_2)
         self.assertIsNone(member_detail_2)
+        self.assertIsNotNone(member_admin_detail_2)
+        self.assertTrue(member_admin_detail_2["hidden"])
 
     def test_moderation_can_clear_tags_with_empty_list(self):
         # 编辑把标签清空是一个真实的治理动作：tags=[] 必须覆盖掉机器标签，
