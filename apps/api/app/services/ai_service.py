@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import os
 import urllib.error
@@ -11,6 +12,8 @@ from typing import Any
 
 from app.models.domain import PrefilterResult, ScoreDimensions, ScoringResult
 from app.services.period_summary_service import parse_period_summary_payload
+
+logger = logging.getLogger(__name__)
 
 AI_KEYWORDS = {
     "ai",
@@ -88,6 +91,15 @@ def parse_scoring_payload(payload: dict[str, Any]) -> ScoringResult:
         if key not in dimensions:
             raise ValueError(f"scoring dimensions missing field: {key}")
     tags = [str(tag) for tag in payload.get("tags", []) if str(tag).strip()]
+    category = str(payload["category"])
+    if category not in SCORING_CATEGORIES:
+        logger.warning(
+            "scoring payload category %r is off-enum (expected one of %s); "
+            "falling back to keyword/default mapping for title=%r",
+            category,
+            SCORING_CATEGORIES,
+            str(payload.get("title_zh", ""))[:80],
+        )
     return ScoringResult(
         dimensions=ScoreDimensions(
             ai_relevance=_clamp_dimension(dimensions["ai_relevance"]),
@@ -97,7 +109,7 @@ def parse_scoring_payload(payload: dict[str, Any]) -> ScoringResult:
             actionability=_clamp_dimension(dimensions["actionability"]),
             creator_value=_clamp_dimension(dimensions["creator_value"]),
         ),
-        category=str(payload["category"]),
+        category=category,
         tags=tags[:5],
         title_zh=str(payload["title_zh"]),
         one_line_summary=str(payload["one_line_summary"]),
@@ -164,10 +176,66 @@ SUGGESTED_TAGS = [
 ]
 
 
+def _dimension_rubric() -> str:
+    return (
+        "六维评分标准（0-10分，请严格对照锚点打分，不要凭感觉自由发挥）："
+        "ai_relevance（AI相关度）：9-10分=文章报道的主体事件就是AI技术、模型、"
+        "产品或研究本身；6-8分=AI是文章的重要组成部分之一，但夹杂其他行业内容；"
+        "3-5分=AI只是被顺带提及的功能或修饰词，文章主体是其他行业事件；0-2分="
+        "几乎不提AI或AI只是无关紧要的背景词。"
+        "novelty（新颖度）：9-10分=首次实现某项能力、刷新SOTA、行业首创；6-8分"
+        "=在已有能力基础上的明显改进或新组合；3-5分=现有能力的常规增量迭代或版"
+        "本更新；0-2分=没有实质技术新意，纯营销通稿或重复报道。"
+        "impact（影响力）：9-10分=可能改变行业格局或大量用户/开发者的工作方式；"
+        "6-8分=对某个细分领域或产品线有明确影响；3-5分=影响范围有限，多为个案"
+        "或局部优化；0-2分=几乎没有实际影响。"
+        "information_density（信息密度）：9-10分=包含具体数据、参数、"
+        "benchmark、技术细节或限制条件；6-8分=有一定具体信息但不够完整；3-5分"
+        "=以描述性语言为主，具体细节较少；0-2分=几乎是空洞的公关辞令，没有可验"
+        "证的信息。"
+        "actionability（可操作性）：9-10分=读者能据此立即采取具体行动（试用、"
+        "复现、决策参考）；6-8分=有明确的下一步方向但需要额外查证；3-5分=仅供"
+        "了解，无直接行动价值；0-2分=与读者的实际行动完全无关。"
+        "creator_value（创作者价值）：9-10分=对内容创作者/开发者的选题、产品决"
+        "策有直接参考价值；6-8分=有一定参考价值但不是核心信息源；3-5分=价值有"
+        "限，仅作背景了解；0-2分=对创作者/开发者几乎没有参考价值。"
+        "以上维度必须基于原文实际内容打分，不得因为想输出'完整'的高分而编造原文"
+        "没有提到的技术细节、数据或结论；原文信息不足以支撑判断时，给出偏保守、"
+        "居中的分数，如实反映不确定性，不得瞎猜。"
+    )
+
+
+def _category_taxonomy_guide() -> str:
+    return (
+        "分类定义与边界规则（category 从8个枚举值中选择其一）："
+        "model_release=发布/更新了新的基础模型或模型能力本身；"
+        "product_release=基于已有模型包装的产品、应用、功能或服务发布，不强调"
+        "开源或模型本身的技术突破；"
+        "open_source=开源了模型权重、代码库或数据集，即使同时是模型发布，只要"
+        "强调开源属性就优先归此类而非model_release；"
+        "research=学术论文、研究成果、技术报告，重点是研究方法或实验结论本身；"
+        "industry=行业格局、政策法规、人事变动等非融资类行业新闻；"
+        "funding=涉及具体金额、轮次的融资、并购、上市等资本类事件；"
+        "opinion=作者个人观点、预测、评论性文章，核心是主观判断而非客观事件报"
+        "道；"
+        "tutorial=教程、使用技巧、最佳实践类内容。"
+        "边界示例：'某公司发布新一代基础模型，推理能力较上一代提升30%'→"
+        "model_release（核心是模型能力本身的进展）；'某公司基于自家大模型推出"
+        "新的办公助手App'→product_release（核心是产品包装，不是模型本身的技术"
+        "突破）；'某实验室开源了70B参数模型的权重和训练代码'→open_source（强调"
+        "开源属性，即使同时是模型发布）；'某AI公司完成B轮融资，金额为2亿美元'"
+        "→funding（具体金额和轮次）；'某分析师撰文预测生成式AI下一步的发展方"
+        "向'→opinion（核心是主观判断和预测，不是客观事件）；'某AI公司创始人离"
+        "职，另有高管加入'→industry（人事变动类行业新闻，非融资）。"
+    )
+
+
 def scoring_system_prompt() -> str:
     schema_hint = _scoring_schema_hint()
     return (
-        "Score the AI news item for a Chinese AI intelligence daily report. "
+        _dimension_rubric() + " "
+        + _category_taxonomy_guide() + " "
+        + "Score the AI news item for a Chinese AI intelligence daily report. "
         "Return strict JSON matching this example: "
         f"{json.dumps(schema_hint, ensure_ascii=False)}. "
         f"category MUST be exactly one of: {', '.join(SCORING_CATEGORIES)}. "
@@ -189,6 +257,19 @@ def scoring_system_prompt() -> str:
         "保留关键名称、产品、时间、数字、结论和限制条件；"
         "只概括原文事实，不评价、不推荐、不推测；"
         "原文信息不足时宁可缩短，严禁补写或编造原文没有的内容。"
+    )
+
+
+def prefilter_system_prompt() -> str:
+    return (
+        "Return JSON with is_ai_related, confidence, reason. "
+        "Only mark true for AI technology, products, research, industry, tooling. "
+        "判断标准是文章的核心主题，而不是是否提到AI相关字眼：只有当AI技术、模"
+        "型、产品或研究本身是文章报道的主体事件时才判定为相关；如果文章的主体"
+        "事件属于其他行业（如产品发布、销量、财报、人事变动等），AI只是作为其"
+        "中一项功能或卖点被顺带提及，判定为不相关，无论所属行业是什么。自检方"
+        "法：这篇文章如果去掉AI相关的字眼，还剩下一个完整、独立成立的非AI新闻"
+        "吗？如果是，判不相关。"
     )
 
 
@@ -396,13 +477,11 @@ class OpenAIProvider:
         payload = {
             "model": self.scoring_model,
             "response_format": {"type": "json_object"},
+            "temperature": 0.2,
             "messages": [
                 {
                     "role": "system",
-                    "content": (
-                        "Return JSON with is_ai_related, confidence, reason. "
-                        "Only mark true for AI technology, products, research, industry, tooling."
-                    ),
+                    "content": prefilter_system_prompt(),
                 },
                 {"role": "user", "content": text[:2000]},
             ],
@@ -415,6 +494,7 @@ class OpenAIProvider:
         payload = {
             "model": self.scoring_model,
             "response_format": {"type": "json_object"},
+            "temperature": 0.2,
             "messages": [
                 {
                     "role": "system",
@@ -515,13 +595,11 @@ class KimiProvider:
         payload = {
             "model": self.model,
             "response_format": {"type": "json_object"},
+            "temperature": 0.2,
             "messages": [
                 {
                     "role": "system",
-                    "content": (
-                        "Return JSON with is_ai_related, confidence, reason. "
-                        "Only mark true for AI technology, products, research, industry, tooling."
-                    ),
+                    "content": prefilter_system_prompt(),
                 },
                 {"role": "user", "content": text[:2000]},
             ],
@@ -534,6 +612,7 @@ class KimiProvider:
         payload = {
             "model": self.model,
             "response_format": {"type": "json_object"},
+            "temperature": 0.2,
             "messages": [
                 {
                     "role": "system",
@@ -632,7 +711,11 @@ class DeepSeekProvider:
             raise RuntimeError(f"DeepSeek request failed: {exc.code} {body}") from exc
 
     def _chat_payload(
-        self, messages: list[dict[str, str]], *, max_tokens: int | None = None
+        self,
+        messages: list[dict[str, str]],
+        *,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": self.model,
@@ -640,6 +723,8 @@ class DeepSeekProvider:
             "messages": messages,
             "max_tokens": max_tokens or self.max_tokens,
         }
+        if temperature is not None:
+            payload["temperature"] = temperature
         if self.user_id:
             payload["user_id"] = self.user_id
         return payload
@@ -652,13 +737,11 @@ class DeepSeekProvider:
             [
                 {
                     "role": "system",
-                    "content": (
-                        "Return JSON with is_ai_related, confidence, reason. "
-                        "Only mark true for AI technology, products, research, industry, tooling."
-                    ),
+                    "content": prefilter_system_prompt(),
                 },
                 {"role": "user", "content": text[:2000]},
-            ]
+            ],
+            temperature=0.2,
         )
         response = self._post_json(f"{self.base_url}/chat/completions", payload)
         content = response["choices"][0]["message"]["content"]
@@ -691,7 +774,7 @@ class DeepSeekProvider:
                     },
                     messages[1],
                 ]
-            payload = self._chat_payload(retry_messages, max_tokens=budget)
+            payload = self._chat_payload(retry_messages, max_tokens=budget, temperature=0.2)
             response = self._post_json(f"{self.base_url}/chat/completions", payload)
             choice = response["choices"][0]
             response_content = choice.get("message", {}).get("content") or ""

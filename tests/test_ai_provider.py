@@ -11,9 +11,11 @@ from app.services.ai_service import (
     DeepSeekProvider,
     FakeAIProvider,
     KimiProvider,
+    OpenAIProvider,
     parse_chat_json,
     parse_prefilter_payload,
     parse_scoring_payload,
+    prefilter_system_prompt,
     provider_from_env,
 )
 
@@ -105,6 +107,41 @@ class ScoringPromptTests(unittest.TestCase):
         self.assertIn("震惊", prompt)
         self.assertIn("重磅", prompt)
 
+    def test_scoring_system_prompt_includes_dimension_rubric_anchors(self):
+        # 2026-07-20 诊断：六维评分此前完全没有 0-10 分锚点，模型只能凭感觉打
+        # 分——这里锁定每个维度都带有具体的分档说明，防止回归成裸的字段名列表
+        from app.services.ai_service import scoring_system_prompt
+
+        prompt = scoring_system_prompt()
+
+        for dimension_keyword in (
+            "ai_relevance",
+            "novelty",
+            "impact",
+            "information_density",
+            "actionability",
+            "creator_value",
+        ):
+            self.assertIn(dimension_keyword, prompt)
+        # 具体锚点用词，确保不是只列了维度名而没有分档标准
+        self.assertIn("刷新SOTA", prompt)
+        self.assertIn("增量迭代", prompt)
+        self.assertIn("benchmark", prompt)
+        self.assertIn("不得因为想输出", prompt)  # 信息不足时不得编造高分
+
+    def test_scoring_system_prompt_includes_category_boundary_examples(self):
+        # 2026-07-20 诊断：8 个分类之前只是裸的英文枚举，model_release/
+        # product_release/open_source 和 industry/funding/opinion 高度重叠，
+        # 这里锁定边界规则与 few-shot 示例文本存在
+        from app.services.ai_service import scoring_system_prompt
+
+        prompt = scoring_system_prompt()
+
+        self.assertIn("边界示例", prompt)
+        self.assertIn("强调开源属性", prompt)
+        self.assertIn("具体金额和轮次", prompt)
+        self.assertIn("主观判断和预测", prompt)
+
     def test_deepseek_scoring_uses_shared_system_prompt(self):
         from app.services.ai_service import scoring_system_prompt
 
@@ -147,6 +184,58 @@ class ScoringPromptTests(unittest.TestCase):
 
         system_message = captured["payload"]["messages"][0]["content"]
         self.assertEqual(system_message, scoring_system_prompt())
+        self.assertEqual(captured["payload"]["temperature"], 0.2)
+
+
+class PrefilterPromptTests(unittest.TestCase):
+    def test_prefilter_system_prompt_uses_core_topic_principle(self):
+        # 2026-07-20 用户反馈：汽车行业等"提及AI但核心不是AI"的文章被误判为
+        # 相关。修复原则是"核心主题优先于关键词命中"，而不是逐行业列举反例
+        prompt = prefilter_system_prompt()
+
+        self.assertIn("is_ai_related", prompt)
+        self.assertIn("核心主题", prompt)
+        self.assertIn("主体事件", prompt)
+        self.assertIn("去掉AI相关的字眼", prompt)
+
+    def test_all_providers_share_the_same_prefilter_prompt(self):
+        # 三个 provider 曾经各自内联同一段英文字符串，容易改一份漏改另外两
+        # 份；这里锁定它们都调用同一个共享函数
+        openai_provider = OpenAIProvider(api_key="test-key")
+        kimi_provider = KimiProvider("test-key")
+        deepseek_provider = DeepSeekProvider("test-key")
+
+        for provider, url in (
+            (openai_provider, "https://api.openai.com/v1/chat/completions"),
+            (kimi_provider, "https://api.moonshot.cn/v1/chat/completions"),
+            (deepseek_provider, "https://api.deepseek.com/chat/completions"),
+        ):
+            captured: dict = {}
+
+            def fake_post(_url, payload, _captured=captured):
+                _captured["payload"] = payload
+                return {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": json.dumps(
+                                    {
+                                        "is_ai_related": True,
+                                        "confidence": 0.9,
+                                        "reason": "AI 相关",
+                                    }
+                                )
+                            }
+                        }
+                    ]
+                }
+
+            with patch.object(provider, "_post_json", side_effect=fake_post):
+                provider.prefilter("some AI text")
+
+            system_message = captured["payload"]["messages"][0]["content"]
+            self.assertEqual(system_message, prefilter_system_prompt())
+            self.assertEqual(captured["payload"]["temperature"], 0.2)
 
 
 class AIProviderTests(unittest.TestCase):
@@ -189,6 +278,34 @@ class AIProviderTests(unittest.TestCase):
 
         self.assertEqual(parsed.dimensions.ai_relevance, 10)
         self.assertEqual(parsed.dimensions.novelty, 0)
+
+    def test_parse_scoring_payload_logs_warning_for_off_enum_category(self):
+        # 2026-07-20 诊断：模型偶尔吐出枚举外的 category（如
+        # "research_insight"），此前完全静默走兜底，无法追溯。这里只要求可
+        # 观测（记日志），不要求抛异常——保持现有兜底健壮性不变
+        base_payload = {
+            "dimensions": {
+                "ai_relevance": 8,
+                "novelty": 7,
+                "impact": 7,
+                "information_density": 7,
+                "actionability": 6,
+                "creator_value": 6,
+            },
+            "category": "research_insight",
+            "tags": ["Research"],
+            "title_zh": "某研究新发现",
+            "one_line_summary": "一句话",
+            "summary_zh": "摘要",
+            "reason_zh": "理由",
+            "action_zh": "阅读原文",
+        }
+
+        with self.assertLogs("app.services.ai_service", level="WARNING") as ctx:
+            parsed = parse_scoring_payload(base_payload)
+
+        self.assertEqual(parsed.category, "research_insight")  # 兜底行为不变
+        self.assertTrue(any("research_insight" in message for message in ctx.output))
 
     def test_fake_provider_marks_ai_content_related_and_embeds_deterministically(self):
         provider = FakeAIProvider()
@@ -242,6 +359,7 @@ class AIProviderTests(unittest.TestCase):
         self.assertEqual(calls[0][0], "https://api.moonshot.cn/v1/chat/completions")
         self.assertEqual(calls[0][1]["model"], "kimi-k2.7-code")
         self.assertEqual(calls[0][1]["response_format"], {"type": "json_object"})
+        self.assertEqual(calls[0][1]["temperature"], 0.2)
 
     def test_kimi_provider_uses_local_real_embedding_model(self):
         provider = KimiProvider("test-key")
@@ -296,6 +414,7 @@ class AIProviderTests(unittest.TestCase):
         self.assertEqual(calls[0][1]["response_format"], {"type": "json_object"})
         self.assertEqual(calls[0][1]["user_id"], "ai-radar-test")
         self.assertEqual(calls[0][1]["max_tokens"], 4096)
+        self.assertEqual(calls[0][1]["temperature"], 0.2)
 
     def test_deepseek_scoring_retries_a_truncated_json_response(self):
         provider = DeepSeekProvider("test-key", max_tokens=2048)
