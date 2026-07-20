@@ -13,12 +13,15 @@ This repository intentionally starts data-first. It includes a pure-Python
 pipeline that can run with `FakeAIProvider` when no AI key is configured,
 or use OpenAI/Kimi/DeepSeek-compatible chat providers for real summaries and scoring.
 Docker/PostgreSQL/Redis scaffolding is included for the production-shaped runtime.
-The current web MVP includes an AIHOT-style selected feed on `/latest`, an
-AIHOT-style all-dynamics feed on `/all`, AIHOT-style daily/weekly/monthly report
-pages, event detail, and search pages. The sidebar currently implements "精选",
-"全部 AI 动态", and "AI 日报"; the other menu labels are reserved placeholders.
+The current product includes selected and all-dynamics feeds, daily/weekly/monthly
+reports, topics, search, browser-local bookmarks, semantic article reading, and
+static Agent/About/Changelog/Feedback pages. The database-backed admin console
+covers source operations, pipeline/schedule monitoring, content moderation, and
+a feature-gated manual article draft/publish workflow.
 
-Not in this milestone: admin UI, Telegram push, MCP server.
+Current focus: source quality, source-specific content extraction, manual-publish
+acceptance, and multi-day operational stability. Celery/Redis workers, public
+RSS/API productization, multi-admin permissions, and MCP remain deferred.
 
 ## Local Commands
 
@@ -53,8 +56,9 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev
 Open `http://127.0.0.1:3000/latest` for the current homepage, or
 `http://127.0.0.1:3000/all` for the all AI dynamics feed. The homepage keeps
 search out of the selected feed; `/all` has its own source/category filters and
-inline search, backed by `GET /api/public/events`, which merges daily reports
-across a date range (default 30 days) and dedupes by event id.
+inline search, backed by `GET /api/public/events`. In database mode, this page
+lists processed source articles independently so that related reports from
+different publishers remain available instead of being collapsed into one event.
 
 Report pages:
 
@@ -75,7 +79,10 @@ which is ignored by git.
 Set `ADMIN_TOKEN` in `.env`, then open `http://127.0.0.1:3000/admin` and
 log in with the token. The console provides source health monitoring and
 management (enable/disable/edit/test-fetch), the pipeline run ledger,
-manual refresh, and content moderation (hide/edit events). All
+manual refresh/scheduling, content moderation (filter/edit/hide/preview/delete),
+and safe source deletion. When `ADMIN_MANUAL_ARTICLE_ENABLED=true`, the console
+also exposes URL import and rich-text drafts, AI processing, manual field
+overrides, optional image upload, and publication. All
 `/api/admin/*` endpoints require the token; database mode is required.
 
 ## Scheduled Refresh
@@ -126,25 +133,33 @@ PYTHONPATH=apps/api .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --
 .venv/bin/python scripts/check_api_once.py --base-url http://127.0.0.1:8000 --date 2026-07-02
 ```
 
-The API exposes:
+The public API exposes:
 
 - `GET /health`
 - `GET /api/public/latest`
 - `GET /api/public/daily/{date}`
-- `POST /api/admin/refresh-latest`
+- `GET /api/public/events`
+- `GET /api/public/events/{id}`
+- `GET /api/public/hotspots`
+- `GET /api/public/topics`
+- daily/weekly/monthly report and archive endpoints
 
-`POST /api/admin/refresh-latest` accepts optional query parameters:
+The authenticated admin API additionally exposes source CRUD/test-fetch,
+content moderation/delete/preview, refresh/schedule, and manual article
+submission routes.
 
-- `limit`: candidate crawl/pipeline limit, default `DAILY_CANDIDATE_LIMIT` or `100`.
-- 精选数量动态等于满足来源信任或评分阈值、并完成事件去重后的结果，不设固定条数。
-- AI scoring concurrency is controlled by `AI_PIPELINE_CONCURRENCY`, default `1`.
+`POST /api/admin/refresh-latest` starts a synchronous refresh without a request
+level candidate limit. Each source controls its own lookback through
+`recent_days` (`0` means unlimited), while AI scoring concurrency is controlled
+by `AI_PIPELINE_CONCURRENCY`, default `1`. Selected report size is dynamic and
+has no fixed item count.
 
-The refresh endpoint uses the candidate budget only; selected report size is
-dynamic. Web refreshes start a background API job and poll it, so slow Kimi
-runs no longer hit the Next.js single-request timeout. The report `updated_at`
-field is the report generation time; `latest_published_at` records the newest
-source article time. Reports include every deduplicated event selected by a
-trusted curated source or the normal score threshold, with no low-score fill.
+Web refreshes use the asynchronous endpoint and poll the job status, so slow
+Kimi runs do not depend on a single Next.js request staying open. The report
+`updated_at` field is the report generation time; `latest_published_at` records
+the newest source article time. Trusted curated sources skip only the
+lightweight prefilter and still pass through normal scoring and event
+selection; there is no low-score fill.
 
 Event detail pages read structured original article fields from the daily JSON
 payload. RSS feeds that include article HTML, such as IT之家 RSS, are parsed into

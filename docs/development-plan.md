@@ -1,26 +1,56 @@
 # Suversal AI Radar 完整开发计划书
 
-最后更新：2026-07-13
+最后更新：2026-07-17
 当前分支：`codex/source-quality`
-当前阶段：Phase 0-3 已完成；Phase 4-6 持续迭代打磨；Phase 8 后台管理已相当成熟。
+当前阶段：Phase 0-6 已形成可运行闭环；Phase 8 已进入内容运营与人工发布阶段；当前重点从“补齐功能”转向“信源质量、正文质量和长期稳定性”。
 
-> 2026-07-08 之后到 2026-07-13 之间的密集迭代未逐条回填到下方第 3-16 节的旧版任务清单——那些章节记录的是 Phase 0-2 的历史推进过程，仍具参考价值，但已不是当前系统行为的准确描述。**以本节总进度看板和 `docs/implementation-notes.md` 为准**，后者逐项记录了当前的真实架构决策。
+> 下方第 3-12 节保留了早期 Phase 0-2 的历史任务明细，其中部分数量、接口名和“未完成”标记已经过时。当前状态以本节总进度看板、2026-07-17 运行快照和 `docs/implementation-notes.md` 为准。
 
 ## 0. 总进度看板
 
 | 阶段 | 状态 | 当前结论 | 下一步 |
 | --- | --- | --- | --- |
 | Phase 0 - 本地数据闭环骨架 | 已完成 | 代码骨架、核心模型、crawler 基础、AI 边界、评分、聚类、日报、CLI、测试、Docker 配置均已落地 | — |
-| Phase 1 - 真实采集与质量闭环 | 已完成，持续演进 | 27 个信源（含 2026-07-13 新增的字节 Seed、Google Gemini/Developers/Research、NVIDIA 开发者博客、GitHub AI、Microsoft、AWS、Cursor、AI HOT 全量流共 10 个）；抓取只拉 feed 元数据（单请求成本恒定），正文延后到 AI 预筛通过后按需拉取；只处理发布日期为当天（Asia/Shanghai）的文章，不再回灌历史存量；每源 crawl_limit 配置已停用 | 观察新信源质量与去重效果 |
-| Phase 2 - AI 总结与真实评分 | 已完成，持续演进 | DeepSeek 为主力 provider（20 并发），Kimi/OpenAI 备用；预筛前置（feed 标题+摘要）、非AI文章判定后即弃（不入库，同一 URL 每轮重判，代价可忽略）；缓存文章复用库中全文与既有向量，不重算 | — |
-| Phase 3 - PostgreSQL + pgvector 持久化 | 已完成 | Alembic 是 schema 唯一事实源；关键唯一约束/索引已补齐；每篇评完的文章逐条即时落库（不必等整轮结束）；pipeline_runs 记录真实运行状态机与阶段耗时（`data/logs/stage_timings.log`） | pgvector 原生 top-k 检索仍是 Python 侧计算，规模变大前需要迁移 |
-| Phase 4 - API 与日报服务化 | 进行中 | latest/daily/events/topics/period/hotspots 全套公开 API 就绪；事件不再做去重折叠——同一事件的每个信源报道都是独立文章、独立地址（`/event/{id}`），可分别查看各自原文/译文并通过跨源列表互相跳转；日报/周报/月报默认视图改为回退到最近一次真正生成的期次，不再在周期刚翻页时显示空壳 | 事件聚类范围仍只覆盖入选候选，未覆盖全部 processed 文章 |
-| Phase 5 - 任务调度与稳定性 | 进行中 | launchd 每小时自动同步；孤儿运行清扫阈值 45 分钟；每次同步结束（成功或失败）自动推送信源级结果到管理员 Telegram | Celery/Redis 队列仍后置 |
-| Phase 6 - 前端 MVP | 持续迭代 | 精选页新增「当前热点」榜（48 小时多信源优先排序，随分类/搜索联动）；全部动态与内容管理不再按事件去重；日报/周报/月报页面统一走同一套带侧边栏的报告壳（旧的无侧边栏 `/daily/[date]` 兼容页已移除，归档改用 `?date=` 查询参数）；收藏、主题、移动端等延续 v1 状态 | 移动端截图细调 |
+| Phase 1 - 真实采集与质量闭环 | 已完成，持续治理 | 代码默认清单 39 个源，当前数据库登记 47 个、启用 23 个；已覆盖 RSS/Atom、Sitemap、HN、GitHub、arXiv、Hugging Face Papers、V2EX、AttentionVC 和 Telegram RSS。抓取窗口由每源 `recent_days` 控制，`0` 表示不限日期；正文仍在 AI 预筛后按需抓取 | 建立 14 天信源质量账本，继续收缩高噪音源 |
+| Phase 2 - AI 总结与真实评分 | 已完成，持续演进 | DeepSeek 为主力 provider，Kimi/OpenAI 备用；AI 预筛、六维评分、分类阈值、翻译均已落地。可信聚合源只跳过相关性预筛，除明确配置外不再强制精选；中文标题 prompt 已增加事实约束 | 继续校准阈值与 prompt，补 AI 成本和失败率统计 |
+| Phase 3 - PostgreSQL + pgvector 持久化 | 已完成 | Alembic 当前 head 为 `0d4a8c2f7b91`，数据库共 17 张业务/运行表；raw、processed、embedding、translation、cluster、report、override、run ledger 和手工草稿均已持久化。文章评分后逐条即时落库 | 将相似检索从 Python 全量计算迁移为 pgvector top-k |
+| Phase 4 - API 与日报服务化 | 已完成主体，持续演进 | latest/daily/events/topics/period/hotspots 全套公开 API 就绪；同一事件的不同来源文章保持独立访问，聚类增加“共同引用同一原始链接”的强证据与事件 ID 重定向；日报/周报/月报使用持久化快照并回退到最近真实期次 | 增加公开 API 版本化、限流和契约文档 |
+| Phase 5 - 任务调度与稳定性 | 进行中 | launchd 模板每 2 小时触发一次，后台另有数据库刷新计划；孤儿运行清扫阈值 45 分钟；每次同步结束（成功或失败）自动推送信源级结果到管理员 Telegram | Celery/Redis 队列仍后置 |
+| Phase 6 - 前端 MVP | 主体已完成，持续打磨 | 现有 23 个 Next.js 页面路由，精选、全部动态、日报/周报/月报、主题、搜索、收藏、事件阅读、静态说明页均可用；正文阅读支持语义段落、标题、列表、表格、代码、图片、视频和 X 引用卡片 | 移动端细调、无障碍与性能基线 |
 | Phase 7 - RSS/Public API/MCP | 未开始 | RSS/Public API 完整版和 MCP 暂缓 | 等数据质量稳定后启动 |
-| Phase 8 - 后台管理 | 相当成熟 | 仪表盘运行台账改为可核对的漏斗指标（抓取 = 重复 + 非AI + 入库，精选 ⊂ 入库），信源明细区分 已存在/非AI/未达精选/精选 四种判定并配人话原因；信源管理支持按名称排序、官方信源角标、悬浮卡可复制；内容管理每篇文章独立可见、独立管理隐藏状态（不再因不是"事件主条"而被折叠隐身） | 阈值与 prompt 调参、故障告警、审计日志、多管理员 |
+| Phase 8 - 后台管理 | 相当成熟 | 仪表盘、调度、信源增删改查/试抓、内容筛选/编辑/隐藏/删除均已落地；隐藏文章支持管理员专用预览。新增受环境开关保护的手工文章工作流：URL 抓取或富文本创作、草稿、AI 处理、人工覆盖、图片上传和发布 | 完成手工发布验收、操作审计、多管理员与权限分级 |
 
-## 0.1 已完成任务索引
+## 0.1 2026-07-17 运行快照
+
+以下数字是 2026-07-17 对当前分支和本地数据库的只读核对结果，会随抓取和后台操作变化：
+
+| 项目 | 当前值 |
+| --- | --- |
+| Git 基线 | `1d476cf0`，仓库累计 182 个提交；7 月 14-17 日新增 27 个提交 |
+| 默认信源 | 39 个，全部处于代码默认启用状态 |
+| 数据库信源 | 47 个，其中启用 23 个、停用 24 个 |
+| 数据库存量 | 1,626 raw；829 processed；829 embeddings；201 translations；739 clusters |
+| 报告与运行 | 3 份日报、2 份周期报告、122 条日报条目、34 次 pipeline run |
+| 人工运营 | 3 份手工文章提交，均已发布；4 条文章级人工覆盖；7 条事件重定向 |
+| 数据库结构 | 17 张表，Alembic 与代码 head 均为 `0d4a8c2f7b91` |
+| 自动化验证 | `482 passed`；前端 `npm run typecheck` 通过 |
+| 已知静态检查债务 | Ruff 22 项：20 个 E402 路径注入型导入问题、2 个测试未使用变量 |
+
+## 0.2 2026-07-14 至 2026-07-17 新完成能力
+
+- [x] 内容管理支持真正的级联删除，修正 PostgreSQL 外键约束下的删除顺序，并在前端确认框展示失败原因。
+- [x] 信源管理支持删除；有历史文章的信源返回 409 阻止误删。
+- [x] 每个信源可在后台配置 `recent_days` 抓取窗口，`0` 统一表示不限日期。
+- [x] 新增 3 个 Telegram RSSHub 聚合源及结构化正文解析；保留段落、引用、列表、图片、颜色和来源链接。
+- [x] Telegram 可信源只跳过 AI 相关性预筛，仍按正常分数决定是否精选。
+- [x] 统一正文语义抽取和前端渲染，覆盖标题、段落、列表、引用、表格、代码、图片、视频与社交引用。
+- [x] 针对 Google Blog、GitHub Blog、DeepMind、Latent Space、Hugging Face、arXiv、NVIDIA、Anthropic、量子位、IT之家等站点增加内容 profile 和缓存版本。
+- [x] 内容抽取版本升级时自动判定缓存正文、评分与翻译过期，重新抽取，避免旧结构永久残留。
+- [x] 事件聚类新增共同引用链接的强匹配证据，并用 `event_cluster_redirects` 保存旧事件 ID 到新事件的跳转。
+- [x] 后台新增手工文章草稿与发布工作流，支持 URL 抓取、富文本编辑、AI 处理、人工字段覆盖、强制精选和图片上传。
+- [x] 隐藏文章仍对公众返回 404，但后台内容管理可通过管理员凭证预览。
+
+## 0.3 历史已完成任务索引
 
 以下任务已经完成，后文对应条目也已标为 `[x]`：
 
@@ -98,8 +128,9 @@ Suversal AI Radar 第一版不是资讯站外壳，而是一个可持续运行�
 当前已通过验证：
 
 ```bash
-.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python -m pytest -q
 PYTHONPYCACHEPREFIX=/private/tmp/hotai_pycache .venv/bin/python -m compileall apps/api scripts
+cd apps/web && npm run typecheck
 python3 scripts/seed_sources.py --output data/sources.json
 python3 scripts/run_pipeline_once.py --limit 100 --fake-ai --date 2026-07-01
 python3 scripts/run_crawl_once.py --limit 30 --output data/crawl_checks/2026-07-01-hn-quality-crawl.json --report data/crawl_checks/2026-07-01-hn-quality-crawl-report.json
@@ -108,12 +139,11 @@ docker --version
 docker compose version
 docker compose -f infra/docker-compose.yml up -d postgres redis
 python3 scripts/check_db_once.py
-.venv/bin/python -m unittest discover -s tests -v
 .venv/bin/python scripts/run_pipeline_once.py --limit 20 --top-n 12 --fake-ai --persist-db --database-url postgresql+psycopg://radar:radar@localhost:5432/radar --date 2026-07-02
 .venv/bin/python scripts/check_api_once.py --base-url http://127.0.0.1:8000 --date 2026-07-02
 ```
 
-当前测试结果：65 个测试通过。
+当前验证结果（2026-07-17）：482 个 Python 测试通过，前端 TypeScript 类型检查通过。Ruff 尚有 22 项存量问题，不能表述为“全量 lint 通过”。
 
 ## 3. 当前已完成范围
 
@@ -827,67 +857,61 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev -- --hostname 127.0.0.1 
 
 ## 12. Phase 8 - 后台管理
 
-目标：让系统长期运行时可人工修正来源、事件和评分，但不在数据闭环未稳定前提前做复杂后台。
+目标：让系统长期运行时可观察、可纠错、可人工补充内容，并将人工决定与 AI 重跑结果隔离。
 
-- [ ] 单管理员登录。
-  - 方式：JWT + `ADMIN_USERNAME`/`ADMIN_PASSWORD`。
-  - 验收：Public API 与 Admin API 隔离。
+- [x] 单管理员令牌登录。
+  - `ADMIN_TOKEN` 同时保护 FastAPI `/api/admin/*` 和 Next.js `/admin/*`。
+  - HttpOnly cookie、middleware 和 server-side admin proxy 已接通。
 
-- [ ] 来源管理。
-  - 功能：启用/禁用、调整 tier、role、抓取频率、allowed_domains。
+- [x] 信源管理。
+  - 支持新增、启停、编辑、试抓、删除、排序、健康度和最近抓取结果。
+  - 可编辑 tier、role、抓取地址与 `recent_days`；有历史文章的信源禁止直接删除。
 
-- [ ] 内容管理。
-  - 功能：查看 raw/processed/published/discarded，重新处理，隐藏内容。
+- [x] 内容管理。
+  - 支持近 30 天文章分页、标题/分类/信源/状态筛选、发布时间与抓取时间排序。
+  - 支持修改标题/分类/标签、隐藏/恢复、级联删除和隐藏文章管理员预览。
 
-- [ ] 事件管理。
-  - 功能：合并/拆分事件、调整主条、重新计算分数。
+- [x] 运行与调度管理。
+  - 仪表盘展示数据库规模、pipeline 漏斗、信源级结果和运行阶段。
+  - 支持手动刷新、异步任务轮询和数据库持久化的刷新计划。
 
-- [ ] 评分配置。
-  - 功能：调整信源权重、类别阈值、时间衰减、热度加成。
+- [x] 手工文章工作流（功能开关保护）。
+  - URL 抓取或富文本创作、草稿保存、AI 处理、人工覆盖、图片上传、发布和删除已完成。
+  - 草稿在发布前与公开文章表隔离；发布使用幂等键和事务。
 
-- [ ] 日志和成本统计。
-  - 功能：采集日志、AI 日志、聚类日志、日报日志、token 消耗。
+- [ ] 事件人工合并/拆分与主条调整。
+  - 当前已有自动语义聚类、共同引用强匹配和事件 ID 重定向，但没有后台人工合并/拆分界面。
+
+- [ ] 评分配置中心。
+  - 当前权重、阈值和 prompt 仍由代码管理，尚未提供安全的在线配置和版本回滚。
+
+- [ ] 审计、权限与成本统计。
+  - 仍需多管理员、操作审计、token/费用统计和精细权限分级。
 
 ## 13. 当前优先级
 
 ### 最高优先级
 
-- [x] 用真实公开源跑一次 `run_crawl_once.py`。
-- [ ] 修正无效或不可抓取的 source URL。
-- [x] 用真实 raw 数据跑 fake pipeline，检查日报质量。
-- [x] 配置 DeepSeek key 后跑小批量真实 AI pipeline。
+- [ ] 建立至少 14 天的信源质量账本：抓取量、预筛通过率、正文成功率、精选率、独立事件贡献、AI/翻译成本。
+- [ ] 对当前数据库 23 个启用源做质量复核；优先处理高噪音媒体、聚合源和低产出社区源。
+- [ ] 为站点级正文 profile 建立持续回归样本，防止上游 DOM 变化再次污染正文。
+- [ ] 完成手工文章工作流的真实 URL、图片上传、失败重试、强制精选和发布后回显验收。
+- [ ] 连续运行并验收至少 7 天日报、周期报告、调度和 Telegram 通知。
 
 ### 中优先级
 
-- [x] 安装 Docker Desktop。
-- [x] 验证 Postgres + pgvector + Redis 基础服务。
-- [x] 建立 SQLAlchemy session/repository 初版。
-- [x] 把 pipeline CLI 写入接到数据库 repository。
-- [x] 建立 Public API repository payload helper。
-- [x] 把 FastAPI endpoint 查询接到数据库 repository。
-- [x] 启动 API 服务并做 HTTP smoke 验证。
-- [ ] 验证 API compose。
-- [x] 创建 `apps/web` 前端 MVP 骨架。
-- [x] 为 `/latest` 增加分类筛选。
-- [x] 启动前后端 dev server，做 `/latest` 浏览器截图级视觉验收。
-- [x] 实现 `/daily` 日报页。
-- [x] 实现 `/weekly` 周报页和 `/monthly` 月报页。
-- [x] 实现 `/event/:id` 事件详情页。
-- [x] 优化 `/event/:id` 为原文阅读布局并显示原文图片。
-- [x] 优化 `/event/:id` 阅读布局，保留左侧菜单并移除顶部返回按钮。
-- [x] 为英文来源 `/event/:id` 增加原文/AI 翻译切换。
-- [x] 为 GitHub 开源项目 `/event/:id` 增加 README 原文补抓。
-- [x] 实现 `/all` 全量列表页。
-- [x] 重构 `/all` 为 AIHOT 风格全部 AI 动态页。
-- [x] 实现 `/search` 搜索页。
-- [x] 实现 `/latest` 点击刷新最新日报和完整成果。
-- [x] 将 `/latest` 重构为 AIHOT 风格精选首页首版。
+- [ ] 清理 Ruff 的 22 项存量问题，并把 pytest、Ruff、typecheck、Next.js build 固化到 CI。
+- [ ] 将正文提取失败、翻译失败、AI 失败与信源质量指标接入后台告警。
+- [ ] 把 pgvector 相似度检索改为数据库 top-k，避免规模增长后在 Python 侧全量比较。
+- [ ] 为 Public API 增加版本号、速率限制、OpenAPI 使用说明和稳定契约测试。
+- [ ] 完成移动端、无障碍、图片加载和核心页面性能基线。
 
 ### 暂缓
 
-- [x] 前端 MVP 首版。
-- [ ] 后台管理。
-- [ ] Telegram 推送。
+- [ ] Celery/Redis 队列化。
+- [ ] 事件人工合并/拆分和评分在线配置。
+- [ ] 多管理员、权限分级和完整审计日志。
+- [ ] 对外 RSS/Public API 产品化。
 - [ ] MCP Server。
 
 ## 14. Docker 当前状态
@@ -912,7 +936,7 @@ Docker Desktop 已安装，当前已经用于：
 基础测试：
 
 ```bash
-.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python -m pytest -q
 ```
 
 语法编译：
@@ -943,21 +967,31 @@ API 容器验证命令，数据库基础服务通过后执行：
 docker compose -f infra/docker-compose.yml up --build api
 ```
 
+前端与静态检查：
+
+```bash
+cd apps/web && npm run typecheck
+.venv/bin/ruff check apps/api scripts tests
+```
+
+截至 2026-07-17，前三项中 pytest 与 typecheck 通过；Ruff 仍有 22 项存量问题。
+
 ## 16. 完成定义
 
 ### 数据闭环完成
 
 - [x] 本地 fake pipeline 可生成日报。
 - [x] 评分、聚类、日报核心逻辑有测试。
-- [ ] 真实源可稳定抓取。
+- [x] 真实源抓取、AI 处理、数据库持久化、日报和前端展示链路已跑通。
 - [x] DeepSeek 小批量真实评分通过。
 - [ ] 连续 7 天日报质量可接受。
 
 ### V1 产品完成
 
-- [ ] 每日采集 100-300 条。
-- [ ] 每日精选 8-12 条高质量事件。
-- [ ] 重复事件能折叠。
-- [ ] 日报 Markdown 可读、可复制。
-- [ ] Public API 可被前端消费。
+- [x] 精选、全量动态、日报、周报、月报、主题、搜索、收藏和详情阅读可用。
+- [x] 重复事件可通过语义向量或共同引用归入同一事件，同时保留每篇来源文章的独立地址。
+- [x] 日报 Markdown 可读、可复制。
+- [x] Public API 已被前端消费。
+- [x] 单管理员后台可管理信源、内容、运行与手工文章草稿。
+- [ ] 日均采集量和精选量在连续 7 天内稳定在目标质量区间。
 - [ ] 系统连续运行 7 天无需人工修复核心链路。
