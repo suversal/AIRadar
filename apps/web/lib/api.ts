@@ -3,6 +3,8 @@ export type RadarSource = {
   name: string;
   url: string;
   tier: string;
+  // official/research/community/media - drives /all's 一手信源/资讯/推文 filter
+  category?: string;
 };
 
 export type OriginalImage = {

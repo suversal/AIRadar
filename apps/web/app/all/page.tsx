@@ -68,25 +68,22 @@ function formatTime(value?: string) {
   }).format(parsed);
 }
 
+// maps the source registry's real category (official/research/community/
+// media, see apps/api/app/data/default_sources.py) to this page's three
+// filter buckets, instead of guessing from the source display name - a name
+// heuristic missed real community sources whose name doesn't literally say
+// "reddit"/"x.com"/etc. (e.g. "X 推文 (AttentionVC)")
+const SOURCE_CATEGORY_TO_BUCKET: Record<string, (typeof sourceOptions)[number][0]> = {
+  official: "first_party",
+  research: "first_party",
+  community: "community",
+  media: "news",
+};
+
 function sourceBucket(item: LatestEvent) {
-  const sourceName = (item.main_source?.name ?? "").toLowerCase();
-  if (
-    sourceName.includes("openai") ||
-    sourceName.includes("anthropic") ||
-    sourceName.includes("deepmind") ||
-    sourceName.includes("hugging face") ||
-    sourceName.includes("arxiv") ||
-    sourceName.includes("github")
-  ) {
-    return "first_party";
-  }
-  if (
-    sourceName.includes("reddit") ||
-    sourceName.includes("hacker news") ||
-    sourceName.includes("x.com") ||
-    sourceName.includes("twitter")
-  ) {
-    return "community";
+  const category = item.main_source?.category;
+  if (category && category in SOURCE_CATEGORY_TO_BUCKET) {
+    return SOURCE_CATEGORY_TO_BUCKET[category];
   }
   return "news";
 }

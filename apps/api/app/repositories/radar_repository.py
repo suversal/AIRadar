@@ -2200,6 +2200,7 @@ def _event_item(
             "name": source.name,
             "url": raw.source_url,
             "tier": source.tier,
+            "category": source.category,
         },
         "source_language": raw.language,
         "one_line_summary": one_line_summary,

@@ -1745,6 +1745,9 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(selected_item["final_score"], 88.0)
         self.assertEqual(selected_item["main_source"]["name"], "OpenAI Blog")
         self.assertEqual(selected_item["main_source"]["id"], "openai_blog")
+        # 2026-07-21: /all page's source-type filter (一手信源/资讯/推文) needs
+        # the source's real category instead of guessing from the name
+        self.assertEqual(selected_item["main_source"]["category"], "official")
         self.assertEqual(
             selected_item["original_images"][0]["url"], "https://openai.com/a.png"
         )
