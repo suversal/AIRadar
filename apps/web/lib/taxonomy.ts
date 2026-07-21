@@ -27,6 +27,27 @@ const SCORING_TO_DISPLAY: Record<string, string> = {
   tutorial: "tutorial",
 };
 
+// mirrors taxonomy.py's _FALLBACK_KEYWORDS: substring match for off-enum
+// values (e.g. "research_insight") that the backend didn't already resolve
+const FALLBACK_KEYWORDS: readonly (readonly [string, string])[] = [
+  ["model", "model"],
+  ["research", "research"],
+  ["paper", "research"],
+  ["academic", "research"],
+  ["product", "product"],
+  ["open_source", "product"],
+  ["tool", "product"],
+  ["framework", "product"],
+  ["launch", "product"],
+  ["release", "product"],
+  ["tutorial", "tutorial"],
+  ["opinion", "tutorial"],
+  ["technique", "tutorial"],
+  ["funding", "industry"],
+];
+
+const DEFAULT_DISPLAY_CATEGORY = "industry";
+
 const DISPLAY_LABELS = new Map<string, string>(DISPLAY_CATEGORIES);
 
 export function displayCategory(category?: string | null): string {
@@ -37,7 +58,12 @@ export function displayCategory(category?: string | null): string {
   if (raw in SCORING_TO_DISPLAY) {
     return SCORING_TO_DISPLAY[raw];
   }
-  return "industry";
+  for (const [keyword, display] of FALLBACK_KEYWORDS) {
+    if (raw.includes(keyword)) {
+      return display;
+    }
+  }
+  return DEFAULT_DISPLAY_CATEGORY;
 }
 
 export function categoryLabel(category?: string | null): string {

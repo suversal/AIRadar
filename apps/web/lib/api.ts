@@ -120,6 +120,11 @@ export type LatestEvent = {
   category_label?: string;
   tags?: string[];
   final_score?: number;
+  // authoritative "is this article selected" signal from scoring_service's
+  // per-category threshold - prefer this over re-deriving from final_score
+  selected?: boolean;
+  selection_origin?: string;
+  selection_reason?: string | null;
   hidden?: boolean;
   source_count?: number;
   main_source?: RadarSource;

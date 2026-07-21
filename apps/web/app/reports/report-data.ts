@@ -123,7 +123,7 @@ export function buildPeriodDigest(period: PeriodReport, mode: PeriodMode) {
   const uniqueTags = new Set(items.flatMap((item) => item.tags ?? []));
   const range = resolveRange(period);
   const mainline = mainlineFor(period, highlights, mode);
-  const selectedCount = items.filter((item) => (item.final_score ?? 0) >= 65).length;
+  const selectedCount = items.filter((item) => item.selected).length;
   const coveredDays = Math.max(period.report_dates.length, 1);
 
   return {

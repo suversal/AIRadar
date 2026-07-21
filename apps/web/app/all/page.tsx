@@ -157,7 +157,7 @@ function AllEventCard({ item }: { item: LatestEvent }) {
           </h2>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          {typeof item.final_score === "number" && item.final_score >= 65 ? (
+          {item.selected ? (
             <span className="rounded-full border border-signal/60 bg-signal/15 px-2.5 py-0.5 text-xs font-semibold text-signal-bright">
               精选
             </span>
