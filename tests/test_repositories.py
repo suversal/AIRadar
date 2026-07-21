@@ -908,6 +908,74 @@ class RepositoryTests(unittest.TestCase):
         listed_counts = {item["event_id"]: item["source_count"] for item in listed}
         self.assertEqual(listed_counts["e-multi"], 2)
 
+    def test_count_and_get_all_event_items_between_filters_sorts_and_paginates(self):
+        # /all's SQL-pushdown fast path must match what the old full
+        # materialize-then-filter-then-sort-then-slice path would have
+        # produced: right total, right category subset, right page, and
+        # updated_at reflecting the true latest match - not just whatever
+        # happens to be latest on the returned page.
+        from dataclasses import replace as dc_replace
+
+        from app.models.domain import RawArticle
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            articles = [
+                RawArticle(
+                    id=f"a{i}",
+                    source_id="openai_blog",
+                    source_name="OpenAI Blog",
+                    source_role="authority",
+                    source_tier="T1",
+                    source_url=f"https://openai.com/a{i}",
+                    title=f"文章{i}",
+                    content="AI model release",
+                    author="OpenAI",
+                    published_at=datetime(2026, 7, i, 9, tzinfo=timezone.utc),
+                    language="en",
+                    raw_score={"score": 1},
+                    metadata={"origin": "fixture"},
+                    title_hash=f"title-a{i}",
+                    url_hash=f"u{i}",
+                )
+                for i in range(1, 6)
+            ]
+            repository.upsert_raw_articles(articles)
+            repository.upsert_processed_articles(
+                [
+                    dc_replace(
+                        self._processed(f"a{i}"),
+                        category="model_release" if i % 2 else "industry",
+                    )
+                    for i in range(1, 6)
+                ]
+            )
+            session.commit()
+
+            page1_items, page1_total, updated_at = repository.count_and_get_all_event_items_between(
+                date(2026, 7, 1), date(2026, 7, 5), limit=2, offset=0
+            )
+            page2_items, page2_total, _ = repository.count_and_get_all_event_items_between(
+                date(2026, 7, 1), date(2026, 7, 5), limit=2, offset=2
+            )
+            filtered_items, filtered_total, _ = repository.count_and_get_all_event_items_between(
+                date(2026, 7, 1), date(2026, 7, 5), category="model", limit=10, offset=0
+            )
+
+        # 5 篇全落在窗口内，总数不受 limit 影响
+        self.assertEqual(page1_total, 5)
+        self.assertEqual(page2_total, 5)
+        # 按 published_at 倒序分页：第一页最新两篇 a5/a4，第二页接着 a3/a2
+        self.assertEqual([item["event_id"] for item in page1_items], ["aa5", "aa4"])
+        self.assertEqual([item["event_id"] for item in page2_items], ["aa3", "aa2"])
+        # updated_at 是窗口内真正最新的一条，不受 limit/offset 影响
+        self.assertEqual(updated_at, page1_items[0]["published_at"])
+        # a1/a3/a5 是 model_release → 展示分类 model，其余是 industry
+        self.assertEqual(filtered_total, 3)
+        self.assertEqual({item["event_id"] for item in filtered_items}, {"aa1", "aa3", "aa5"})
+
     def test_event_item_includes_coverage_from_every_clustered_source(self):
         # 事件详情页"同一事件·N家报道"板块的数据来源：event_cluster_articles
         # 里的每个成员都要出现，隐藏的成员要被排除，且不是 dedup 用途。
@@ -1429,6 +1497,8 @@ class RepositoryTests(unittest.TestCase):
             memberships = session.scalars(select(EventClusterArticleModel)).all()
             redirect = session.get(EventClusterRedirectModel, "e-second")
             old_url_item = repository.get_event_item("e-second")
+            # batch path must chase the same redirect as the single-item path
+            batch_resolved = repository.get_event_items_by_ids(["e-second"])
             report_entries = repository.get_daily_report_entries(date(2026, 7, 1))
 
         self.assertEqual(redirects, {"e-second": "e-first"})
@@ -1444,6 +1514,8 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(redirect.target_event_id, "e-first")
         self.assertEqual(old_url_item["event_id"], "e-first")
         self.assertEqual(len(old_url_item["coverage"]), 2)
+        self.assertEqual(len(batch_resolved), 1)
+        self.assertEqual(batch_resolved[0]["event_id"], "e-first")
         self.assertEqual(
             [entry["event_id"] for entry in report_entries],
             ["e-first", "aa2"],

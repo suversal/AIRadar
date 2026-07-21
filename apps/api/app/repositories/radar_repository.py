@@ -6,7 +6,7 @@ from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 try:
-    from sqlalchemy import delete, func, select
+    from sqlalchemy import delete, func, or_, select
     from sqlalchemy.orm import Session, aliased
 except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard for local stdlib tests
     raise RuntimeError("SQLAlchemy is required for database repositories.") from exc
@@ -41,7 +41,7 @@ from app.services.daily_report_service import (
     _plain_paragraphs_from_blocks,
     _strip_legacy_telegram_signature,
 )
-from app.services.taxonomy import category_label, display_category
+from app.services.taxonomy import category_label, display_category, scoring_categories_for
 
 
 class SourceHasArticlesError(Exception):
@@ -392,20 +392,121 @@ class RadarRepository:
         """Batch-resolve events to their current live content, preserving
         the given order. Hidden or unresolvable ids are silently skipped -
         callers (report masthead resolution) treat a shorter result as
-        normal, not an error."""
+        normal, not an error.
+
+        Resolves every id with a fixed number of batched IN-queries instead
+        of ~5 sequential round trips per id (redirect chase, cluster
+        lookup, processed/raw/source join, override, event_override,
+        translation) - a 193-entry monthly masthead was issuing ~1000
+        queries under the old per-id loop, which dominated /monthly's
+        response time."""
+        if not event_ids:
+            return []
+
+        canonical = self._canonicalize_event_ids(event_ids)
+        unique_canonical = set(canonical.values())
+
+        clusters = {
+            c.id: c
+            for c in self.session.execute(
+                select(EventClusterModel).where(EventClusterModel.id.in_(unique_canonical))
+            ).scalars()
+        }
+        a_prefixed = [
+            eid for eid in unique_canonical if eid not in clusters and eid.startswith("a")
+        ]
+
+        main_rows: dict[str, tuple] = {}
+        main_article_ids = {c.main_article_id for c in clusters.values()}
+        if main_article_ids:
+            for processed, raw, source in self.session.execute(
+                select(ProcessedArticleModel, RawArticleModel, SourceModel)
+                .join(RawArticleModel, ProcessedArticleModel.raw_article_id == RawArticleModel.id)
+                .join(SourceModel, RawArticleModel.source_id == SourceModel.id)
+                .where(ProcessedArticleModel.raw_article_id.in_(main_article_ids))
+            ).all():
+                main_rows[raw.id] = (processed, raw, source)
+
+        # "a…" ids only ever encode the first 12 chars of raw_article_id
+        # (see _event_item's f"a{raw.id[:12]}"), so this has to stay a LIKE
+        # match, not an exact IN - still one round trip for the whole batch.
+        a_prefix_rows: dict[str, tuple] = {}
+        if a_prefixed:
+            for processed, raw, source in self.session.execute(
+                select(ProcessedArticleModel, RawArticleModel, SourceModel)
+                .join(RawArticleModel, ProcessedArticleModel.raw_article_id == RawArticleModel.id)
+                .join(SourceModel, RawArticleModel.source_id == SourceModel.id)
+                .where(or_(*[RawArticleModel.id.like(f"{eid[1:]}%") for eid in a_prefixed]))
+            ).all():
+                a_prefix_rows[f"a{raw.id[:12]}"] = (processed, raw, source)
+
+        resolved: dict[str, Optional[tuple]] = {}
+        for original_id in event_ids:
+            canon = canonical[original_id]
+            cluster = clusters.get(canon)
+            if cluster is not None:
+                row = main_rows.get(cluster.main_article_id)
+                resolved[original_id] = (*row, cluster) if row is not None else None
+            elif canon in a_prefix_rows:
+                processed, raw, source = a_prefix_rows[canon]
+                resolved[original_id] = (processed, raw, source, None)
+            else:
+                resolved[original_id] = None
+
+        raw_article_ids = {row[0].raw_article_id for row in resolved.values() if row is not None}
+        event_cluster_ids = {
+            row[3].id for row in resolved.values() if row is not None and row[3] is not None
+        }
+        overrides = (
+            {
+                o.raw_article_id: o
+                for o in self.session.execute(
+                    select(EditorialOverrideModel).where(
+                        EditorialOverrideModel.raw_article_id.in_(raw_article_ids)
+                    )
+                ).scalars()
+            }
+            if raw_article_ids
+            else {}
+        )
+        event_overrides = (
+            {
+                eo.event_cluster_id: eo
+                for eo in self.session.execute(
+                    select(EventEditorialOverrideModel).where(
+                        EventEditorialOverrideModel.event_cluster_id.in_(event_cluster_ids)
+                    )
+                ).scalars()
+            }
+            if event_cluster_ids
+            else {}
+        )
+        translations = (
+            {
+                t.raw_article_id: t
+                for t in self.session.execute(
+                    select(ArticleTranslationModel).where(
+                        ArticleTranslationModel.raw_article_id.in_(raw_article_ids)
+                    )
+                ).scalars()
+            }
+            if raw_article_ids
+            else {}
+        )
+
         items = []
         for event_id in event_ids:
-            row = self._resolve_processed_row(event_id)
+            row = resolved.get(event_id)
             if row is None:
                 continue
             processed, raw, source, cluster = row
-            override = self._get_override(processed.raw_article_id)
-            event_override = self._get_event_override(cluster.id) if cluster else None
+            override = overrides.get(processed.raw_article_id)
+            event_override = event_overrides.get(cluster.id) if cluster else None
             if (override is not None and override.hidden) or (
                 event_override is not None and event_override.hidden
             ):
                 continue
-            translation = self._get_translation_model(processed.raw_article_id)
+            translation = translations.get(processed.raw_article_id)
             items.append(
                 _event_item(
                     processed,
@@ -421,6 +522,38 @@ class RadarRepository:
                 )
             )
         return items
+
+    def _canonicalize_event_ids(self, event_ids: list[str]) -> dict[str, str]:
+        """Batch version of following EventClusterRedirectModel chains - same
+        semantics as _canonical_event_id (bounded, cycle-safe), just
+        resolved in a handful of IN-queries total instead of one query per
+        id."""
+        canonical = {eid: eid for eid in event_ids}
+        frontier = set(event_ids)
+        visited_targets: set[str] = set()
+        for _ in range(8):
+            if not frontier:
+                break
+            redirects = {
+                r.source_event_id: r.target_event_id
+                for r in self.session.execute(
+                    select(EventClusterRedirectModel).where(
+                        EventClusterRedirectModel.source_event_id.in_(frontier)
+                    )
+                ).scalars()
+            }
+            if not redirects:
+                break
+            next_frontier = set()
+            for eid, current in canonical.items():
+                if current in redirects:
+                    target = redirects[current]
+                    canonical[eid] = target
+                    if target not in visited_targets:
+                        next_frontier.add(target)
+            visited_targets.update(next_frontier)
+            frontier = next_frontier
+        return canonical
 
     def _get_override(self, raw_article_id: str) -> Optional[EditorialOverrideModel]:
         return self.session.scalar(
@@ -1514,14 +1647,19 @@ class RadarRepository:
         "content_origin",
     )
 
-    def get_all_event_items_between(
+    def _all_events_query(
         self,
         start_date: date,
         end_date: date,
         *,
         include_hidden: bool = False,
         selected_only: bool = False,
-    ) -> list[dict[str, Any]]:
+    ):
+        """Shared join/filter base for get_all_event_items_between and
+        count_and_get_all_event_items_between - keeps "in window" / "hidden"
+        / "selected" semantics from drifting apart between the two. Returns
+        an unordered, unlimited Select; callers add their own order_by/
+        limit/offset (or swap columns via with_only_columns for a count)."""
         # 产品决策(2026-07-13):不做事件级去重——同一事件的每篇处理过的
         # 文章都独立展示，各自带自己的标题/评分/地址。事件聚簇只服务
         # 热点榜排序(build_hotspots_payload 按 is_main 过滤)和详情页的
@@ -1579,7 +1717,6 @@ class RadarRepository:
             .outerjoin(member_cluster, member_cluster.id == member_membership.event_cluster_id)
             .where(RawArticleModel.published_at >= window_start)
             .where(RawArticleModel.published_at <= window_end)
-            .order_by(RawArticleModel.published_at.desc())
         )
         if selected_only:
             selected_membership = aliased(EventClusterArticleModel)
@@ -1605,7 +1742,9 @@ class RadarRepository:
                 (main_event_override.hidden.is_(None))
                 | (main_event_override.hidden.is_(False))
             )
-        rows = self.session.execute(query).all()
+        return query
+
+    def _event_items_from_all_events_rows(self, rows) -> list[dict[str, Any]]:
         items = []
         for processed, raw, source, override, cluster, m_cluster, event_override in rows:
             # this row is the designated main of its cluster, or genuinely
@@ -1628,6 +1767,56 @@ class RadarRepository:
                 )
             )
         return items
+
+    def get_all_event_items_between(
+        self,
+        start_date: date,
+        end_date: date,
+        *,
+        include_hidden: bool = False,
+        selected_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        query = self._all_events_query(
+            start_date, end_date, include_hidden=include_hidden, selected_only=selected_only
+        ).order_by(RawArticleModel.published_at.desc())
+        rows = self.session.execute(query).all()
+        return self._event_items_from_all_events_rows(rows)
+
+    def count_and_get_all_event_items_between(
+        self,
+        start_date: date,
+        end_date: date,
+        *,
+        category: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int, str | None]:
+        """Fast path for /all's default (no q/topic) view: pushes category
+        filtering, sorting, and pagination down to SQL and only builds
+        _event_item() dicts for the page actually shown, instead of
+        materializing every article in the date window before slicing in
+        Python (get_all_event_items_between + build_events_payload_from_items
+        did that - measurably the dominant cost of a plain /all load).
+
+        q/topic still go through get_all_event_items_between's full-
+        materialize path: their matching logic (title override precedence,
+        topic keyword rules) only exists in Python today, so pushing them
+        into SQL would mean keeping two copies of that logic in sync - not
+        worth the risk for filters used far less often than the default view."""
+        query = self._all_events_query(start_date, end_date)
+        if category:
+            query = query.where(
+                ProcessedArticleModel.category.in_(scoring_categories_for(category))
+            )
+        total, updated_at = self.session.execute(
+            query.with_only_columns(func.count(), func.max(RawArticleModel.published_at))
+        ).one()
+        if updated_at is not None and updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+        page_query = query.order_by(RawArticleModel.published_at.desc()).limit(limit).offset(offset)
+        rows = self.session.execute(page_query).all()
+        items = self._event_items_from_all_events_rows(rows)
+        return items, total or 0, updated_at.isoformat() if updated_at else None
 
     def _find_cluster_for_raw_article(self, raw_article_id: str) -> Optional[EventClusterModel]:
         """Is this article actually a member of some event cluster, regardless

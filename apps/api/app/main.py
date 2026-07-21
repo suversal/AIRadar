@@ -370,6 +370,24 @@ def create_app(
         repository_context = report_repository_context()
         if repository_context is not None:
             with repository_context as repository:
+                # q/topic matching only exists in Python today (title
+                # override precedence, topic keyword rules), so only the
+                # filter-free/category-only case - by far the most common
+                # /all load - gets the SQL-pushdown fast path; q or topic
+                # falls back to the full materialize-then-filter path.
+                if not q and not topic:
+                    items, total, updated_at = repository.count_and_get_all_event_items_between(
+                        start_date, end_date, category=category, limit=limit, offset=offset
+                    )
+                    return {
+                        "report_dates": [],
+                        "updated_at": updated_at,
+                        "total": total,
+                        "limit": limit,
+                        "offset": offset,
+                        "article_count": len(items),
+                        "items": items,
+                    }
                 items = repository.get_all_event_items_between(start_date, end_date)
             return build_events_payload_from_items(
                 items, category=category, q=q, topic=topic, limit=limit, offset=offset

@@ -13,6 +13,7 @@ from app.api.public import (
     month_range,
     week_range,
 )
+from app.services.taxonomy import display_category
 
 try:
     from fastapi.testclient import TestClient
@@ -483,6 +484,23 @@ class FakeRepository:
             if start_date <= report_date <= end_date:
                 items.extend(payload.get("items", []))
         return items
+
+    def count_and_get_all_event_items_between(
+        self, start_date, end_date, *, category=None, limit=50, offset=0
+    ):
+        self.calls.append(f"count_all_items:{start_date.isoformat()}:{end_date.isoformat()}")
+        items = self.get_all_event_items_between(start_date, end_date)
+        if category:
+            items = [
+                item
+                for item in items
+                if display_category(str(item.get("category") or ""))
+                == display_category(category)
+            ]
+        items = sorted(items, key=lambda item: str(item.get("published_at") or ""), reverse=True)
+        total = len(items)
+        updated_at = items[0]["published_at"] if items else None
+        return items[offset : offset + limit], total, updated_at
 
     def get_event_item(self, event_id):
         self.calls.append(f"event:{event_id}")
