@@ -553,9 +553,11 @@ def build_daily_json(
                 "final_score": cluster.final_score,
                 "source_count": cluster.source_count,
                 "main_source": {
+                    "id": source.id,
                     "name": source.name,
                     "url": article.source_url,
                     "tier": source.tier,
+                    "category": source.category,
                 },
                 "one_line_summary": processed.one_line_summary,
                 "summary": processed.summary_zh,

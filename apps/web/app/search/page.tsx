@@ -74,6 +74,12 @@ export default async function SearchPage({ searchParams }: { searchParams: Searc
           <div className="text-sm text-ink-mid">{results.length} 条</div>
         </div>
 
+        {report.error ? (
+          <div className="mt-4 rounded-md border border-red-400/40 bg-red-400/10 p-4 text-sm leading-6 text-red-200">
+            {report.error}
+          </div>
+        ) : null}
+
         <div className="divide-y divide-line border-b border-line">
           {results.length > 0 ? (
             results.map((item) => (
