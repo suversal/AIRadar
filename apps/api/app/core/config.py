@@ -54,9 +54,15 @@ class Settings:
     # 0.85 was too low for bge-small-zh-v1.5 (the local embedding model in
     # actual use): a real-data check found completely unrelated AI-news
     # articles scoring 0.79-0.89 cosine similarity against each other, so a
-    # 0.85 threshold merged unrelated events together. 0.93 sits clearly
-    # above that observed false-positive band.
-    cluster_similarity_threshold: float = 0.93
+    # 0.85 threshold merged unrelated events together.
+    # 2026-07-21 recalibration: sampled 14 days of same-day zh-language
+    # article pairs. [0.90, 0.93) was ~41 pairs/14d and, on manual review,
+    # essentially all genuine same-event duplicates missed by 0.93 (e.g. two
+    # outlets both covering the same product launch). [0.85, 0.90) already
+    # mixes in real false positives matching the same failure mode as the
+    # 0.85 case above (e.g. two unrelated vulnerability-patch stories, or
+    # two different facts about the same company) - stayed above that band.
+    cluster_similarity_threshold: float = 0.90
     # rolling aggregation scope: an event only absorbs new coverage seen
     # within this window (product decision 2026-07-11: 24h rolling hot set)
     cluster_window_hours: int = 24
@@ -74,6 +80,6 @@ class Settings:
             default_embedding_model=os.getenv(
                 "DEFAULT_EMBEDDING_MODEL", "text-embedding-3-small"
             ),
-            cluster_similarity_threshold=float(os.getenv("CLUSTER_SIMILARITY_THRESHOLD", "0.93")),
+            cluster_similarity_threshold=float(os.getenv("CLUSTER_SIMILARITY_THRESHOLD", "0.90")),
             cluster_window_hours=int(os.getenv("CLUSTER_WINDOW_HOURS", "24")),
         )

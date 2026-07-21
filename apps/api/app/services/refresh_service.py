@@ -423,8 +423,10 @@ def _run_refresh(
         on_article_processed=on_article_processed,
         # 0.85 was too low for bge-small-zh-v1.5: real-data verification
         # found unrelated AI-news articles scoring 0.79-0.89 against each
-        # other, so a lower threshold merged unrelated events together
-        cluster_similarity_threshold=_env_float("CLUSTER_SIMILARITY_THRESHOLD", 0.93),
+        # other, so a lower threshold merged unrelated events together.
+        # 2026-07-21: recalibrated 0.93 -> 0.90 after sampling 14 days of
+        # same-day zh-language pairs - see core/config.py for the numbers.
+        cluster_similarity_threshold=_env_float("CLUSTER_SIMILARITY_THRESHOLD", 0.90),
     )
 
     # 阶段耗时落盘:定位"AI 处理中"这个粗阶段里时间的真实去向
@@ -480,7 +482,7 @@ def _run_refresh(
             sources,
             result,
             cluster_window_hours=_env_int("CLUSTER_WINDOW_HOURS", 24),
-            similarity_threshold=_env_float("CLUSTER_SIMILARITY_THRESHOLD", 0.93),
+            similarity_threshold=_env_float("CLUSTER_SIMILARITY_THRESHOLD", 0.90),
             started_at=generated_at,
             pipeline_run_id=pipeline_run_id,
             source_report=auto_crawl_results,
