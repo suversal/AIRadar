@@ -599,6 +599,37 @@ def create_app(
     def monthly(report_key: str) -> dict:
         return _serve_period("monthly", report_key)
 
+    @app.post("/api/public/feedback")
+    def submit_feedback(payload: dict) -> dict:
+        message = str((payload or {}).get("message") or "").strip()
+        email = (payload or {}).get("email")
+        email = str(email).strip() if email else None
+        if not message:
+            raise HTTPException(status_code=422, detail="message is required")
+        if len(message) > 2000:
+            raise HTTPException(status_code=422, detail="message must be 2000 characters or fewer")
+        if email and len(email) > 320:
+            raise HTTPException(status_code=422, detail="email is too long")
+
+        repository_context = report_repository_context()
+        if repository_context is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Feedback requires database mode (set DATABASE_URL).",
+            )
+        with repository_context as repository:
+            repository.create_feedback_submission(message=message, email=email)
+            repository.session.commit()
+
+        from app.services.telegram_notifier import send_telegram_message
+
+        lines = ["📮 收到新反馈", "", message]
+        if email:
+            lines.extend(["", f"联系邮箱：{email}"])
+        send_telegram_message("\n".join(lines))
+
+        return {"ok": True}
+
     @app.get("/api/admin/ping", dependencies=[admin_guard])
     def admin_ping() -> dict:
         return {"status": "ok"}

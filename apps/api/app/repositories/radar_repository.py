@@ -23,6 +23,7 @@ from app.db.models import (
     EventClusterModel,
     EventClusterRedirectModel,
     EventEditorialOverrideModel,
+    FeedbackSubmissionModel,
     PipelineRunModel,
     ProcessedArticleModel,
     RawArticleModel,
@@ -1349,6 +1350,12 @@ class RadarRepository:
         model = self._get_or_create_schedule_row()
         model.last_triggered_at = triggered_at
         self.session.flush()
+
+    def create_feedback_submission(self, *, message: str, email: Optional[str]) -> int:
+        model = FeedbackSubmissionModel(message=message, email=email)
+        self.session.add(model)
+        self.session.flush()
+        return model.id
 
     def update_source_health(self, per_source: dict[str, dict[str, Any]]) -> None:
         now = datetime.now(timezone.utc)

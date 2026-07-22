@@ -442,3 +442,16 @@ class RefreshScheduleModel(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class FeedbackSubmissionModel(Base):
+    """A visitor-submitted note from /feedback. The DB row is the durable
+    record; a best-effort Telegram push (see telegram_notifier.py) is just a
+    convenience for noticing it quickly, not the source of truth."""
+
+    __tablename__ = "feedback_submissions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    email: Mapped[Optional[str]] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

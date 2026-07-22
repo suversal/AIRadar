@@ -2681,6 +2681,35 @@ class RepositoryTests(unittest.TestCase):
 
         self.assertEqual(config["last_triggered_at"], triggered_at.isoformat())
 
+    def test_create_feedback_submission_persists_message_and_email(self):
+        from app.db.models import FeedbackSubmissionModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            submission_id = repository.create_feedback_submission(
+                message="页面加载有点慢", email="user@example.com"
+            )
+            session.commit()
+
+            stored = session.get(FeedbackSubmissionModel, submission_id)
+
+        self.assertEqual(stored.message, "页面加载有点慢")
+        self.assertEqual(stored.email, "user@example.com")
+
+    def test_create_feedback_submission_allows_no_email(self):
+        from app.db.models import FeedbackSubmissionModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            submission_id = repository.create_feedback_submission(message="没有留邮箱", email=None)
+            session.commit()
+
+            stored = session.get(FeedbackSubmissionModel, submission_id)
+
+        self.assertIsNone(stored.email)
+
     def _processed(self, raw_article_id, *, final_score=88.0):
         from app.models.domain import ProcessedArticle, ScoreDimensions
 
