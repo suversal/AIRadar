@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { LatestEvent } from "@/lib/api";
 import { eventHref } from "@/lib/events";
 import { Sidebar } from "@/components/sidebar";
+import { MobileNav } from "@/components/mobile-nav";
 import { BookmarkButton } from "@/components/bookmark-button";
 import { getBookmarkIds, removeBookmark } from "@/lib/bookmarks";
 
@@ -67,6 +68,7 @@ export default function BookmarksPage() {
     <main className="min-h-screen bg-canvas text-ink">
       <div className="grid min-h-screen lg:grid-cols-[224px_1fr]">
         <Sidebar activeNavId="bookmarks" />
+        <MobileNav activeNavId="bookmarks" />
 
         <section className="px-5 py-8 md:px-10 xl:px-16">
           <div className="mx-auto max-w-4xl">

@@ -1,4 +1,5 @@
 import { getTopics } from "@/lib/api";
+import { MobileNav } from "@/components/mobile-nav";
 import { Sidebar } from "@/components/sidebar";
 
 export const metadata = {
@@ -16,6 +17,7 @@ export default async function TopicsPage() {
     <main className="min-h-screen bg-canvas text-ink">
       <div className="grid min-h-screen lg:grid-cols-[224px_1fr]">
         <Sidebar activeNavId="topics" />
+        <MobileNav activeNavId="topics" />
 
         <section className="px-5 py-6 md:px-9">
           <header className="rounded-md border border-line bg-panel p-5 shadow-[0_20px_80px_rgba(0,0,0,0.25)]">

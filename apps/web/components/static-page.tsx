@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { MobileNav } from "./mobile-nav";
 import { Sidebar } from "./sidebar";
 
 export function StaticPage({
@@ -16,6 +17,7 @@ export function StaticPage({
     <main className="min-h-screen bg-canvas text-ink">
       <div className="grid min-h-screen lg:grid-cols-[224px_1fr]">
         <Sidebar activeNavId={activeNavId} />
+        <MobileNav activeNavId={activeNavId} />
 
         <section className="px-5 py-6 md:px-9">
           <header className="rounded-md border border-line bg-panel p-5">
