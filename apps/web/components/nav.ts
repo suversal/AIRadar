@@ -28,9 +28,9 @@ export const navItems: NavItem[] = [
   { id: "search", label: "搜索", group: "内容", href: "/search", icon: Search },
   { id: "bookmarks", label: "收藏", group: "内容", href: "/bookmarks", icon: Bookmark },
   { id: "agent", label: "Agent 接入", group: "接入", href: "/agent", icon: Bot },
-  { id: "about", label: "关于", group: "更多", href: "/about", icon: Info },
   { id: "changelog", label: "更新日志", group: "更多", href: "/changelog", icon: History },
   { id: "feedback", label: "反馈", group: "更多", href: "/feedback", icon: MessageSquare },
+  { id: "about", label: "关于", group: "更多", href: "/about", icon: Info },
 ];
 
 export function navGroupItems(group: NavItem["group"]) {

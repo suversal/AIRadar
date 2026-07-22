@@ -11,8 +11,8 @@ export default function AboutPage() {
       title="关于 AI·RADAR"
       subtitle="为创作者和开发者准备的 AI 情报雷达"
     >
-      <section className="rounded-md border border-line bg-panel p-6 text-center">
-        <p className="text-xs uppercase tracking-[0.3em] text-ink-dim">关于 AI·RADAR</p>
+      <section className="rounded-md border border-signal/25 bg-gradient-to-br from-signal/10 via-panel to-panel p-6 text-center">
+        <p className="text-xs uppercase tracking-[0.3em] text-signal-dim">关于 AI·RADAR</p>
         <h2 className="mt-4 text-xl font-semibold leading-relaxed text-ink md:text-2xl">
           AI 圈子每天都在发生什么，
           <br />
@@ -26,9 +26,9 @@ export default function AboutPage() {
         </p>
       </section>
 
-      <section className="rounded-md border border-line bg-panel p-5 text-sm leading-7 text-ink-mid">
-        <h2 className="text-base font-semibold text-ink">评分与筛选口径</h2>
-        <p>
+      <section className="rounded-md border-l-4 border-signal bg-signal/10 p-5 text-sm leading-7 text-ink-mid">
+        <h2 className="text-base font-semibold text-signal-bright">评分与筛选口径</h2>
+        <p className="mt-2">
           评分综合 AI 相关度、新颖性、影响力、信息密度、可操作性与创作者价值六个维度，
           并叠加信源权威度与时效衰减。只有跨过分类阈值的事件才会进入精选；其余动态全部保留在
           「全部 AI 动态」中可查，不会因为没入选就彻底消失。
@@ -36,14 +36,21 @@ export default function AboutPage() {
         <p className="mt-4">英文精选文章附 AI 中文翻译，GitHub 项目附 README 原文。</p>
       </section>
 
-      <section className="rounded-md border border-line bg-panel p-5 text-sm leading-7 text-ink-mid">
+      <section className="rounded-md border border-line bg-panel p-5">
         <h2 className="text-base font-semibold text-ink">数据口径</h2>
-        <ul className="mt-3 list-disc space-y-2 pl-5">
-          <li>抓取频率：可配置，默认每 2 小时一轮</li>
-          <li>精选规模：每日 12 个事件聚类</li>
-          <li>全量视野：所有通过 AI 预筛的动态（含未达精选阈值的）</li>
-          <li>主题体系：公司与模型 / 技术方向 / 内容形态 三组</li>
-        </ul>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {[
+            { label: "抓取频率", value: "每 2 小时一轮" },
+            { label: "精选规模", value: "每日 12 个事件聚类" },
+            { label: "全量视野", value: "AI 预筛通过即可见" },
+            { label: "主题体系", value: "公司模型 / 技术方向 / 内容形态" },
+          ].map((stat) => (
+            <div key={stat.label} className="rounded-md border border-line bg-canvas p-3 text-center">
+              <div className="readout text-sm font-semibold text-signal">{stat.value}</div>
+              <div className="mt-1 text-xs text-ink-dim">{stat.label}</div>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="rounded-md border border-signal/30 bg-signal/5 p-5 text-sm leading-7 text-ink-mid">
