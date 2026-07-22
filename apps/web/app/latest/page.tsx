@@ -4,7 +4,8 @@ import { eventHref, searchEvents } from "@/lib/events";
 import { CATEGORY_FILTER_OPTIONS, displayCategory } from "@/lib/taxonomy";
 import { formatRelativeTime } from "@/lib/time";
 import { ChevronDown } from "lucide-react";
-import { BookmarkButton } from "@/components/bookmark-button";
+import { EventCard, EventTimelineRow } from "@/components/event-card";
+import { MobileNav } from "@/components/mobile-nav";
 import { RadarStatus } from "@/components/radar-status";
 import { Sidebar } from "@/components/sidebar";
 
@@ -109,55 +110,6 @@ function sourceLine(item: LatestEvent) {
   return `${source} · ${item.source_count ?? 1} 个来源`;
 }
 
-function EventCard({ item }: { item: LatestEvent }) {
-  return (
-    <article className="card-hover rounded-md border border-line bg-panel p-4">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="text-xs text-ink-mid">{sourceLine(item)}</div>
-          <h3 className="mt-1.5 text-base font-semibold leading-6 text-ink">
-            <a className="hover:text-signal" href={eventHref(item)}>{item.title}</a>
-          </h3>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <span className="rounded-full border border-signal/60 bg-signal/15 px-2.5 py-0.5 text-xs font-semibold text-signal-bright">
-            精选
-          </span>
-          <span className="readout rounded-full border border-signal/40 px-2.5 py-0.5 text-xs font-semibold text-signal">
-            {formatScore(item.final_score)}
-          </span>
-          <BookmarkButton eventId={item.event_id} />
-        </div>
-      </div>
-
-      <p className="mt-3 line-clamp-3 text-sm leading-6 text-ink-mid">
-        {item.summary ?? item.one_line_summary ?? "暂无摘要。"}
-      </p>
-
-      {item.tags?.length ? (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {item.tags.slice(0, 4).map((tag) => (
-            <a
-              key={tag}
-              href={latestHref({ q: tag })}
-              className="rounded-md bg-panel-soft px-2.5 py-0.5 text-xs text-ink-mid transition hover:bg-line hover:text-signal-bright"
-            >
-              {tag}
-            </a>
-          ))}
-        </div>
-      ) : null}
-
-      <div className="mt-4 border-t border-line pt-3">
-        <p className="rounded-md bg-signal/10 px-3 py-2.5 text-sm leading-6 text-signal-bright">
-          <span className="font-semibold">推荐理由：</span>
-          {item.reason ?? "暂无推荐理由。"}
-        </p>
-      </div>
-    </article>
-  );
-}
-
 export default async function LatestPage({
   searchParams,
 }: {
@@ -181,6 +133,7 @@ export default async function LatestPage({
     <main className="min-h-screen bg-canvas text-ink">
       <div className="grid min-h-screen lg:grid-cols-[224px_1fr]">
         <Sidebar activeNavId="latest" />
+        <MobileNav activeNavId="latest" />
 
         <section className="px-5 py-6 md:px-9">
           <header className="rounded-md border border-line bg-panel p-5 shadow-[0_20px_80px_rgba(0,0,0,0.25)]">
@@ -202,7 +155,7 @@ export default async function LatestPage({
                 {categoryOptions.map(([category, label]) => (
                   <a
                     key={category || "all"}
-                    className={`rounded-md px-4 py-1.5 text-sm font-medium ${
+                    className={`flex min-h-10 items-center rounded-md px-4 py-1.5 text-sm font-medium ${
                       selectedCategory === category
                         ? "bg-signal/15 text-signal"
                         : "text-ink-mid hover:bg-panel-soft hover:text-ink"
@@ -217,14 +170,14 @@ export default async function LatestPage({
               <form action="/latest" className="grid grid-cols-[1fr_auto] gap-2">
                 {selectedCategory ? <input name="category" type="hidden" value={selectedCategory} /> : null}
                 <input
-                  className="min-w-0 rounded-md border border-line bg-canvas px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-dim focus:border-signal/60"
+                  className="min-h-10 min-w-0 rounded-md border border-line bg-canvas px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-dim focus:border-signal/60"
                   defaultValue={query}
                   name="q"
                   placeholder="搜索标题/摘要..."
                   type="search"
                 />
                 <button
-                  className="rounded-md border border-signal/40 bg-signal/10 px-4 py-2 text-sm font-medium text-signal"
+                  className="min-h-10 rounded-md border border-signal/40 bg-signal/10 px-4 py-2 text-sm font-medium text-signal"
                   type="submit"
                 >
                   搜索
@@ -252,14 +205,16 @@ export default async function LatestPage({
                 {topEvents.map((item, index) => (
                   <a
                     key={item.event_id}
-                    className="grid gap-2 rounded-md px-2 py-1.5 text-sm transition hover:bg-panel-soft/60 md:grid-cols-[32px_1fr_180px]"
+                    className="flex items-start gap-2 rounded-md px-2 py-2 text-sm transition hover:bg-panel-soft/60 md:grid md:grid-cols-[32px_1fr_180px] md:items-center md:gap-2 md:py-1.5"
                     href={eventHref(item)}
                   >
-                    <span className="font-semibold text-signal">{index + 1}</span>
-                    <span className="font-semibold text-ink">{item.title}</span>
-                    <span className="text-ink-dim md:text-right">
-                      {item.source_count ?? 1} 个信源 ·{" "}
-                      {formatRelativeTime(item.last_seen_at ?? item.published_at)}
+                    <span className="shrink-0 font-semibold text-signal">{index + 1}</span>
+                    <span className="min-w-0 flex-1 md:contents">
+                      <span className="font-semibold text-ink">{item.title}</span>
+                      <span className="mt-0.5 block text-ink-dim md:mt-0 md:text-right">
+                        {item.source_count ?? 1} 个信源 ·{" "}
+                        {formatRelativeTime(item.last_seen_at ?? item.published_at)}
+                      </span>
                     </span>
                   </a>
                 ))}
@@ -282,15 +237,19 @@ export default async function LatestPage({
                       />
                     </span>
                   </summary>
-                  <div className="relative grid gap-3 border-l border-line pl-4 md:pl-6">
+                  <div className="relative grid gap-3 md:border-l md:border-line md:pl-6">
                     {group.events.map((item) => (
-                      <div key={item.event_id} className="grid gap-2 md:grid-cols-[64px_1fr]">
-                        <div className="readout relative text-lg font-semibold text-ink">
-                          <span className="absolute -left-[25px] top-1.5 h-2.5 w-2.5 rounded-full border border-signal bg-canvas md:-left-[35px]" />
-                          {formatTime(item.published_at)}
-                        </div>
-                        <EventCard item={item} />
-                      </div>
+                      <EventTimelineRow key={item.event_id} time={formatTime(item.published_at)}>
+                        <EventCard
+                          item={item}
+                          sourceLine={sourceLine(item)}
+                          score={formatScore(item.final_score)}
+                          tagHref={(tag) => latestHref({ q: tag })}
+                          maxTags={4}
+                          clampSummary
+                          alwaysSelected
+                        />
+                      </EventTimelineRow>
                     ))}
                   </div>
                 </details>

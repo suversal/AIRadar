@@ -76,7 +76,7 @@ export async function PeriodReportPage({
           </div>
           <h1
             aria-label={title}
-            className="mt-6 text-4xl font-semibold leading-none tracking-tight text-ink md:text-5xl"
+            className="mt-6 text-[26px] font-semibold leading-tight tracking-tight text-ink md:text-4xl md:leading-none lg:text-5xl"
           >
             <span className="text-ink">AI</span>
             <span className="text-signal">·RADAR</span> {labelFor(mode)}
@@ -121,7 +121,7 @@ export async function PeriodReportPage({
           ) : null}
         </section>
 
-        <div className="mt-5 grid gap-3 md:grid-cols-4">
+        <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
           {digest.stats.map((stat) => (
             <div key={stat.label} className="rounded-md border border-line bg-panel p-3 text-center">
               <div className="text-xl font-semibold text-ink">{stat.value}</div>
@@ -141,12 +141,14 @@ export async function PeriodReportPage({
             {digest.highlights.map((highlight, index) => (
               <a
                 key={highlight.label}
-                className="grid gap-2 rounded-md px-2 py-2.5 text-sm transition hover:bg-panel-soft/60 md:grid-cols-[36px_1fr_40px]"
+                className="flex items-start gap-2 rounded-md px-2 py-2.5 text-sm transition hover:bg-panel-soft/60 md:grid md:grid-cols-[36px_1fr_40px] md:items-center md:gap-2"
                 href={`#theme-${index}`}
               >
-                <span className="font-semibold text-signal">{String(index + 1).padStart(2, "0")}</span>
-                <span className="font-semibold text-ink">{highlight.label}：{highlight.title}</span>
-                <span className="text-ink-dim md:text-right">{highlight.count}</span>
+                <span className="shrink-0 font-semibold text-signal">{String(index + 1).padStart(2, "0")}</span>
+                <span className="min-w-0 flex-1 md:contents">
+                  <span className="font-semibold text-ink">{highlight.label}：{highlight.title}</span>
+                  <span className="mt-0.5 block text-ink-dim md:mt-0 md:text-right">{highlight.count}</span>
+                </span>
               </a>
             ))}
           </div>
