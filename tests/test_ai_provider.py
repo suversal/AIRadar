@@ -12,6 +12,7 @@ from app.services.ai_service import (
     FakeAIProvider,
     KimiProvider,
     OpenAIProvider,
+    embedding_input,
     parse_chat_json,
     parse_prefilter_payload,
     parse_scoring_payload,
@@ -549,6 +550,19 @@ class AIProviderTests(unittest.TestCase):
         self.assertIsInstance(provider, DeepSeekProvider)
         self.assertEqual(provider.model, "deepseek-v4-flash")
         self.assertEqual(provider.base_url, "https://api.deepseek.com")
+
+
+class EmbeddingInputTests(unittest.TestCase):
+    def test_embedding_input_repeats_title_to_weight_it_over_content(self):
+        # short wire-style articles can open with a near-identical dateline/
+        # attribution sentence when the same spokesperson covers two
+        # different topics on the same day - that boilerplate must not
+        # dominate a short article's embedding over the (usually more
+        # distinguishing) title
+        result = embedding_input("标题A", "正文内容")
+
+        self.assertEqual(result, "标题A\n标题A\n正文内容")
+        self.assertEqual(result.count("标题A"), 2)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 import sys
 import unittest
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
@@ -826,6 +826,50 @@ class RepositoryTests(unittest.TestCase):
         expected = cosine_similarity(vec_new, vec_old)
         self.assertLess(expected, 0.999)  # 用例本身保证两个值可区分
         self.assertAlmostEqual(membership.similarity_score, expected, places=4)
+
+    def test_find_similar_recent_event_requires_match_against_every_member(self):
+        # regression: matching only against main_article let a candidate in
+        # as long as it resembled whichever article currently held the main
+        # slot, even if it had nothing to do with the event's other member.
+        # A real event's main article can be reassigned to a higher-scoring
+        # later article (see upsert_event_clusters), so comparing against
+        # main alone lets the "what this event is about" reference point
+        # drift away from members added earlier.
+        from app.repositories.radar_repository import RadarRepository
+
+        vec_main = self._vec([1.0, 0.0])
+        vec_other_member = self._vec([0.0, 1.0])  # orthogonal to main
+        vec_incoming = self._vec([0.99, 0.14])  # near-identical to main only
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles(
+                [
+                    self._article(article_id="main1", title="主文", url_hash="u-main"),
+                    self._article(article_id="member1", title="已有成员", url_hash="u-member"),
+                ]
+            )
+            repository.upsert_article_embedding(
+                "main1", embedding_model="m", vector=vec_main, source_hash="h-main"
+            )
+            repository.upsert_article_embedding(
+                "member1", embedding_model="m", vector=vec_other_member, source_hash="h-member"
+            )
+            cluster = self._cluster("e-existing", main_article_id="main1")
+            cluster.article_ids = ["main1", "member1"]
+            cluster.article_similarities = {"main1": 1.0, "member1": 0.0}
+            repository.upsert_event_clusters([cluster])
+            session.commit()
+
+            match = repository.find_similar_recent_event(
+                vec_incoming,
+                since=cluster.last_seen_at - timedelta(hours=1),
+                threshold=0.9,
+            )
+
+        # clears 0.9 against main1 alone, but not against member1 - must not merge
+        self.assertIsNone(match)
 
     def test_upsert_event_clusters_persists_member_similarity(self):
         # 聚类证据落库：成员行的 similarity_score 来自聚类时的真实计算值

@@ -145,7 +145,13 @@ def cluster_articles(
     sources = sources or {}
     final_scores = final_scores or {}
     buckets: list[list[RawArticle]] = []
-    bucket_vectors: list[list[float]] = []
+    # every member's vector, not just the founding one - a candidate must
+    # clear the threshold against ALL of them (complete-linkage), not just
+    # whichever vector happened to create the bucket. Single-linkage (one
+    # fixed reference vector, first bucket that clears it) lets unrelated
+    # articles chain in transitively: A~B and B~C can each clear the bar
+    # while A and C are not actually related.
+    bucket_vectors: list[list[list[float]]] = []
     bucket_similarities: list[dict[str, float]] = []
     bucket_reference_keys: list[set[str]] = []
 
@@ -175,23 +181,36 @@ def cluster_articles(
         matched_index = reference_match
         matched_score = 0.0
         if matched_index is not None:
-            matched_score = cosine_similarity(vector, bucket_vectors[matched_index])
-            if not bucket_vectors[matched_index]:
-                bucket_vectors[matched_index] = vector
+            member_vectors = bucket_vectors[matched_index]
+            matched_score = (
+                min(cosine_similarity(vector, member) for member in member_vectors)
+                if member_vectors
+                else 1.0
+            )
         else:
-            for index, bucket_vector in enumerate(bucket_vectors):
-                score = cosine_similarity(vector, bucket_vector)
-                if score >= threshold:
-                    matched_index = index
-                    matched_score = score
-                    break
+            best_index = None
+            best_score = threshold
+            for index, member_vectors in enumerate(bucket_vectors):
+                if not member_vectors:
+                    continue
+                # the weakest link to any existing member, not just the
+                # founder - a bucket only qualifies if the new article is
+                # close to everyone already in it
+                score = min(cosine_similarity(vector, member) for member in member_vectors)
+                if score >= best_score:
+                    best_index = index
+                    best_score = score
+            if best_index is not None:
+                matched_index = best_index
+                matched_score = best_score
         if matched_index is None:
             buckets.append([article])
-            bucket_vectors.append(vector)
+            bucket_vectors.append([vector])
             bucket_similarities.append({article.id: 1.0})
             bucket_reference_keys.append(reference_keys)
         else:
             buckets[matched_index].append(article)
+            bucket_vectors[matched_index].append(vector)
             bucket_similarities[matched_index][article.id] = matched_score
             bucket_reference_keys[matched_index].update(reference_keys)
 

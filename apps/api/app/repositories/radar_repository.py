@@ -684,30 +684,52 @@ class RadarRepository:
         self, vector: list[float], *, since: datetime, threshold: float = 0.85
     ) -> Optional[tuple[str, float]]:
         """Cross-day multi-source aggregation: is there an already-published
-        event whose main article is close enough to this vector within the
-        sliding window? Returns (event_id, similarity) so the caller can
-        persist the score that actually justified the merge. Similarity is
-        computed in Python (not pgvector's Postgres-only <=> operator) so
-        this stays testable against the SQLite-based test suite; correctness
-        matters far more here than pushing the comparison into SQL."""
-        candidates = self.session.execute(
+        event close enough to this vector within the sliding window? Returns
+        (event_id, similarity) so the caller can persist the score that
+        actually justified the merge. Similarity is computed in Python (not
+        pgvector's Postgres-only <=> operator) so this stays testable against
+        the SQLite-based test suite; correctness matters far more here than
+        pushing the comparison into SQL.
+
+        Checks against every existing member of a candidate event, not just
+        its main_article - and a candidate only qualifies if the new vector
+        clears the threshold against ALL of them (complete-linkage). Matching
+        against main_article alone let the comparison point drift over time
+        as a higher-scoring article took over the main slot (see
+        upsert_event_clusters), silently pulling in articles unrelated to the
+        event's other members as long as they happened to resemble whichever
+        article was main at that moment."""
+        rows = self.session.execute(
             select(
                 EventClusterModel.id,
                 EventClusterModel.last_seen_at,
                 ArticleEmbeddingModel.content_vector,
-            ).join(
+            )
+            .join(
+                EventClusterArticleModel,
+                EventClusterArticleModel.event_cluster_id == EventClusterModel.id,
+            )
+            .join(
                 ArticleEmbeddingModel,
-                ArticleEmbeddingModel.raw_article_id == EventClusterModel.main_article_id,
+                ArticleEmbeddingModel.raw_article_id == EventClusterArticleModel.raw_article_id,
             )
         ).all()
+        candidate_min_scores: dict[str, float] = {}
+        candidate_last_seen: dict[str, datetime] = {}
+        for event_id, last_seen_at, member_vector in rows:
+            if member_vector is None:
+                continue
+            candidate_last_seen[event_id] = last_seen_at
+            score = cosine_similarity(vector, list(member_vector))
+            if event_id not in candidate_min_scores or score < candidate_min_scores[event_id]:
+                candidate_min_scores[event_id] = score
         best_id: Optional[str] = None
         best_score = threshold
-        for event_id, last_seen_at, candidate_vector in candidates:
-            if candidate_vector is None or _ensure_utc(last_seen_at) < _ensure_utc(since):
+        for event_id, min_score in candidate_min_scores.items():
+            if _ensure_utc(candidate_last_seen[event_id]) < _ensure_utc(since):
                 continue
-            score = cosine_similarity(vector, list(candidate_vector))
-            if score >= best_score:
-                best_score = score
+            if min_score >= best_score:
+                best_score = min_score
                 best_id = event_id
         if best_id is None:
             return None

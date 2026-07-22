@@ -323,8 +323,18 @@ def parse_chat_json(content: str) -> Any:
 def embedding_input(title: str, content: str) -> str:
     """The exact text an article's embedding is computed from. The persisted
     source_hash must hash this same string, or a title change would leave the
-    stored hash claiming the embedding is still current."""
-    return f"{title}\n{content}"
+    stored hash claiming the embedding is still current.
+
+    The title is repeated so it carries more weight than a straight
+    title+content concatenation would give it. Short wire-style articles
+    (200-450 chars) often open with a near-identical dateline/attribution
+    sentence ("IT之家 X月X日消息，据XXX报道，今日，XXX透露，...") when the
+    same spokesperson covers two different topics on the same day - that
+    boilerplate can dominate a short article's embedding and make two
+    genuinely different stories look like duplicates, even though their
+    titles (which usually do carry the actual distinguishing fact) differ
+    clearly."""
+    return f"{title}\n{title}\n{content}"
 
 
 class FakeAIProvider:

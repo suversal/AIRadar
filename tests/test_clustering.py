@@ -107,6 +107,57 @@ class ClusteringTests(unittest.TestCase):
         self.assertEqual(clusters[0].source_count, 2)
         self.assertAlmostEqual(clusters[0].article_similarities["a2"], 0.0)
 
+    def test_cluster_articles_does_not_transitively_chain_unrelated_articles(self):
+        # single-linkage regression: the bucket founder (a1, earliest
+        # published) individually clears the bar against both a2 and a3, but
+        # a2~a3 does not clear it. The old algorithm only ever compared new
+        # candidates against the bucket's fixed founding vector, so both a2
+        # and a3 would join a1's bucket - even though a2 and a3 themselves
+        # are unrelated. This is exactly how a batch of Claude release posts
+        # once absorbed unrelated arXiv papers and OpenAI news in production:
+        # each new article only had to clear the bar against whichever single
+        # vector the bucket already had, never against the whole group.
+        articles = [
+            raw_article("a1", "openai_blog", "authority", "T1", "Founder article", 8),
+            raw_article("a2", "openai_blog", "authority", "T1", "Related to founder", 9),
+            raw_article("a3", "openai_blog", "authority", "T1", "Also related to founder only", 10),
+        ]
+        embeddings = {
+            "a1": [1.0, 0.0],
+            "a2": [0.866, 0.5],  # cos(a1, a2) ~= 0.866
+            "a3": [0.866, -0.5],  # cos(a1, a3) ~= 0.866, cos(a2, a3) = 0.5
+        }
+        # sanity check the fixture actually represents the intended shape:
+        # a1 clears 0.7 against both, but a2 and a3 don't clear it against
+        # each other
+        self.assertGreaterEqual(cosine_similarity(embeddings["a1"], embeddings["a2"]), 0.7)
+        self.assertGreaterEqual(cosine_similarity(embeddings["a1"], embeddings["a3"]), 0.7)
+        self.assertLess(cosine_similarity(embeddings["a2"], embeddings["a3"]), 0.7)
+
+        clusters = cluster_articles(articles, embeddings, threshold=0.7)
+
+        # a2 and a3 must never land in the same bucket as each other
+        for cluster in clusters:
+            self.assertFalse({"a2", "a3"}.issubset(set(cluster.article_ids)))
+
+    def test_cluster_articles_joins_the_best_matching_bucket_not_the_first(self):
+        articles = [
+            raw_article("a1", "openai_blog", "authority", "T1", "Bucket one seed", 8),
+            raw_article("a2", "openai_blog", "authority", "T1", "Bucket two seed", 9),
+            raw_article("a3", "openai_blog", "authority", "T1", "Closer to bucket two", 10),
+        ]
+        embeddings = {
+            "a1": [1.0, 0.0, 0.0],
+            "a2": [0.0, 1.0, 0.0],
+            # qualifies for both buckets, but is a much closer match to a2
+            "a3": [0.75, 0.85, 0.0],
+        }
+        clusters = cluster_articles(articles, embeddings, threshold=0.6)
+
+        by_main = {frozenset(c.article_ids) for c in clusters}
+        self.assertIn(frozenset({"a2", "a3"}), by_main)
+        self.assertIn(frozenset({"a1"}), by_main)
+
     def test_reference_key_ignores_homepages_and_normalizes_tracking(self):
         self.assertIsNone(canonical_reference_key("https://example.com/"))
         self.assertEqual(

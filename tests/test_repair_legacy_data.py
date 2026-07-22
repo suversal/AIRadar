@@ -144,6 +144,7 @@ class RepairLegacyDataTests(unittest.TestCase):
     def test_reembed_unknown_writes_real_model_and_fresh_hash(self):
         from app.crawlers.base import stable_hash
         from app.db.models import ArticleEmbeddingModel
+        from app.services.ai_service import embedding_input
 
         with self.Session() as session:
             self._seed_event(session, drift_link=False)
@@ -159,7 +160,7 @@ class RepairLegacyDataTests(unittest.TestCase):
         self.assertEqual(stored.embedding_model, "BAAI/bge-small-zh-v1.5")
         self.assertEqual(
             stored.source_hash,
-            stable_hash("OpenAI releases agent model\nAI model release"),
+            stable_hash(embedding_input("OpenAI releases agent model", "AI model release")),
         )
 
     def test_recount_source_counts_fixes_stale_values(self):

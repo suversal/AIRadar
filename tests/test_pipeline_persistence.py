@@ -175,9 +175,10 @@ class PipelinePersistenceTests(unittest.TestCase):
 
 
     def test_embedding_source_hash_covers_title_and_content(self):
-        # runner 的 embedding 输入是 title+"\n"+content；落库的 source_hash
-        # 必须哈希同一份输入，否则标题变化时哈希不变，血缘失真
+        # runner 的 embedding 输入是 embedding_input(title, content)；落库的
+        # source_hash 必须哈希同一份输入，否则标题变化时哈希不变，血缘失真
         from app.crawlers.base import stable_hash
+        from app.services.ai_service import embedding_input
 
         repository = FakeRepository()
         article = RawArticle(
@@ -218,7 +219,7 @@ class PipelinePersistenceTests(unittest.TestCase):
         _, _, _, source_hash = repository.embeddings_written[0]
         self.assertEqual(
             source_hash,
-            stable_hash("OpenAI releases agent model\nAI model release"),
+            stable_hash(embedding_input("OpenAI releases agent model", "AI model release")),
         )
 
     def test_persist_pipeline_result_records_run_timing(self):
