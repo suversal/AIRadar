@@ -7,6 +7,7 @@ import { formatRelativeTime } from "@/lib/time";
 import { ArticleReadingToggle } from "./article-reading-toggle";
 import { renderOriginalBlock } from "@/components/original-block";
 import { BookmarkButton } from "@/components/bookmark-button";
+import { MobileNav } from "@/components/mobile-nav";
 import { Sidebar } from "@/components/sidebar";
 import { adminFetch } from "@/lib/admin-api";
 
@@ -148,9 +149,10 @@ export default async function EventDetailPage({
     <main className="min-h-screen bg-canvas text-ink">
       <div className="grid min-h-screen grid-cols-[minmax(0,1fr)] lg:grid-cols-[224px_minmax(0,1fr)]">
         <Sidebar activeNavId="latest" />
+        <MobileNav activeNavId="latest" />
 
         <section className="min-w-0 px-5 py-8 md:py-12">
-          <div className="mx-auto max-w-4xl">
+          <div className="mx-auto max-w-3xl">
             {adminPreview === "1" && event.hidden ? (
               <aside className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-md border border-yellow-400/40 bg-yellow-400/10 px-4 py-3 text-sm text-yellow-100">
                 <span>管理员预览：该文章当前处于隐藏状态，公开页面仍不可访问。</span>
@@ -221,7 +223,7 @@ export default async function EventDetailPage({
             ) : (
               <article className="mt-10 border-t border-line pt-8">
                 <h2 className="text-sm font-semibold text-ink-mid">原文</h2>
-                <div className="mt-6 space-y-6">{originalBlocks.map(renderOriginalBlock)}</div>
+                <div className="mt-6 space-y-4">{originalBlocks.map(renderOriginalBlock)}</div>
               </article>
             )}
 
@@ -263,7 +265,7 @@ export default async function EventDetailPage({
                   {event.coverage.map((member) => (
                     <a
                       key={member.raw_article_id}
-                      className="grid gap-1 py-3 text-sm transition hover:bg-panel-soft/60 md:grid-cols-[100px_1fr]"
+                      className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-3 text-sm transition hover:bg-panel-soft/60 md:grid md:grid-cols-[100px_1fr] md:gap-1"
                       href={`/event/${member.event_id}`}
                     >
                       <span className="readout text-ink-dim">{formatRelativeTime(member.published_at)}</span>

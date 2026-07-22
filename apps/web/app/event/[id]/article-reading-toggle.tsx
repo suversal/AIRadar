@@ -8,7 +8,13 @@ import remarkGfm from "remark-gfm";
 import type { OriginalBlock } from "@/lib/api";
 import { articleSanitizeSchema } from "@/lib/sanitize-schema";
 import { proxiedImageUrl } from "@/lib/images";
-import { HEADING_CLASSNAMES, readmeImageClassName, renderOriginalBlock } from "@/components/original-block";
+import { readmeImageClassName, renderOriginalBlock } from "@/components/original-block";
+import {
+  HEADING_CLASSNAMES,
+  PROSE_CODE_INLINE_CLASSNAME,
+  PROSE_LIST_CLASSNAME,
+  PROSE_P_CLASSNAME,
+} from "@/components/prose-tokens";
 
 type ArticleReadingToggleProps = {
   originalBlocks: OriginalBlock[];
@@ -44,16 +50,23 @@ const markdownComponents: Components = {
     return <h6 className={HEADING_CLASSNAMES[6]} {...props} />;
   },
   p({ node: _node, ...props }) {
-    return <p className="text-base leading-7 text-ink" {...props} />;
+    return <p className={PROSE_P_CLASSNAME} {...props} />;
   },
   a({ node: _node, ...props }) {
-    return <a className="text-signal hover:text-signal-bright" rel="noreferrer" target="_blank" {...props} />;
+    return (
+      <a
+        className="break-words text-signal underline decoration-signal/40 underline-offset-4 [overflow-wrap:anywhere] hover:text-signal-bright"
+        rel="noreferrer"
+        target="_blank"
+        {...props}
+      />
+    );
   },
   ul({ node: _node, ...props }) {
-    return <ul className="ml-6 list-disc space-y-2 text-base leading-7 text-ink" {...props} />;
+    return <ul className={`${PROSE_LIST_CLASSNAME} list-disc`} {...props} />;
   },
   ol({ node: _node, ...props }) {
-    return <ol className="ml-6 list-decimal space-y-2 text-base leading-7 text-ink" {...props} />;
+    return <ol className={`${PROSE_LIST_CLASSNAME} list-decimal`} {...props} />;
   },
   li({ node: _node, ...props }) {
     return <li className="pl-1" {...props} />;
@@ -71,7 +84,7 @@ const markdownComponents: Components = {
       );
     }
     return (
-      <code className="rounded border border-line-strong bg-panel px-1.5 py-0.5 text-sm text-signal-bright" {...props}>
+      <code className={PROSE_CODE_INLINE_CLASSNAME} {...props}>
         {children}
       </code>
     );
@@ -129,7 +142,7 @@ const markdownComponents: Components = {
 
 function MarkdownArticle({ markdown }: { markdown: string }) {
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <ReactMarkdown
         components={markdownComponents}
         rehypePlugins={[rehypeRaw, [rehypeSanitize, articleSanitizeSchema]]}
@@ -172,7 +185,7 @@ export function ArticleReadingToggle({
           </button>
         ) : null}
       </div>
-      <div className="mt-6 space-y-6">
+      <div className="mt-6 space-y-4">
         {isOriginal && markdown ? <MarkdownArticle markdown={markdown} /> : blocks.map(renderOriginalBlock)}
       </div>
     </article>

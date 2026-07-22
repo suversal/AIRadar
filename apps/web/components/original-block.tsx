@@ -3,19 +3,7 @@ import { proxiedImageUrl } from "@/lib/images";
 import { RichInline, RichParagraph } from "@/components/rich-paragraph";
 import { ArticleImage } from "@/components/article-image";
 import { AuthorAvatar } from "@/components/author-avatar";
-
-// shared with markdownComponents' h1/h2/h3 in article-reading-toggle.tsx so
-// a heading looks the same whether it arrived as a structured block (this
-// file) or as real Markdown (GitHub README path) - h4~h6 have no dedicated
-// design yet, so they fall back to the h3 treatment.
-export const HEADING_CLASSNAMES: Record<1 | 2 | 3 | 4 | 5 | 6, string> = {
-  1: "mt-8 text-2xl font-semibold leading-tight text-ink",
-  2: "mt-7 border-b border-line pb-2 text-xl font-semibold text-ink",
-  3: "mt-6 text-lg font-semibold text-ink",
-  4: "mt-6 text-lg font-semibold text-ink",
-  5: "mt-6 text-lg font-semibold text-ink",
-  6: "mt-6 text-lg font-semibold text-ink",
-};
+import { HEADING_CLASSNAMES, PROSE_CODE_BLOCK_CLASSNAME, PROSE_LIST_CLASSNAME, PROSE_P_CLASSNAME } from "@/components/prose-tokens";
 
 function numericDimension(value: unknown) {
   if (typeof value === "number") {
@@ -66,13 +54,12 @@ function renderHeading(block: Extract<OriginalBlock, { type: "heading" }>, index
 }
 
 function alignmentClass(alignment?: "left" | "center" | "right" | "justify") {
-  return alignment === "center"
-    ? "text-center"
-    : alignment === "right"
-      ? "text-right"
-      : alignment === "justify"
-        ? "text-justify"
-        : "text-left";
+  // "justify" is deliberately never honored: two-ends alignment stretches
+  // inter-word gaps unevenly in CJK/Latin mixed prose (nothing to stretch
+  // between CJK characters, so the browser over-stretches Latin word gaps
+  // instead), producing the "字间距忽大忽小" artifact - left/center/right
+  // still reflect the source article's real authorial intent, so those stay.
+  return alignment === "center" ? "text-center" : alignment === "right" ? "text-right" : "text-left";
 }
 
 function compactCount(value?: number) {
@@ -279,13 +266,13 @@ export function renderOriginalBlock(block: OriginalBlock, index: number) {
   if (block.type === "list") {
     const Tag = block.ordered ? "ol" : "ul";
     return (
-      <Tag key={`list-${index}`} className={`ml-6 space-y-2 text-[17px] leading-8 text-ink ${block.ordered ? "list-decimal" : "list-disc"}`}>
+      <Tag key={`list-${index}`} className={`${PROSE_LIST_CLASSNAME} ${block.ordered ? "list-decimal" : "list-disc"}`}>
         {block.items.map((item, itemIndex) => <li key={`${item.text}-${itemIndex}`} className="pl-1"><RichParagraph text={item.text} html={item.html} /></li>)}
       </Tag>
     );
   }
   if (block.type === "code") {
-    return <pre key={`code-${index}`} className="max-w-full overflow-x-auto rounded-md border border-line-strong bg-panel-soft p-4 text-sm leading-6 text-ink"><code>{block.text}</code></pre>;
+    return <pre key={`code-${index}`} className={PROSE_CODE_BLOCK_CLASSNAME}><code>{block.text}</code></pre>;
   }
   if (block.type === "table") {
     return (
@@ -360,7 +347,7 @@ export function renderOriginalBlock(block: OriginalBlock, index: number) {
       key={`${block.text.slice(0, 24)}-${index}`}
       text={block.text}
       html={block.html}
-      className={`break-words text-[17px] leading-8 text-ink [overflow-wrap:anywhere] ${alignmentClass(block.align)}`}
+      className={`${PROSE_P_CLASSNAME} ${alignmentClass(block.align)}`}
     />
   );
 }
