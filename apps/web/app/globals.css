@@ -31,6 +31,32 @@
     Menlo, monospace;
 }
 
+/* Day-reading theme. Same token names as the dark palette above, so every
+   bg-canvas/text-ink/border-line/etc. utility already used site-wide just
+   picks up the new values automatically - nothing else has to change.
+   Applied by theme-toggle.tsx (which also handles "system" + live OS
+   theme-change syncing) and mirrored by the blocking init script in
+   layout.tsx so the correct theme paints before first render, no flash. */
+:root[data-theme="light"] {
+  --color-canvas: #f7f5ef;
+  --color-panel: #ffffff;
+  --color-panel-soft: #efeae0;
+  --color-line: #e1dbcc;
+  --color-line-strong: #cec5ae;
+  --color-signal: #c15f3c;
+  --color-signal-bright: #a84a2a;
+  --color-signal-dim: #8f3f22;
+  --color-cool: #57626e;
+  --color-ink: #2a2723;
+  --color-ink-mid: #6b6459;
+  --color-ink-dim: #928a7a;
+
+  --color-success: #15803d;
+  --color-warning: #a16207;
+  --color-danger: #dc2626;
+  --color-info: #0369a1;
+}
+
 * {
   box-sizing: border-box;
 }

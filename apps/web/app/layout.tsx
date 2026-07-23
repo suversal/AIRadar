@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ScrollToTopButton } from "@/components/scroll-to-top-button";
+import { ThemeInitScript } from "@/components/theme-init-script";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export const metadata: Metadata = {
   title: "Suversal AI Radar",
@@ -18,10 +20,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN" className="scroll-smooth">
+    <html lang="zh-CN" className="scroll-smooth" suppressHydrationWarning>
       <body>
+        <ThemeInitScript />
         {children}
         <ScrollToTopButton />
+        <ThemeToggle />
       </body>
     </html>
   );
