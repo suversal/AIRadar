@@ -170,7 +170,7 @@ export default async function AllEventsPage({
         <MobileNav activeNavId="all" />
 
         <section className="px-5 py-6 md:px-9">
-          <header className="rounded-md border border-line bg-panel p-5 shadow-[0_20px_80px_rgba(0,0,0,0.25)]">
+          <header className="rounded-md border border-line bg-panel p-5">
             <RadarStatus
               updatedAt={report.updated_at}
               eventCount={report.total}
