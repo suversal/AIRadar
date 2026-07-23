@@ -29,7 +29,7 @@ export default async function TopicsPage() {
           </header>
 
           {payload.error ? (
-            <div className="mt-4 rounded-md border border-red-400/40 bg-red-400/10 p-4 text-sm leading-6 text-red-200">
+            <div className="mt-4 rounded-md border border-danger/40 bg-danger/10 p-4 text-sm leading-6 text-danger">
               {payload.error}
             </div>
           ) : null}

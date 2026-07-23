@@ -301,7 +301,7 @@ export function EventsManager({
       </div>
 
       {message ? (
-        <div className="rounded-md border border-red-400/40 bg-red-400/10 px-4 py-3 text-sm text-red-200">
+        <div className="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger">
           {message}
         </div>
       ) : null}
@@ -577,7 +577,7 @@ export function EventsManager({
               {deletingEvent.title}
             </p>
             {message ? (
-              <p className="mt-3 rounded border border-red-400/40 bg-red-400/10 px-3 py-2 text-sm text-red-200">
+              <p className="mt-3 rounded border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
                 {message}
               </p>
             ) : null}

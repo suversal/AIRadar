@@ -256,7 +256,7 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
   return (
     <div className="space-y-4">
       {message ? (
-        <div className="rounded-md border border-red-400/40 bg-red-400/10 px-4 py-3 text-sm text-red-200">
+        <div className="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger">
           {message}
         </div>
       ) : null}
@@ -505,7 +505,7 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
               {deleting.name}
             </p>
             {message ? (
-              <p className="mt-3 rounded border border-red-400/40 bg-red-400/10 px-3 py-2 text-sm text-red-200">
+              <p className="mt-3 rounded border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
                 {message}
               </p>
             ) : null}
@@ -559,7 +559,7 @@ export function SourcesManager({ initialSources }: { initialSources: AdminSource
                 </div>
                 <div className="overflow-y-auto px-6 py-4">
                   {result.status === "failed" ? (
-                    <div className="rounded border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm text-red-200">
+                    <div className="rounded border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
                       {result.error ?? "未知错误"}
                     </div>
                   ) : articles.length > 0 ? (

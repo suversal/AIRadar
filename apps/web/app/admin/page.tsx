@@ -92,12 +92,12 @@ function healthTone(source: SourceHealth) {
     return { dot: "bg-ink-dim", label: "停用" };
   }
   if (source.error_count > 0 || source.success_rate < 0.5) {
-    return { dot: "bg-red-400", label: "故障" };
+    return { dot: "bg-danger", label: "故障" };
   }
   if (source.success_rate < 0.9) {
-    return { dot: "bg-yellow-400", label: "波动" };
+    return { dot: "bg-warning", label: "波动" };
   }
-  return { dot: "bg-green-400", label: "正常" };
+  return { dot: "bg-success", label: "正常" };
 }
 
 const COUNT_LABELS: Record<string, { label: string; help: string }> = {
@@ -147,7 +147,7 @@ export default async function AdminDashboardPage() {
       subtitle="抓取健康度、运行台账与数据规模"
     >
       {!overview ? (
-        <div className="rounded-md border border-red-400/40 bg-red-400/10 p-5 text-sm text-red-200">
+        <div className="rounded-md border border-danger/40 bg-danger/10 p-5 text-sm text-danger">
           概览数据不可用（{response.status}）——数据库模式未启用或认证失效。
         </div>
       ) : (

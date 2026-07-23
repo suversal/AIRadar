@@ -3,8 +3,11 @@ import { navGroupItems } from "./nav";
 export function Sidebar({ activeNavId }: { activeNavId: string }) {
   return (
     <aside className="hidden min-w-0 bg-panel px-3 py-4 lg:sticky lg:top-0 lg:block lg:h-screen lg:border-r lg:border-line">
-      <a className="block rounded-md border border-line bg-panel px-4 py-4" href="/latest">
-        <div aria-label="AI·RADAR" className="text-lg font-semibold tracking-[0.15em] text-ink">
+      <a
+        className="flex items-center justify-center rounded-md border border-line bg-panel px-4 py-6"
+        href="/latest"
+      >
+        <div aria-label="AI·RADAR" className="text-2xl font-bold tracking-[0.15em] text-ink">
           AI<span className="text-signal">·RADAR</span>
         </div>
       </a>

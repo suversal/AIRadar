@@ -154,10 +154,10 @@ export default async function EventDetailPage({
         <section className="min-w-0 px-5 py-8 md:py-12">
           <div className="mx-auto max-w-3xl">
             {adminPreview === "1" && event.hidden ? (
-              <aside className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-md border border-yellow-400/40 bg-yellow-400/10 px-4 py-3 text-sm text-yellow-100">
+              <aside className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
                 <span>管理员预览：该文章当前处于隐藏状态，公开页面仍不可访问。</span>
                 <a
-                  className="font-semibold underline underline-offset-4 hover:text-white"
+                  className="font-semibold underline underline-offset-4 hover:text-ink"
                   href="/admin/events?status=hidden"
                 >
                   返回隐藏文章列表

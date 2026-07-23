@@ -64,7 +64,7 @@ export default async function AdminLoginPage({
             type="password"
           />
           {errorMessage ? (
-            <p className="mt-3 text-sm text-red-300">{errorMessage}</p>
+            <p className="mt-3 text-sm text-danger">{errorMessage}</p>
           ) : null}
           <button
             className="mt-5 w-full rounded-md border border-signal bg-signal px-4 py-3 text-sm font-semibold text-canvas hover:border-signal-bright hover:bg-signal-bright"

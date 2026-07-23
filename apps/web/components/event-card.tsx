@@ -95,7 +95,7 @@ export function EventTimelineRow({ time, children }: { time: string; children: R
   return (
     <div className="grid gap-1.5 md:grid-cols-[64px_1fr] md:gap-2">
       <div className="readout relative flex items-center gap-2 text-sm font-semibold text-ink md:block md:text-lg">
-        <span className="h-2 w-2 shrink-0 rounded-full border border-signal bg-canvas md:absolute md:-left-[35px] md:top-1.5 md:h-2.5 md:w-2.5" />
+        <span className="h-2 w-2 shrink-0 rounded-full bg-signal md:absolute md:-left-[30px] md:top-1.5 md:h-2.5 md:w-2.5" />
         {time}
       </div>
       {children}

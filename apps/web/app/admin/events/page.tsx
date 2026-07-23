@@ -99,7 +99,7 @@ export default async function AdminEventsPage({
       subtitle={`近 30 天全部处理文章（共 ${total} 篇）· 隐藏错误内容、修正 AI 的分类/标题/标签`}
     >
       {!response.ok ? (
-        <div className="rounded-md border border-red-400/40 bg-red-400/10 p-5 text-sm text-red-200">
+        <div className="rounded-md border border-danger/40 bg-danger/10 p-5 text-sm text-danger">
           事件数据不可用（{response.status}）——数据库模式未启用或认证失效。
         </div>
       ) : (

@@ -23,7 +23,7 @@ export default async function AdminDraftsPage() {
       subtitle="在这里新增、续写和保存草稿；AI 评分成功后文章自动进入内容管理并保持隐藏"
     >
       {!response.ok ? (
-        <div className="rounded-md border border-red-400/40 bg-red-400/10 p-5 text-sm text-red-200">
+        <div className="rounded-md border border-danger/40 bg-danger/10 p-5 text-sm text-danger">
           草稿数据不可用（{response.status}）。
         </div>
       ) : (

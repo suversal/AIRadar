@@ -130,7 +130,7 @@ export function PipelineRunDetail({
 
       {open === "error" ? (
         <Modal title={`完整错误 · 运行 #${runId}`} onClose={() => setOpen(null)}>
-          <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-all rounded bg-canvas p-3 text-xs leading-5 text-red-200">
+          <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-all rounded bg-canvas p-3 text-xs leading-5 text-danger">
             {error}
           </pre>
         </Modal>

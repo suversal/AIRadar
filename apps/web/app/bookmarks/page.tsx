@@ -72,7 +72,7 @@ export default function BookmarksPage() {
 
         <section className="px-5 py-8 md:px-10 xl:px-16">
           <div className="mx-auto max-w-4xl">
-            <header className="py-6">
+            <header className="rounded-md border border-line bg-panel p-5">
               <h1 className="text-2xl font-semibold text-ink">收藏</h1>
               <p className="mt-1.5 text-sm text-ink-mid">
                 保存在这台设备的浏览器里，换设备或清除浏览器数据后需要重新收藏。
@@ -80,15 +80,15 @@ export default function BookmarksPage() {
             </header>
 
             {status === "loading" ? (
-              <div className="rounded-md border border-line bg-panel p-8 text-center text-sm text-ink-dim">
+              <div className="mt-6 rounded-md border border-line bg-panel p-8 text-center text-sm text-ink-dim">
                 正在加载收藏内容…
               </div>
             ) : events.length === 0 ? (
-              <div className="rounded-md border border-line bg-panel p-8 text-center text-sm text-ink-dim">
+              <div className="mt-6 rounded-md border border-line bg-panel p-8 text-center text-sm text-ink-dim">
                 还没有收藏任何内容。在动态旁点击收藏图标即可保存到这里。
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="mt-6 space-y-4">
                 {prunedCount > 0 ? (
                   <p className="text-xs text-ink-dim">
                     有 {prunedCount} 条收藏内容已下线或找不到了，已自动清理。

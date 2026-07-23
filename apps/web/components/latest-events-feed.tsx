@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LatestEvent } from "@/lib/api";
 import { searchEvents } from "@/lib/events";
 import { displayCategory } from "@/lib/taxonomy";
-import { ChevronDown } from "lucide-react";
+import { DateGroupSection } from "@/components/date-group-section";
 import { EventCard, EventTimelineRow } from "@/components/event-card";
 
 const PAGE_SIZE = 50;
@@ -24,10 +24,15 @@ function formatDateKey(value?: string) {
   if (Number.isNaN(parsed.getTime())) {
     return value.slice(0, 10) || "日期未知";
   }
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "numeric",
-    day: "numeric",
-  }).format(parsed);
+  return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(parsed);
+}
+
+function formatWeekday(value?: string) {
+  const parsed = value ? new Date(value) : null;
+  if (!parsed || Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+  return new Intl.DateTimeFormat("zh-CN", { weekday: "long" }).format(parsed);
 }
 
 function formatTime(value?: string) {
@@ -53,6 +58,7 @@ function groupEventsByDate(items: LatestEvent[]) {
   }
   return Array.from(groups.entries()).map(([dateLabel, events]) => ({
     dateLabel,
+    weekday: formatWeekday(events[0]?.published_at),
     events,
   }));
 }
@@ -156,35 +162,26 @@ export function LatestEventsFeed({
     <section className="mt-6">
       {dateGroups.length > 0 ? (
         dateGroups.map((group) => (
-          <details key={group.dateLabel} open className="group">
-            <summary className="sticky top-16 z-10 -mx-5 flex cursor-pointer list-none items-center gap-3 border-b border-line bg-canvas px-5 py-3 text-sm font-semibold text-ink-mid md:-mx-9 md:px-9 lg:top-0">
-              <span>{group.dateLabel}</span>
-              <span className="flex items-center gap-1 text-ink-dim">
-                折叠
-                <ChevronDown
-                  aria-hidden
-                  className="h-4 w-4 -rotate-90 transition-transform group-open:rotate-0"
-                  strokeWidth={2}
+          <DateGroupSection
+            key={group.dateLabel}
+            dateLabel={group.dateLabel}
+            weekday={group.weekday}
+            count={group.events.length}
+          >
+            {group.events.map((item) => (
+              <EventTimelineRow key={item.event_id} time={formatTime(item.published_at)}>
+                <EventCard
+                  item={item}
+                  sourceLine={sourceLine(item)}
+                  score={formatScore(item.final_score)}
+                  tagHref={tagHref}
+                  maxTags={4}
+                  clampSummary
+                  alwaysSelected
                 />
-              </span>
-              <span className="text-ink-dim">{group.events.length} 条</span>
-            </summary>
-            <div className="relative grid gap-3 md:border-l md:border-line md:pl-6">
-              {group.events.map((item) => (
-                <EventTimelineRow key={item.event_id} time={formatTime(item.published_at)}>
-                  <EventCard
-                    item={item}
-                    sourceLine={sourceLine(item)}
-                    score={formatScore(item.final_score)}
-                    tagHref={tagHref}
-                    maxTags={4}
-                    clampSummary
-                    alwaysSelected
-                  />
-                </EventTimelineRow>
-              ))}
-            </div>
-          </details>
+              </EventTimelineRow>
+            ))}
+          </DateGroupSection>
         ))
       ) : (
         <div className="rounded-md border border-line bg-panel p-8 text-sm text-ink-mid">
@@ -196,7 +193,7 @@ export function LatestEventsFeed({
         <div ref={sentinelRef} className="mt-6 flex flex-col items-center gap-2 py-4">
           {loadError ? (
             <>
-              <p className="text-xs text-red-300">{loadError}</p>
+              <p className="text-xs text-danger">{loadError}</p>
               <button
                 type="button"
                 onClick={loadMore}

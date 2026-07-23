@@ -178,7 +178,7 @@ export function ArticleReadingToggle({
         {hasTranslation ? (
           <button
             type="button"
-            className="rounded-none border border-transparent px-4 py-2 text-sm font-semibold text-signal transition hover:border-signal/40 hover:text-signal-bright"
+            className="rounded-md border border-transparent px-4 py-2 text-sm font-semibold text-signal transition hover:border-signal/40 hover:text-signal-bright"
             onClick={() => setMode(isOriginal ? "translated" : "original")}
           >
             {isOriginal ? "显示译文" : "显示原文"}
