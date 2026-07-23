@@ -38,11 +38,15 @@
    theme-change syncing) and mirrored by the blocking init script in
    layout.tsx so the correct theme paints before first render, no flash. */
 :root[data-theme="light"] {
-  --color-canvas: #f7f5ef;
-  --color-panel: #ffffff;
-  --color-panel-soft: #efeae0;
-  --color-line: #e1dbcc;
-  --color-line-strong: #cec5ae;
+  /* panel/panel-soft stay close in temperature and value to canvas (warm
+     paper, not paper-next-to-a-lit-screen) - a jump to pure #fff read as
+     two mismatched whites sitting side by side instead of one cohesive
+     reading surface */
+  --color-canvas: #f3efe4;
+  --color-panel: #faf7ee;
+  --color-panel-soft: #ece5d3;
+  --color-line: #ddd3ba;
+  --color-line-strong: #c9bc9c;
   --color-signal: #c15f3c;
   --color-signal-bright: #a84a2a;
   --color-signal-dim: #8f3f22;
