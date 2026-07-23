@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Moon, Monitor, Sun } from "lucide-react";
 
 type ThemePreference = "dark" | "system" | "light";
@@ -13,16 +13,28 @@ const OPTIONS: { value: ThemePreference; icon: typeof Moon; label: string }[] = 
   { value: "light", icon: Sun, label: "日间" },
 ];
 
+const TRANSITION_MS = 350;
+
 function systemPrefersLight() {
   return window.matchMedia("(prefers-color-scheme: light)").matches;
 }
 
-function applyResolvedTheme(preference: ThemePreference) {
+function applyResolvedTheme(preference: ThemePreference, { withTransition = false } = {}) {
+  const root = document.documentElement;
+  // scoped to a class instead of a permanent global transition, and only
+  // added for an actual switch - not the initial mount sync, which just
+  // re-confirms whatever the blocking init script already painted and
+  // must stay instant (fading "into" the already-correct theme on first
+  // load would look like a flash of the wrong one)
+  if (withTransition) {
+    root.classList.add("theme-transition");
+    window.setTimeout(() => root.classList.remove("theme-transition"), TRANSITION_MS);
+  }
   const resolved = preference === "system" ? (systemPrefersLight() ? "light" : "dark") : preference;
   if (resolved === "light") {
-    document.documentElement.setAttribute("data-theme", "light");
+    root.setAttribute("data-theme", "light");
   } else {
-    document.documentElement.removeAttribute("data-theme");
+    root.removeAttribute("data-theme");
   }
 }
 
@@ -31,6 +43,7 @@ export function ThemeToggle() {
   // "system") sees the toggle in the same state the blocking init script
   // already resolved - only corrected on mount if localStorage says otherwise
   const [preference, setPreference] = useState<ThemePreference>("system");
+  const mounted = useRef(false);
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -40,12 +53,13 @@ export function ThemeToggle() {
   }, []);
 
   useEffect(() => {
-    applyResolvedTheme(preference);
+    applyResolvedTheme(preference, { withTransition: mounted.current });
+    mounted.current = true;
     if (preference !== "system") {
       return;
     }
     const mql = window.matchMedia("(prefers-color-scheme: light)");
-    const onChange = () => applyResolvedTheme("system");
+    const onChange = () => applyResolvedTheme("system", { withTransition: true });
     mql.addEventListener("change", onChange);
     return () => mql.removeEventListener("change", onChange);
   }, [preference]);

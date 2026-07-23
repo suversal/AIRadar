@@ -61,6 +61,21 @@
   --color-info: #0369a1;
 }
 
+/* Applied to <html> for ~350ms by theme-toggle.tsx around an actual theme
+   switch only - not a permanent global transition (that would slow down
+   every dynamic style change everywhere, forever, for a UI that only ever
+   needs to be smooth once in a while). !important because a lot of
+   elements already carry their own transition shorthand (see the a/button/
+   summary rule below) that would otherwise win and skip this. */
+.theme-transition,
+.theme-transition * {
+  transition:
+    background-color 0.35s ease,
+    border-color 0.35s ease,
+    color 0.35s ease,
+    fill 0.35s ease !important;
+}
+
 * {
   box-sizing: border-box;
 }
