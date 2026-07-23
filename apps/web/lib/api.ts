@@ -156,6 +156,9 @@ export type LatestReport = {
   report_date?: string | null;
   updated_at: string | null;
   article_count?: number;
+  total?: number;
+  limit?: number;
+  offset?: number;
   items: LatestEvent[];
   error?: string | null;
 };
@@ -193,9 +196,20 @@ function latestLoadErrorMessage(error: unknown) {
   return `API 服务暂时不可用，请确认后端 ${getApiBaseUrl()} 已启动。${detail}`;
 }
 
-export async function getLatestReport(): Promise<LatestReport> {
+export async function getLatestReport(
+  params: { limit?: number; offset?: number } = {},
+): Promise<LatestReport> {
+  const search = new URLSearchParams();
+  if (typeof params.limit === "number") {
+    search.set("limit", String(params.limit));
+  }
+  if (typeof params.offset === "number") {
+    search.set("offset", String(params.offset));
+  }
+  const query = search.toString();
+  const path = query ? `/api/public/latest?${query}` : "/api/public/latest";
   try {
-    const response = await fetch(`${getApiBaseUrl()}/api/public/latest`, {
+    const response = await fetch(`${getApiBaseUrl()}${path}`, {
       cache: "no-store",
     });
     if (!response.ok) {
@@ -289,11 +303,14 @@ function emptyAllEvents(error: string): AllEventsPayload {
 }
 
 export async function getAllEvents(
-  params: { days?: number; limit?: number; topic?: string } = {},
+  params: { days?: number; limit?: number; offset?: number; topic?: string } = {},
 ): Promise<AllEventsPayload> {
   const search = new URLSearchParams();
   search.set("days", String(params.days ?? 30));
   search.set("limit", String(params.limit ?? 200));
+  if (typeof params.offset === "number") {
+    search.set("offset", String(params.offset));
+  }
   if (params.topic) {
     search.set("topic", params.topic);
   }

@@ -1,0 +1,266 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { LatestEvent } from "@/lib/api";
+import { searchEvents } from "@/lib/events";
+import { displayCategory } from "@/lib/taxonomy";
+import { ChevronDown } from "lucide-react";
+import { EventCard, EventTimelineRow } from "@/components/event-card";
+
+const DAYS = 30;
+const PAGE_SIZE = 50;
+
+// maps the source registry's real category (official/research/community/
+// media, see apps/api/app/data/default_sources.py) to this page's three
+// filter buckets, instead of guessing from the source display name - a name
+// heuristic missed real community sources whose name doesn't literally say
+// "reddit"/"x.com"/etc. (e.g. "X 推文 (AttentionVC)")
+const SOURCE_CATEGORY_TO_BUCKET: Record<string, string> = {
+  official: "first_party",
+  research: "first_party",
+  community: "community",
+  media: "news",
+};
+
+function sourceBucket(item: LatestEvent) {
+  const category = item.main_source?.category;
+  if (category && category in SOURCE_CATEGORY_TO_BUCKET) {
+    return SOURCE_CATEGORY_TO_BUCKET[category];
+  }
+  return "news";
+}
+
+function formatScore(score?: number) {
+  if (typeof score !== "number") {
+    return "--";
+  }
+  return Math.round(score).toString();
+}
+
+function formatDateKey(value?: string) {
+  if (!value) {
+    return "日期未知";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value.slice(0, 10) || "日期未知";
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "long",
+    day: "numeric",
+  }).format(parsed);
+}
+
+function formatTime(value?: string) {
+  if (!value) {
+    return "--:--";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "--:--";
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(parsed);
+}
+
+function sortByPublishedAtDesc(items: LatestEvent[]) {
+  return [...items].sort((left, right) => {
+    const leftTime = left.published_at ? new Date(left.published_at).getTime() : 0;
+    const rightTime = right.published_at ? new Date(right.published_at).getTime() : 0;
+    return rightTime - leftTime;
+  });
+}
+
+function groupEventsByDate(items: LatestEvent[]) {
+  const groups = new Map<string, LatestEvent[]>();
+  for (const item of items) {
+    const key = formatDateKey(item.published_at);
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  return Array.from(groups.entries()).map(([dateLabel, events]) => ({
+    dateLabel,
+    events,
+  }));
+}
+
+function sourceLine(item: LatestEvent) {
+  const source = item.main_source?.name ?? "未知来源";
+  return `来源 · ${source}`;
+}
+
+function representativeImage(item: LatestEvent) {
+  return item.original_images?.[0];
+}
+
+// resets source/category selection - matches the pre-existing behavior of
+// clicking a tag chip: it always searches by just that tag, not "current
+// filters + tag". Kept local to this client component since functions
+// (a prop the server component previously passed) can't cross the
+// server/client boundary.
+function tagHref(tag: string) {
+  return `/all?${new URLSearchParams({ q: tag })}`;
+}
+
+export function AllEventsFeed({
+  initialItems,
+  initialTotal,
+  topic,
+  selectedSource,
+  selectedCategory,
+  query,
+}: {
+  initialItems: LatestEvent[];
+  initialTotal: number;
+  topic: string;
+  selectedSource: string;
+  selectedCategory: string;
+  query: string;
+}) {
+  const [items, setItems] = useState(initialItems);
+  const [total, setTotal] = useState(initialTotal);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const filteredItems = useMemo(() => {
+    const searched = searchEvents(items, query);
+    return sortByPublishedAtDesc(
+      searched.filter((item) => {
+        const sourceMatches = selectedSource ? sourceBucket(item) === selectedSource : true;
+        const categoryMatches = selectedCategory
+          ? displayCategory(item.category) === selectedCategory
+          : true;
+        return sourceMatches && categoryMatches;
+      }),
+    );
+  }, [items, query, selectedSource, selectedCategory]);
+
+  const dateGroups = useMemo(() => groupEventsByDate(filteredItems), [filteredItems]);
+  const hasMore = items.length < total;
+
+  // guards against IntersectionObserver firing loadMore twice for the same
+  // page (e.g. one fetch still in flight when the sentinel re-triggers) -
+  // `loading` state alone isn't enough since the observer callback closes
+  // over whatever render it was created in, not necessarily the latest one
+  const loadingRef = useRef(false);
+  // itemsRef mirrors `items` so loadMore (stable via useCallback) always
+  // reads the current offset without needing to be recreated on every
+  // items change, which would otherwise re-trigger the observer effect
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+
+  const loadMore = useCallback(async () => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const params = new URLSearchParams({
+        days: String(DAYS),
+        limit: String(PAGE_SIZE),
+        offset: String(itemsRef.current.length),
+      });
+      if (topic) {
+        params.set("topic", topic);
+      }
+      const response = await fetch(`/api/all-events?${params}`, { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`请求失败（${response.status}）`);
+      }
+      const payload = (await response.json()) as { items: LatestEvent[]; total: number };
+      setItems((current) => [...current, ...payload.items]);
+      setTotal(payload.total);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "加载更多失败");
+    } finally {
+      loadingRef.current = false;
+      setLoading(false);
+    }
+  }, [topic]);
+
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!hasMore) return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          loadMore();
+        }
+      },
+      { rootMargin: "600px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, loadMore]);
+
+  return (
+    <section className="mt-6">
+      {dateGroups.length > 0 ? (
+        dateGroups.map((group) => (
+          <details key={group.dateLabel} open className="group">
+            <summary className="sticky top-16 z-10 -mx-5 flex cursor-pointer list-none items-center gap-3 border-b border-line bg-canvas px-5 py-3 text-sm font-semibold text-ink-mid md:-mx-9 md:px-9 lg:top-0">
+              <span>{group.dateLabel}</span>
+              <span className="flex items-center gap-1 text-ink-dim">
+                折叠
+                <ChevronDown
+                  aria-hidden
+                  className="h-4 w-4 -rotate-90 transition-transform group-open:rotate-0"
+                  strokeWidth={2}
+                />
+              </span>
+              <span className="text-ink-dim">{group.events.length} 条</span>
+            </summary>
+            <div className="relative grid gap-3 md:border-l md:border-line md:pl-6">
+              {group.events.map((item) => (
+                <EventTimelineRow key={item.event_id} time={formatTime(item.published_at)}>
+                  <EventCard
+                    item={item}
+                    sourceLine={sourceLine(item)}
+                    score={formatScore(item.final_score)}
+                    image={representativeImage(item)}
+                    tagHref={tagHref}
+                    maxTags={5}
+                  />
+                </EventTimelineRow>
+              ))}
+            </div>
+          </details>
+        ))
+      ) : (
+        <div className="rounded-md border border-line bg-panel p-8 text-sm text-ink-mid">
+          当前筛选条件下没有 AI 动态。
+        </div>
+      )}
+
+      {hasMore ? (
+        <div ref={sentinelRef} className="mt-6 flex flex-col items-center gap-2 py-4">
+          {loadError ? (
+            <>
+              <p className="text-xs text-red-300">{loadError}</p>
+              <button
+                type="button"
+                onClick={loadMore}
+                className="min-h-10 rounded-md border border-line bg-panel px-6 text-sm font-medium text-ink-mid transition hover:border-signal/40 hover:text-signal"
+              >
+                重试
+              </button>
+            </>
+          ) : (
+            <p className="text-xs text-ink-dim">
+              {loading ? "加载中…" : `已显示 ${items.length} / ${total} 条`}
+            </p>
+          )}
+        </div>
+      ) : items.length > 0 ? (
+        <p className="mt-6 text-center text-xs text-ink-dim">
+          已显示近 {DAYS} 天全部 {total} 条动态
+        </p>
+      ) : null}
+    </section>
+  );
+}

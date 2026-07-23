@@ -1,10 +1,8 @@
-import type { LatestEvent } from "@/lib/api";
 import { getHotspots, getLatestReport } from "@/lib/api";
-import { eventHref, searchEvents } from "@/lib/events";
-import { CATEGORY_FILTER_OPTIONS, displayCategory } from "@/lib/taxonomy";
+import { eventHref } from "@/lib/events";
+import { CATEGORY_FILTER_OPTIONS } from "@/lib/taxonomy";
 import { formatRelativeTime } from "@/lib/time";
-import { ChevronDown } from "lucide-react";
-import { EventCard, EventTimelineRow } from "@/components/event-card";
+import { LatestEventsFeed } from "@/components/latest-events-feed";
 import { MobileNav } from "@/components/mobile-nav";
 import { RadarStatus } from "@/components/radar-status";
 import { Sidebar } from "@/components/sidebar";
@@ -14,6 +12,7 @@ type LatestSearchParams = Promise<{
   q?: string | string[];
 }>;
 
+const PAGE_SIZE = 50;
 
 const categoryOptions = CATEGORY_FILTER_OPTIONS;
 
@@ -22,42 +21,6 @@ function firstQueryValue(value?: string | string[]) {
     return value[0];
   }
   return value;
-}
-
-function formatScore(score?: number) {
-  if (typeof score !== "number") {
-    return "--";
-  }
-  return Math.round(score).toString();
-}
-
-function formatDateKey(value?: string) {
-  if (!value) {
-    return "日期未知";
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value.slice(0, 10) || "日期未知";
-  }
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "numeric",
-    day: "numeric",
-  }).format(parsed);
-}
-
-function formatTime(value?: string) {
-  if (!value) {
-    return "--:--";
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return "--:--";
-  }
-  return new Intl.DateTimeFormat("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(parsed);
 }
 
 function formatDateTime(value?: string | null) {
@@ -80,19 +43,6 @@ function formatDateTime(value?: string | null) {
     .replace(/\//g, "-");
 }
 
-function groupEventsByDate(items: LatestEvent[]) {
-  const groups = new Map<string, LatestEvent[]>();
-  for (const item of items) {
-    const key = formatDateKey(item.published_at);
-    groups.set(key, [...(groups.get(key) ?? []), item]);
-  }
-  return Array.from(groups.entries()).map(([dateLabel, events]) => ({
-    dateLabel,
-    events,
-  }));
-}
-
-
 function latestHref({ category, q }: { category?: string; q?: string }) {
   const params = new URLSearchParams();
   if (category) {
@@ -105,11 +55,6 @@ function latestHref({ category, q }: { category?: string; q?: string }) {
   return query ? `/latest?${query}` : "/latest";
 }
 
-function sourceLine(item: LatestEvent) {
-  const source = item.main_source?.name ?? "未知来源";
-  return `${source} · ${item.source_count ?? 1} 个来源`;
-}
-
 export default async function LatestPage({
   searchParams,
 }: {
@@ -119,15 +64,10 @@ export default async function LatestPage({
   const selectedCategory = firstQueryValue(resolvedSearchParams.category) ?? "";
   const query = firstQueryValue(resolvedSearchParams.q)?.trim() ?? "";
   const [report, hotspots] = await Promise.all([
-    getLatestReport(),
+    getLatestReport({ limit: PAGE_SIZE }),
     getHotspots({ category: selectedCategory, q: query }),
   ]);
-  const searchedItems = searchEvents(report.items, query);
-  const filteredItems = selectedCategory
-    ? searchedItems.filter((item) => displayCategory(item.category) === selectedCategory)
-    : searchedItems;
   const topEvents = hotspots.items;
-  const dateGroups = groupEventsByDate(filteredItems);
 
   return (
     <main className="min-h-screen bg-canvas text-ink">
@@ -139,8 +79,8 @@ export default async function LatestPage({
           <header className="rounded-md border border-line bg-panel p-5">
             <RadarStatus
               updatedAt={report.updated_at}
-              eventCount={filteredItems.length}
-              scope="SELECTED FEED"
+              eventCount={report.total ?? report.items.length}
+              scope="SELECTED FEED · 7D"
             />
             <div className="mt-4 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
               <div>
@@ -222,44 +162,12 @@ export default async function LatestPage({
             </section>
           ) : null}
 
-          <section className="mt-6">
-            {dateGroups.length > 0 ? (
-              dateGroups.map((group) => (
-                <details key={group.dateLabel} open className="group">
-                  <summary className="flex cursor-pointer list-none items-center gap-3 py-3 text-sm font-semibold text-ink-mid">
-                    <span>{group.dateLabel}</span>
-                    <span className="flex items-center gap-1 text-ink-dim">
-                      折叠
-                      <ChevronDown
-                        aria-hidden
-                        className="h-4 w-4 -rotate-90 transition-transform group-open:rotate-0"
-                        strokeWidth={2}
-                      />
-                    </span>
-                  </summary>
-                  <div className="relative grid gap-3 md:border-l md:border-line md:pl-6">
-                    {group.events.map((item) => (
-                      <EventTimelineRow key={item.event_id} time={formatTime(item.published_at)}>
-                        <EventCard
-                          item={item}
-                          sourceLine={sourceLine(item)}
-                          score={formatScore(item.final_score)}
-                          tagHref={(tag) => latestHref({ q: tag })}
-                          maxTags={4}
-                          clampSummary
-                          alwaysSelected
-                        />
-                      </EventTimelineRow>
-                    ))}
-                  </div>
-                </details>
-              ))
-            ) : (
-              <div className="rounded-md border border-line bg-panel p-8 text-sm text-ink-mid">
-                当前分类没有精选内容。
-              </div>
-            )}
-          </section>
+          <LatestEventsFeed
+            initialItems={report.items}
+            initialTotal={report.total ?? report.items.length}
+            selectedCategory={selectedCategory}
+            query={query}
+          />
         </section>
       </div>
     </main>

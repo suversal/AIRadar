@@ -12,6 +12,7 @@ venv/
 node_modules/
 .codex-artifacts/**/node_modules
 .next/
+.next-*/
 *.tsbuildinfo
 /data/
 /output/

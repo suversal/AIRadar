@@ -1,9 +1,6 @@
-import type { LatestEvent } from "@/lib/api";
 import { getAllEvents } from "@/lib/api";
-import { searchEvents } from "@/lib/events";
-import { CATEGORY_FILTER_OPTIONS, displayCategory } from "@/lib/taxonomy";
-import { ChevronDown } from "lucide-react";
-import { EventCard, EventTimelineRow } from "@/components/event-card";
+import { CATEGORY_FILTER_OPTIONS } from "@/lib/taxonomy";
+import { AllEventsFeed } from "@/components/all-events-feed";
 import { MobileNav } from "@/components/mobile-nav";
 import { RadarStatus } from "@/components/radar-status";
 import { Sidebar } from "@/components/sidebar";
@@ -15,6 +12,8 @@ type AllSearchParams = Promise<{
   topic?: string | string[];
 }>;
 
+const DAYS = 30;
+const PAGE_SIZE = 50;
 
 const sourceOptions = [
   ["", "全部"],
@@ -30,82 +29,6 @@ function firstQueryValue(value?: string | string[]) {
     return value[0];
   }
   return value;
-}
-
-function formatScore(score?: number) {
-  if (typeof score !== "number") {
-    return "--";
-  }
-  return Math.round(score).toString();
-}
-
-function formatDateKey(value?: string) {
-  if (!value) {
-    return "日期未知";
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value.slice(0, 10) || "日期未知";
-  }
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "long",
-    day: "numeric",
-  }).format(parsed);
-}
-
-function formatTime(value?: string) {
-  if (!value) {
-    return "--:--";
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return "--:--";
-  }
-  return new Intl.DateTimeFormat("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(parsed);
-}
-
-// maps the source registry's real category (official/research/community/
-// media, see apps/api/app/data/default_sources.py) to this page's three
-// filter buckets, instead of guessing from the source display name - a name
-// heuristic missed real community sources whose name doesn't literally say
-// "reddit"/"x.com"/etc. (e.g. "X 推文 (AttentionVC)")
-const SOURCE_CATEGORY_TO_BUCKET: Record<string, (typeof sourceOptions)[number][0]> = {
-  official: "first_party",
-  research: "first_party",
-  community: "community",
-  media: "news",
-};
-
-function sourceBucket(item: LatestEvent) {
-  const category = item.main_source?.category;
-  if (category && category in SOURCE_CATEGORY_TO_BUCKET) {
-    return SOURCE_CATEGORY_TO_BUCKET[category];
-  }
-  return "news";
-}
-
-function sortByPublishedAtDesc(items: LatestEvent[]) {
-  return [...items].sort((left, right) => {
-    const leftTime = left.published_at ? new Date(left.published_at).getTime() : 0;
-    const rightTime = right.published_at ? new Date(right.published_at).getTime() : 0;
-    return rightTime - leftTime;
-  });
-}
-
-function groupEventsByDate(items: LatestEvent[]) {
-  const groups = new Map<string, LatestEvent[]>();
-  for (const item of items) {
-    const key = formatDateKey(item.published_at);
-    groups.set(key, [...(groups.get(key) ?? []), item]);
-  }
-  return Array.from(groups.entries()).map(([dateLabel, events]) => ({
-    dateLabel,
-    events,
-  }));
 }
 
 function allHref({
@@ -131,15 +54,6 @@ function allHref({
   return query ? `/all?${query}` : "/all";
 }
 
-function sourceLine(item: LatestEvent) {
-  const source = item.main_source?.name ?? "未知来源";
-  return `来源 · ${source}`;
-}
-
-function representativeImage(item: LatestEvent) {
-  return item.original_images?.[0];
-}
-
 export default async function AllEventsPage({
   searchParams,
 }: {
@@ -150,18 +64,11 @@ export default async function AllEventsPage({
   const selectedCategory = firstQueryValue(resolvedSearchParams.category) ?? "";
   const selectedTopic = firstQueryValue(resolvedSearchParams.topic)?.trim() ?? "";
   const query = firstQueryValue(resolvedSearchParams.q)?.trim() ?? "";
-  const report = await getAllEvents(selectedTopic ? { topic: selectedTopic } : {});
-  const searchedItems = searchEvents(report.items, query);
-  const filteredItems = sortByPublishedAtDesc(
-    searchedItems.filter((item) => {
-      const sourceMatches = selectedSource ? sourceBucket(item) === selectedSource : true;
-      const categoryMatches = selectedCategory
-        ? displayCategory(item.category) === selectedCategory
-        : true;
-      return sourceMatches && categoryMatches;
-    }),
-  );
-  const dateGroups = groupEventsByDate(filteredItems);
+  const report = await getAllEvents({
+    days: DAYS,
+    limit: PAGE_SIZE,
+    topic: selectedTopic || undefined,
+  });
 
   return (
     <main className="min-h-screen bg-canvas text-ink">
@@ -174,7 +81,7 @@ export default async function AllEventsPage({
             <RadarStatus
               updatedAt={report.updated_at}
               eventCount={report.total}
-              scope="ALL DYNAMICS · 30D"
+              scope={`ALL DYNAMICS · ${DAYS}D`}
             />
             <div className="mt-4 border-b border-line pb-4">
               <h1 className="text-2xl font-semibold text-ink">全部 AI 动态</h1>
@@ -254,44 +161,14 @@ export default async function AllEventsPage({
             </div>
           ) : null}
 
-          <section className="mt-6">
-            {dateGroups.length > 0 ? (
-              dateGroups.map((group) => (
-                <details key={group.dateLabel} open className="group">
-                  <summary className="flex cursor-pointer list-none items-center gap-3 py-3 text-sm font-semibold text-ink-mid">
-                    <span>{group.dateLabel}</span>
-                    <span className="flex items-center gap-1 text-ink-dim">
-                      折叠
-                      <ChevronDown
-                        aria-hidden
-                        className="h-4 w-4 -rotate-90 transition-transform group-open:rotate-0"
-                        strokeWidth={2}
-                      />
-                    </span>
-                    <span className="text-ink-dim">{group.events.length} 条</span>
-                  </summary>
-                  <div className="relative grid gap-3 md:border-l md:border-line md:pl-6">
-                    {group.events.map((item) => (
-                      <EventTimelineRow key={item.event_id} time={formatTime(item.published_at)}>
-                        <EventCard
-                          item={item}
-                          sourceLine={sourceLine(item)}
-                          score={formatScore(item.final_score)}
-                          image={representativeImage(item)}
-                          tagHref={(tag) => allHref({ q: tag })}
-                          maxTags={5}
-                        />
-                      </EventTimelineRow>
-                    ))}
-                  </div>
-                </details>
-              ))
-            ) : (
-              <div className="rounded-md border border-line bg-panel p-8 text-sm text-ink-mid">
-                当前筛选条件下没有 AI 动态。
-              </div>
-            )}
-          </section>
+          <AllEventsFeed
+            initialItems={report.items}
+            initialTotal={report.total}
+            topic={selectedTopic}
+            selectedSource={selectedSource}
+            selectedCategory={selectedCategory}
+            query={query}
+          />
         </section>
       </div>
     </main>

@@ -56,16 +56,23 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("@tailwindcss/postcss", package_json["devDependencies"])
 
     def test_latest_page_fetches_from_public_api_and_renders_core_fields(self):
+        # the date-grouped, infinite-scroll list (groupEventsByDate, <details>,
+        # the per-card "推荐理由" line) lives in latest-events-feed.tsx /
+        # event-card.tsx now - /latest's page.tsx only fetches the first page
+        # and renders the filter chrome around the feed component
         api_source = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
+        latest_feed = (WEB / "components" / "latest-events-feed.tsx").read_text(encoding="utf-8")
+        event_card = (WEB / "components" / "event-card.tsx").read_text(encoding="utf-8")
 
         self.assertIn("/api/public/latest", api_source)
         self.assertIn("AI_RADAR_API_BASE_URL", api_source)
         self.assertIn("getLatestReport", latest_page)
-        self.assertIn("推荐理由", latest_page)
+        self.assertIn("LatestEventsFeed", latest_page)
+        self.assertIn("推荐理由", event_card)
         self.assertIn("当前热点", latest_page)
-        self.assertIn("groupEventsByDate", latest_page)
-        self.assertIn("<details", latest_page)
+        self.assertIn("groupEventsByDate", latest_feed)
+        self.assertIn("<details", latest_feed)
         self.assertIn('name="q"', latest_page)
         self.assertIn("搜索标题/摘要", latest_page)
 
@@ -337,12 +344,17 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("renderOriginalBlock", detail)
 
     def test_latest_page_supports_category_filter_links(self):
+        # the actual client-side filtering (filteredItems) now runs inside
+        # latest-events-feed.tsx, which page.tsx passes selectedCategory/
+        # query into as props - the filter chip links themselves stay in
+        # page.tsx
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
+        latest_feed = (WEB / "components" / "latest-events-feed.tsx").read_text(encoding="utf-8")
 
         self.assertIn("searchParams", latest_page)
         self.assertIn("selectedCategory", latest_page)
         self.assertIn("categoryOptions", latest_page)
-        self.assertIn("filteredItems", latest_page)
+        self.assertIn("filteredItems", latest_feed)
         self.assertIn("latestHref", latest_page)
         self.assertIn('params.set("category", category)', latest_page)
         taxonomy = (WEB / "lib" / "taxonomy.ts").read_text(encoding="utf-8")
@@ -480,14 +492,21 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertNotIn("下一步", event_page)
 
     def test_all_page_renders_all_latest_events(self):
+        # eventHref/"精选" badge rendering live in the shared event-card.tsx
+        # now (used by both the latest and all feeds); the client-side
+        # search happens inside all-events-feed.tsx, which page.tsx feeds
+        # selectedSource/selectedCategory/query into as props
         all_page = (WEB / "app" / "all" / "page.tsx").read_text(encoding="utf-8")
+        all_feed = (WEB / "components" / "all-events-feed.tsx").read_text(encoding="utf-8")
+        event_card = (WEB / "components" / "event-card.tsx").read_text(encoding="utf-8")
 
         self.assertIn("getAllEvents", all_page)
-        self.assertIn("eventHref", all_page)
+        self.assertIn("AllEventsFeed", all_page)
+        self.assertIn("eventHref", event_card)
         self.assertIn("全部 AI 动态", all_page)
         self.assertIn("AI 相关资讯全量信息流", all_page)
         self.assertIn("Sidebar", all_page)
-        self.assertIn("精选", all_page)
+        self.assertIn("精选", event_card)
         self.assertIn("sourceOptions", all_page)
         self.assertIn("一手信源", all_page)
         self.assertIn("资讯", all_page)
@@ -496,13 +515,13 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("searchParams", all_page)
         self.assertIn("selectedSource", all_page)
         self.assertIn("selectedCategory", all_page)
-        self.assertIn("searchEvents", all_page)
+        self.assertIn("searchEvents", all_feed)
         self.assertIn('name="q"', all_page)
-        self.assertIn("groupEventsByDate", all_page)
-        self.assertIn("<details", all_page)
-        self.assertIn("推荐理由", all_page)
-        self.assertIn("评分", all_page)
-        self.assertIn("来源", all_page)
+        self.assertIn("groupEventsByDate", all_feed)
+        self.assertIn("<details", all_feed)
+        self.assertIn("推荐理由", event_card)
+        self.assertIn("评分", event_card)
+        self.assertIn("来源", all_feed)
 
     def test_search_page_filters_latest_events(self):
         search_page = (WEB / "app" / "search" / "page.tsx").read_text(encoding="utf-8")
