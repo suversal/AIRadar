@@ -34,7 +34,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Searc
         <MobileNav activeNavId="search" />
 
         <section className="px-5 py-6 md:px-9">
-          <header className="rounded-md border border-line bg-panel p-5 shadow-[0_20px_80px_rgba(0,0,0,0.25)]">
+          <header className="rounded-md border border-line bg-panel p-5">
             <h1 className="text-2xl font-semibold text-ink">搜索</h1>
             <p className="mt-1.5 text-sm text-ink-mid">按标题、标签、来源或摘要检索全部事件</p>
 

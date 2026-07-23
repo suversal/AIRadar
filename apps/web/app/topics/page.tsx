@@ -20,7 +20,7 @@ export default async function TopicsPage() {
         <MobileNav activeNavId="topics" />
 
         <section className="px-5 py-6 md:px-9">
-          <header className="rounded-md border border-line bg-panel p-5 shadow-[0_20px_80px_rgba(0,0,0,0.25)]">
+          <header className="rounded-md border border-line bg-panel p-5">
             <h1 className="text-2xl font-semibold text-ink">主题</h1>
             <p className="mt-1.5 text-sm text-ink-mid">
               按公司、技术方向和内容形态浏览近 30 天的 AI 动态
