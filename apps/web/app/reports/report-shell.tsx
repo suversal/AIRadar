@@ -46,7 +46,7 @@ export function ReportShell({
 }) {
   return (
     <main className="min-h-screen bg-canvas text-ink">
-      <div className="grid min-h-screen lg:grid-cols-[224px_200px_1fr]">
+      <div className="grid min-h-screen grid-cols-1 content-start lg:grid-cols-[224px_200px_1fr]">
         <Sidebar activeNavId="daily" />
         <MobileNav activeNavId="daily" />
 

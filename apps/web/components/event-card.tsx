@@ -79,7 +79,7 @@ export function EventCard({
 
       {item.reason ? (
         <div className="mt-4 border-t border-line pt-3">
-          <p className="rounded-md bg-signal/10 px-3 py-2.5 text-sm leading-6 text-signal-bright">
+          <p className="rounded-md bg-signal/10 px-3 py-2.5 text-xs leading-5 text-signal-bright">
             <span className="font-semibold">推荐理由：</span>
             {item.reason}
           </p>
@@ -93,7 +93,7 @@ export function EventCard({
  *  桌面端维持独立的时间列 + 时间轴圆点，避免手机上时间独占一整行占用滚动空间。 */
 export function EventTimelineRow({ time, children }: { time: string; children: ReactNode }) {
   return (
-    <div className="grid gap-1.5 md:grid-cols-[64px_1fr] md:gap-2">
+    <div className="grid grid-cols-1 gap-1.5 md:grid-cols-[64px_1fr] md:gap-2">
       <div className="readout relative flex items-center gap-2 text-sm font-semibold text-ink md:block md:text-lg">
         <span className="h-2 w-2 shrink-0 rounded-full bg-signal md:absolute md:-left-[30px] md:top-1.5 md:h-2.5 md:w-2.5" />
         {time}

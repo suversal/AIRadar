@@ -147,7 +147,7 @@ export default async function EventDetailPage({
 
   return (
     <main className="min-h-screen bg-canvas text-ink">
-      <div className="grid min-h-screen grid-cols-[minmax(0,1fr)] lg:grid-cols-[224px_minmax(0,1fr)]">
+      <div className="grid min-h-screen grid-cols-[minmax(0,1fr)] content-start lg:grid-cols-[224px_minmax(0,1fr)]">
         <Sidebar activeNavId="latest" />
         <MobileNav activeNavId="latest" />
 

@@ -80,8 +80,20 @@
   box-sizing: border-box;
 }
 
+/* The mobile nav drawer sits offscreen via `translate-x-full` when closed,
+   but a transformed fixed-position element still contributes its
+   pre-transform geometry to the document's scrollable-overflow region
+   (real iOS Safari and Chrome's mobile emulation both do this) - without a
+   hard clip here, that invisible box inflates the effective viewport width
+   on every page, forcing a zoomed/pannable layout even though nothing
+   actually meant to be visible extends past the screen edge. */
+html {
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
+  overflow-x: hidden;
   background: var(--color-canvas);
   color: var(--color-ink);
   font-family: var(--font-sans);

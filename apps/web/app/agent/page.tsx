@@ -58,7 +58,7 @@ export default function AgentPage() {
                 <span className="readout rounded border border-signal/40 px-2 py-0.5 text-xs font-semibold text-signal">
                   {endpoint.method}
                 </span>
-                <code className="readout break-all text-sm text-ink">{endpoint.path}</code>
+                <code className="readout min-w-0 break-all text-sm text-ink">{endpoint.path}</code>
               </div>
               <p className="mt-2 text-sm text-ink-mid">{endpoint.description}</p>
             </div>

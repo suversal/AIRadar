@@ -14,7 +14,7 @@ function SkeletonCard() {
 export function PageSkeleton({ activeNavId }: { activeNavId: string }) {
   return (
     <main className="min-h-screen bg-canvas text-ink">
-      <div className="grid min-h-screen lg:grid-cols-[224px_1fr]">
+      <div className="grid min-h-screen grid-cols-1 content-start lg:grid-cols-[224px_1fr]">
         <Sidebar activeNavId={activeNavId} />
 
         <section className="px-5 py-6 md:px-9">

@@ -130,7 +130,7 @@ export default async function DailyPage({
       }
     >
       <div className="mx-auto max-w-4xl">
-        <header className="py-8">
+        <header className="pb-8">
           <div className="flex items-center gap-4 text-xs font-semibold uppercase tracking-[0.35em] text-ink-dim">
             <span className="h-px w-12 bg-signal" />
             <span>

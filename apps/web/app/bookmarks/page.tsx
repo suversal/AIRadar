@@ -66,7 +66,7 @@ export default function BookmarksPage() {
 
   return (
     <main className="min-h-screen bg-canvas text-ink">
-      <div className="grid min-h-screen lg:grid-cols-[224px_1fr]">
+      <div className="grid min-h-screen grid-cols-1 content-start lg:grid-cols-[224px_1fr]">
         <Sidebar activeNavId="bookmarks" />
         <MobileNav activeNavId="bookmarks" />
 
