@@ -1,0 +1,101 @@
+# Production compose for the 2C2G Tencent Lighthouse box.
+# Only nginx (80) is public. Postgres is bound to 127.0.0.1: the local
+# pipeline runs against the local Mac database, and data reaches this box
+# via scripts/sync_db_to_server.sh (pg_dump over ssh), never a direct
+# database connection — keep 5432 closed in the console firewall too.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: radar
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: radar
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+    shm_size: 128mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U radar -d radar"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --maxmemory 96mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 160m
+
+  api:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.api
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.cloud.tencent.com/pypi/simple}
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+    env_file:
+      - ../.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../data:/app/data
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  web:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.web
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+    restart: unless-stopped
+    environment:
+      AI_RADAR_API_BASE_URL: http://api:8000
+      TZ: Asia/Shanghai
+    depends_on:
+      - api
+    deploy:
+      resources:
+        limits:
+          memory: 384m
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/radar.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - web
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+
+volumes:
+  postgres-data:

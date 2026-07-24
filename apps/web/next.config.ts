@@ -2,6 +2,10 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Docker deploys copy only `.next/standalone` into the runtime image
+  // (infra/Dockerfile.web); without standalone output that folder is never
+  // produced and the production image has no server to start.
+  output: "standalone",
   // Next's dev-server lockfile lives at `<distDir>/lock`, so running two
   // `next dev` instances against this same source tree (one for hot-reload
   // testing on 3000, one for mobile testing on 3001) needs each instance to
