@@ -13,7 +13,7 @@ from app.api.public import (
     month_range,
     week_range,
 )
-from app.services.taxonomy import display_category
+from app.services.taxonomy import resolve_focus_category, source_filter_bucket
 
 try:
     from fastapi.testclient import TestClient
@@ -117,21 +117,85 @@ class EventsPayloadTests(unittest.TestCase):
         self.assertEqual(paged["total"], 3)
         self.assertEqual(len(paged["items"]), 1)
 
-    def test_display_category_filter_expands_to_scoring_categories(self):
+    def test_focus_filter_uses_explicit_focus_then_legacy_mapping(self):
         items = [
-            make_item("evt-1", category="product_release", title="Product ships"),
-            make_item("evt-2", category="open_source", title="Repo trends"),
+            make_item(
+                "evt-1",
+                category="product",
+                scoring_category="product_release",
+                focus_category="product",
+                title="Product ships",
+            ),
+            make_item(
+                "evt-2",
+                category="model",
+                scoring_category="open_source",
+                focus_category="model",
+                title="Open model weights",
+            ),
             make_item("evt-3", category="model_release", title="New model"),
             make_item("evt-4", category="product", title="Already display-keyed"),
         ]
         daily = make_daily_payload("2026-07-08", items)
 
-        payload = build_events_payload([daily], category="product")
+        payload = build_events_payload([daily], focus="product")
 
-        # display filter "product" covers product_release + open_source + raw "product"
-        self.assertEqual(payload["total"], 3)
-        model_only = build_events_payload([daily], category="model")
-        self.assertEqual(model_only["total"], 1)
+        self.assertEqual(payload["total"], 2)
+        model_only = build_events_payload([daily], focus="model")
+        self.assertEqual(model_only["total"], 2)
+
+    def test_source_filter_runs_before_pagination(self):
+        items = [
+            make_item(
+                "evt-official",
+                main_source={
+                    "name": "OpenAI Blog",
+                    "url": "https://openai.com/news",
+                    "tier": "T1",
+                    "category": "official",
+                },
+            ),
+            make_item(
+                "evt-media",
+                main_source={
+                    "name": "TechCrunch",
+                    "url": "https://techcrunch.com/ai",
+                    "tier": "T2",
+                    "category": "media",
+                },
+            ),
+        ]
+
+        payload = build_events_payload(
+            [make_daily_payload("2026-07-08", items)],
+            source="first_party",
+            limit=1,
+        )
+
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(payload["items"][0]["event_id"], "evt-official")
+
+    def test_tag_filter_is_exact_and_distinct_from_keyword_search(self):
+        items = [
+            make_item(
+                "evt-tagged",
+                title="Frontier model release",
+                tags=["OpenAI", "模型"],
+            ),
+            make_item(
+                "evt-mentioned",
+                title="Microsoft replaces OpenAI technology",
+                tags=["Microsoft", "产品"],
+            ),
+        ]
+        daily = make_daily_payload("2026-07-08", items)
+
+        by_tag = build_events_payload([daily], tag="openai")
+        by_keyword = build_events_payload([daily], q="OpenAI")
+
+        self.assertEqual(by_tag["total"], 1)
+        self.assertEqual(by_tag["items"][0]["event_id"], "evt-tagged")
+        self.assertEqual(by_keyword["total"], 2)
 
     def test_topic_filter_narrows_events(self):
         items = [
@@ -279,8 +343,11 @@ class PublicEventRouteTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
-        self.assertEqual([g["id"] for g in body["groups"]], ["companies", "directions", "formats"])
-        companies = {t["id"]: t["count"] for t in body["groups"][0]["topics"]}
+        self.assertEqual(
+            [g["id"] for g in body["groups"]],
+            ["models", "products", "directions", "companies"],
+        )
+        companies = {t["id"]: t["count"] for t in body["groups"][3]["topics"]}
         self.assertEqual(companies["openai"], 1)
         self.assertEqual(companies["anthropic"], 1)
 
@@ -303,6 +370,100 @@ class PublicEventRouteTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["total"], 1)
         self.assertEqual(body["items"][0]["event_id"], "evt-2")
+
+    def test_events_route_filters_by_focus_before_pagination(self):
+        client, _ = self._client(
+            {
+                date(2026, 7, 8): make_daily_payload(
+                    "2026-07-08",
+                    [
+                        make_item(
+                            "evt-1",
+                            category="product",
+                            scoring_category="open_source",
+                            focus_category="model",
+                        ),
+                        make_item(
+                            "evt-2",
+                            category="product",
+                            scoring_category="open_source",
+                            focus_category="product",
+                        ),
+                    ],
+                )
+            }
+        )
+
+        response = client.get("/api/public/events?focus=model&limit=1")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["total"], 1)
+        self.assertEqual(body["items"][0]["event_id"], "evt-1")
+
+    def test_events_route_filters_by_source_before_pagination(self):
+        client, _ = self._client(
+            {
+                date(2026, 7, 8): make_daily_payload(
+                    "2026-07-08",
+                    [
+                        make_item(
+                            "evt-official",
+                            main_source={
+                                "name": "OpenAI Blog",
+                                "url": "https://openai.com/news",
+                                "tier": "T1",
+                                "category": "official",
+                            },
+                        ),
+                        make_item(
+                            "evt-media",
+                            main_source={
+                                "name": "TechCrunch",
+                                "url": "https://techcrunch.com/ai",
+                                "tier": "T2",
+                                "category": "media",
+                            },
+                        ),
+                    ],
+                )
+            }
+        )
+
+        response = client.get("/api/public/events?source=first_party&limit=1")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["total"], 1)
+        self.assertEqual(body["items"][0]["event_id"], "evt-official")
+
+    def test_events_route_filters_exact_tag_before_pagination(self):
+        client, _ = self._client(
+            {
+                date(2026, 7, 8): make_daily_payload(
+                    "2026-07-08",
+                    [
+                        make_item(
+                            "evt-tagged",
+                            title="Frontier model release",
+                            tags=["OpenAI", "模型"],
+                        ),
+                        make_item(
+                            "evt-mentioned",
+                            title="Microsoft replaces OpenAI technology",
+                            tags=["Microsoft", "产品"],
+                        ),
+                    ],
+                )
+            }
+        )
+
+        response = client.get("/api/public/events?tag=openai&limit=1")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["total"], 1)
+        self.assertEqual(body["items"][0]["event_id"], "evt-tagged")
 
     def test_weekly_route_serves_persisted_report_by_key_and_date(self):
         client, repository = self._client(
@@ -486,7 +647,14 @@ class FakeRepository:
         return items
 
     def count_and_get_all_event_items_between(
-        self, start_date, end_date, *, category=None, limit=50, offset=0
+        self,
+        start_date,
+        end_date,
+        *,
+        category=None,
+        source=None,
+        limit=50,
+        offset=0,
     ):
         self.calls.append(f"count_all_items:{start_date.isoformat()}:{end_date.isoformat()}")
         items = self.get_all_event_items_between(start_date, end_date)
@@ -494,8 +662,18 @@ class FakeRepository:
             items = [
                 item
                 for item in items
-                if display_category(str(item.get("category") or ""))
-                == display_category(category)
+                if resolve_focus_category(
+                    item.get("focus_category"),
+                    item.get("scoring_category") or item.get("category"),
+                )
+                == category
+            ]
+        if source:
+            items = [
+                item
+                for item in items
+                if source_filter_bucket((item.get("main_source") or {}).get("category"))
+                == source
             ]
         items = sorted(items, key=lambda item: str(item.get("published_at") or ""), reverse=True)
         total = len(items)

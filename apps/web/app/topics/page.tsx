@@ -23,7 +23,7 @@ export default async function TopicsPage() {
           <header className="rounded-md border border-line bg-panel p-5">
             <h1 className="text-2xl font-semibold text-ink">主题</h1>
             <p className="mt-1.5 text-sm text-ink-mid">
-              按公司、技术方向和内容形态浏览近 30 天的 AI 动态
+              按模型、产品工具、技术方向和公司行业浏览近 30 天的 AI 动态
               {payload.article_count > 0 ? ` · 覆盖 ${payload.article_count} 条` : ""}
             </p>
           </header>

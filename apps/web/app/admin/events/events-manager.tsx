@@ -9,6 +9,8 @@ export type AdminEvent = {
   title: string;
   category: string;
   category_label?: string;
+  scoring_category?: string;
+  scoring_category_label?: string;
   tags?: string[];
   final_score?: number;
   selected?: boolean;
@@ -20,14 +22,14 @@ export type AdminEvent = {
 };
 
 const CATEGORY_OPTIONS = [
-  ["model_release", "模型发布"],
-  ["product_release", "产品发布"],
-  ["open_source", "开源"],
-  ["research", "论文"],
-  ["industry", "行业"],
-  ["funding", "融资"],
-  ["opinion", "观点"],
-  ["tutorial", "技巧"],
+  ["model_release", "模型进展"],
+  ["product_release", "产品应用"],
+  ["open_source", "开源项目"],
+  ["research", "研究评测"],
+  ["industry", "行业事件"],
+  ["funding", "资本动态"],
+  ["opinion", "观点分析"],
+  ["tutorial", "教程实践"],
 ] as const;
 
 type StatusFilter = "all" | "visible" | "hidden" | "selected" | "unselected";
@@ -364,8 +366,11 @@ export function EventsManager({
                   <span className="block truncate">{event.main_source?.name ?? "--"}</span>
                 </td>
                 <td className="min-w-0 px-4 py-3 text-xs">
-                  <span className="block truncate rounded bg-panel-soft px-2 py-0.5 text-ink-mid" title={event.category_label ?? event.category}>
-                    {event.category_label ?? event.category}
+                  <span
+                    className="block truncate rounded bg-panel-soft px-2 py-0.5 text-ink-mid"
+                    title={event.scoring_category_label ?? event.scoring_category ?? event.category}
+                  >
+                    {event.scoring_category_label ?? event.scoring_category ?? event.category}
                   </span>
                 </td>
                 <td className="readout px-4 py-3 text-right text-xs text-ink-dim">
@@ -528,7 +533,7 @@ export function EventsManager({
                 分类
                 <select
                   className="mt-1 w-full rounded border border-line bg-canvas px-3 py-2 text-sm text-ink"
-                  defaultValue={editing.category}
+                  defaultValue={editing.scoring_category ?? editing.category}
                   name="category"
                 >
                   {CATEGORY_OPTIONS.map(([value, label]) => (

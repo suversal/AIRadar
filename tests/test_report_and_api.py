@@ -394,6 +394,28 @@ class HotspotPayloadTests(unittest.TestCase):
             ["product-multi"],
         )
 
+    def test_tag_filter_is_exact_before_hotspot_ranking(self):
+        tagged = self._item("tagged", sources=2, score=70)
+        tagged["tags"] = ["OpenAI", "模型"]
+        mentioned = self._item(
+            "mentioned",
+            sources=3,
+            score=90,
+            title="Microsoft replaces OpenAI technology",
+        )
+        mentioned["tags"] = ["Microsoft", "产品"]
+
+        payload = build_hotspots_payload(
+            [tagged, mentioned],
+            tag="openai",
+            now=self.NOW,
+        )
+
+        self.assertEqual(
+            [item["event_id"] for item in payload["items"]],
+            ["tagged"],
+        )
+
     def test_hidden_items_never_reach_the_board(self):
         hidden = self._item("hidden", sources=5, score=99)
         hidden["hidden"] = True

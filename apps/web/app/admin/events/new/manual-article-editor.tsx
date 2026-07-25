@@ -25,14 +25,14 @@ type Submission = {
 };
 
 const CATEGORY_OPTIONS = [
-  ["model_release", "模型发布"],
-  ["product_release", "产品发布"],
+  ["model_release", "模型进展"],
+  ["product_release", "产品应用"],
   ["open_source", "开源项目"],
-  ["research", "研究进展"],
-  ["industry", "行业动态"],
-  ["funding", "融资"],
-  ["opinion", "观点"],
-  ["tutorial", "教程"],
+  ["research", "研究评测"],
+  ["industry", "行业事件"],
+  ["funding", "资本动态"],
+  ["opinion", "观点分析"],
+  ["tutorial", "教程实践"],
 ] as const;
 
 async function api(path: string, init?: RequestInit) {

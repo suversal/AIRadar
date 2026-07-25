@@ -1,6 +1,6 @@
 import { getHotspots, getLatestReport } from "@/lib/api";
 import { eventHref } from "@/lib/events";
-import { CATEGORY_FILTER_OPTIONS } from "@/lib/taxonomy";
+import { FOCUS_FILTER_OPTIONS, focusCategory } from "@/lib/taxonomy";
 import { formatRelativeTime } from "@/lib/time";
 import { LatestEventsFeed } from "@/components/latest-events-feed";
 import { MobileNav } from "@/components/mobile-nav";
@@ -8,13 +8,15 @@ import { RadarStatus } from "@/components/radar-status";
 import { Sidebar } from "@/components/sidebar";
 
 type LatestSearchParams = Promise<{
+  focus?: string | string[];
   category?: string | string[];
   q?: string | string[];
+  tag?: string | string[];
 }>;
 
 const PAGE_SIZE = 50;
 
-const categoryOptions = CATEGORY_FILTER_OPTIONS;
+const categoryOptions = FOCUS_FILTER_OPTIONS;
 
 function firstQueryValue(value?: string | string[]) {
   if (Array.isArray(value)) {
@@ -43,10 +45,13 @@ function formatDateTime(value?: string | null) {
     .replace(/\//g, "-");
 }
 
-function latestHref({ category, q }: { category?: string; q?: string }) {
+function latestHref({ focus, tag, q }: { focus?: string; tag?: string; q?: string }) {
   const params = new URLSearchParams();
-  if (category) {
-    params.set("category", category);
+  if (focus) {
+    params.set("focus", focus);
+  }
+  if (tag) {
+    params.set("tag", tag);
   }
   if (q) {
     params.set("q", q);
@@ -61,11 +66,20 @@ export default async function LatestPage({
   searchParams: LatestSearchParams;
 }) {
   const resolvedSearchParams = await searchParams;
-  const selectedCategory = firstQueryValue(resolvedSearchParams.category) ?? "";
+  const selectedCategory = focusCategory(
+    firstQueryValue(resolvedSearchParams.focus),
+    firstQueryValue(resolvedSearchParams.category),
+  );
+  const selectedTag = firstQueryValue(resolvedSearchParams.tag)?.trim() ?? "";
   const query = firstQueryValue(resolvedSearchParams.q)?.trim() ?? "";
   const [report, hotspots] = await Promise.all([
-    getLatestReport({ limit: PAGE_SIZE }),
-    getHotspots({ category: selectedCategory, q: query }),
+    getLatestReport({
+      limit: PAGE_SIZE,
+      focus: selectedCategory,
+      tag: selectedTag,
+      q: query,
+    }),
+    getHotspots({ focus: selectedCategory, tag: selectedTag, q: query }),
   ]);
   const topEvents = hotspots.items;
 
@@ -100,7 +114,7 @@ export default async function LatestPage({
                         ? "bg-signal/15 text-signal"
                         : "text-ink-mid hover:bg-panel-soft hover:text-ink"
                     }`}
-                    href={latestHref({ category, q: query })}
+                    href={latestHref({ focus: category, tag: selectedTag, q: query })}
                   >
                     {label}
                   </a>
@@ -108,7 +122,8 @@ export default async function LatestPage({
               </div>
 
               <form action="/latest" className="grid grid-cols-[1fr_auto] gap-2">
-                {selectedCategory ? <input name="category" type="hidden" value={selectedCategory} /> : null}
+                {selectedCategory ? <input name="focus" type="hidden" value={selectedCategory} /> : null}
+                {selectedTag ? <input name="tag" type="hidden" value={selectedTag} /> : null}
                 <input
                   className="min-h-10 min-w-0 rounded-md border border-line bg-canvas px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-dim focus:border-signal/60"
                   defaultValue={query}
@@ -129,6 +144,20 @@ export default async function LatestPage({
           {report.error ? (
             <div className="mt-4 rounded-md border border-danger/40 bg-danger/10 p-4 text-sm leading-6 text-danger">
               {report.error}
+            </div>
+          ) : null}
+
+          {selectedTag ? (
+            <div className="mt-4 flex items-center gap-3 text-sm">
+              <span className="rounded-full border border-signal/40 bg-signal/10 px-3 py-1.5 font-medium text-signal">
+                标签筛选：{selectedTag} · {report.total ?? report.items.length} 条
+              </span>
+              <a
+                className="text-ink-mid hover:text-ink"
+                href={latestHref({ focus: selectedCategory, q: query })}
+              >
+                清除
+              </a>
             </div>
           ) : null}
 
@@ -165,6 +194,7 @@ export default async function LatestPage({
           <LatestEventsFeed
             initialItems={report.items}
             initialTotal={report.total ?? report.items.length}
+            tag={selectedTag}
             selectedCategory={selectedCategory}
             query={query}
           />

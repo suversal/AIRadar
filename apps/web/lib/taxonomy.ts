@@ -1,7 +1,5 @@
-// Mirror of apps/api/app/services/taxonomy.py — the single user-facing
-// category standard (全部/模型/产品/行业/论文/技巧). Backend payloads already
-// emit display keys in `category`; this module exists for filter options and
-// for mapping any legacy scoring keys that survive in older payloads.
+// Mirrors apps/api/app/services/taxonomy.py. Existing report/display
+// categories stay intact; only /latest, /all and /topics use reader focus.
 
 export const DISPLAY_CATEGORIES = [
   ["model", "模型"],
@@ -11,9 +9,21 @@ export const DISPLAY_CATEGORIES = [
   ["tutorial", "技巧"],
 ] as const;
 
+export const FOCUS_CATEGORIES = [
+  ["model", "模型动态"],
+  ["product", "产品工具"],
+  ["technology", "技术研究"],
+  ["industry", "行业动态"],
+] as const;
+
 export const CATEGORY_FILTER_OPTIONS: readonly (readonly [string, string])[] = [
   ["", "全部"],
   ...DISPLAY_CATEGORIES,
+];
+
+export const FOCUS_FILTER_OPTIONS: readonly (readonly [string, string])[] = [
+  ["", "全部"],
+  ...FOCUS_CATEGORIES,
 ];
 
 const SCORING_TO_DISPLAY: Record<string, string> = {
@@ -27,9 +37,18 @@ const SCORING_TO_DISPLAY: Record<string, string> = {
   tutorial: "tutorial",
 };
 
-// mirrors taxonomy.py's _FALLBACK_KEYWORDS: substring match for off-enum
-// values (e.g. "research_insight") that the backend didn't already resolve
-const FALLBACK_KEYWORDS: readonly (readonly [string, string])[] = [
+const SCORING_TO_FOCUS: Record<string, string> = {
+  model_release: "model",
+  product_release: "product",
+  open_source: "product",
+  research: "technology",
+  industry: "industry",
+  funding: "industry",
+  opinion: "industry",
+  tutorial: "technology",
+};
+
+const DISPLAY_FALLBACK_KEYWORDS: readonly (readonly [string, string])[] = [
   ["model", "model"],
   ["research", "research"],
   ["paper", "research"],
@@ -46,9 +65,8 @@ const FALLBACK_KEYWORDS: readonly (readonly [string, string])[] = [
   ["funding", "industry"],
 ];
 
-const DEFAULT_DISPLAY_CATEGORY = "industry";
-
 const DISPLAY_LABELS = new Map<string, string>(DISPLAY_CATEGORIES);
+const FOCUS_LABELS = new Map<string, string>(FOCUS_CATEGORIES);
 
 export function displayCategory(category?: string | null): string {
   const raw = (category ?? "").trim().toLowerCase();
@@ -58,14 +76,36 @@ export function displayCategory(category?: string | null): string {
   if (raw in SCORING_TO_DISPLAY) {
     return SCORING_TO_DISPLAY[raw];
   }
-  for (const [keyword, display] of FALLBACK_KEYWORDS) {
+  for (const [keyword, display] of DISPLAY_FALLBACK_KEYWORDS) {
     if (raw.includes(keyword)) {
       return display;
     }
   }
-  return DEFAULT_DISPLAY_CATEGORY;
+  return "industry";
+}
+
+export function focusCategory(
+  focus?: string | null,
+  scoringCategory?: string | null,
+): string {
+  const explicit = (focus ?? "").trim().toLowerCase();
+  if (FOCUS_LABELS.has(explicit)) {
+    return explicit;
+  }
+  const scoring = (scoringCategory ?? "").trim().toLowerCase();
+  if (FOCUS_LABELS.has(scoring)) {
+    return scoring;
+  }
+  if (scoring === "research" || scoring === "tutorial") {
+    return "technology";
+  }
+  return SCORING_TO_FOCUS[scoring] ?? "";
 }
 
 export function categoryLabel(category?: string | null): string {
   return DISPLAY_LABELS.get(displayCategory(category)) ?? "行业";
+}
+
+export function focusCategoryLabel(category?: string | null): string {
+  return FOCUS_LABELS.get((category ?? "").trim().toLowerCase()) ?? "未分类";
 }

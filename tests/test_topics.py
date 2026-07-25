@@ -28,15 +28,16 @@ def make_item(**overrides):
 
 
 class TopicRegistryTests(unittest.TestCase):
-    def test_registry_has_three_groups_with_reasonable_sizes(self):
+    def test_registry_has_four_discovery_groups_with_reasonable_sizes(self):
         groups = {group["id"]: group for group in TOPIC_GROUPS}
 
         self.assertEqual(
-            list(groups), ["companies", "directions", "formats"]
+            list(groups), ["models", "products", "directions", "companies"]
         )
-        self.assertGreaterEqual(len(groups["companies"]["topics"]), 10)
+        self.assertGreaterEqual(len(groups["models"]["topics"]), 8)
+        self.assertGreaterEqual(len(groups["products"]["topics"]), 8)
         self.assertGreaterEqual(len(groups["directions"]["topics"]), 8)
-        self.assertEqual(len(groups["formats"]["topics"]), 5)
+        self.assertGreaterEqual(len(groups["companies"]["topics"]), 10)
         # every topic id is unique across groups
         all_ids = [t["id"] for g in TOPIC_GROUPS for t in g["topics"]]
         self.assertEqual(len(all_ids), len(set(all_ids)))
@@ -69,14 +70,14 @@ class TopicRegistryTests(unittest.TestCase):
             item_matches_topic(make_item(summary="该模型支持多模态输入。"), multimodal)
         )
 
-    def test_format_topics_match_by_display_category(self):
-        research_format = topic_by_id("format_research")
+    def test_product_topic_matches_product_name(self):
+        claude_code = topic_by_id("claude_code")
 
         self.assertTrue(
-            item_matches_topic(make_item(category="research", title="随便"), research_format)
+            item_matches_topic(make_item(title="Claude Code adds hooks"), claude_code)
         )
         self.assertFalse(
-            item_matches_topic(make_item(category="model", title="随便"), research_format)
+            item_matches_topic(make_item(title="Claude model evaluation"), claude_code)
         )
 
 
@@ -90,15 +91,15 @@ class TopicsPayloadTests(unittest.TestCase):
 
         payload = build_topics_payload(items)
 
-        self.assertEqual([g["id"] for g in payload["groups"]], ["companies", "directions", "formats"])
-        companies = payload["groups"][0]
+        self.assertEqual(
+            [g["id"] for g in payload["groups"]],
+            ["models", "products", "directions", "companies"],
+        )
+        companies = payload["groups"][3]
         by_id = {t["id"]: t for t in companies["topics"]}
         self.assertEqual(by_id["openai"]["count"], 1)
         self.assertEqual(by_id["anthropic"]["count"], 1)
         self.assertEqual(by_id["openai"]["name"], "OpenAI")
-        formats = payload["groups"][2]
-        research = next(t for t in formats["topics"] if t["id"] == "format_research")
-        self.assertEqual(research["count"], 1)
         self.assertEqual(payload["article_count"], 3)
 
 

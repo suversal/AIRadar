@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LatestEvent } from "@/lib/api";
 import { searchEvents } from "@/lib/events";
-import { displayCategory } from "@/lib/taxonomy";
+import { focusCategory } from "@/lib/taxonomy";
 import { DateGroupSection } from "@/components/date-group-section";
 import { EventCard, EventTimelineRow } from "@/components/event-card";
 
@@ -101,19 +101,23 @@ function representativeImage(item: LatestEvent) {
   return item.original_images?.[0];
 }
 
-// resets source/category selection - matches the pre-existing behavior of
-// clicking a tag chip: it always searches by just that tag, not "current
-// filters + tag". Kept local to this client component since functions
-// (a prop the server component previously passed) can't cross the
-// server/client boundary.
 function tagHref(tag: string) {
-  return `/all?${new URLSearchParams({ q: tag })}`;
+  return `/all?${new URLSearchParams({ tag })}`;
+}
+
+function matchesExactTag(item: LatestEvent, selectedTag: string) {
+  const normalized = selectedTag.trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+  return (item.tags ?? []).some((tag) => tag.trim().toLowerCase() === normalized);
 }
 
 export function AllEventsFeed({
   initialItems,
   initialTotal,
   topic,
+  tag,
   selectedSource,
   selectedCategory,
   query,
@@ -121,6 +125,7 @@ export function AllEventsFeed({
   initialItems: LatestEvent[];
   initialTotal: number;
   topic: string;
+  tag: string;
   selectedSource: string;
   selectedCategory: string;
   query: string;
@@ -136,12 +141,12 @@ export function AllEventsFeed({
       searched.filter((item) => {
         const sourceMatches = selectedSource ? sourceBucket(item) === selectedSource : true;
         const categoryMatches = selectedCategory
-          ? displayCategory(item.category) === selectedCategory
+          ? focusCategory(item.focus_category, item.scoring_category) === selectedCategory
           : true;
-        return sourceMatches && categoryMatches;
+        return sourceMatches && categoryMatches && matchesExactTag(item, tag);
       }),
     );
-  }, [items, query, selectedSource, selectedCategory]);
+  }, [items, query, selectedSource, selectedCategory, tag]);
 
   const dateGroups = useMemo(() => groupEventsByDate(filteredItems), [filteredItems]);
   const hasMore = items.length < total;
@@ -171,6 +176,18 @@ export function AllEventsFeed({
       if (topic) {
         params.set("topic", topic);
       }
+      if (selectedCategory) {
+        params.set("focus", selectedCategory);
+      }
+      if (selectedSource) {
+        params.set("source", selectedSource);
+      }
+      if (tag) {
+        params.set("tag", tag);
+      }
+      if (query) {
+        params.set("q", query);
+      }
       const response = await fetch(`/api/all-events?${params}`, { cache: "no-store" });
       if (!response.ok) {
         throw new Error(`请求失败（${response.status}）`);
@@ -184,7 +201,7 @@ export function AllEventsFeed({
       loadingRef.current = false;
       setLoading(false);
     }
-  }, [topic]);
+  }, [query, selectedCategory, selectedSource, tag, topic]);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 

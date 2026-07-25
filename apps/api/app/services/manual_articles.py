@@ -201,6 +201,7 @@ def _serialize_scoring(
     return {
         "dimensions": asdict(scoring.dimensions),
         "category": scoring.category,
+        "focus_category": scoring.focus_category,
         "tags": list(scoring.tags),
         "title_zh": scoring.title_zh,
         "one_line_summary": scoring.one_line_summary,
@@ -401,6 +402,11 @@ def publish_submission(repository: Any, submission_id: str) -> ArticleSubmission
             "action_zh": str(ai.get("action_zh") or ""),
         },
         now=now,
+        focus_category=(
+            str(ai.get("focus_category"))
+            if ai.get("focus_category")
+            else None
+        ),
     )
     if model.selection_mode == "force_selected":
         processed = replace(

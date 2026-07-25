@@ -75,6 +75,7 @@ class ScoringResult:
     summary_zh: str
     reason_zh: str
     action_zh: str
+    focus_category: str | None = None
 
 
 @dataclass
@@ -96,6 +97,7 @@ class ProcessedArticle:
     rejection_reason: str | None = None
     selection_origin: str = "score"
     selection_reason: str | None = None
+    focus_category: str | None = None
 
 
 @dataclass

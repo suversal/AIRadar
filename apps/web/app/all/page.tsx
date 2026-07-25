@@ -1,5 +1,5 @@
 import { getAllEvents } from "@/lib/api";
-import { CATEGORY_FILTER_OPTIONS } from "@/lib/taxonomy";
+import { FOCUS_FILTER_OPTIONS, focusCategory } from "@/lib/taxonomy";
 import { AllEventsFeed } from "@/components/all-events-feed";
 import { MobileNav } from "@/components/mobile-nav";
 import { RadarStatus } from "@/components/radar-status";
@@ -7,8 +7,10 @@ import { Sidebar } from "@/components/sidebar";
 
 type AllSearchParams = Promise<{
   source?: string | string[];
+  focus?: string | string[];
   category?: string | string[];
   q?: string | string[];
+  tag?: string | string[];
   topic?: string | string[];
 }>;
 
@@ -16,13 +18,13 @@ const DAYS = 30;
 const PAGE_SIZE = 50;
 
 const sourceOptions = [
-  ["", "全部"],
-  ["first_party", "一手信源"],
-  ["news", "资讯"],
-  ["community", "推文"],
+  ["", "全部来源"],
+  ["first_party", "官方原文"],
+  ["news", "媒体报道"],
+  ["community", "社区讨论"],
 ] as const;
 
-const categoryOptions = CATEGORY_FILTER_OPTIONS;
+const categoryOptions = FOCUS_FILTER_OPTIONS;
 
 function firstQueryValue(value?: string | string[]) {
   if (Array.isArray(value)) {
@@ -33,19 +35,29 @@ function firstQueryValue(value?: string | string[]) {
 
 function allHref({
   source,
-  category,
+  focus,
+  tag,
+  topic,
   q,
 }: {
   source?: string;
-  category?: string;
+  focus?: string;
+  tag?: string;
+  topic?: string;
   q?: string;
 }) {
   const params = new URLSearchParams();
   if (source) {
     params.set("source", source);
   }
-  if (category) {
-    params.set("category", category);
+  if (focus) {
+    params.set("focus", focus);
+  }
+  if (tag) {
+    params.set("tag", tag);
+  }
+  if (topic) {
+    params.set("topic", topic);
   }
   if (q) {
     params.set("q", q);
@@ -61,13 +73,21 @@ export default async function AllEventsPage({
 }) {
   const resolvedSearchParams = await searchParams;
   const selectedSource = firstQueryValue(resolvedSearchParams.source) ?? "";
-  const selectedCategory = firstQueryValue(resolvedSearchParams.category) ?? "";
+  const selectedCategory = focusCategory(
+    firstQueryValue(resolvedSearchParams.focus),
+    firstQueryValue(resolvedSearchParams.category),
+  );
   const selectedTopic = firstQueryValue(resolvedSearchParams.topic)?.trim() ?? "";
+  const selectedTag = firstQueryValue(resolvedSearchParams.tag)?.trim() ?? "";
   const query = firstQueryValue(resolvedSearchParams.q)?.trim() ?? "";
   const report = await getAllEvents({
     days: DAYS,
     limit: PAGE_SIZE,
+    source: selectedSource || undefined,
+    focus: selectedCategory || undefined,
+    tag: selectedTag || undefined,
     topic: selectedTopic || undefined,
+    q: query || undefined,
   });
 
   return (
@@ -98,7 +118,13 @@ export default async function AllEventsPage({
                         ? "bg-signal/15 text-signal"
                         : "text-ink-mid hover:bg-panel-soft hover:text-ink"
                     }`}
-                    href={allHref({ source, category: selectedCategory, q: query })}
+                    href={allHref({
+                      source,
+                      focus: selectedCategory,
+                      tag: selectedTag,
+                      topic: selectedTopic,
+                      q: query,
+                    })}
                   >
                     {label}
                   </a>
@@ -114,7 +140,13 @@ export default async function AllEventsPage({
                         ? "bg-signal/15 text-signal"
                         : "text-ink-mid hover:bg-panel-soft hover:text-ink"
                     }`}
-                    href={allHref({ source: selectedSource, category, q: query })}
+                    href={allHref({
+                      source: selectedSource,
+                      focus: category,
+                      tag: selectedTag,
+                      topic: selectedTopic,
+                      q: query,
+                    })}
                   >
                     {label}
                   </a>
@@ -123,7 +155,9 @@ export default async function AllEventsPage({
 
               <form action="/all" className="grid grid-cols-[1fr_auto] gap-2">
                 {selectedSource ? <input name="source" type="hidden" value={selectedSource} /> : null}
-                {selectedCategory ? <input name="category" type="hidden" value={selectedCategory} /> : null}
+                {selectedCategory ? <input name="focus" type="hidden" value={selectedCategory} /> : null}
+                {selectedTag ? <input name="tag" type="hidden" value={selectedTag} /> : null}
+                {selectedTopic ? <input name="topic" type="hidden" value={selectedTopic} /> : null}
                 <input
                   className="min-h-10 min-w-0 rounded-md border border-line bg-canvas px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-dim focus:border-signal/60"
                   defaultValue={query}
@@ -152,7 +186,15 @@ export default async function AllEventsPage({
               <span className="rounded-full border border-signal/40 bg-signal/10 px-3 py-1.5 font-medium text-signal">
                 主题筛选：{selectedTopic} · {report.total} 条
               </span>
-              <a className="text-ink-mid hover:text-ink" href="/all">
+              <a
+                className="text-ink-mid hover:text-ink"
+                href={allHref({
+                  source: selectedSource,
+                  focus: selectedCategory,
+                  tag: selectedTag,
+                  q: query,
+                })}
+              >
                 清除
               </a>
               <a className="text-ink-mid hover:text-ink" href="/topics">
@@ -161,10 +203,30 @@ export default async function AllEventsPage({
             </div>
           ) : null}
 
+          {selectedTag ? (
+            <div className="mt-4 flex items-center gap-3 text-sm">
+              <span className="rounded-full border border-signal/40 bg-signal/10 px-3 py-1.5 font-medium text-signal">
+                标签筛选：{selectedTag} · {report.total} 条
+              </span>
+              <a
+                className="text-ink-mid hover:text-ink"
+                href={allHref({
+                  source: selectedSource,
+                  focus: selectedCategory,
+                  topic: selectedTopic,
+                  q: query,
+                })}
+              >
+                清除
+              </a>
+            </div>
+          ) : null}
+
           <AllEventsFeed
             initialItems={report.items}
             initialTotal={report.total}
             topic={selectedTopic}
+            tag={selectedTag}
             selectedSource={selectedSource}
             selectedCategory={selectedCategory}
             query={query}

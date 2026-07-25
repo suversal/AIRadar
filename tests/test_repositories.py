@@ -272,6 +272,55 @@ class RepositoryTests(unittest.TestCase):
 
         self.assertEqual(stored.event_cluster_id, "e-keep")
 
+    def test_processed_focus_category_is_persisted_and_exposed(self):
+        from dataclasses import replace as dc_replace
+
+        from app.db.models import ProcessedArticleModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles(
+                [self._article(article_id="a1", title="Llama 开放模型权重")]
+            )
+            repository.upsert_processed_articles(
+                [
+                    dc_replace(
+                        self._processed("a1"),
+                        category="open_source",
+                        focus_category="model",
+                    )
+                ]
+            )
+            session.commit()
+
+            stored = session.scalar(
+                select(ProcessedArticleModel).where(
+                    ProcessedArticleModel.raw_article_id == "a1"
+                )
+            )
+            items = repository.get_all_event_items_between(
+                date(2026, 7, 1),
+                date(2026, 7, 1),
+            )
+            focused_items, focused_total, _ = (
+                repository.count_and_get_all_event_items_between(
+                    date(2026, 7, 1),
+                    date(2026, 7, 1),
+                    category="model",
+                )
+            )
+
+        self.assertEqual(stored.focus_category, "model")
+        self.assertEqual(items[0]["focus_category"], "model")
+        self.assertEqual(items[0]["category_label"], "产品")
+        self.assertEqual(items[0]["focus_category_label"], "模型动态")
+        self.assertEqual(items[0]["scoring_category"], "open_source")
+        self.assertEqual(items[0]["scoring_category_label"], "开源项目")
+        self.assertEqual(focused_total, 1)
+        self.assertEqual(focused_items[0]["event_id"], "aa1")
+
     def test_all_listing_uses_membership_table_despite_link_drift(self):
         # 回归（实测生产库 14/48 链接漂移）：即使 processed 缓存列被覆写成
         # NULL，事件主文的 event_id 也必须以成员表为事实源，不依赖那个会
@@ -1007,6 +1056,22 @@ class RepositoryTests(unittest.TestCase):
             filtered_items, filtered_total, _ = repository.count_and_get_all_event_items_between(
                 date(2026, 7, 1), date(2026, 7, 5), category="model", limit=10, offset=0
             )
+            official_items, official_total, _ = (
+                repository.count_and_get_all_event_items_between(
+                    date(2026, 7, 1),
+                    date(2026, 7, 5),
+                    source="first_party",
+                    limit=10,
+                    offset=0,
+                )
+            )
+            news_items, news_total, _ = repository.count_and_get_all_event_items_between(
+                date(2026, 7, 1),
+                date(2026, 7, 5),
+                source="news",
+                limit=10,
+                offset=0,
+            )
 
         # 5 篇全落在窗口内，总数不受 limit 影响
         self.assertEqual(page1_total, 5)
@@ -1019,6 +1084,10 @@ class RepositoryTests(unittest.TestCase):
         # a1/a3/a5 是 model_release → 展示分类 model，其余是 industry
         self.assertEqual(filtered_total, 3)
         self.assertEqual({item["event_id"] for item in filtered_items}, {"aa1", "aa3", "aa5"})
+        self.assertEqual(official_total, 5)
+        self.assertEqual(len(official_items), 5)
+        self.assertEqual(news_total, 0)
+        self.assertEqual(news_items, [])
 
     def test_event_item_includes_coverage_from_every_clustered_source(self):
         # 事件详情页"同一事件·N家报道"板块的数据来源：event_cluster_articles
@@ -1861,7 +1930,8 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(selected_item["final_score"], 88.0)
         self.assertEqual(selected_item["main_source"]["name"], "OpenAI Blog")
         self.assertEqual(selected_item["main_source"]["id"], "openai_blog")
-        # 2026-07-21: /all page's source-type filter (一手信源/资讯/推文) needs
+        # 2026-07-21: /all page's source-type filter
+        # (官方原文/媒体报道/社区讨论) needs
         # the source's real category instead of guessing from the name
         self.assertEqual(selected_item["main_source"]["category"], "official")
         self.assertEqual(

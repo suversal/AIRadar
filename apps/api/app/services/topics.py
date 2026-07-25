@@ -1,10 +1,8 @@
 """Topic registry powering the /topics page and the events topic filter.
 
-Three groups mirror the reference site: 公司与模型 (matched by company /
-model keywords), 技术方向 (matched by technique keywords), 内容形态
-(matched by display category from the taxonomy). ASCII keywords match on
-word boundaries so e.g. "meta" never matches "metadata"; CJK keywords
-match by substring.
+Topics are a separate discovery axis from the four primary focus categories.
+ASCII keywords match on word boundaries so e.g. "meta" never matches
+"metadata"; CJK keywords match by substring.
 """
 
 from __future__ import annotations
@@ -12,39 +10,44 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.services.taxonomy import DISPLAY_CATEGORIES, display_category
-
-
 def _topic(topic_id: str, name: str, keywords: list[str]) -> dict[str, Any]:
     return {"id": topic_id, "name": name, "keywords": keywords}
 
 
-def _format_topic(display_key: str, label: str) -> dict[str, Any]:
-    return {"id": f"format_{display_key}", "name": label, "category": display_key}
-
-
 TOPIC_GROUPS: list[dict[str, Any]] = [
     {
-        "id": "companies",
-        "name": "公司与模型",
-        "description": "按厂商与模型系列追踪",
+        "id": "models",
+        "name": "模型",
+        "description": "追踪主要模型系列",
         "topics": [
-            _topic("openai", "OpenAI", ["openai", "chatgpt", "gpt", "sora"]),
-            _topic("anthropic", "Anthropic", ["anthropic", "claude"]),
-            _topic("google", "Google / Gemini", ["google", "gemini", "deepmind", "谷歌"]),
-            _topic("meta", "Meta / Llama", ["meta", "llama"]),
-            _topic("xai", "xAI / Grok", ["xai", "grok"]),
+            _topic("gpt", "GPT", ["gpt", "o1", "o3", "o4"]),
+            _topic("claude", "Claude", ["claude"]),
+            _topic("gemini", "Gemini", ["gemini"]),
+            _topic("llama", "Llama", ["llama"]),
+            _topic("grok", "Grok", ["grok"]),
             _topic("deepseek", "DeepSeek", ["deepseek"]),
-            _topic("qwen", "Qwen / 阿里", ["qwen", "通义", "阿里", "alibaba"]),
+            _topic("qwen", "Qwen / 通义", ["qwen", "通义"]),
             _topic("mistral", "Mistral", ["mistral"]),
-            _topic("nvidia", "NVIDIA", ["nvidia", "英伟达", "cuda"]),
-            _topic("huggingface", "Hugging Face", ["hugging face", "huggingface"]),
-            _topic("microsoft", "Microsoft", ["microsoft", "copilot", "azure", "微软"]),
             _topic(
                 "cn_models",
                 "国产模型",
-                ["kimi", "moonshot", "智谱", "glm", "minimax", "豆包", "字节", "文心", "百度", "腾讯", "混元"],
+                ["kimi", "moonshot", "智谱", "glm", "minimax", "豆包", "文心", "混元"],
             ),
+        ],
+    },
+    {
+        "id": "products",
+        "name": "产品与工具",
+        "description": "追踪常用 AI 产品和开发工具",
+        "topics": [
+            _topic("chatgpt", "ChatGPT", ["chatgpt"]),
+            _topic("claude_code", "Claude Code", ["claude code"]),
+            _topic("copilot", "GitHub Copilot", ["github copilot", "copilot"]),
+            _topic("cursor", "Cursor", ["cursor"]),
+            _topic("perplexity", "Perplexity", ["perplexity"]),
+            _topic("huggingface", "Hugging Face", ["hugging face", "huggingface"]),
+            _topic("sora", "Sora", ["sora"]),
+            _topic("ai_search", "AI 搜索", ["ai search", "ai 搜索", "智能搜索"]),
         ],
     },
     {
@@ -69,10 +72,22 @@ TOPIC_GROUPS: list[dict[str, Any]] = [
         ],
     },
     {
-        "id": "formats",
-        "name": "内容形态",
-        "description": "按内容类型浏览",
-        "topics": [_format_topic(key, label) for key, label in DISPLAY_CATEGORIES],
+        "id": "companies",
+        "name": "公司与行业",
+        "description": "追踪公司和产业参与者",
+        "topics": [
+            _topic("openai", "OpenAI", ["openai", "chatgpt", "gpt", "sora"]),
+            _topic("anthropic", "Anthropic", ["anthropic", "claude"]),
+            _topic("google", "Google / DeepMind", ["google", "deepmind", "谷歌", "gemini"]),
+            _topic("meta", "Meta", ["meta", "llama"]),
+            _topic("xai", "xAI", ["xai", "grok"]),
+            _topic("microsoft", "Microsoft", ["microsoft", "微软", "azure"]),
+            _topic("nvidia", "NVIDIA", ["nvidia", "英伟达", "cuda"]),
+            _topic("alibaba", "阿里巴巴", ["alibaba", "阿里"]),
+            _topic("bytedance", "字节跳动", ["bytedance", "字节"]),
+            _topic("baidu", "百度", ["baidu", "百度"]),
+            _topic("tencent", "腾讯", ["tencent", "腾讯"]),
+        ],
     },
 ]
 
@@ -104,8 +119,6 @@ def _item_text(item: dict[str, Any]) -> str:
 def item_matches_topic(item: dict[str, Any], topic: dict[str, Any] | None) -> bool:
     if topic is None:
         return False
-    if "category" in topic:
-        return display_category(item.get("category")) == topic["category"]
     text = _item_text(item)
     return any(_keyword_matches(text, keyword) for keyword in topic["keywords"])
 

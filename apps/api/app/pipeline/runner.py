@@ -193,6 +193,11 @@ def _cached_scoring_result(cached: dict[str, Any] | None) -> ScoringResult | Non
             summary_zh=str(scoring["summary_zh"]),
             reason_zh=str(scoring["reason_zh"]),
             action_zh=str(scoring["action_zh"]),
+            focus_category=(
+                str(scoring["focus_category"])
+                if scoring.get("focus_category")
+                else None
+            ),
         )
     except (KeyError, TypeError, ValueError):
         return None
@@ -396,6 +401,7 @@ def _process_candidate_article(
         },
         now=now,
         source_count=1,
+        focus_category=scoring.focus_category,
     )
     forced = forced_selection(source)
     if forced == FORCE_SELECTION_ALWAYS:
@@ -482,6 +488,7 @@ def _trusted_curated_fallback_scoring(article: RawArticle) -> ScoringResult:
         summary_zh=summary[:500],
         reason_zh=reason,
         action_zh="阅读原文并核对一手来源。",
+        focus_category=None,
     )
 
 

@@ -64,6 +64,7 @@ class WebAppStructureTests(unittest.TestCase):
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
         latest_feed = (WEB / "components" / "latest-events-feed.tsx").read_text(encoding="utf-8")
         event_card = (WEB / "components" / "event-card.tsx").read_text(encoding="utf-8")
+        date_group = (WEB / "components" / "date-group-section.tsx").read_text(encoding="utf-8")
 
         self.assertIn("/api/public/latest", api_source)
         self.assertIn("AI_RADAR_API_BASE_URL", api_source)
@@ -72,7 +73,8 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("推荐理由", event_card)
         self.assertIn("当前热点", latest_page)
         self.assertIn("groupEventsByDate", latest_feed)
-        self.assertIn("<details", latest_feed)
+        self.assertIn("DateGroupSection", latest_feed)
+        self.assertIn("<details", date_group)
         self.assertIn('name="q"', latest_page)
         self.assertIn("搜索标题/摘要", latest_page)
 
@@ -356,7 +358,7 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("categoryOptions", latest_page)
         self.assertIn("filteredItems", latest_feed)
         self.assertIn("latestHref", latest_page)
-        self.assertIn('params.set("category", category)', latest_page)
+        self.assertIn('params.set("focus", focus)', latest_page)
         taxonomy = (WEB / "lib" / "taxonomy.ts").read_text(encoding="utf-8")
         self.assertIn('["", "全部"]', taxonomy)
 
@@ -499,6 +501,7 @@ class WebAppStructureTests(unittest.TestCase):
         all_page = (WEB / "app" / "all" / "page.tsx").read_text(encoding="utf-8")
         all_feed = (WEB / "components" / "all-events-feed.tsx").read_text(encoding="utf-8")
         event_card = (WEB / "components" / "event-card.tsx").read_text(encoding="utf-8")
+        date_group = (WEB / "components" / "date-group-section.tsx").read_text(encoding="utf-8")
 
         self.assertIn("getAllEvents", all_page)
         self.assertIn("AllEventsFeed", all_page)
@@ -508,9 +511,10 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("Sidebar", all_page)
         self.assertIn("精选", event_card)
         self.assertIn("sourceOptions", all_page)
-        self.assertIn("一手信源", all_page)
-        self.assertIn("资讯", all_page)
-        self.assertIn("推文", all_page)
+        self.assertIn("全部来源", all_page)
+        self.assertIn("官方原文", all_page)
+        self.assertIn("媒体报道", all_page)
+        self.assertIn("社区讨论", all_page)
         self.assertIn("categoryOptions", all_page)
         self.assertIn("searchParams", all_page)
         self.assertIn("selectedSource", all_page)
@@ -518,7 +522,8 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("searchEvents", all_feed)
         self.assertIn('name="q"', all_page)
         self.assertIn("groupEventsByDate", all_feed)
-        self.assertIn("<details", all_feed)
+        self.assertIn("DateGroupSection", all_feed)
+        self.assertIn("<details", date_group)
         self.assertIn("推荐理由", event_card)
         self.assertIn("评分", event_card)
         self.assertIn("来源", all_feed)
@@ -535,6 +540,25 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("搜索", search_page)
         self.assertIn("搜索结果", search_page)
         self.assertIn("searchEvents", event_helpers)
+
+    def test_tag_chips_use_exact_tag_query_instead_of_keyword_search(self):
+        all_feed = (WEB / "components" / "all-events-feed.tsx").read_text(encoding="utf-8")
+        latest_feed = (WEB / "components" / "latest-events-feed.tsx").read_text(
+            encoding="utf-8"
+        )
+        all_proxy = (WEB / "app" / "api" / "all-events" / "route.ts").read_text(
+            encoding="utf-8"
+        )
+        latest_proxy = (
+            WEB / "app" / "api" / "latest-events" / "route.ts"
+        ).read_text(encoding="utf-8")
+
+        for feed in (all_feed, latest_feed):
+            self.assertIn("new URLSearchParams({ tag })", feed)
+            self.assertNotIn("new URLSearchParams({ q: tag })", feed)
+            self.assertIn('params.set("tag", tag)', feed)
+        for proxy in (all_proxy, latest_proxy):
+            self.assertIn('url.searchParams.get("tag")', proxy)
 
     def test_global_css_uses_tailwind_v4_import(self):
         globals_css = (WEB / "app" / "globals.css").read_text(encoding="utf-8")

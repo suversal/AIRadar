@@ -6,20 +6,32 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
 from app.services.taxonomy import (
     DISPLAY_CATEGORIES,
+    FOCUS_CATEGORIES,
     category_label,
     display_category,
+    focus_category_label,
+    infer_focus_category,
+    scoring_category_label,
     scoring_categories_for,
 )
 
 
 class TaxonomyTests(unittest.TestCase):
-    def test_display_categories_match_reference_site_filters(self):
+    def test_existing_display_categories_stay_compatible(self):
         self.assertEqual(
             [key for key, _ in DISPLAY_CATEGORIES],
             ["model", "product", "industry", "research", "tutorial"],
         )
         self.assertEqual(dict(DISPLAY_CATEGORIES)["model"], "模型")
         self.assertEqual(dict(DISPLAY_CATEGORIES)["tutorial"], "技巧")
+
+    def test_reader_focus_has_four_categories(self):
+        self.assertEqual(
+            [key for key, _ in FOCUS_CATEGORIES],
+            ["model", "product", "technology", "industry"],
+        )
+        self.assertEqual(dict(FOCUS_CATEGORIES)["model"], "模型动态")
+        self.assertEqual(dict(FOCUS_CATEGORIES)["technology"], "技术研究")
 
     def test_every_scoring_category_maps_to_a_display_category(self):
         expectations = {
@@ -35,7 +47,7 @@ class TaxonomyTests(unittest.TestCase):
         for scoring, display in expectations.items():
             self.assertEqual(display_category(scoring), display)
 
-    def test_unknown_scoring_categories_fall_back_by_keyword_then_industry(self):
+    def test_unknown_scoring_categories_keep_legacy_display_fallback(self):
         # real DeepSeek output has produced e.g. "research_insight"
         self.assertEqual(display_category("research_insight"), "research")
         self.assertEqual(display_category("model_update"), "model")
@@ -62,6 +74,30 @@ class TaxonomyTests(unittest.TestCase):
         self.assertEqual(category_label("model"), "模型")
         self.assertEqual(category_label("model_release"), "模型")
         self.assertEqual(category_label("unheard_of"), "行业")
+        self.assertEqual(focus_category_label("model"), "模型动态")
+
+    def test_ambiguous_internal_types_follow_their_primary_subject(self):
+        self.assertEqual(
+            infer_focus_category("open_source", text="Llama 模型权重正式开放"),
+            "model",
+        )
+        self.assertEqual(
+            infer_focus_category("open_source", text="LangGraph agent tool framework"),
+            "product",
+        )
+        self.assertEqual(
+            infer_focus_category("tutorial", text="LoRA 微调训练最佳实践"),
+            "technology",
+        )
+        self.assertEqual(
+            infer_focus_category("tutorial", text="Claude Code 工具使用教程"),
+            "product",
+        )
+
+    def test_internal_category_labels_keep_existing_enums(self):
+        self.assertEqual(scoring_category_label("model_release"), "模型进展")
+        self.assertEqual(scoring_category_label("research"), "研究评测")
+        self.assertEqual(scoring_category_label("funding"), "资本动态")
 
 
 if __name__ == "__main__":

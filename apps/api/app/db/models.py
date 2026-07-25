@@ -189,6 +189,9 @@ class ProcessedArticleModel(Base):
     reason_zh: Mapped[str] = mapped_column(Text, nullable=False)
     action_zh: Mapped[str] = mapped_column(Text, nullable=False)
     category: Mapped[str] = mapped_column(String, nullable=False)
+    # One primary user interest used by /latest, /all and /topics navigation.
+    # The existing category column remains the eight-way scoring taxonomy.
+    focus_category: Mapped[Optional[str]] = mapped_column(String, index=True)
     tags: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     model_used: Mapped[Optional[str]] = mapped_column(String)
     # lineage: the pipeline run that last (re)generated this row

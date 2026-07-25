@@ -67,6 +67,9 @@ class ScoringPromptTests(unittest.TestCase):
         self.assertIn("Agent", prompt)
         self.assertIn("多模态", prompt)
         self.assertIn("strict JSON", prompt)
+        for focus in ["model", "product", "technology", "industry"]:
+            self.assertIn(focus, prompt)
+        self.assertIn("focus_category", prompt)
 
     def test_scoring_system_prompt_enforces_reason_and_summary_quality(self):
         # 用户规格（2026-07-11）：推荐理由与核心摘要必须有字数区间、结构
@@ -268,6 +271,7 @@ class AIProviderTests(unittest.TestCase):
                     "creator_value": 5,
                 },
                 "category": "model_release",
+                "focus_category": "model",
                 "tags": ["Agent", "OpenAI"],
                 "title_zh": "模型发布",
                 "one_line_summary": "一句话",
@@ -279,6 +283,7 @@ class AIProviderTests(unittest.TestCase):
 
         self.assertEqual(parsed.dimensions.ai_relevance, 10)
         self.assertEqual(parsed.dimensions.novelty, 0)
+        self.assertEqual(parsed.focus_category, "model")
 
     def test_parse_scoring_payload_logs_warning_for_off_enum_category(self):
         # 2026-07-20 诊断：模型偶尔吐出枚举外的 category（如

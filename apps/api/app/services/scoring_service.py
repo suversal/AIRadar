@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.models.domain import ProcessedArticle, RawArticle, ScoreDimensions, Source
+from app.services.taxonomy import resolve_focus_category
 
 BASE_SCORE_WEIGHTS = {
     "ai_relevance": 0.25,
@@ -125,6 +126,7 @@ def select_processed_article(
     now: datetime | None = None,
     source_count: int = 1,
     is_duplicate: bool = False,
+    focus_category: str | None = None,
 ) -> ProcessedArticle:
     base_score = compute_base_score(dimensions)
     final_score = compute_final_score(
@@ -157,5 +159,18 @@ def select_processed_article(
         selection_origin="score",
         selection_reason=(
             f"final_score:{final_score}>=threshold:{threshold}" if selected else None
+        ),
+        focus_category=resolve_focus_category(
+            focus_category,
+            category,
+            text=" ".join(
+                [
+                    article.title,
+                    generated_fields.get("title_zh", ""),
+                    generated_fields.get("one_line_summary", ""),
+                    generated_fields.get("summary_zh", ""),
+                    " ".join(tags),
+                ]
+            ),
         ),
     )

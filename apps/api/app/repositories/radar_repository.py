@@ -42,7 +42,16 @@ from app.services.daily_report_service import (
     _plain_paragraphs_from_blocks,
     _strip_legacy_telegram_signature,
 )
-from app.services.taxonomy import category_label, display_category, scoring_categories_for
+from app.services.taxonomy import (
+    COMMUNITY_SOURCE_CATEGORIES,
+    FIRST_PARTY_SOURCE_CATEGORIES,
+    category_label,
+    display_category,
+    focus_category_label,
+    resolve_focus_category,
+    scoring_categories_for_focus,
+    scoring_category_label,
+)
 
 
 class SourceHasArticlesError(Exception):
@@ -1602,6 +1611,7 @@ class RadarRepository:
                         "creator_value": processed.creator_value,
                     },
                     "category": processed.category,
+                    "focus_category": processed.focus_category,
                     "tags": list(processed.tags or []),
                     "title_zh": processed.title_zh,
                     "one_line_summary": processed.one_line_summary,
@@ -1817,6 +1827,7 @@ class RadarRepository:
         end_date: date,
         *,
         category: str | None = None,
+        source: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[dict[str, Any]], int, str | None]:
@@ -1834,9 +1845,32 @@ class RadarRepository:
         worth the risk for filters used far less often than the default view."""
         query = self._all_events_query(start_date, end_date)
         if category:
+            legacy_categories = scoring_categories_for_focus(category)
             query = query.where(
-                ProcessedArticleModel.category.in_(scoring_categories_for(category))
+                (ProcessedArticleModel.focus_category == category)
+                | (
+                    ProcessedArticleModel.focus_category.is_(None)
+                    & ProcessedArticleModel.category.in_(legacy_categories)
+                )
             )
+        if source == "first_party":
+            query = query.where(
+                SourceModel.category.in_(tuple(FIRST_PARTY_SOURCE_CATEGORIES))
+            )
+        elif source == "community":
+            query = query.where(
+                SourceModel.category.in_(tuple(COMMUNITY_SOURCE_CATEGORIES))
+            )
+        elif source == "news":
+            non_news_categories = tuple(
+                FIRST_PARTY_SOURCE_CATEGORIES | COMMUNITY_SOURCE_CATEGORIES
+            )
+            query = query.where(
+                SourceModel.category.is_(None)
+                | SourceModel.category.notin_(non_news_categories)
+            )
+        elif source:
+            query = query.where(SourceModel.id.is_(None))
         total, updated_at = self.session.execute(
             query.with_only_columns(func.count(), func.max(RawArticleModel.published_at))
         ).one()
@@ -2385,6 +2419,19 @@ def _event_item(
         or (override.category if override and override.category else None)
         or processed.category
     )
+    focus_category = resolve_focus_category(
+        None if (event_override and event_override.category) or (override and override.category)
+        else processed.focus_category,
+        category,
+        text=" ".join(
+            [
+                str(title_zh or raw.title or ""),
+                str(one_line_summary or ""),
+                str(summary_zh or ""),
+                " ".join(str(tag) for tag in processed.tags or []),
+            ]
+        ),
+    )
     # tags None means the editor never touched tags; an empty list is a
     # deliberate "clear all tags" decision and must win
     if event_override is not None and event_override.tags is not None:
@@ -2402,7 +2449,10 @@ def _event_item(
         "title": title_zh or raw.title,
         "category": display_category(category),
         "category_label": category_label(category),
+        "focus_category": focus_category,
+        "focus_category_label": focus_category_label(focus_category),
         "scoring_category": category,
+        "scoring_category_label": scoring_category_label(category),
         "tags": tags,
         "final_score": processed.final_score,
         "selected": processed.status == "processed",
@@ -2512,6 +2562,7 @@ def _apply_processed_article(model: ProcessedArticleModel, processed: ProcessedA
     model.reason_zh = processed.reason_zh
     model.action_zh = processed.action_zh
     model.category = processed.category
+    model.focus_category = processed.focus_category
     model.tags = list(processed.tags)
     model.status = processed.status
     model.rejection_reason = processed.rejection_reason

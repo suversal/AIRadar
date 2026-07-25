@@ -12,6 +12,7 @@ from typing import Any
 
 from app.models.domain import PrefilterResult, ScoreDimensions, ScoringResult
 from app.services.period_summary_service import parse_period_summary_payload
+from app.services.taxonomy import resolve_focus_category
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,18 @@ def parse_scoring_payload(payload: dict[str, Any]) -> ScoringResult:
             SCORING_CATEGORIES,
             str(payload.get("title_zh", ""))[:80],
         )
+    focus_category = resolve_focus_category(
+        str(payload.get("focus_category") or ""),
+        category,
+        text=" ".join(
+            [
+                str(payload.get("title_zh") or ""),
+                str(payload.get("one_line_summary") or ""),
+                str(payload.get("summary_zh") or ""),
+                " ".join(tags),
+            ]
+        ),
+    )
     return ScoringResult(
         dimensions=ScoreDimensions(
             ai_relevance=_clamp_dimension(dimensions["ai_relevance"]),
@@ -116,6 +129,7 @@ def parse_scoring_payload(payload: dict[str, Any]) -> ScoringResult:
         summary_zh=str(payload["summary_zh"]),
         reason_zh=str(payload["reason_zh"]),
         action_zh=str(payload["action_zh"]),
+        focus_category=focus_category,
     )
 
 
@@ -133,6 +147,7 @@ def _scoring_schema_hint() -> dict[str, Any]:
     return {
         "dimensions": asdict(ScoreDimensions(0, 0, 0, 0, 0, 0)),
         "category": "model_release",
+        "focus_category": "model",
         "tags": ["Agent"],
         "title_zh": "中文标题",
         "one_line_summary": "一句话摘要",
@@ -208,17 +223,21 @@ def _dimension_rubric() -> str:
 def _category_taxonomy_guide() -> str:
     return (
         "分类定义与边界规则（category 从8个枚举值中选择其一）："
-        "model_release=发布/更新了新的基础模型或模型能力本身；"
-        "product_release=基于已有模型包装的产品、应用、功能或服务发布，不强调"
+        "model_release（模型进展）=首次发布或更新基础模型、版本或模型能力本身；"
+        "product_release（产品应用）=基于已有模型包装的产品、应用、功能、服务或"
+        "明确的企业应用案例，不强调"
         "开源或模型本身的技术突破；"
-        "open_source=开源了模型权重、代码库或数据集，即使同时是模型发布，只要"
+        "open_source（开源项目）=开源了模型权重、代码库、工具、框架或数据集，"
+        "即使同时是模型发布，只要"
         "强调开源属性就优先归此类而非model_release；"
-        "research=学术论文、研究成果、技术报告，重点是研究方法或实验结论本身；"
-        "industry=行业格局、政策法规、人事变动等非融资类行业新闻；"
-        "funding=涉及具体金额、轮次的融资、并购、上市等资本类事件；"
-        "opinion=作者个人观点、预测、评论性文章，核心是主观判断而非客观事件报"
+        "research（研究评测）=学术论文、研究成果、技术报告、Benchmark或评测，"
+        "重点是研究方法、实验过程或结论本身；"
+        "industry（行业事件）=公司合作、人事、组织变化、政策法规、监管或安全"
+        "事件等非资本类行业新闻；"
+        "funding（资本动态）=涉及具体金额、轮次的融资、并购、上市或重大投资；"
+        "opinion（观点分析）=作者个人观点、预测、评论性文章，核心是主观判断而非客观事件报"
         "道；"
-        "tutorial=教程、使用技巧、最佳实践类内容。"
+        "tutorial（教程实践）=教程、使用方法、最佳实践或案例复盘类内容。"
         "边界示例：'某公司发布新一代基础模型，推理能力较上一代提升30%'→"
         "model_release（核心是模型能力本身的进展）；'某公司基于自家大模型推出"
         "新的办公助手App'→product_release（核心是产品包装，不是模型本身的技术"
@@ -230,15 +249,36 @@ def _category_taxonomy_guide() -> str:
     )
 
 
+def _focus_taxonomy_guide() -> str:
+    return (
+        "用户主关注分类（focus_category 必须从4个枚举值中选择其一，并与category"
+        "独立判断）："
+        "model=模型动态，核心变化是模型发布、版本、能力、参数、权重或模型本身；"
+        "product=产品工具，核心变化是用户或开发者可以直接使用的产品、功能、平台、"
+        "工具或应用；"
+        "technology=技术研究，核心价值是方法、论文、实验、评测、数据集或通用工程"
+        "实践；"
+        "industry=行业动态，核心变化是公司经营、资本、合作、人事、市场、政策、监管"
+        "或安全环境。"
+        "focus_category 判断文章主要对象，不等同于内容形式：开源模型可为"
+        "category=open_source、focus_category=model；开源开发框架可为"
+        "open_source+product；论文实验代码可为open_source+technology；Claude Code"
+        "使用教程可为tutorial+product；LoRA微调教程可为tutorial+technology；模型"
+        "路线观点可为opinion+model；融资报道可为funding+industry。"
+    )
+
+
 def scoring_system_prompt() -> str:
     schema_hint = _scoring_schema_hint()
     return (
         _dimension_rubric() + " "
         + _category_taxonomy_guide() + " "
+        + _focus_taxonomy_guide() + " "
         + "Score the AI news item for a Chinese AI intelligence daily report. "
         "Return strict JSON matching this example: "
         f"{json.dumps(schema_hint, ensure_ascii=False)}. "
         f"category MUST be exactly one of: {', '.join(SCORING_CATEGORIES)}. "
+        "focus_category MUST be exactly one of: model, product, technology, industry. "
         "tags: up to 5 short Chinese or product-name tags; prefer this vocabulary "
         f"when applicable: {', '.join(SUGGESTED_TAGS)}; add company/model names as needed. "
         "title_zh（中文标题，12-30字）：必须忠实于原文标题与正文事实，"
@@ -383,6 +423,7 @@ class FakeAIProvider:
             summary_zh=f"{title}。{content[:120]}",
             reason_zh="该事件来自高价值 AI 信号源，可能影响开发者、产品或内容选题。",
             action_zh="阅读原文，判断是否需要试用、跟进或收藏。",
+            focus_category=resolve_focus_category(None, category, text=text),
         )
 
     def translate_paragraphs(self, paragraphs: list[str]) -> list[str]:

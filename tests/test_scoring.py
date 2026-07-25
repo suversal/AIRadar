@@ -102,8 +102,8 @@ class ScoringTests(unittest.TestCase):
 
         self.assertTrue(processed.selected)
         self.assertGreaterEqual(processed.final_score, category_threshold("model_release"))
+        self.assertEqual(processed.focus_category, "model")
 
 
 if __name__ == "__main__":
     unittest.main()
-

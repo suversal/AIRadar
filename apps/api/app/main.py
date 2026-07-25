@@ -29,6 +29,7 @@ from app.api.public import (
     build_period_payload,
 )
 from app.core.config import load_env_file
+from app.services.taxonomy import SOURCE_FILTER_KEYS
 from app.storage.json_store import read_json
 
 DATA_DIR = Path("data")
@@ -295,7 +296,14 @@ def create_app(
         return {"status": "ok"}
 
     @app.get("/api/public/latest")
-    def latest(limit: int = 50, offset: int = 0) -> dict:
+    def latest(
+        limit: int = 50,
+        offset: int = 0,
+        category: Optional[str] = None,
+        focus: Optional[str] = None,
+        tag: Optional[str] = None,
+        q: Optional[str] = None,
+    ) -> dict:
         if limit < 1 or limit > 200:
             raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
         if offset < 0:
@@ -308,8 +316,20 @@ def create_app(
                     end_date=date.today(),
                     limit=limit,
                     offset=offset,
+                    category=category,
+                    focus=focus,
+                    tag=tag,
+                    q=q,
                 )
-        return build_latest_payload(load_latest_daily_json(data_dir))
+        return build_latest_payload(
+            load_latest_daily_json(data_dir),
+            category=category,
+            focus=focus,
+            tag=tag,
+            q=q,
+            limit=limit,
+            offset=offset,
+        )
 
     @app.get("/api/public/daily/{report_date}")
     def daily(report_date: str) -> dict:
@@ -354,6 +374,9 @@ def create_app(
     def events(
         days: int = 30,
         category: Optional[str] = None,
+        focus: Optional[str] = None,
+        source: Optional[str] = None,
+        tag: Optional[str] = None,
         q: Optional[str] = None,
         topic: Optional[str] = None,
         limit: int = 50,
@@ -365,19 +388,29 @@ def create_app(
             raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
         if offset < 0:
             raise HTTPException(status_code=400, detail="offset must be non-negative")
+        if source and source not in SOURCE_FILTER_KEYS:
+            raise HTTPException(
+                status_code=400,
+                detail="source must be first_party, news, or community",
+            )
         end_date = date.today()
         start_date = end_date - timedelta(days=days - 1)
         repository_context = report_repository_context()
         if repository_context is not None:
             with repository_context as repository:
-                # q/topic matching only exists in Python today (title
-                # override precedence, topic keyword rules), so only the
+                # q/topic/tag matching only exists in Python today (title
+                # override precedence, topic keyword and exact-tag rules), so only the
                 # filter-free/category-only case - by far the most common
-                # /all load - gets the SQL-pushdown fast path; q or topic
+                # /all load - gets the SQL-pushdown fast path; q, topic, or tag
                 # falls back to the full materialize-then-filter path.
-                if not q and not topic:
+                if not q and not topic and not category and not tag:
                     items, total, updated_at = repository.count_and_get_all_event_items_between(
-                        start_date, end_date, category=category, limit=limit, offset=offset
+                        start_date,
+                        end_date,
+                        category=focus,
+                        source=source,
+                        limit=limit,
+                        offset=offset,
                     )
                     return {
                         "report_dates": [],
@@ -390,11 +423,27 @@ def create_app(
                     }
                 items = repository.get_all_event_items_between(start_date, end_date)
             return build_events_payload_from_items(
-                items, category=category, q=q, topic=topic, limit=limit, offset=offset
+                items,
+                category=category,
+                focus=focus,
+                source=source,
+                tag=tag,
+                q=q,
+                topic=topic,
+                limit=limit,
+                offset=offset,
             )
         payloads = load_daily_reports_between(data_dir, start_date, end_date)
         return build_events_payload(
-            payloads, category=category, q=q, topic=topic, limit=limit, offset=offset
+            payloads,
+            category=category,
+            focus=focus,
+            source=source,
+            tag=tag,
+            q=q,
+            topic=topic,
+            limit=limit,
+            offset=offset,
         )
 
     @app.get("/api/public/hotspots")
@@ -402,6 +451,8 @@ def create_app(
         hours: int = 48,
         limit: int = 5,
         category: Optional[str] = None,
+        focus: Optional[str] = None,
+        tag: Optional[str] = None,
         q: Optional[str] = None,
     ) -> dict:
         if hours < 1 or hours > 168:
@@ -419,12 +470,24 @@ def create_app(
                     start_date, end_date, selected_only=True
                 )
             return build_hotspots_payload(
-                items, category=category, q=q, hours=hours, limit=limit
+                items,
+                category=category,
+                focus=focus,
+                tag=tag,
+                q=q,
+                hours=hours,
+                limit=limit,
             )
         payloads = load_daily_reports_between(data_dir, start_date, end_date)
         merged_items, _report_dates, _updated_at = _merge_daily_items(payloads)
         return build_hotspots_payload(
-            merged_items, category=category, q=q, hours=hours, limit=limit
+            merged_items,
+            category=category,
+            focus=focus,
+            tag=tag,
+            q=q,
+            hours=hours,
+            limit=limit,
         )
 
     @app.get("/api/public/topics")
@@ -1194,6 +1257,7 @@ def create_app(
         if status not in {"all", "visible", "hidden", "selected", "unselected"}:
             raise HTTPException(status_code=400, detail="invalid status")
         from app.api.public import _item_matches
+        from app.services.ai_service import SCORING_CATEGORIES
 
         end_date = date.today()
         start_date = end_date - timedelta(days=days - 1)
@@ -1205,11 +1269,23 @@ def create_app(
         selected_category = (category or "").strip()
         selected_source_id = (source_id or "").strip()
         if selected_category:
-            items = [
-                item
-                for item in items
-                if _item_matches(item, category=selected_category, q=None)
-            ]
+            if selected_category in SCORING_CATEGORIES:
+                items = [
+                    item
+                    for item in items
+                    if str(
+                        item.get("scoring_category")
+                        or item.get("category")
+                        or ""
+                    )
+                    == selected_category
+                ]
+            else:
+                items = [
+                    item
+                    for item in items
+                    if _item_matches(item, category=selected_category, q=None)
+                ]
         if title_query:
             title_needles = [part for part in title_query.lower().split() if part]
             items = [

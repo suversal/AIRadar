@@ -4,7 +4,11 @@ import calendar
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from app.services.taxonomy import display_category
+from app.services.taxonomy import (
+    display_category,
+    resolve_focus_category,
+    source_filter_bucket,
+)
 from app.services.topics import item_matches_topic, topic_by_id
 
 WEEK_DAYS = 7
@@ -46,14 +50,45 @@ def _item_matches(
     category: str | None,
     q: str | None,
     topic: str | None = None,
+    focus: str | None = None,
+    source: str | None = None,
+    tag: str | None = None,
 ) -> bool:
+    if source:
+        item_source_category = (item.get("main_source") or {}).get("category")
+        if source_filter_bucket(item_source_category) != source:
+            return False
+    if focus:
+        item_text = " ".join(
+            [
+                str(item.get("title") or ""),
+                str(item.get("one_line_summary") or ""),
+                str(item.get("summary") or ""),
+                " ".join(str(tag) for tag in item.get("tags") or []),
+            ]
+        )
+        item_focus = resolve_focus_category(
+            item.get("focus_category"),
+            item.get("scoring_category") or item.get("category"),
+            text=item_text,
+        )
+        requested_focus = resolve_focus_category(focus, focus)
+        if item_focus != requested_focus:
+            return False
     if category:
         item_category = str(item.get("category") or "")
-        # compare in display-taxonomy space so both scoring keys (older
-        # payloads) and display keys match the same filter
         if item_category != category and display_category(item_category) != display_category(
             category
         ):
+            return False
+    if tag:
+        requested_tag = tag.strip().casefold()
+        item_tags = {
+            str(item_tag).strip().casefold()
+            for item_tag in item.get("tags") or []
+            if str(item_tag).strip()
+        }
+        if requested_tag not in item_tags:
             return False
     if topic and not item_matches_topic(item, topic_by_id(topic)):
         return False
@@ -83,6 +118,9 @@ def build_events_payload(
     daily_payloads: list[dict[str, Any]],
     *,
     category: str | None = None,
+    focus: str | None = None,
+    source: str | None = None,
+    tag: str | None = None,
     q: str | None = None,
     topic: str | None = None,
     limit: int = 50,
@@ -90,7 +128,17 @@ def build_events_payload(
 ) -> dict[str, Any]:
     items, report_dates, updated_at = _merge_daily_items(daily_payloads)
     filtered = [
-        item for item in items if _item_matches(item, category=category, q=q, topic=topic)
+        item
+        for item in items
+        if _item_matches(
+            item,
+            category=category,
+            focus=focus,
+            source=source,
+            tag=tag,
+            q=q,
+            topic=topic,
+        )
     ]
     filtered.sort(key=_published_sort_key, reverse=True)
     page = filtered[offset : offset + limit]
@@ -109,13 +157,26 @@ def build_events_payload_from_items(
     items: list[dict[str, Any]],
     *,
     category: str | None = None,
+    focus: str | None = None,
+    source: str | None = None,
+    tag: str | None = None,
     q: str | None = None,
     topic: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
     filtered = [
-        item for item in items if _item_matches(item, category=category, q=q, topic=topic)
+        item
+        for item in items
+        if _item_matches(
+            item,
+            category=category,
+            focus=focus,
+            source=source,
+            tag=tag,
+            q=q,
+            topic=topic,
+        )
     ]
     filtered.sort(key=_published_sort_key, reverse=True)
     page = filtered[offset : offset + limit]
@@ -155,6 +216,8 @@ def build_hotspots_payload(
     items: list[dict[str, Any]],
     *,
     category: str | None = None,
+    focus: str | None = None,
+    tag: str | None = None,
     q: str | None = None,
     hours: int = 48,
     limit: int = 5,
@@ -173,7 +236,7 @@ def build_hotspots_payload(
         # 事件会用它的全部成员挤满榜单——source_count 已经是聚合值了
         if not item.get("is_main", True):
             continue
-        if not _item_matches(item, category=category, q=q):
+        if not _item_matches(item, category=category, focus=focus, tag=tag, q=q):
             continue
         seen_at = _hotspot_seen_at(item)
         if seen_at is None or seen_at < window_start:
@@ -242,12 +305,31 @@ def build_empty_daily_payload(report_date: date | None = None) -> dict[str, Any]
     }
 
 
-def build_latest_payload(daily_report_json: dict[str, Any]) -> dict[str, Any]:
+def build_latest_payload(
+    daily_report_json: dict[str, Any],
+    *,
+    category: str | None = None,
+    focus: str | None = None,
+    tag: str | None = None,
+    q: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+) -> dict[str, Any]:
+    items = [
+        item
+        for item in daily_report_json.get("items", [])
+        if _item_matches(item, category=category, focus=focus, tag=tag, q=q)
+    ]
+    total = len(items)
+    page = items[offset : offset + limit] if limit is not None else items[offset:]
     return {
         "report_date": daily_report_json.get("report_date"),
         "updated_at": daily_report_json.get("updated_at"),
-        "article_count": daily_report_json.get("article_count", len(daily_report_json.get("items", []))),
-        "items": daily_report_json.get("items", []),
+        "article_count": len(page),
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": page,
     }
 
 
@@ -278,6 +360,10 @@ def build_latest_selected_payload_from_repository(
     end_date: date,
     limit: int = 50,
     offset: int = 0,
+    category: str | None = None,
+    focus: str | None = None,
+    tag: str | None = None,
+    q: str | None = None,
 ) -> dict[str, Any]:
     start_date = end_date - timedelta(days=6)
     items = repository.get_all_event_items_between(
@@ -285,6 +371,11 @@ def build_latest_selected_payload_from_repository(
         end_date,
         selected_only=True,
     )
+    items = [
+        item
+        for item in items
+        if _item_matches(item, category=category, focus=focus, tag=tag, q=q)
+    ]
     items = sorted(
         items,
         key=lambda item: (

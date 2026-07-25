@@ -3,7 +3,7 @@ export type RadarSource = {
   name: string;
   url: string;
   tier: string;
-  // official/research/community/media - drives /all's 一手信源/资讯/推文 filter
+  // Source category powers /all's 官方原文/媒体报道/社区讨论 filter.
   category?: string;
 };
 
@@ -120,6 +120,10 @@ export type LatestEvent = {
   title: string;
   category?: string;
   category_label?: string;
+  focus_category?: string | null;
+  focus_category_label?: string;
+  scoring_category?: string;
+  scoring_category_label?: string;
   tags?: string[];
   final_score?: number;
   // authoritative "is this article selected" signal from scoring_service's
@@ -197,7 +201,14 @@ function latestLoadErrorMessage(error: unknown) {
 }
 
 export async function getLatestReport(
-  params: { limit?: number; offset?: number } = {},
+  params: {
+    limit?: number;
+    offset?: number;
+    category?: string;
+    focus?: string;
+    tag?: string;
+    q?: string;
+  } = {},
 ): Promise<LatestReport> {
   const search = new URLSearchParams();
   if (typeof params.limit === "number") {
@@ -205,6 +216,18 @@ export async function getLatestReport(
   }
   if (typeof params.offset === "number") {
     search.set("offset", String(params.offset));
+  }
+  if (params.category) {
+    search.set("category", params.category);
+  }
+  if (params.focus) {
+    search.set("focus", params.focus);
+  }
+  if (params.tag) {
+    search.set("tag", params.tag);
+  }
+  if (params.q) {
+    search.set("q", params.q);
   }
   const query = search.toString();
   const path = query ? `/api/public/latest?${query}` : "/api/public/latest";
@@ -229,11 +252,17 @@ export type HotspotsPayload = {
 };
 
 export async function getHotspots(
-  params: { category?: string; q?: string } = {},
+  params: { category?: string; focus?: string; tag?: string; q?: string } = {},
 ): Promise<HotspotsPayload> {
   const search = new URLSearchParams();
   if (params.category) {
     search.set("category", params.category);
+  }
+  if (params.focus) {
+    search.set("focus", params.focus);
+  }
+  if (params.tag) {
+    search.set("tag", params.tag);
   }
   if (params.q) {
     search.set("q", params.q);
@@ -303,7 +332,17 @@ function emptyAllEvents(error: string): AllEventsPayload {
 }
 
 export async function getAllEvents(
-  params: { days?: number; limit?: number; offset?: number; topic?: string } = {},
+  params: {
+    days?: number;
+    limit?: number;
+    offset?: number;
+    category?: string;
+    focus?: string;
+    source?: string;
+    tag?: string;
+    topic?: string;
+    q?: string;
+  } = {},
 ): Promise<AllEventsPayload> {
   const search = new URLSearchParams();
   search.set("days", String(params.days ?? 30));
@@ -313,6 +352,21 @@ export async function getAllEvents(
   }
   if (params.topic) {
     search.set("topic", params.topic);
+  }
+  if (params.category) {
+    search.set("category", params.category);
+  }
+  if (params.focus) {
+    search.set("focus", params.focus);
+  }
+  if (params.source) {
+    search.set("source", params.source);
+  }
+  if (params.tag) {
+    search.set("tag", params.tag);
+  }
+  if (params.q) {
+    search.set("q", params.q);
   }
   try {
     const response = await fetch(`${getApiBaseUrl()}/api/public/events?${search}`, {
