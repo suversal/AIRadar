@@ -107,6 +107,28 @@ class ClusteringTests(unittest.TestCase):
         self.assertEqual(clusters[0].source_count, 2)
         self.assertAlmostEqual(clusters[0].article_similarities["a2"], 0.0)
 
+    def test_cluster_articles_matches_official_source_url_to_aggregator_citation(self):
+        official = raw_article(
+            "a1", "anthropic", "authority", "T1", "Introducing Claude Opus 5", 8
+        )
+        official.source_url = "https://www.anthropic.com/news/claude-opus-5"
+        aggregator = raw_article(
+            "a2", "telegram", "aggregator", "T3", "Anthropic 发布 Claude Opus 5", 9
+        )
+        aggregator.metadata["original_blocks"] = [
+            {
+                "type": "source_list",
+                "links": [
+                    {"url": "https://www.anthropic.com/news/claude-opus-5"}
+                ],
+            }
+        ]
+
+        clusters = cluster_articles([official, aggregator], {}, threshold=0.90)
+
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(set(clusters[0].article_ids), {"a1", "a2"})
+
     def test_cluster_articles_does_not_transitively_chain_unrelated_articles(self):
         # single-linkage regression: the bucket founder (a1, earliest
         # published) individually clears the bar against both a2 and a3, but

@@ -4,8 +4,9 @@ still in the legacy shape.
 
 - processed_articles.event_cluster_id cache column: re-derived from the
   membership table (is_main event first, else the most recently joined).
-- article_embeddings with embedding_model='unknown': re-embedded with the
-  real local model, writing the true model name and a fresh source_hash.
+- processed articles with a missing embedding, plus article_embeddings with
+  embedding_model='unknown': embedded with the real local model, writing the
+  true model name and a fresh source_hash.
 - event_clusters.source_count: recounted from the membership table.
 - pipeline_runs.finished_at is deliberately NOT touched: there is no
   trustworthy source for historical finish times, and faking them would be
@@ -97,6 +98,70 @@ def reembed_unknown(session, *, embedder) -> int:
         row.source_hash = stable_hash(text)
         fixed += 1
     return fixed
+
+
+def repair_missing_or_unknown_embeddings(session, *, embedder) -> int:
+    """Backfill every scored article that lost its vector during an embedding
+    provider outage, and refresh legacy ``unknown`` vectors.
+
+    The live pipeline embeds selected and below-threshold scored articles
+    alike because either can provide supporting coverage for a selected
+    event. The repair therefore follows ``processed_articles`` rather than
+    filtering only ``status='processed'``.
+    """
+    processed_article_ids = set(
+        session.scalars(select(ProcessedArticleModel.raw_article_id)).all()
+    )
+    if not processed_article_ids:
+        return 0
+    embedding_by_article_id = {
+        row.raw_article_id: row
+        for row in session.scalars(
+            select(ArticleEmbeddingModel).where(
+                ArticleEmbeddingModel.raw_article_id.in_(processed_article_ids)
+            )
+        ).all()
+    }
+    fixed = 0
+    articles = session.scalars(
+        select(RawArticleModel).where(RawArticleModel.id.in_(processed_article_ids))
+    ).all()
+    for article in articles:
+        embedding = embedding_by_article_id.get(article.id)
+        if embedding is not None and embedding.embedding_model != "unknown":
+            continue
+        text = embedding_input(article.title, article.content)
+        vector = embedder.embed_text(text)
+        if embedding is None:
+            embedding = ArticleEmbeddingModel(raw_article_id=article.id)
+            session.add(embedding)
+        embedding.content_vector = vector
+        embedding.embedding_model = embedder.model_name
+        embedding.source_hash = stable_hash(text)
+        fixed += 1
+    return fixed
+
+
+def clear_resolved_embedding_errors(session) -> int:
+    """Remove stale outage markers only after an embedding row exists."""
+    embedded_article_ids = set(
+        session.scalars(select(ArticleEmbeddingModel.raw_article_id)).all()
+    )
+    if not embedded_article_ids:
+        return 0
+    cleared = 0
+    articles = session.scalars(
+        select(RawArticleModel).where(RawArticleModel.id.in_(embedded_article_ids))
+    ).all()
+    for article in articles:
+        metadata = dict(article.raw_metadata or {})
+        if metadata.get("ai_fallback") != "embedding_error":
+            continue
+        metadata.pop("ai_fallback", None)
+        metadata.pop("embedding_error", None)
+        article.raw_metadata = metadata
+        cleared += 1
+    return cleared
 
 
 def recount_source_counts(session) -> int:
@@ -270,7 +335,10 @@ def main() -> int:
         if not args.skip_embeddings:
             from app.services.ai_service import LocalEmbeddingProvider
 
-            embeddings = reembed_unknown(session, embedder=LocalEmbeddingProvider())
+            embeddings = repair_missing_or_unknown_embeddings(
+                session, embedder=LocalEmbeddingProvider()
+            )
+        cleared_embedding_errors = clear_resolved_embedding_errors(session)
         counts = recount_source_counts(session)
 
     reextracted = 0
@@ -329,7 +397,8 @@ def main() -> int:
                     print(f"failed {article_id}")
 
     print(
-        f"repaired: event links={links}, unknown embeddings={embeddings}, "
+        f"repaired: event links={links}, missing/unknown embeddings={embeddings}, "
+        f"cleared embedding errors={cleared_embedding_errors}, "
         f"source counts={counts}, reextracted articles={reextracted} "
         f"(failed={reextraction_failed})"
     )

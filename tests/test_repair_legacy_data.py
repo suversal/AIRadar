@@ -163,6 +163,69 @@ class RepairLegacyDataTests(unittest.TestCase):
             stable_hash(embedding_input("OpenAI releases agent model", "AI model release")),
         )
 
+    def test_repair_embeddings_inserts_missing_processed_article_vector(self):
+        from app.crawlers.base import stable_hash
+        from app.db.models import ArticleEmbeddingModel
+        from app.services.ai_service import embedding_input
+
+        with self.Session() as session:
+            self._seed_event(session, drift_link=False)
+            stored = session.scalar(
+                select(ArticleEmbeddingModel).where(
+                    ArticleEmbeddingModel.raw_article_id == "a1"
+                )
+            )
+            session.delete(stored)
+            session.commit()
+
+            fixed = repair_legacy_data.repair_missing_or_unknown_embeddings(
+                session, embedder=FakeEmbedder()
+            )
+            session.commit()
+
+            stored = session.scalar(
+                select(ArticleEmbeddingModel).where(
+                    ArticleEmbeddingModel.raw_article_id == "a1"
+                )
+            )
+
+        self.assertEqual(fixed, 1)
+        self.assertEqual(stored.embedding_model, "BAAI/bge-small-zh-v1.5")
+        self.assertEqual(len(stored.content_vector), 512)
+        self.assertEqual(
+            stored.source_hash,
+            stable_hash(embedding_input("OpenAI releases agent model", "AI model release")),
+        )
+
+    def test_clear_resolved_embedding_errors_requires_persisted_vector(self):
+        from app.db.models import ArticleEmbeddingModel, RawArticleModel
+
+        with self.Session() as session:
+            self._seed_event(session, drift_link=False)
+            article = session.get(RawArticleModel, "a1")
+            article.raw_metadata = {
+                "ai_fallback": "embedding_error",
+                "embedding_error": "NoSuchFile: model_optimized.onnx",
+                "content_origin": "fixture",
+            }
+            session.commit()
+
+            cleared = repair_legacy_data.clear_resolved_embedding_errors(session)
+            session.commit()
+
+            article = session.get(RawArticleModel, "a1")
+            embedding = session.scalar(
+                select(ArticleEmbeddingModel).where(
+                    ArticleEmbeddingModel.raw_article_id == "a1"
+                )
+            )
+
+        self.assertEqual(cleared, 1)
+        self.assertIsNotNone(embedding)
+        self.assertNotIn("ai_fallback", article.raw_metadata)
+        self.assertNotIn("embedding_error", article.raw_metadata)
+        self.assertEqual(article.raw_metadata["content_origin"], "fixture")
+
     def test_recount_source_counts_fixes_stale_values(self):
         from app.db.models import EventClusterModel
 

@@ -35,6 +35,9 @@ class PipelineRepository(Protocol):
     ) -> Any:
         ...
 
+    def delete_article_embedding(self, raw_article_id: str) -> Any:
+        ...
+
     def upsert_processed_articles(
         self, processed_articles: list[ProcessedArticle], **kwargs: Any
     ) -> Any:
@@ -95,6 +98,13 @@ def persist_pipeline_result(
     )
 
     articles_by_id = {article.id: article for article in result.raw_articles}
+    # An embedding failure means this run has no valid vector for the current
+    # title/body. Remove any older derived vector before cross-day clustering,
+    # otherwise the repository could silently merge the article using stale
+    # evidence even though the in-run cluster correctly kept it standalone.
+    for article in result.raw_articles:
+        if article.metadata.get("ai_fallback") == "embedding_error":
+            repository.delete_article_embedding(article.id)
     for raw_article_id, vector in result.embeddings.items():
         article = articles_by_id.get(raw_article_id)
         repository.upsert_article_embedding(

@@ -94,8 +94,25 @@ def reference_keys_from_metadata(metadata: dict | None) -> set[str]:
     return keys
 
 
+def reference_keys_for_article(source_url: str | None, metadata: dict | None) -> set[str]:
+    """Return every deterministic identity known for one article.
+
+    Official/original feeds often place the canonical article directly in
+    ``source_url`` and therefore have no redundant ``source_list`` block.
+    Aggregators such as Telegram carry their own post URL in ``source_url``
+    and cite the official article in ``original_blocks``. Considering both
+    lets those two shapes meet on the same canonical key even when semantic
+    embeddings are unavailable or cross-language similarity is conservative.
+    """
+    keys = reference_keys_from_metadata(metadata)
+    source_key = canonical_reference_key(source_url)
+    if source_key:
+        keys.add(source_key)
+    return keys
+
+
 def article_reference_keys(article: RawArticle) -> set[str]:
-    return reference_keys_from_metadata(article.metadata)
+    return reference_keys_for_article(article.source_url, article.metadata)
 
 
 def cosine_similarity(left: list[float], right: list[float]) -> float:
@@ -167,8 +184,9 @@ def cluster_articles(
             None,
         )
         if vector is None:
-            # A trusted curated item must survive an embedding outage. Keep it
-            # standalone unless an exact cited-source link proves the event.
+            # Any successfully scored item must survive an embedding outage.
+            # Keep it standalone unless an exact cited-source link proves the
+            # event, so vector availability affects grouping but not display.
             if reference_match is None:
                 buckets.append([article])
                 bucket_vectors.append([])

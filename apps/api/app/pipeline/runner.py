@@ -451,11 +451,16 @@ def _process_candidate_article(
             embedding = ai_provider.embed_text(
                 embedding_input(article.title, article.content)
             )
-        except Exception:
-            if not trusted_curated:
-                raise
+        except Exception as exc:
+            # Scoring/selection has already succeeded. A vector outage should
+            # degrade only semantic clustering, never erase an otherwise
+            # displayable article. cluster_articles() keeps vectorless items
+            # standalone unless an exact cited-source reference can place them.
             embedding = None
             article.metadata["ai_fallback"] = "embedding_error"
+            article.metadata["embedding_error"] = (
+                f"{type(exc).__name__}: {exc}"[:500]
+            )
     skipped_reason = None if processed.selected else "below_threshold"
     return processed, embedding, skipped_reason
 

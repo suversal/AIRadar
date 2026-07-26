@@ -1790,6 +1790,134 @@ class PipelineTests(unittest.TestCase):
                 self.assertEqual(poison.status, "skipped")
                 self.assertEqual(poison.skipped_reason, "ai_error")
 
+    def test_embedding_failure_keeps_plain_source_as_standalone_selected_event(self):
+        source = Source(
+            id="openai_blog",
+            name="OpenAI Blog",
+            source_role="authority",
+            tier="T1",
+            type="rss",
+            category="official",
+            url="https://openai.com/rss.xml",
+            homepage="https://openai.com",
+            allowed_domains=["openai.com"],
+            can_be_main_source=True,
+        )
+        raw_items = [
+            {
+                "source_url": "https://openai.com/embedding-outage",
+                "title": "OpenAI releases a new agent model",
+                "content": "OpenAI released a major AI agent model with new developer capabilities.",
+                "author": "OpenAI",
+                "published_at": datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+                "language": "zh",
+                "raw_score": {},
+                "metadata": {},
+            }
+        ]
+
+        class EmbeddingFailureProvider(FakeAIProvider):
+            def score_article(self, title, content):
+                return ScoringResult(
+                    dimensions=ScoreDimensions(9, 8, 8, 8, 7, 7),
+                    category="model_release",
+                    tags=["Agent"],
+                    title_zh="OpenAI 发布新智能体模型",
+                    one_line_summary="OpenAI 发布面向开发者的新智能体模型。",
+                    summary_zh="OpenAI 发布了具备新开发能力的智能体模型。",
+                    reason_zh="这是一次重要模型发布。",
+                    action_zh="阅读发布说明。",
+                )
+
+            def embed_text(self, text, dimensions=512):
+                raise OSError("embedding model unavailable")
+
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={source.id: raw_items},
+            ai_provider=EmbeddingFailureProvider(),
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 1),
+        )
+
+        self.assertNotIn("ai_error", result.skipped_reasons)
+        self.assertEqual(result.embeddings, {})
+        self.assertEqual(len(result.processed_articles), 1)
+        processed = result.processed_articles[0]
+        self.assertTrue(processed.selected)
+        self.assertEqual(processed.status, "processed")
+        self.assertEqual(len(result.event_clusters), 1)
+        self.assertEqual(result.event_clusters[0].article_ids, [processed.raw_article_id])
+        self.assertEqual(result.daily_report.article_count, 1)
+        article = result.raw_articles[0]
+        self.assertEqual(article.metadata["ai_fallback"], "embedding_error")
+        self.assertIn("OSError: embedding model unavailable", article.metadata["embedding_error"])
+
+    def test_embedding_failure_keeps_below_threshold_article_for_all_feed(self):
+        source = Source(
+            id="media",
+            name="AI Media",
+            source_role="context",
+            tier="T2",
+            type="rss",
+            category="media",
+            url="https://media.example/feed.xml",
+            homepage="https://media.example",
+            allowed_domains=["media.example"],
+            can_be_main_source=True,
+        )
+        raw_items = [
+            {
+                "source_url": "https://media.example/minor-update",
+                "title": "Minor AI product update",
+                "content": "A small AI feature update with limited practical impact.",
+                "author": "AI Media",
+                "published_at": datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+                "language": "zh",
+                "raw_score": {},
+                "metadata": {},
+            }
+        ]
+
+        class LowScoreEmbeddingFailureProvider(FakeAIProvider):
+            def score_article(self, title, content):
+                return ScoringResult(
+                    dimensions=ScoreDimensions(7, 3, 3, 4, 2, 2),
+                    category="product_release",
+                    tags=["AI 产品"],
+                    title_zh="一项小型 AI 产品更新",
+                    one_line_summary="该产品增加了一项较小的 AI 功能。",
+                    summary_zh="这是一项影响范围有限的 AI 产品功能更新。",
+                    reason_zh="可作为产品动态了解。",
+                    action_zh="按需查看详情。",
+                )
+
+            def embed_text(self, text, dimensions=512):
+                raise RuntimeError("embedding service down")
+
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={source.id: raw_items},
+            ai_provider=LowScoreEmbeddingFailureProvider(),
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 1),
+        )
+
+        self.assertNotIn("ai_error", result.skipped_reasons)
+        self.assertEqual(len(result.processed_articles), 1)
+        processed = result.processed_articles[0]
+        self.assertFalse(processed.selected)
+        self.assertEqual(processed.status, "rejected")
+        self.assertEqual(processed.rejection_reason, "below_threshold:68")
+        # /all is sourced from processed_articles, including rejected rows.
+        # Keeping this row is the public-dynamics visibility boundary.
+        self.assertEqual(len(result.event_clusters), 1)
+        self.assertEqual(result.event_clusters[0].article_ids, [processed.raw_article_id])
+        self.assertEqual(result.daily_report.article_count, 0)
+        article = result.raw_articles[0]
+        self.assertNotEqual(article.status, "skipped")
+        self.assertEqual(article.metadata["ai_fallback"], "embedding_error")
+
     def test_pipeline_does_not_fill_report_from_below_threshold_candidates(self):
         source = Source(
             id="hn",

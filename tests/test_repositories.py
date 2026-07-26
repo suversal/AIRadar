@@ -1526,6 +1526,7 @@ class RepositoryTests(unittest.TestCase):
             repository = RadarRepository(session)
             repository.upsert_sources([self._source(), self._other_source()])
             first = self._article(article_id="a1", title="马斯克宣布开源 X", url_hash="u-a1")
+            first.source_url = f"https://x.com/elonmusk/status/{cited_status}"
             second = RawArticle(
                 id="a2",
                 source_id="techcrunch",
@@ -1583,16 +1584,7 @@ class RepositoryTests(unittest.TestCase):
 
             first_row = session.get(RawArticleModel, "a1")
             second_row = session.get(RawArticleModel, "a2")
-            first_row.raw_metadata = {
-                "original_blocks": [
-                    {
-                        "type": "source_list",
-                        "links": [
-                            {"url": f"https://x.com/elonmusk/status/{cited_status}"}
-                        ],
-                    }
-                ]
-            }
+            first_row.raw_metadata = {}
             second_row.raw_metadata = {
                 "original_blocks": [
                     {

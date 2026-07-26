@@ -3,11 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import re
 import os
+import re
+import threading
 import urllib.error
 import urllib.request
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
 from app.models.domain import PrefilterResult, ScoreDimensions, ScoringResult
@@ -468,15 +470,67 @@ class LocalEmbeddingProvider:
     reported with different wording."""
 
     _model = None  # class-level singleton: loading is the expensive part
+    _model_key: tuple[str, str] | None = None
+    _model_load_error: Exception | None = None
+    _model_lock = threading.Lock()
 
-    def __init__(self, model_name: str = "BAAI/bge-small-zh-v1.5"):
+    def __init__(
+        self,
+        model_name: str = "BAAI/bge-small-zh-v1.5",
+        *,
+        cache_dir: str | Path | None = None,
+    ):
         self.model_name = model_name
+        configured_cache = cache_dir or os.getenv("FASTEMBED_CACHE_DIR")
+        if configured_cache is None:
+            configured_cache = (
+                Path(__file__).resolve().parents[4] / "data" / "model_cache" / "fastembed"
+            )
+        configured_path = Path(configured_cache).expanduser()
+        if not configured_path.is_absolute():
+            configured_path = Path(__file__).resolve().parents[4] / configured_path
+        self.cache_dir = configured_path.resolve()
 
     def _get_model(self):
-        if LocalEmbeddingProvider._model is None:
+        model_key = (self.model_name, str(self.cache_dir))
+        if (
+            LocalEmbeddingProvider._model is not None
+            and LocalEmbeddingProvider._model_key == model_key
+        ):
+            return LocalEmbeddingProvider._model
+        with LocalEmbeddingProvider._model_lock:
+            if (
+                LocalEmbeddingProvider._model is not None
+                and LocalEmbeddingProvider._model_key == model_key
+            ):
+                return LocalEmbeddingProvider._model
+            if (
+                LocalEmbeddingProvider._model_load_error is not None
+                and LocalEmbeddingProvider._model_key == model_key
+            ):
+                raise RuntimeError(
+                    f"local embedding model failed to load from {self.cache_dir}"
+                ) from LocalEmbeddingProvider._model_load_error
+
             from fastembed import TextEmbedding
 
-            LocalEmbeddingProvider._model = TextEmbedding(model_name=self.model_name)
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            LocalEmbeddingProvider._model_key = model_key
+            try:
+                LocalEmbeddingProvider._model = TextEmbedding(
+                    model_name=self.model_name,
+                    cache_dir=str(self.cache_dir),
+                )
+                LocalEmbeddingProvider._model_load_error = None
+            except Exception as exc:
+                LocalEmbeddingProvider._model = None
+                LocalEmbeddingProvider._model_load_error = exc
+                logger.exception(
+                    "Failed to load local embedding model %s from stable cache %s",
+                    self.model_name,
+                    self.cache_dir,
+                )
+                raise
         return LocalEmbeddingProvider._model
 
     def embed_text(self, text: str, dimensions: int | None = None) -> list[float]:

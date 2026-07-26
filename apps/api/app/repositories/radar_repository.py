@@ -35,7 +35,7 @@ from app.services.clustering_service import (
     ROLE_PRIORITY,
     TIER_PRIORITY,
     cosine_similarity,
-    reference_keys_from_metadata,
+    reference_keys_for_article,
 )
 from app.services.daily_report_service import (
     _clean_original_blocks,
@@ -672,6 +672,14 @@ class RadarRepository:
             model.pipeline_run_id = pipeline_run_id
         self.session.flush()
 
+    def delete_article_embedding(self, raw_article_id: str) -> None:
+        self.session.execute(
+            delete(ArticleEmbeddingModel).where(
+                ArticleEmbeddingModel.raw_article_id == raw_article_id
+            )
+        )
+        self.session.flush()
+
     def get_article_embedding_source_hash(self, raw_article_id: str) -> Optional[str]:
         model = self.session.scalar(
             select(ArticleEmbeddingModel).where(
@@ -757,12 +765,14 @@ class RadarRepository:
     def _reference_keys_for_articles(self, article_ids: list[str]) -> set[str]:
         if not article_ids:
             return set()
-        metadata_rows = self.session.execute(
-            select(RawArticleModel.raw_metadata).where(RawArticleModel.id.in_(article_ids))
-        ).scalars()
+        article_rows = self.session.execute(
+            select(RawArticleModel.source_url, RawArticleModel.raw_metadata).where(
+                RawArticleModel.id.in_(article_ids)
+            )
+        ).all()
         keys: set[str] = set()
-        for metadata in metadata_rows:
-            keys.update(reference_keys_from_metadata(metadata))
+        for source_url, metadata in article_rows:
+            keys.update(reference_keys_for_article(source_url, metadata))
         return keys
 
     def find_recent_event_by_reference_keys(
@@ -781,6 +791,7 @@ class RadarRepository:
             select(
                 EventClusterModel.id,
                 EventClusterModel.last_seen_at,
+                RawArticleModel.source_url,
                 RawArticleModel.raw_metadata,
             )
             .join(
@@ -793,10 +804,12 @@ class RadarRepository:
             )
         ).all()
         candidates: set[str] = set()
-        for event_id, last_seen_at, metadata in rows:
+        for event_id, last_seen_at, source_url, metadata in rows:
             if _ensure_utc(last_seen_at) < _ensure_utc(since):
                 continue
-            if reference_keys.intersection(reference_keys_from_metadata(metadata)):
+            if reference_keys.intersection(
+                reference_keys_for_article(source_url, metadata)
+            ):
                 candidates.add(event_id)
         if not candidates:
             return None
@@ -944,6 +957,7 @@ class RadarRepository:
             select(
                 EventClusterModel.id,
                 EventClusterModel.last_seen_at,
+                RawArticleModel.source_url,
                 RawArticleModel.raw_metadata,
             )
             .join(
@@ -957,8 +971,8 @@ class RadarRepository:
             .where(EventClusterModel.last_seen_at >= _ensure_utc(since))
         ).all()
         event_ids_by_key: dict[str, set[str]] = {}
-        for event_id, _last_seen_at, metadata in rows:
-            for key in reference_keys_from_metadata(metadata):
+        for event_id, _last_seen_at, source_url, metadata in rows:
+            for key in reference_keys_for_article(source_url, metadata):
                 event_ids_by_key.setdefault(key, set()).add(event_id)
 
         redirects: dict[str, str] = {}
