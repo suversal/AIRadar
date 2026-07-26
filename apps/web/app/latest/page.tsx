@@ -15,6 +15,7 @@ type LatestSearchParams = Promise<{
 }>;
 
 const PAGE_SIZE = 50;
+const HOTSPOT_LIMIT = 3;
 
 const categoryOptions = FOCUS_FILTER_OPTIONS;
 
@@ -79,7 +80,12 @@ export default async function LatestPage({
       tag: selectedTag,
       q: query,
     }),
-    getHotspots({ focus: selectedCategory, tag: selectedTag, q: query }),
+    getHotspots({
+      focus: selectedCategory,
+      tag: selectedTag,
+      q: query,
+      limit: HOTSPOT_LIMIT,
+    }),
   ]);
   const topEvents = hotspots.items;
 

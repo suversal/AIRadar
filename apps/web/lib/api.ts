@@ -252,9 +252,18 @@ export type HotspotsPayload = {
 };
 
 export async function getHotspots(
-  params: { category?: string; focus?: string; tag?: string; q?: string } = {},
+  params: {
+    category?: string;
+    focus?: string;
+    tag?: string;
+    q?: string;
+    limit?: number;
+  } = {},
 ): Promise<HotspotsPayload> {
   const search = new URLSearchParams();
+  if (typeof params.limit === "number") {
+    search.set("limit", String(params.limit));
+  }
   if (params.category) {
     search.set("category", params.category);
   }

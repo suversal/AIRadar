@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Menu, X } from "lucide-react";
+import { BrandLogo } from "./brand-logo";
 import { navGroupItems } from "./nav";
 
 export function MobileNav({ activeNavId }: { activeNavId: string }) {
@@ -29,8 +30,8 @@ export function MobileNav({ activeNavId }: { activeNavId: string }) {
   return (
     <>
       <div className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-panel px-4 py-3 lg:hidden">
-        <a className="text-base font-semibold tracking-[0.12em] text-ink" href="/latest">
-          AI<span className="text-signal">·RADAR</span>
+        <a aria-label="AI·RADAR 首页" className="inline-flex" href="/latest">
+          <BrandLogo className="h-8 w-auto" />
         </a>
         <button
           type="button"

@@ -1643,7 +1643,14 @@ class PipelineTests(unittest.TestCase):
             can_be_main_source=True,
         )
         blocks = [
-            {"type": "paragraph", "text": f"AI paragraph {i} with details."} for i in range(3)
+            {"type": "paragraph", "text": "AI paragraph 0 with details."},
+            {
+                "type": "image",
+                "url": "https://openai.com/current-image.png",
+                "alt": "Current image",
+            },
+            {"type": "paragraph", "text": "AI paragraph 1 with details."},
+            {"type": "paragraph", "text": "AI paragraph 2 with details."},
         ]
         raw_items = [
             {
@@ -1663,7 +1670,7 @@ class PipelineTests(unittest.TestCase):
 
         url_hash = stable_hash(canonicalize_url("https://openai.com/index/same-news"))
         source_hash = translation_source_hash(
-            [str(b["text"]) for b in blocks]
+            [str(b["text"]) for b in blocks if b["type"] == "paragraph"]
         )
         cached_results = {
             url_hash: {
@@ -1673,6 +1680,11 @@ class PipelineTests(unittest.TestCase):
                     "translated_paragraphs": ["缓存译文一", "缓存译文二", "缓存译文三"],
                     "translated_blocks": [
                         {"type": "paragraph", "text": "缓存译文一"},
+                        {
+                            "type": "image",
+                            "url": "https://expired-proxy.example/old-image.png",
+                            "alt": "Old image",
+                        },
                         {"type": "paragraph", "text": "缓存译文二"},
                         {"type": "paragraph", "text": "缓存译文三"},
                     ],
@@ -1699,6 +1711,19 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(
             article.metadata.get("translated_paragraphs"),
             ["缓存译文一", "缓存译文二", "缓存译文三"],
+        )
+        self.assertEqual(
+            article.metadata.get("translated_blocks"),
+            [
+                {"type": "paragraph", "text": "缓存译文一"},
+                {
+                    "type": "image",
+                    "url": "https://openai.com/current-image.png",
+                    "alt": "Current image",
+                },
+                {"type": "paragraph", "text": "缓存译文二"},
+                {"type": "paragraph", "text": "缓存译文三"},
+            ],
         )
 
     def test_pipeline_isolates_single_article_ai_failures(self):

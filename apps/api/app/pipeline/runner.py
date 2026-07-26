@@ -800,6 +800,22 @@ def _translate_one_article(article: RawArticle, translate: Any) -> None:
     # made from; content upgrades (e.g. full-page fetch replacing a thin
     # feed summary) must trigger retranslation
     if has_translation and article.metadata.get("translation_source_hash") == source_hash:
+        # The source-text hash deliberately ignores media so replacing an
+        # expired proxy URL with the canonical image URL does not spend
+        # another AI translation call.  The structured translation must
+        # still be rebuilt from the latest original blocks, though; otherwise
+        # cached translated_blocks keep stale image/video URLs even while the
+        # original view has already moved to the repaired media.
+        cached_paragraphs = [
+            str(paragraph)
+            for paragraph in article.metadata.get("translated_paragraphs") or []
+            if str(paragraph).strip()
+        ]
+        if cached_paragraphs:
+            article.metadata["translated_blocks"] = _translated_blocks_for(
+                article,
+                cached_paragraphs,
+            )
         return
 
     try:

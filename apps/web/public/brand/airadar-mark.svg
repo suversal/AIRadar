@@ -1,4 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">AIRADAR mark</title>
+  <desc id="desc">A radar sweep built around a capital A.</desc>
   <rect width="64" height="64" rx="15" fill="#1f1e1d"/>
   <circle cx="32" cy="31" r="21" fill="none" stroke="#f0eee6" stroke-width="3"/>
   <path d="M32 31V10a21 21 0 0 1 17 8.7Z" fill="#d97757"/>
