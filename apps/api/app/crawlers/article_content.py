@@ -12,8 +12,8 @@ from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 from app.crawlers.base import clean_text
 
 CONTENT_EXTRACTION_VERSION = 2
-MAX_BLOCKS = 120
-MAX_IMAGES = 30
+MAX_BLOCKS = 400
+MAX_IMAGES = 60
 MAX_QUOTE_DEPTH = 4
 MAX_TABLE_ROWS = 100
 MAX_TABLE_COLUMNS = 20
