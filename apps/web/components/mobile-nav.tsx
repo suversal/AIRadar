@@ -39,7 +39,7 @@ export function MobileNav({ activeNavId }: { activeNavId: string }) {
 
   return (
     <>
-      <div className="relative z-30 flex h-12 items-center justify-between border-b border-line bg-panel px-4 lg:hidden">
+      <div className="relative z-30 flex h-10 items-center justify-between border-b border-line bg-canvas px-4 lg:hidden">
         <a aria-label="AI·RADAR 首页" className="inline-flex" href="/latest">
           <BrandLogo className="h-8 w-auto" />
         </a>

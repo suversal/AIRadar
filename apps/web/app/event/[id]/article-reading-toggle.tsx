@@ -170,7 +170,7 @@ export function ArticleReadingToggle({
   const blocks = isOriginal ? originalBlocks : translatedBlocks;
 
   return (
-    <article className="mt-10 border-t border-line pt-8">
+    <article className="mt-4 border-t border-line pt-4">
       <div className="flex items-center justify-between gap-4 border-b border-line pb-4">
         <div className="text-sm font-semibold text-ink-mid">
           {isOriginal ? "原文" : "AI 翻译 · 中文"}
@@ -185,7 +185,7 @@ export function ArticleReadingToggle({
           </button>
         ) : null}
       </div>
-      <div className="mt-6 space-y-4">
+      <div className="mt-4 space-y-4">
         {isOriginal && markdown ? <MarkdownArticle markdown={markdown} /> : blocks.map(renderOriginalBlock)}
       </div>
     </article>

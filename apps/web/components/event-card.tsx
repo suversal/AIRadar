@@ -34,19 +34,19 @@ export function EventCard({
   hideImageOnMobile?: boolean;
 }) {
   return (
-    <article className="card-hover rounded-md border border-line bg-panel p-4">
+    <article className="card-hover rounded-md border border-line bg-panel p-3 md:p-4">
       <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0 truncate text-xs text-ink-mid">{sourceLine}</div>
+        <div className="min-w-0 truncate text-xs leading-5 text-ink-mid">{sourceLine}</div>
         <div className="flex shrink-0 items-center gap-1.5">
-          <span className="readout rounded-full border border-signal/40 px-2.5 py-0.5 text-xs font-semibold text-signal">
-            评分 {score}
+          <span className="readout inline-flex h-5 items-center justify-center rounded-full border border-signal/40 px-1.5 text-[11px] font-semibold leading-none text-signal">
+            {score}
           </span>
-          <BookmarkButton eventId={item.event_id} />
+          <BookmarkButton eventId={item.event_id} compact />
         </div>
       </div>
-      <h2 className="mt-1.5 text-base font-semibold leading-6 text-ink">
+      <h2 className="mt-3 text-base font-semibold leading-6 text-ink md:mt-1.5">
         {alwaysSelected || item.selected ? (
-          <span className="mr-1.5 inline-block rounded-full border border-signal/60 bg-signal/15 px-2 py-0.5 align-middle text-xs font-semibold text-signal-bright">
+          <span className="relative -top-px mr-1.5 inline-flex h-5 items-center justify-center rounded-full border border-signal/60 bg-signal/15 px-1.5 align-middle text-[11px] font-semibold leading-none text-signal-bright">
             精选
           </span>
         ) : null}
@@ -104,7 +104,7 @@ export function EventCard({
  *  桌面端维持独立的时间列 + 时间轴圆点，避免手机上时间独占一整行占用滚动空间。 */
 export function EventTimelineRow({ time, children }: { time: string; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-1 gap-1.5 md:grid-cols-[64px_1fr] md:gap-2">
+    <div className="grid grid-cols-1 gap-2 md:grid-cols-[64px_1fr]">
       <div className="readout relative flex items-center gap-2 text-sm font-semibold text-ink md:block md:text-lg">
         <span className="h-2 w-2 shrink-0 rounded-full bg-signal md:absolute md:-left-[30px] md:top-1.5 md:h-2.5 md:w-2.5" />
         {time}

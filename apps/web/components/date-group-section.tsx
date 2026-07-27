@@ -48,7 +48,7 @@ export function DateGroupSection({
     <div>
       <div ref={sentinelRef} aria-hidden className="h-px" />
       <div
-        className={`sticky top-0 z-20 -mx-5 flex h-12 min-w-0 items-center gap-2 border-b bg-canvas pl-5 pr-5 text-sm font-semibold text-ink-mid transition-shadow md:-mx-9 md:gap-3 md:px-9 lg:h-auto lg:py-3 ${
+        className={`sticky top-0 z-20 -mx-5 flex h-10 min-w-0 items-center gap-2 border-b bg-canvas pl-5 pr-5 text-sm font-semibold text-ink-mid transition-shadow md:-mx-9 md:h-12 md:gap-3 md:px-9 lg:h-auto lg:py-3 ${
           stuck ? "border-line shadow-[0_4px_8px_-6px_rgba(0,0,0,0.35)]" : "border-transparent"
         }`}
       >
@@ -83,7 +83,7 @@ export function DateGroupSection({
         </button>
       </div>
       {open ? (
-        <div className="relative mt-3 grid gap-3 md:border-l md:border-line/60 md:pl-6">{children}</div>
+        <div className="relative mt-2 grid gap-2 md:mt-3 md:gap-3 md:border-l md:border-line/60 md:pl-6">{children}</div>
       ) : null}
     </div>
   );

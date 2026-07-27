@@ -96,7 +96,7 @@ export default async function LatestPage({
         <Sidebar activeNavId="latest" />
         <MobileNav activeNavId="latest" />
 
-        <section className="px-4 py-4 md:px-9 md:py-6">
+        <section className="px-4 pt-2 pb-4 md:px-9 md:py-6">
           <header className="rounded-md border border-line bg-panel p-4 md:p-5">
             <RadarStatus
               compactScope="7天"
@@ -190,25 +190,25 @@ export default async function LatestPage({
           ) : null}
 
           {topEvents.length > 0 ? (
-            <section className="mt-3 rounded-md border border-signal/25 bg-panel p-4 md:mt-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+            <section className="mt-2 rounded-md border border-signal/25 bg-panel p-3 md:mt-4 md:p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 md:gap-3">
                 <h2 className="flex items-center gap-1.5 text-base font-semibold text-ink">
                   <span aria-hidden>🔥</span>
                   当前热点
                 </h2>
                 <span className="text-xs text-ink-dim">近48小时 · 按热度与评分</span>
               </div>
-              <div className="mt-3 grid gap-1">
+              <div className="mt-2 grid gap-0.5 md:mt-3 md:gap-1">
                 {topEvents.map((item, index) => (
                   <a
                     key={item.event_id}
-                    className="flex items-start gap-2 rounded-md px-2 py-2 text-sm transition hover:bg-panel-soft/60 md:grid md:grid-cols-[32px_1fr_180px] md:items-center md:gap-2 md:py-1.5"
+                    className="flex items-start gap-1.5 rounded-md px-1 py-1 text-sm leading-5 transition hover:bg-panel-soft/60 md:grid md:grid-cols-[32px_1fr_180px] md:items-center md:gap-2 md:px-2 md:py-1.5"
                     href={eventHref(item)}
                   >
                     <span className="shrink-0 font-semibold text-signal">{index + 1}</span>
                     <span className="min-w-0 flex-1 md:contents">
                       <span className="font-semibold text-ink">{item.title}</span>
-                      <span className="mt-0.5 block text-ink-dim md:mt-0 md:text-right">
+                      <span className="block text-ink-dim md:text-right">
                         {item.source_count ?? 1} 个信源 ·{" "}
                         {formatRelativeTime(item.last_seen_at ?? item.published_at)}
                       </span>

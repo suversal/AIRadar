@@ -110,7 +110,7 @@ export default async function AllEventsPage({
         <Sidebar activeNavId="all" />
         <MobileNav activeNavId="all" />
 
-        <section className="px-4 py-4 md:px-9 md:py-6">
+        <section className="px-4 pt-2 pb-4 md:px-9 md:py-6">
           <header className="rounded-md border border-line bg-panel p-4 md:p-5">
             <RadarStatus
               compactScope={`${DAYS}天`}

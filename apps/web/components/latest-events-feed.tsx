@@ -181,7 +181,7 @@ export function LatestEventsFeed({
   }, [hasMore, loadMore]);
 
   return (
-    <section className="mt-6">
+    <section className="mt-3 md:mt-6">
       {dateGroups.length > 0 ? (
         dateGroups.map((group) => (
           <DateGroupSection

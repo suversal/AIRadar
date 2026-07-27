@@ -151,7 +151,7 @@ export default async function EventDetailPage({
         <Sidebar activeNavId="latest" />
         <MobileNav activeNavId="latest" />
 
-        <section className="min-w-0 px-5 py-8 md:py-12">
+        <section className="min-w-0 px-5 pt-4 pb-8 md:py-12">
           <div className="mx-auto max-w-3xl">
             {adminPreview === "1" && event.hidden ? (
               <aside className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
@@ -165,43 +165,54 @@ export default async function EventDetailPage({
               </aside>
             ) : null}
             <header>
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <span className="rounded-full border border-signal/60 bg-signal/15 px-2.5 py-1 text-xs font-semibold text-signal-bright">
-                  精选
-                </span>
-                <span className="readout rounded-full border border-signal/40 px-2.5 py-1 text-xs font-semibold text-signal">
-                  {formatScore(event.final_score)}
-                </span>
-                <BookmarkButton eventId={event.event_id} labeled />
-              </div>
-
-              <div className="mt-8">
+              <div className="flex items-start justify-between gap-3 md:items-center">
                 <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-mid">
-                    <span className="font-semibold text-ink">{event.main_source?.name ?? "未知来源"}</span>
+                  <div className="flex h-5 min-w-0 items-center gap-x-3 text-sm text-ink-mid md:h-6">
+                    <span className="min-w-0 truncate font-semibold text-ink">
+                      {event.main_source?.name ?? "未知来源"}
+                    </span>
+                    <span className="hidden md:inline">
+                      {formatDateTime(event.published_at, event.content_origin)}
+                    </span>
+                    <span className="hidden md:inline">
+                      {event.category_label ?? event.category ?? "未分类"}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-mid md:hidden">
                     <span>{formatDateTime(event.published_at, event.content_origin)}</span>
                     <span>{event.category_label ?? event.category ?? "未分类"}</span>
                   </div>
-                  <h1 className="mt-3 text-2xl font-semibold leading-tight tracking-normal text-ink md:text-3xl">
-                    {event.title}
-                  </h1>
-                  {originalUrl ? (
-                    <a
-                      className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-signal hover:text-signal-bright"
-                      href={originalUrl}
-                      rel="noopener noreferrer"
-                      target="_blank"
-                    >
-                      <ExternalLink aria-hidden className="h-4 w-4" strokeWidth={2} />
-                      {isTelegramRss ? "查看 Telegram 原帖" : "阅读原文"}
-                      {originalHost ? <span className="text-ink-dim"> · {originalHost}</span> : null}
-                    </a>
-                  ) : null}
+                </div>
+
+                <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
+                  <span className="inline-flex h-5 items-center justify-center rounded-full border border-signal/60 bg-signal/15 px-1.5 text-[11px] font-semibold leading-none text-signal-bright md:h-6 md:px-2 md:text-xs">
+                    精选
+                  </span>
+                  <span className="readout inline-flex h-5 items-center justify-center rounded-full border border-signal/40 px-1.5 text-[11px] font-semibold leading-none text-signal md:h-6 md:px-2 md:text-xs">
+                    {formatScore(event.final_score)}
+                  </span>
+                  <BookmarkButton eventId={event.event_id} labelOnDesktop />
                 </div>
               </div>
+
+              <h1 className="mt-3 text-2xl font-semibold leading-tight tracking-normal text-ink md:text-3xl">
+                {event.title}
+              </h1>
+              {originalUrl ? (
+                <a
+                  className="mt-4 flex w-fit items-center gap-2 text-sm font-medium text-signal hover:text-signal-bright"
+                  href={originalUrl}
+                  rel="noopener noreferrer"
+                  target="_blank"
+                >
+                  <ExternalLink aria-hidden className="h-4 w-4" strokeWidth={2} />
+                  {isTelegramRss ? "查看 Telegram 原帖" : "阅读原文"}
+                  {originalHost ? <span className="text-ink-dim"> · {originalHost}</span> : null}
+                </a>
+              ) : null}
             </header>
 
-            <section className="mt-6 rounded-md border border-signal/30 bg-signal/5 p-4">
+            <section className="mt-4 rounded-md border border-signal/30 bg-signal/5 p-4">
               <h2 className="text-xs font-semibold text-signal-bright">推荐理由</h2>
               <p className="mt-2 text-sm leading-6 text-ink-mid">{event.reason ?? "暂无推荐理由。"}</p>
             </section>
@@ -221,9 +232,9 @@ export default async function EventDetailPage({
                 translatedBlocks={translatedBlocks}
               />
             ) : (
-              <article className="mt-10 border-t border-line pt-8">
+              <article className="mt-4 border-t border-line pt-4">
                 <h2 className="text-sm font-semibold text-ink-mid">原文</h2>
-                <div className="mt-6 space-y-4">{originalBlocks.map(renderOriginalBlock)}</div>
+                <div className="mt-4 space-y-4">{originalBlocks.map(renderOriginalBlock)}</div>
               </article>
             )}
 
