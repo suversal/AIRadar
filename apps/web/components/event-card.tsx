@@ -14,6 +14,7 @@ export function EventCard({
   clampSummary = false,
   alwaysSelected = false,
   showReason = true,
+  hideImageOnMobile = false,
 }: {
   item: LatestEvent;
   sourceLine: string;
@@ -29,10 +30,12 @@ export function EventCard({
   // /all 页面混合展示精选与非精选条目,推荐理由是"精选"信息流(/latest)的专属
   // 内容,在混合流里不展示,调用方按页面语境显式控制
   showReason?: boolean;
+  // /all 移动端信息密度优先于配图,桌面端保留
+  hideImageOnMobile?: boolean;
 }) {
   return (
     <article className="card-hover rounded-md border border-line bg-panel p-4">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-center justify-between gap-3">
         <div className="min-w-0 truncate text-xs text-ink-mid">{sourceLine}</div>
         <div className="flex shrink-0 items-center gap-1.5">
           <span className="readout rounded-full border border-signal/40 px-2.5 py-0.5 text-xs font-semibold text-signal">
@@ -63,7 +66,9 @@ export function EventCard({
         // CDN 防盗链 403（详情页同款处理，实测案例：极客邦 CDN）
         <img
           alt={image.alt ?? item.title}
-          className="mt-3 max-h-72 w-full max-w-xl rounded-md border border-line object-cover"
+          className={`mt-3 max-h-72 w-full max-w-xl rounded-md border border-line object-cover ${
+            hideImageOnMobile ? "hidden md:block" : ""
+          }`}
           src={proxiedImageUrl(image.url)}
           referrerPolicy="no-referrer"
         />

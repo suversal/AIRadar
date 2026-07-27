@@ -68,6 +68,10 @@ function sourceLine(item: LatestEvent) {
   return `${source} · ${item.source_count ?? 1} 个来源`;
 }
 
+function representativeImage(item: LatestEvent) {
+  return item.original_images?.[0];
+}
+
 function tagHref(tag: string) {
   return `/latest?${new URLSearchParams({ tag })}`;
 }
@@ -192,6 +196,7 @@ export function LatestEventsFeed({
                   item={item}
                   sourceLine={sourceLine(item)}
                   score={formatScore(item.final_score)}
+                  image={representativeImage(item)}
                   tagHref={tagHref}
                   maxTags={4}
                   clampSummary

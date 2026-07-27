@@ -241,6 +241,7 @@ export function AllEventsFeed({
                   tagHref={tagHref}
                   maxTags={5}
                   showReason={false}
+                  hideImageOnMobile
                 />
               </EventTimelineRow>
             ))}
