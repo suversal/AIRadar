@@ -253,7 +253,7 @@ def _category_taxonomy_guide() -> str:
 
 def _focus_taxonomy_guide() -> str:
     return (
-        "用户主关注分类（focus_category 必须从4个枚举值中选择其一，并与category"
+        "用户主关注分类（focus_category 必须从5个枚举值中选择其一，并与category"
         "独立判断）："
         "model=模型动态，核心变化是模型发布、版本、能力、参数、权重或模型本身；"
         "product=产品工具，核心变化是用户或开发者可以直接使用的产品、功能、平台、"
@@ -261,12 +261,18 @@ def _focus_taxonomy_guide() -> str:
         "technology=技术研究，核心价值是方法、论文、实验、评测、数据集或通用工程"
         "实践；"
         "industry=行业动态，核心变化是公司经营、资本、合作、人事、市场、政策、监管"
-        "或安全环境。"
+        "或安全环境；"
+        "tutorial=教程实践，核心是手把手教程、操作指南、最佳实践或案例复盘——即使"
+        "同时涉及某个具体模型、产品或技术方法，只要文章的核心价值是教读者怎么做，"
+        "而不是该模型/产品/技术本身的进展，就优先归为tutorial而非model/product/"
+        "technology（这与category轴上open_source优先于model_release是同一种"
+        "判断原则：形式压过主体）。"
         "focus_category 判断文章主要对象，不等同于内容形式：开源模型可为"
         "category=open_source、focus_category=model；开源开发框架可为"
         "open_source+product；论文实验代码可为open_source+technology；Claude Code"
-        "使用教程可为tutorial+product；LoRA微调教程可为tutorial+technology；模型"
-        "路线观点可为opinion+model；融资报道可为funding+industry。"
+        "使用教程属于tutorial+product（category是产品应用，focus是教程实践）；"
+        "LoRA微调教程属于tutorial+technology（category是研究评测，focus是教程"
+        "实践）；模型路线观点可为opinion+model；融资报道可为funding+industry。"
     )
 
 
@@ -280,7 +286,7 @@ def scoring_system_prompt() -> str:
         "Return strict JSON matching this example: "
         f"{json.dumps(schema_hint, ensure_ascii=False)}. "
         f"category MUST be exactly one of: {', '.join(SCORING_CATEGORIES)}. "
-        "focus_category MUST be exactly one of: model, product, technology, industry. "
+        "focus_category MUST be exactly one of: model, product, technology, industry, tutorial. "
         "tags: up to 5 short Chinese or product-name tags; prefer this vocabulary "
         f"when applicable: {', '.join(SUGGESTED_TAGS)}; add company/model names as needed. "
         "title_zh（中文标题，12-30字）：必须忠实于原文标题与正文事实，"

@@ -104,6 +104,63 @@ class ScoringTests(unittest.TestCase):
         self.assertGreaterEqual(processed.final_score, category_threshold("model_release"))
         self.assertEqual(processed.focus_category, "model")
 
+    def test_select_processed_article_maps_tutorial_category_to_tutorial_focus(self):
+        article = RawArticle(
+            id="a2",
+            source_id="openai_blog",
+            source_name="OpenAI Blog",
+            source_role="authority",
+            source_tier="T1",
+            source_url="https://openai.com/b",
+            title="How-to guide",
+            content="Step by step tutorial",
+            author=None,
+            published_at=datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+            language="en",
+            raw_score={},
+            metadata={},
+            title_hash="t2",
+            url_hash="u2",
+        )
+        source = Source(
+            id="openai_blog",
+            name="OpenAI Blog",
+            source_role="authority",
+            tier="T1",
+            type="rss",
+            category="official",
+            url="https://openai.com/rss.xml",
+            homepage="https://openai.com",
+            allowed_domains=["openai.com"],
+            can_be_main_source=True,
+        )
+
+        processed = select_processed_article(
+            article=article,
+            source=source,
+            dimensions=ScoreDimensions(
+                ai_relevance=8,
+                novelty=6,
+                impact=6,
+                information_density=7,
+                actionability=8,
+                creator_value=8,
+            ),
+            category="tutorial",
+            tags=["教程"],
+            generated_fields={
+                "title_zh": "最佳实践教程",
+                "one_line_summary": "手把手教程。",
+                "summary_zh": "手把手教程。",
+                "reason_zh": "值得关注。",
+                "action_zh": "阅读原文。",
+            },
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            source_count=1,
+        )
+
+        self.assertEqual(processed.focus_category, "tutorial")
+
 
 if __name__ == "__main__":
     unittest.main()

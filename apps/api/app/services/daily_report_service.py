@@ -7,7 +7,12 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from app.models.domain import EventCluster, RawArticle, Source
-from app.services.taxonomy import category_label, display_category
+from app.services.taxonomy import (
+    category_label,
+    display_category,
+    focus_category_label,
+    resolve_focus_category,
+)
 
 
 
@@ -541,6 +546,18 @@ def build_daily_json(
         processed = processed_by_article[cluster.main_article_id]
         source = sources_by_id[article.source_id]
         original_payload = _original_article_payload(article)
+        focus = resolve_focus_category(
+            processed.focus_category,
+            processed.category,
+            text=" ".join(
+                [
+                    str(processed.title_zh or article.title or ""),
+                    str(processed.one_line_summary or ""),
+                    str(processed.summary_zh or ""),
+                    " ".join(str(tag) for tag in processed.tags or []),
+                ]
+            ),
+        )
         items.append(
             {
                 "event_id": cluster.id,
@@ -548,6 +565,8 @@ def build_daily_json(
                 "title": processed.title_zh,
                 "category": display_category(processed.category),
                 "category_label": category_label(processed.category),
+                "focus_category": focus,
+                "focus_category_label": focus_category_label(focus),
                 "scoring_category": processed.category,
                 "tags": processed.tags,
                 "final_score": cluster.final_score,
@@ -571,7 +590,7 @@ def build_daily_json(
     updated_at = _iso_utc(generated_at) if generated_at else latest_published_at
     sections: dict[str, list[dict[str, Any]]] = {}
     for item in items:
-        sections.setdefault(item["category"], []).append(item)
+        sections.setdefault(item["focus_category"], []).append(item)
     return {
         "report_date": report_date.isoformat(),
         "title": f"Suversal AI Radar 日报 - {report_date.isoformat()}",
@@ -611,7 +630,7 @@ def render_daily_markdown(
         "",
     ]
     for category, items in daily["sections"].items():
-        lines.append(f"## {category_label(category)}")
+        lines.append(f"## {focus_category_label(category)}")
         lines.append("")
         for index, item in enumerate(items, start=1):
             tags = " ".join(f"`{tag}`" for tag in item["tags"])

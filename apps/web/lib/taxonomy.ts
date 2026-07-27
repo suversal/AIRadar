@@ -14,6 +14,7 @@ export const FOCUS_CATEGORIES = [
   ["product", "产品工具"],
   ["technology", "技术研究"],
   ["industry", "行业动态"],
+  ["tutorial", "教程实践"],
 ] as const;
 
 export const CATEGORY_FILTER_OPTIONS: readonly (readonly [string, string])[] = [
@@ -45,7 +46,7 @@ const SCORING_TO_FOCUS: Record<string, string> = {
   industry: "industry",
   funding: "industry",
   opinion: "industry",
-  tutorial: "technology",
+  tutorial: "tutorial",
 };
 
 const DISPLAY_FALLBACK_KEYWORDS: readonly (readonly [string, string])[] = [
@@ -96,7 +97,7 @@ export function focusCategory(
   if (FOCUS_LABELS.has(scoring)) {
     return scoring;
   }
-  if (scoring === "research" || scoring === "tutorial") {
+  if (scoring === "research") {
     return "technology";
   }
   return SCORING_TO_FOCUS[scoring] ?? "";

@@ -25,12 +25,16 @@ def make_item(
     source_count=1,
     source_id="src-a",
     category_label=None,
+    focus_category=None,
+    focus_category_label=None,
 ):
     return {
         "event_id": f"e-{title[:6]}",
         "title": title,
         "category": category,
         "category_label": category_label or category,
+        "focus_category": focus_category or category,
+        "focus_category_label": focus_category_label or category_label or category,
         "one_line_summary": summary,
         "final_score": score,
         "source_count": source_count,
@@ -127,10 +131,22 @@ class PeriodSummaryTests(unittest.TestCase):
             self.assertNotIn("summary", entry)
 
     def test_build_period_report_computes_stats_snapshot(self):
+        # category_label deliberately differs from focus_category_label so
+        # this test proves the distribution is keyed by the new focus axis,
+        # not the legacy display category.
         items = [
-            make_item("事件A", score=90, source_count=3, source_id="src-a", category_label="模型"),
-            make_item("事件B", score=80, source_count=1, source_id="src-b", category_label="模型"),
-            make_item("事件C", score=70, source_count=1, source_id="src-a", category_label="产品"),
+            make_item(
+                "事件A", score=90, source_count=3, source_id="src-a",
+                category_label="模型", focus_category_label="模型动态",
+            ),
+            make_item(
+                "事件B", score=80, source_count=1, source_id="src-b",
+                category_label="模型", focus_category_label="模型动态",
+            ),
+            make_item(
+                "事件C", score=70, source_count=1, source_id="src-a",
+                category_label="产品", focus_category_label="产品工具",
+            ),
         ]
 
         report = build_period_report(
@@ -144,7 +160,7 @@ class PeriodSummaryTests(unittest.TestCase):
         stats = report["stats"]
         self.assertEqual(stats["source_coverage_count"], 2)
         self.assertAlmostEqual(stats["multi_source_ratio"], 1 / 3)
-        self.assertEqual(stats["category_distribution"], {"模型": 2, "产品": 1})
+        self.assertEqual(stats["category_distribution"], {"模型动态": 2, "产品工具": 1})
 
     def test_build_period_report_marks_fallback_on_provider_failure(self):
         class BoomProvider(FakeAIProvider):

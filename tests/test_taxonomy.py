@@ -25,13 +25,14 @@ class TaxonomyTests(unittest.TestCase):
         self.assertEqual(dict(DISPLAY_CATEGORIES)["model"], "模型")
         self.assertEqual(dict(DISPLAY_CATEGORIES)["tutorial"], "技巧")
 
-    def test_reader_focus_has_four_categories(self):
+    def test_reader_focus_has_five_categories(self):
         self.assertEqual(
             [key for key, _ in FOCUS_CATEGORIES],
-            ["model", "product", "technology", "industry"],
+            ["model", "product", "technology", "industry", "tutorial"],
         )
         self.assertEqual(dict(FOCUS_CATEGORIES)["model"], "模型动态")
         self.assertEqual(dict(FOCUS_CATEGORIES)["technology"], "技术研究")
+        self.assertEqual(dict(FOCUS_CATEGORIES)["tutorial"], "教程实践")
 
     def test_every_scoring_category_maps_to_a_display_category(self):
         expectations = {
@@ -85,14 +86,18 @@ class TaxonomyTests(unittest.TestCase):
             infer_focus_category("open_source", text="LangGraph agent tool framework"),
             "product",
         )
+        # tutorial is now its own focus category regardless of subject matter:
+        # form (how-to) takes priority over subject, mirroring how open_source
+        # takes priority over model_release on the category axis.
         self.assertEqual(
             infer_focus_category("tutorial", text="LoRA 微调训练最佳实践"),
-            "technology",
+            "tutorial",
         )
         self.assertEqual(
             infer_focus_category("tutorial", text="Claude Code 工具使用教程"),
-            "product",
+            "tutorial",
         )
+        self.assertEqual(infer_focus_category("tutorial", text=""), "tutorial")
 
     def test_internal_category_labels_keep_existing_enums(self):
         self.assertEqual(scoring_category_label("model_release"), "模型进展")

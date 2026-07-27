@@ -321,6 +321,52 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(focused_total, 1)
         self.assertEqual(focused_items[0]["event_id"], "aa1")
 
+    def test_processed_tutorial_focus_category_is_persisted_and_exposed(self):
+        from dataclasses import replace as dc_replace
+
+        from app.db.models import ProcessedArticleModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles(
+                [self._article(article_id="a1", title="LoRA 微调最佳实践教程")]
+            )
+            repository.upsert_processed_articles(
+                [
+                    dc_replace(
+                        self._processed("a1"),
+                        category="tutorial",
+                        focus_category="tutorial",
+                    )
+                ]
+            )
+            session.commit()
+
+            stored = session.scalar(
+                select(ProcessedArticleModel).where(
+                    ProcessedArticleModel.raw_article_id == "a1"
+                )
+            )
+            items = repository.get_all_event_items_between(
+                date(2026, 7, 1),
+                date(2026, 7, 1),
+            )
+            focused_items, focused_total, _ = (
+                repository.count_and_get_all_event_items_between(
+                    date(2026, 7, 1),
+                    date(2026, 7, 1),
+                    category="tutorial",
+                )
+            )
+
+        self.assertEqual(stored.focus_category, "tutorial")
+        self.assertEqual(items[0]["focus_category"], "tutorial")
+        self.assertEqual(items[0]["focus_category_label"], "教程实践")
+        self.assertEqual(focused_total, 1)
+        self.assertEqual(focused_items[0]["event_id"], "aa1")
+
     def test_all_listing_uses_membership_table_despite_link_drift(self):
         # 回归（实测生产库 14/48 链接漂移）：即使 processed 缓存列被覆写成
         # NULL，事件主文的 event_id 也必须以成员表为事实源，不依赖那个会

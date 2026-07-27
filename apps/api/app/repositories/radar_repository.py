@@ -505,6 +505,7 @@ class RadarRepository:
         )
 
         items = []
+        seen_output_ids: set[str] = set()
         for event_id in event_ids:
             row = resolved.get(event_id)
             if row is None:
@@ -517,20 +518,26 @@ class RadarRepository:
             ):
                 continue
             translation = translations.get(processed.raw_article_id)
-            items.append(
-                _event_item(
-                    processed,
-                    raw,
-                    source,
-                    include_content=True,
-                    override=override,
-                    event_override=event_override,
-                    translation=translation,
-                    source_count=cluster.source_count if cluster else 1,
-                    event_id=cluster.id if cluster else None,
-                    last_seen_at=cluster.last_seen_at if cluster else None,
-                )
+            item = _event_item(
+                processed,
+                raw,
+                source,
+                include_content=True,
+                override=override,
+                event_override=event_override,
+                translation=translation,
+                source_count=cluster.source_count if cluster else 1,
+                event_id=cluster.id if cluster else None,
+                last_seen_at=cluster.last_seen_at if cluster else None,
             )
+            # two distinct requested ids (e.g. a stale a-prefixed id from an
+            # older report snapshot and the cluster it was later merged into)
+            # can resolve to the same output event_id - only show it once
+            output_id = item["event_id"]
+            if output_id in seen_output_ids:
+                continue
+            seen_output_ids.add(output_id)
+            items.append(item)
         return items
 
     def _canonicalize_event_ids(self, event_ids: list[str]) -> dict[str, str]:
@@ -607,7 +614,7 @@ class RadarRepository:
 
         sections: dict[str, list[dict[str, Any]]] = {}
         for item in items:
-            sections.setdefault(item["category"], []).append(item)
+            sections.setdefault(item["focus_category"], []).append(item)
 
         payload["items"] = items
         payload["sections"] = sections

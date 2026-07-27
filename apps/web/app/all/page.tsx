@@ -110,28 +110,6 @@ export default async function AllEventsPage({
 
             <div className="mt-4 grid gap-3 xl:grid-cols-[1fr_1fr_320px]">
               <div className="flex flex-wrap gap-1.5 rounded-md border border-line bg-canvas p-1.5">
-                {sourceOptions.map(([source, label]) => (
-                  <a
-                    key={source || "all-source"}
-                    className={`flex min-h-10 items-center rounded-md px-4 py-1.5 text-sm font-medium ${
-                      selectedSource === source
-                        ? "bg-signal/15 text-signal"
-                        : "text-ink-mid hover:bg-panel-soft hover:text-ink"
-                    }`}
-                    href={allHref({
-                      source,
-                      focus: selectedCategory,
-                      tag: selectedTag,
-                      topic: selectedTopic,
-                      q: query,
-                    })}
-                  >
-                    {label}
-                  </a>
-                ))}
-              </div>
-
-              <div className="flex flex-wrap gap-1.5 rounded-md border border-line bg-canvas p-1.5">
                 {categoryOptions.map(([category, label]) => (
                   <a
                     key={category || "all-category"}
@@ -143,6 +121,28 @@ export default async function AllEventsPage({
                     href={allHref({
                       source: selectedSource,
                       focus: category,
+                      tag: selectedTag,
+                      topic: selectedTopic,
+                      q: query,
+                    })}
+                  >
+                    {label}
+                  </a>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap gap-1.5 rounded-md border border-line bg-canvas p-1.5">
+                {sourceOptions.map(([source, label]) => (
+                  <a
+                    key={source || "all-source"}
+                    className={`flex min-h-10 items-center rounded-md px-4 py-1.5 text-sm font-medium ${
+                      selectedSource === source
+                        ? "bg-signal/15 text-signal"
+                        : "text-ink-mid hover:bg-panel-soft hover:text-ink"
+                    }`}
+                    href={allHref({
+                      source,
+                      focus: selectedCategory,
                       tag: selectedTag,
                       topic: selectedTopic,
                       q: query,

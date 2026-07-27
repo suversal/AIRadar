@@ -1,4 +1,5 @@
 import type { DailyReport, LatestEvent } from "@/lib/api";
+import { focusCategory } from "@/lib/taxonomy";
 
 export type DailySection = {
   key: string;
@@ -7,7 +8,7 @@ export type DailySection = {
 };
 
 function categoryLabel(key: string, items: LatestEvent[]) {
-  return items[0]?.category_label ?? items[0]?.category ?? key;
+  return items[0]?.focus_category_label ?? items[0]?.category_label ?? key;
 }
 
 export function getDailySections(report: DailyReport): DailySection[] {
@@ -22,7 +23,7 @@ export function getDailySections(report: DailyReport): DailySection[] {
 
   const grouped = new Map<string, LatestEvent[]>();
   for (const item of report.items) {
-    const key = item.category ?? "uncategorized";
+    const key = focusCategory(item.focus_category, item.scoring_category) || "uncategorized";
     grouped.set(key, [...(grouped.get(key) ?? []), item]);
   }
   return Array.from(grouped.entries()).map(([key, items]) => ({

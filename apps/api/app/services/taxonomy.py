@@ -20,6 +20,7 @@ FOCUS_CATEGORIES: list[tuple[str, str]] = [
     ("product", "产品工具"),
     ("technology", "技术研究"),
     ("industry", "行业动态"),
+    ("tutorial", "教程实践"),
 ]
 
 SOURCE_FILTER_KEYS = frozenset({"first_party", "news", "community"})
@@ -61,7 +62,7 @@ SCORING_TO_FOCUS: dict[str, str] = {
     "industry": "industry",
     "funding": "industry",
     "opinion": "industry",
-    "tutorial": "technology",
+    "tutorial": "tutorial",
 }
 
 _DISPLAY_FALLBACK_KEYWORDS: list[tuple[str, str]] = [
@@ -88,7 +89,7 @@ _FOCUS_FALLBACK_KEYWORDS: list[tuple[str, str]] = [
     ("academic", "technology"),
     ("benchmark", "technology"),
     ("technique", "technology"),
-    ("tutorial", "technology"),
+    ("tutorial", "tutorial"),
     ("product", "product"),
     ("open_source", "product"),
     ("tool", "product"),
@@ -171,15 +172,6 @@ def infer_focus_category(
         return direct
 
     normalized_text = str(text or "").lower()
-    if raw == "tutorial":
-        if any(signal in normalized_text for signal in _PRODUCT_SIGNALS):
-            return "product"
-        if any(signal in normalized_text for signal in _TECHNOLOGY_SIGNALS):
-            return "technology"
-        if any(signal in normalized_text for signal in _MODEL_SIGNALS):
-            return "model"
-        return SCORING_TO_FOCUS[raw]
-
     if raw == "opinion":
         if any(signal in normalized_text for signal in _PRODUCT_SIGNALS):
             return "product"

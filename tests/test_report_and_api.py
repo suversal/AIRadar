@@ -202,6 +202,33 @@ class ReportAndAPITests(unittest.TestCase):
         self.assertEqual(item["category"], "model")
         self.assertEqual(item["category_label"], "模型")
         self.assertEqual(item["scoring_category"], "model_release")
+        self.assertEqual(item["focus_category"], "model")
+        self.assertEqual(item["focus_category_label"], "模型动态")
+        # sections now group by focus_category, not the legacy display category
+        self.assertEqual(list(daily_json["sections"].keys()), ["model"])
+
+    def test_daily_json_sections_group_by_focus_not_display_category(self):
+        # opinion (category axis) maps to display "tutorial" but, once the
+        # text carries a clear model signal, resolves to focus "model" - a
+        # fixture where the two taxonomies disagree, so the section key
+        # actually proves which axis build_daily_json groups by.
+        self.processed.category = "opinion"
+        self.cluster.category = "opinion"
+        self.processed.summary_zh = "关于下一代基础模型路线的分析与预测。"
+        self.processed.one_line_summary = "模型路线观点分析。"
+
+        daily_json = build_daily_json(
+            report_date=date(2026, 7, 1),
+            clusters=[self.cluster],
+            processed_by_article={"a1": self.processed},
+            articles_by_id={"a1": self.article},
+            sources_by_id={"openai_blog": self.source},
+            generated_at=datetime(2026, 7, 7, 14, 30, tzinfo=timezone.utc),
+        )
+
+        item = daily_json["items"][0]
+        self.assertEqual(item["category"], "tutorial")
+        self.assertEqual(item["focus_category"], "model")
         self.assertEqual(list(daily_json["sections"].keys()), ["model"])
 
     def test_daily_json_preserves_inline_html_on_paragraph_blocks(self):

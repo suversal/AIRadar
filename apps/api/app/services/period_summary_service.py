@@ -72,7 +72,7 @@ def _summary_input(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         {
             "title": str(item.get("title") or "")[:80],
             "summary": str(item.get("one_line_summary") or item.get("summary") or "")[:120],
-            "category": str(item.get("category") or ""),
+            "category": str(item.get("focus_category") or item.get("category") or ""),
         }
         for item in ranked[:SUMMARY_ITEM_LIMIT]
     ]
@@ -120,7 +120,13 @@ def _stats_snapshot(items: list[dict[str, Any]]) -> dict[str, Any]:
     multi_source_count = sum(1 for item in items if int(item.get("source_count") or 1) > 1)
     category_distribution: dict[str, int] = {}
     for item in items:
-        label = str(item.get("category_label") or item.get("category") or "其他")
+        label = str(
+            item.get("focus_category_label")
+            or item.get("category_label")
+            or item.get("focus_category")
+            or item.get("category")
+            or "其他"
+        )
         category_distribution[label] = category_distribution.get(label, 0) + 1
     return {
         "source_coverage_count": len(source_ids),

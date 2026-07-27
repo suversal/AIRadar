@@ -48,6 +48,7 @@ def backfill(
     limit: int | None,
     dry_run: bool,
     overwrite: bool,
+    scoring_category: str | None = None,
 ) -> dict[str, object]:
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     query = (
@@ -61,6 +62,8 @@ def backfill(
     )
     if not overwrite:
         query = query.where(ProcessedArticleModel.focus_category.is_(None))
+    if scoring_category is not None:
+        query = query.where(ProcessedArticleModel.category == scoring_category)
     if limit is not None:
         query = query.limit(limit)
 
@@ -87,6 +90,7 @@ def backfill(
         "days": days,
         "dry_run": dry_run,
         "overwrite": overwrite,
+        "scoring_category": scoring_category,
         "examined": len(rows),
         "would_update" if dry_run else "updated": updated,
         "unresolved": unresolved,
@@ -107,6 +111,12 @@ def main() -> int:
         action="store_true",
         help="Recompute rows that already have focus_category.",
     )
+    parser.add_argument(
+        "--scoring-category",
+        help="Only process rows whose 8-way scoring category equals this value "
+        "(e.g. 'tutorial'). Combine with --overwrite for a narrow recompute "
+        "that does not touch other categories.",
+    )
     args = parser.parse_args()
     if not args.database_url:
         parser.error("--database-url or DATABASE_URL is required")
@@ -123,6 +133,7 @@ def main() -> int:
             limit=args.limit,
             dry_run=args.dry_run,
             overwrite=args.overwrite,
+            scoring_category=args.scoring_category,
         )
         if args.dry_run:
             session.rollback()

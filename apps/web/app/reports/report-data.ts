@@ -1,6 +1,6 @@
 import type { DailyReport, LatestEvent, LatestReport, PeriodReport } from "@/lib/api";
 import { getDailySections } from "@/lib/markdown";
-import { categoryLabel, displayCategory } from "@/lib/taxonomy";
+import { focusCategory, focusCategoryLabel } from "@/lib/taxonomy";
 
 export type ReportHighlight = {
   label: string;
@@ -21,13 +21,13 @@ export function splitParagraphs(body: string): string[] {
 }
 
 export function categoryDisplayName(key: string, item?: LatestEvent) {
-  return item?.category_label ?? categoryLabel(key);
+  return item?.focus_category_label ?? focusCategoryLabel(key);
 }
 
 export function summarizeCategoryHighlights(items: LatestEvent[], limit = 5): ReportHighlight[] {
   const grouped = new Map<string, LatestEvent[]>();
   for (const item of items) {
-    const key = displayCategory(item.category);
+    const key = focusCategory(item.focus_category, item.scoring_category);
     grouped.set(key, [...(grouped.get(key) ?? []), item]);
   }
   return Array.from(grouped.entries())
