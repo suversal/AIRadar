@@ -38,12 +38,16 @@ export function BookmarkButton({
         setBookmarked(next);
         onChange?.(next);
       }}
-      className={`inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md border text-xs font-semibold transition ${
-        labeled ? "min-h-10 px-3 py-2" : "h-10 w-10"
-      } ${
-        bookmarked
-          ? "border-signal/60 bg-signal/15 text-signal-bright"
-          : "border-line-strong text-ink-mid hover:border-signal/40 hover:text-signal"
+      className={`inline-flex shrink-0 items-center justify-center gap-1.5 text-xs font-semibold transition ${
+        labeled
+          ? `min-h-10 rounded-md border px-3 py-2 ${
+              bookmarked
+                ? "border-signal/60 bg-signal/15 text-signal-bright"
+                : "border-line-strong text-ink-mid hover:border-signal/40 hover:text-signal"
+            }`
+          : `h-9 w-9 rounded-full ${
+              bookmarked ? "text-signal-bright" : "text-ink-mid hover:text-signal"
+            }`
       } ${ready ? "" : "opacity-0"} ${className}`}
     >
       <Bookmark aria-hidden className="h-4 w-4" strokeWidth={1.75} fill={bookmarked ? "currentColor" : "none"} />

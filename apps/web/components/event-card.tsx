@@ -13,6 +13,7 @@ export function EventCard({
   maxTags = 5,
   clampSummary = false,
   alwaysSelected = false,
+  showReason = true,
 }: {
   item: LatestEvent;
   sourceLine: string;
@@ -25,30 +26,35 @@ export function EventCard({
   // 这里允许调用方明确声明"本页面下的条目都算精选",而不是依赖可能缺失的
   // item.selected,避免徽章在 /latest 上意外消失
   alwaysSelected?: boolean;
+  // /all 页面混合展示精选与非精选条目,推荐理由是"精选"信息流(/latest)的专属
+  // 内容,在混合流里不展示,调用方按页面语境显式控制
+  showReason?: boolean;
 }) {
   return (
     <article className="card-hover rounded-md border border-line bg-panel p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="truncate text-xs text-ink-mid">{sourceLine}</div>
-          <h2 className="mt-1.5 text-base font-semibold leading-6 text-ink">
-            <a className="hover:text-signal" href={eventHref(item)}>{item.title}</a>
-          </h2>
-        </div>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 truncate text-xs text-ink-mid">{sourceLine}</div>
         <div className="flex shrink-0 items-center gap-1.5">
-          {alwaysSelected || item.selected ? (
-            <span className="rounded-full border border-signal/60 bg-signal/15 px-2.5 py-0.5 text-xs font-semibold text-signal-bright">
-              精选
-            </span>
-          ) : null}
           <span className="readout rounded-full border border-signal/40 px-2.5 py-0.5 text-xs font-semibold text-signal">
             评分 {score}
           </span>
           <BookmarkButton eventId={item.event_id} />
         </div>
       </div>
+      <h2 className="mt-1.5 text-base font-semibold leading-6 text-ink">
+        {alwaysSelected || item.selected ? (
+          <span className="mr-1.5 inline-block rounded-full border border-signal/60 bg-signal/15 px-2 py-0.5 align-middle text-xs font-semibold text-signal-bright">
+            精选
+          </span>
+        ) : null}
+        <a className="hover:text-signal" href={eventHref(item)}>{item.title}</a>
+      </h2>
 
-      <p className={`mt-3 text-sm leading-6 text-ink-mid ${clampSummary ? "line-clamp-3" : ""}`}>
+      <p
+        className={`mt-3 text-sm leading-6 text-ink-mid line-clamp-2 ${
+          clampSummary ? "md:line-clamp-3" : "md:line-clamp-none"
+        }`}
+      >
         {item.summary ?? item.one_line_summary ?? "暂无摘要。"}
       </p>
 
@@ -77,7 +83,7 @@ export function EventCard({
         </div>
       ) : null}
 
-      {item.reason ? (
+      {showReason && item.reason ? (
         <div className="mt-4 border-t border-line pt-3">
           <p className="rounded-md bg-signal/10 px-3 py-2.5 text-xs leading-5 text-signal-bright">
             <span className="font-semibold">推荐理由：</span>

@@ -240,6 +240,7 @@ export function AllEventsFeed({
                   image={representativeImage(item)}
                   tagHref={tagHref}
                   maxTags={5}
+                  showReason={false}
                 />
               </EventTimelineRow>
             ))}
