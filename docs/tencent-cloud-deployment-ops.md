@@ -134,10 +134,10 @@ bash scripts/deploy_to_server.sh
 
 1. 本地爬取：`run_crawl_once.py`（参数是 `--sources` / `--output` / `--report`，**没有 `--limit`**）。
 2. 本地跑 AI 打分 / 聚类 pipeline。
-3. 推送到线上（整库覆盖远程数据，本地是唯一数据源）——**已全自动**：
+3. 推送到线上（整库覆盖远程数据，本地是唯一数据源）——默认手动执行，也可选启用自动同步：
 
 - 应用内置调度器（`refresh_schedule` 表，每 120 分钟）在本地 API 进程里跑爬取 + 打分，结果写本地库；
-- launchd 看门狗 `com.suversal.ai-radar.autosync`（每 10 分钟）检查 `pipeline_runs`，发现新完成的运行且无运行中任务时，自动执行 `scripts/sync_db_to_server.sh`；
+- 可选的 launchd 看门狗 `com.suversal.ai-radar.autosync`（每 10 分钟）检查 `pipeline_runs`，发现新完成的运行且无运行中任务时，自动执行 `scripts/sync_db_to_server.sh`；是否启用以本机 `launchctl` 状态为准；
 - 状态文件 `data/.last_synced_run` 记录已推送到的运行 id；日志在 `data/logs/autosync.log`。
 
 手动推送随时可用：
@@ -146,7 +146,7 @@ bash scripts/deploy_to_server.sh
 bash scripts/sync_db_to_server.sh
 ```
 
-脚本内部流程：本地 `pg_dump -Fc` → scp → 服务器 `DROP/CREATE DATABASE` + `pg_restore` → 重启 api → 行数与 HTTP 验证。本地 `DATABASE_URL` 保持指向本地库 `localhost:5432`，与线上无直接连接。
+脚本内部流程：本地 `pg_dump -Fc` → scp → 服务器 `DROP/CREATE DATABASE` + `pg_restore` → 关闭线上调度器（`UPDATE refresh_schedule SET enabled=false`，防止恢复进来的本地调度配置让服务器自己跑爬取）→ 重启 api → 行数与 HTTP 验证。本地 `DATABASE_URL` 保持指向本地库 `localhost:5432`，与线上无直接连接。
 
 看门狗管理命令：
 
