@@ -5,7 +5,6 @@
    monospace numerals for instrument readouts. */
 @theme {
   --color-canvas: #1f1e1d;
-  --color-app-chrome: #262624;
   --color-panel: #262624;
   --color-panel-soft: #32302c;
   --color-line: #3d3a35;
@@ -44,7 +43,6 @@
      two mismatched whites sitting side by side instead of one cohesive
      reading surface */
   --color-canvas: #f3efe4;
-  --color-app-chrome: #faf7ee;
   --color-panel: #faf7ee;
   --color-panel-soft: #ece5d3;
   --color-line: #ddd3ba;
@@ -61,8 +59,6 @@
   --color-warning: #a16207;
   --color-danger: #dc2626;
   --color-info: #0369a1;
-
-  color-scheme: light;
 }
 
 /* Applied to <html> for ~350ms by theme-toggle.tsx around an actual theme
@@ -71,20 +67,13 @@
    needs to be smooth once in a while). !important because a lot of
    elements already carry their own transition shorthand (see the a/button/
    summary rule below) that would otherwise win and skip this. */
-.theme-transition body,
-.theme-transition body * {
+.theme-transition,
+.theme-transition * {
   transition:
     background-color 0.35s ease,
     border-color 0.35s ease,
     color 0.35s ease,
     fill 0.35s ease !important;
-}
-
-/* Safari's notch/status-bar chrome cannot animate with page CSS. Keep the
-   adjacent mobile header instant so both surfaces change color in the same
-   frame instead of visibly diverging during the global theme fade. */
-.theme-transition .mobile-app-chrome {
-  transition: none !important;
 }
 
 * {
@@ -100,8 +89,6 @@
    actually meant to be visible extends past the screen edge. */
 html {
   overflow-x: clip;
-  background: var(--color-app-chrome);
-  color-scheme: dark;
 }
 
 body {

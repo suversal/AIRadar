@@ -16,7 +16,6 @@ class WebAppStructureTests(unittest.TestCase):
             "tsconfig.json",
             "app/globals.css",
             "app/layout.tsx",
-            "components/theme-chrome.ts",
             "app/icon.svg",
             "app/page.tsx",
             "app/latest/page.tsx",
@@ -121,30 +120,6 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("setMobileExpanded(false)", theme_toggle)
         self.assertIn("transition-[width,opacity,transform,background-color,color]", theme_toggle)
         self.assertIn("duration-300", theme_toggle)
-
-    def test_theme_switch_syncs_browser_chrome_and_mobile_header(self):
-        layout = (WEB / "app" / "layout.tsx").read_text(encoding="utf-8")
-        globals_css = (WEB / "app" / "globals.css").read_text(encoding="utf-8")
-        theme_chrome = (WEB / "components" / "theme-chrome.ts").read_text(encoding="utf-8")
-        theme_init = (WEB / "components" / "theme-init-script.tsx").read_text(encoding="utf-8")
-        theme_toggle = (WEB / "components" / "theme-toggle.tsx").read_text(encoding="utf-8")
-        mobile_nav = (WEB / "components" / "mobile-nav.tsx").read_text(encoding="utf-8")
-
-        self.assertIn('name="theme-color"', layout)
-        self.assertIn("THEME_COLOR_META_ID", layout)
-        self.assertIn("DARK_THEME_CHROME_COLOR", layout)
-        self.assertIn("syncThemeChrome(resolved)", theme_toggle)
-        self.assertIn('querySelectorAll<HTMLMetaElement>(\'meta[name="theme-color"]\')', theme_chrome)
-        self.assertIn("root.style.backgroundColor = color", theme_chrome)
-        self.assertIn("root.style.colorScheme = theme", theme_chrome)
-        self.assertIn("#262624", theme_chrome)
-        self.assertIn("#faf7ee", theme_chrome)
-        self.assertIn('querySelectorAll(\'meta[name="theme-color"]\')', theme_init)
-        self.assertIn("--color-app-chrome: #262624", globals_css)
-        self.assertIn("--color-app-chrome: #faf7ee", globals_css)
-        self.assertIn(".theme-transition .mobile-app-chrome", globals_css)
-        self.assertIn("mobile-app-chrome", mobile_nav)
-        self.assertIn("bg-app-chrome", mobile_nav)
 
     def test_mobile_nav_buttons_follow_brand_and_sticky_summary(self):
         mobile_nav = (WEB / "components" / "mobile-nav.tsx").read_text(encoding="utf-8")
