@@ -73,7 +73,7 @@ export function ThemeToggle() {
     <div
       role="radiogroup"
       aria-label="主题"
-      className="fixed bottom-6 left-5 z-20 flex items-center gap-1 rounded-full border border-line-strong bg-panel/85 p-1 shadow-[0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-md"
+      className="theme-toggle fixed bottom-6 left-5 z-20 flex items-center gap-1 rounded-full border border-line-strong bg-panel/85 p-1 shadow-[0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-md"
     >
       {OPTIONS.map(({ value, icon: Icon, label }) => {
         const active = preference === value;

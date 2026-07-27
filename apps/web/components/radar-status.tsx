@@ -18,27 +18,40 @@ function formatClock(value?: string | null) {
 }
 
 export function RadarStatus({
+  compactScope,
   updatedAt,
   eventCount,
   scope,
 }: {
+  compactScope: string;
   updatedAt?: string | null;
   eventCount: number;
   scope: string;
 }) {
   const live = Boolean(updatedAt);
   return (
-    <div className="readout flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-line pb-3 text-xs uppercase tracking-[0.14em] text-ink-dim">
-      <span className="flex items-center gap-2">
+    <>
+      <div className="flex items-center gap-2 text-xs text-ink-dim md:hidden">
         <span
           aria-hidden
           className={`h-1.5 w-1.5 rounded-full ${live ? "signal-pulse bg-signal" : "bg-ink-dim"}`}
         />
-        <span className={live ? "text-signal" : undefined}>SIGNAL</span>
-      </span>
-      <span>{scope}</span>
-      <span className="text-ink-mid">{eventCount} EVENTS</span>
-      <span>UPDATED {formatClock(updatedAt)}</span>
-    </div>
+        <span>
+          {compactScope} · {eventCount} 条 · {formatClock(updatedAt)} 更新
+        </span>
+      </div>
+      <div className="readout hidden flex-wrap items-center gap-x-5 gap-y-1 border-b border-line pb-3 text-xs uppercase tracking-[0.14em] text-ink-dim md:flex">
+        <span className="flex items-center gap-2">
+          <span
+            aria-hidden
+            className={`h-1.5 w-1.5 rounded-full ${live ? "signal-pulse bg-signal" : "bg-ink-dim"}`}
+          />
+          <span className={live ? "text-signal" : undefined}>SIGNAL</span>
+        </span>
+        <span>{scope}</span>
+        <span className="text-ink-mid">{eventCount} EVENTS</span>
+        <span>UPDATED {formatClock(updatedAt)}</span>
+      </div>
+    </>
   );
 }

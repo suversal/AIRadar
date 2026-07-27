@@ -1,7 +1,9 @@
 import { getAllEvents } from "@/lib/api";
 import { FOCUS_FILTER_OPTIONS, focusCategory } from "@/lib/taxonomy";
 import { AllEventsFeed } from "@/components/all-events-feed";
+import { MobileCategoryNav, MobileSearchForm } from "@/components/mobile-discovery";
 import { MobileNav } from "@/components/mobile-nav";
+import { MobileSourceFilter } from "@/components/mobile-source-filter";
 import { RadarStatus } from "@/components/radar-status";
 import { Sidebar } from "@/components/sidebar";
 
@@ -89,6 +91,18 @@ export default async function AllEventsPage({
     topic: selectedTopic || undefined,
     q: query || undefined,
   });
+  const mobileSourceOptions = sourceOptions.map(([source, label]) => ({
+    href: allHref({
+      source,
+      focus: selectedCategory,
+      tag: selectedTag,
+      topic: selectedTopic,
+      q: query,
+    }),
+    label,
+    selected: selectedSource === source,
+    value: source,
+  }));
 
   return (
     <main className="min-h-screen bg-canvas text-ink">
@@ -96,19 +110,47 @@ export default async function AllEventsPage({
         <Sidebar activeNavId="all" />
         <MobileNav activeNavId="all" />
 
-        <section className="px-5 py-6 md:px-9">
-          <header className="rounded-md border border-line bg-panel p-5">
+        <section className="px-4 py-4 md:px-9 md:py-6">
+          <header className="rounded-md border border-line bg-panel p-4 md:p-5">
             <RadarStatus
+              compactScope={`${DAYS}天`}
               updatedAt={report.updated_at}
               eventCount={report.total}
               scope={`ALL DYNAMICS · ${DAYS}D`}
             />
-            <div className="mt-4 border-b border-line pb-4">
+            <div className="mt-3 md:mt-4 md:border-b md:border-line md:pb-4">
               <h1 className="text-2xl font-semibold text-ink">全部 AI 动态</h1>
               <p className="mt-1.5 text-sm text-ink-mid">AI 相关资讯全量信息流</p>
             </div>
 
-            <div className="mt-4 grid gap-3 xl:grid-cols-[1fr_1fr_320px]">
+            <MobileSearchForm
+              action="/all"
+              defaultValue={query}
+              hiddenFields={[
+                ...(selectedSource ? [{ name: "source", value: selectedSource }] : []),
+                ...(selectedCategory ? [{ name: "focus", value: selectedCategory }] : []),
+                ...(selectedTag ? [{ name: "tag", value: selectedTag }] : []),
+                ...(selectedTopic ? [{ name: "topic", value: selectedTopic }] : []),
+              ]}
+              placeholder="搜索标题、摘要或正文"
+              trailingControl={<MobileSourceFilter options={mobileSourceOptions} />}
+            />
+            <MobileCategoryNav
+              label="全部动态内容分类"
+              options={categoryOptions.map(([category, label]) => ({
+                href: allHref({
+                  source: selectedSource,
+                  focus: category,
+                  tag: selectedTag,
+                  topic: selectedTopic,
+                  q: query,
+                }),
+                label,
+                selected: selectedCategory === category,
+              }))}
+            />
+
+            <div className="mt-4 hidden gap-3 md:grid xl:grid-cols-[1fr_1fr_320px]">
               <div className="flex flex-wrap gap-1.5 rounded-md border border-line bg-canvas p-1.5">
                 {categoryOptions.map(([category, label]) => (
                   <a

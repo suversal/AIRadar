@@ -102,6 +102,14 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* Keep floating page controls from visually bleeding through the mobile
+   source sheet (backdrop-filter creates a separate composited layer on
+   Safari/Chromium even when the sheet has the higher z-index). */
+body.mobile-source-filter-open .theme-toggle {
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* unlayered CSS always outranks Tailwind's utility layer regardless of
    selector order/specificity, so this reset must live in @layer base -
    otherwise no `underline` utility on any <a> anywhere can ever take

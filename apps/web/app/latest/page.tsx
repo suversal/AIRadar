@@ -3,6 +3,7 @@ import { eventHref } from "@/lib/events";
 import { FOCUS_FILTER_OPTIONS, focusCategory } from "@/lib/taxonomy";
 import { formatRelativeTime } from "@/lib/time";
 import { LatestEventsFeed } from "@/components/latest-events-feed";
+import { MobileCategoryNav, MobileSearchForm } from "@/components/mobile-discovery";
 import { MobileNav } from "@/components/mobile-nav";
 import { RadarStatus } from "@/components/radar-status";
 import { Sidebar } from "@/components/sidebar";
@@ -95,22 +96,43 @@ export default async function LatestPage({
         <Sidebar activeNavId="latest" />
         <MobileNav activeNavId="latest" />
 
-        <section className="px-5 py-6 md:px-9">
-          <header className="rounded-md border border-line bg-panel p-5">
+        <section className="px-4 py-4 md:px-9 md:py-6">
+          <header className="rounded-md border border-line bg-panel p-4 md:p-5">
             <RadarStatus
+              compactScope="7天"
               updatedAt={report.updated_at}
               eventCount={report.total ?? report.items.length}
               scope="SELECTED FEED · 7D"
             />
-            <div className="mt-4 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div className="mt-3 md:mt-4 md:flex md:items-end md:justify-between">
               <div>
                 <h1 className="text-2xl font-semibold text-ink">精选</h1>
                 <p className="mt-1.5 text-sm text-ink-mid">AI 自动挑选的高价值内容</p>
               </div>
-              <div className="text-sm text-ink-mid">更新时间：{formatDateTime(report.updated_at)}</div>
+              <div className="hidden text-sm text-ink-mid md:block">
+                更新时间：{formatDateTime(report.updated_at)}
+              </div>
             </div>
 
-            <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_320px]">
+            <MobileSearchForm
+              action="/latest"
+              defaultValue={query}
+              hiddenFields={[
+                ...(selectedCategory ? [{ name: "focus", value: selectedCategory }] : []),
+                ...(selectedTag ? [{ name: "tag", value: selectedTag }] : []),
+              ]}
+              placeholder="搜索标题或摘要"
+            />
+            <MobileCategoryNav
+              label="精选内容分类"
+              options={categoryOptions.map(([category, label]) => ({
+                href: latestHref({ focus: category, tag: selectedTag, q: query }),
+                label,
+                selected: selectedCategory === category,
+              }))}
+            />
+
+            <div className="mt-4 hidden gap-3 md:grid lg:grid-cols-[1fr_320px]">
               <div className="flex flex-wrap gap-1.5 rounded-md border border-line bg-canvas p-1.5">
                 {categoryOptions.map(([category, label]) => (
                   <a
@@ -168,7 +190,7 @@ export default async function LatestPage({
           ) : null}
 
           {topEvents.length > 0 ? (
-            <section className="mt-4 rounded-md border border-signal/25 bg-panel p-4">
+            <section className="mt-3 rounded-md border border-signal/25 bg-panel p-4 md:mt-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h2 className="flex items-center gap-1.5 text-base font-semibold text-ink">
                   <span aria-hidden>🔥</span>

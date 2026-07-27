@@ -90,6 +90,26 @@ class WebAppStructureTests(unittest.TestCase):
         # the board must rank by the hotspot rule, not slice the feed
         self.assertNotIn("filteredItems.slice(0, 5)", latest_page)
 
+    def test_mobile_discovery_chrome_is_compact_and_preserves_filter_state(self):
+        latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
+        all_page = (WEB / "app" / "all" / "page.tsx").read_text(encoding="utf-8")
+        mobile_discovery = (WEB / "components" / "mobile-discovery.tsx").read_text(encoding="utf-8")
+        source_filter = (WEB / "components" / "mobile-source-filter.tsx").read_text(encoding="utf-8")
+
+        for page in [latest_page, all_page]:
+            self.assertIn("MobileSearchForm", page)
+            self.assertIn("MobileCategoryNav", page)
+            self.assertIn('name: "focus"', page)
+            self.assertIn('name: "tag"', page)
+
+        self.assertIn('name: "source"', all_page)
+        self.assertIn('name: "topic"', all_page)
+        self.assertIn("MobileSourceFilter", all_page)
+        self.assertIn("overflow-x-auto", mobile_discovery)
+        self.assertIn('aria-label="提交搜索"', mobile_discovery)
+        self.assertIn('role="dialog"', source_filter)
+        self.assertIn("全部来源", all_page)
+
     def test_latest_page_degrades_when_backend_api_is_unavailable(self):
         api_source = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
