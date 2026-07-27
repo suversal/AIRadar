@@ -110,6 +110,46 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn('role="dialog"', source_filter)
         self.assertIn("全部来源", all_page)
 
+    def test_mobile_theme_toggle_collapses_to_the_current_preference(self):
+        theme_toggle = (WEB / "components" / "theme-toggle.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("mobileExpanded", theme_toggle)
+        self.assertIn("当前主题：", theme_toggle)
+        self.assertIn("md:hidden", theme_toggle)
+        self.assertIn("hidden items-center gap-1 md:flex", theme_toggle)
+        self.assertIn("setMobileExpanded(false)", theme_toggle)
+        self.assertIn("transition-[width,opacity,transform,background-color,color]", theme_toggle)
+        self.assertIn("duration-300", theme_toggle)
+
+    def test_mobile_nav_buttons_follow_brand_and_sticky_summary(self):
+        mobile_nav = (WEB / "components" / "mobile-nav.tsx").read_text(encoding="utf-8")
+        date_group = (WEB / "components" / "date-group-section.tsx").read_text(encoding="utf-8")
+        mobile_nav_events = (WEB / "components" / "mobile-nav-events.ts").read_text(encoding="utf-8")
+
+        self.assertNotIn('className="sticky top-0', mobile_nav)
+        self.assertNotIn("headerVisible", mobile_nav)
+        self.assertNotIn("summarySticky", mobile_nav)
+        self.assertNotIn("fixed z-[60]", mobile_nav)
+        self.assertIn("MOBILE_NAV_OPEN_EVENT", mobile_nav)
+        self.assertIn("window.addEventListener(MOBILE_NAV_OPEN_EVENT", mobile_nav)
+        self.assertIn('aria-label="打开导航菜单"', mobile_nav)
+        self.assertNotIn("关闭导航菜单", mobile_nav)
+        self.assertIn("onClick={() => setOpen(true)}", mobile_nav)
+        self.assertIn("w-[216px]", mobile_nav)
+        self.assertNotIn("w-[240px]", mobile_nav)
+        self.assertIn("flex h-12 items-center", mobile_nav)
+        self.assertIn("sticky top-0", date_group)
+        self.assertIn("flex h-12 min-w-0 items-center", date_group)
+        self.assertIn("entry.boundingClientRect.top <= 0", date_group)
+        self.assertIn("MOBILE_NAV_OPEN_EVENT", date_group)
+        self.assertIn("stuck ? 0 : -1", date_group)
+        self.assertIn('stuck ? "opacity-100"', date_group)
+        self.assertIn("pointer-events-none opacity-0", date_group)
+        self.assertIn('aria-label="打开导航菜单"', date_group)
+        self.assertIn("ai-radar:mobile-nav-open", mobile_nav_events)
+        self.assertNotIn("top-16", date_group)
+        self.assertNotIn("pr-16", date_group)
+
     def test_latest_page_degrades_when_backend_api_is_unavailable(self):
         api_source = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")

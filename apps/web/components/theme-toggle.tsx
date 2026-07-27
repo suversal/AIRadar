@@ -43,7 +43,9 @@ export function ThemeToggle() {
   // "system") sees the toggle in the same state the blocking init script
   // already resolved - only corrected on mount if localStorage says otherwise
   const [preference, setPreference] = useState<ThemePreference>("system");
+  const [mobileExpanded, setMobileExpanded] = useState(false);
   const mounted = useRef(false);
+  const toggleRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -64,36 +66,106 @@ export function ThemeToggle() {
     return () => mql.removeEventListener("change", onChange);
   }, [preference]);
 
+  useEffect(() => {
+    if (!mobileExpanded) return;
+
+    function onPointerDown(event: PointerEvent) {
+      if (!toggleRef.current?.contains(event.target as Node)) {
+        setMobileExpanded(false);
+      }
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setMobileExpanded(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [mobileExpanded]);
+
   function choose(next: ThemePreference) {
     setPreference(next);
+    setMobileExpanded(false);
     localStorage.setItem(STORAGE_KEY, next);
   }
 
+  const activeOption = OPTIONS.find((option) => option.value === preference) ?? OPTIONS[1];
+
   return (
     <div
-      role="radiogroup"
-      aria-label="主题"
+      ref={toggleRef}
       className="theme-toggle fixed bottom-6 left-5 z-20 flex items-center gap-1 rounded-full border border-line-strong bg-panel/85 p-1 shadow-[0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-md"
     >
-      {OPTIONS.map(({ value, icon: Icon, label }) => {
-        const active = preference === value;
-        return (
-          <button
-            key={value}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            aria-label={label}
-            title={label}
-            onClick={() => choose(value)}
-            className={`flex h-9 w-9 items-center justify-center rounded-full transition ${
-              active ? "bg-signal text-canvas" : "text-ink-mid hover:text-ink"
-            }`}
-          >
-            <Icon aria-hidden className="h-4 w-4" strokeWidth={2} />
-          </button>
-        );
-      })}
+      <div
+        aria-label="主题"
+        className={`flex items-center transition-[gap] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] md:hidden ${
+          mobileExpanded ? "gap-1" : "gap-0"
+        }`}
+        id="mobile-theme-options"
+        role={mobileExpanded ? "radiogroup" : undefined}
+      >
+        {OPTIONS.map(({ value, icon: Icon, label }) => {
+          const active = preference === value;
+          const visible = mobileExpanded || active;
+          return (
+            <button
+              key={value}
+              type="button"
+              role={mobileExpanded ? "radio" : undefined}
+              aria-checked={mobileExpanded ? active : undefined}
+              aria-expanded={!mobileExpanded && active ? false : undefined}
+              aria-hidden={!visible}
+              aria-label={
+                !mobileExpanded && active ? `当前主题：${activeOption.label}，展开主题选项` : label
+              }
+              tabIndex={visible ? 0 : -1}
+              title={!mobileExpanded && active ? `当前主题：${activeOption.label}` : label}
+              onClick={() => {
+                if (!mobileExpanded) {
+                  setMobileExpanded(true);
+                  return;
+                }
+                choose(value);
+              }}
+              className={`flex h-10 shrink-0 items-center justify-center overflow-hidden rounded-full transition-[width,opacity,transform,background-color,color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                visible
+                  ? "w-10 scale-100 opacity-100"
+                  : "pointer-events-none w-0 scale-75 opacity-0"
+              } ${active ? "bg-signal text-canvas" : "text-ink-mid hover:text-ink"}`}
+            >
+              <Icon aria-hidden className="h-4.5 w-4.5 shrink-0" strokeWidth={2} />
+            </button>
+          );
+        })}
+      </div>
+
+      <div aria-label="主题" className="hidden items-center gap-1 md:flex" role="radiogroup">
+        {OPTIONS.map(({ value, icon: Icon, label }) => {
+          const active = preference === value;
+          return (
+            <button
+              key={value}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              aria-label={label}
+              title={label}
+              onClick={() => choose(value)}
+              className={`flex h-9 w-9 items-center justify-center rounded-full transition ${
+                active ? "bg-signal text-canvas" : "text-ink-mid hover:text-ink"
+              }`}
+            >
+              <Icon aria-hidden className="h-4 w-4" strokeWidth={2} />
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

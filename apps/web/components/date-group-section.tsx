@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Menu } from "lucide-react";
+import { MOBILE_NAV_OPEN_EVENT } from "./mobile-nav-events";
 
 /** Date-grouped feed section: sticky "7/23 折叠 15条" header + its rows.
  *  Shared by /latest and /all so the sticky-shadow behavior below can't
@@ -28,42 +29,35 @@ export function DateGroupSection({
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
-    // the header's own class is `sticky top-16 ... lg:top-0` - the sentinel
-    // must scroll past that same offset before we call it "stuck", or the
-    // shadow would pop in ~64px early on mobile/tablet and late on desktop
-    const query = window.matchMedia("(min-width: 1024px)");
-    let observer: IntersectionObserver | null = null;
-    function setup() {
-      observer?.disconnect();
-      const offset = query.matches ? 0 : 64;
-      observer = new IntersectionObserver(([entry]) => setStuck(!entry.isIntersecting), {
-        rootMargin: `-${offset + 1}px 0px 0px 0px`,
+    // The brand header now scrolls away on mobile, so every breakpoint pins
+    // the date summary directly to the viewport edge.
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setStuck(!entry.isIntersecting && entry.boundingClientRect.top <= 0);
+      },
+      {
+        rootMargin: "-1px 0px 0px 0px",
         threshold: 0,
-      });
-      observer.observe(sentinel as HTMLDivElement);
-    }
-    setup();
-    query.addEventListener("change", setup);
-    return () => {
-      observer?.disconnect();
-      query.removeEventListener("change", setup);
-    };
+      },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
   }, []);
 
   return (
     <div>
       <div ref={sentinelRef} aria-hidden className="h-px" />
       <div
-        className={`sticky top-16 z-10 -mx-5 flex items-center gap-3 border-b bg-canvas px-5 py-3 text-sm font-semibold text-ink-mid transition-shadow md:-mx-9 md:px-9 lg:top-0 ${
+        className={`sticky top-0 z-20 -mx-5 flex h-12 min-w-0 items-center gap-2 border-b bg-canvas pl-5 pr-5 text-sm font-semibold text-ink-mid transition-shadow md:-mx-9 md:gap-3 md:px-9 lg:h-auto lg:py-3 ${
           stuck ? "border-line shadow-[0_4px_8px_-6px_rgba(0,0,0,0.35)]" : "border-transparent"
         }`}
       >
-        <span>{dateLabel}</span>
+        <span className="shrink-0">{dateLabel}</span>
         <button
           type="button"
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
-          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-ink-dim transition hover:bg-panel-soft hover:text-ink"
+          className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-ink-dim transition hover:bg-panel-soft hover:text-ink"
         >
           折叠
           <ChevronDown
@@ -72,9 +66,21 @@ export function DateGroupSection({
             strokeWidth={2}
           />
         </button>
-        <span className="text-ink-dim">
+        <span className="min-w-0 truncate text-ink-dim">
           {weekday} · {count} 条
         </span>
+        <button
+          type="button"
+          aria-hidden={!stuck}
+          aria-label="打开导航菜单"
+          tabIndex={stuck ? 0 : -1}
+          onClick={() => window.dispatchEvent(new Event(MOBILE_NAV_OPEN_EVENT))}
+          className={`ml-auto flex h-10 w-10 shrink-0 items-center justify-center transition-opacity duration-150 lg:hidden ${
+            stuck ? "opacity-100" : "pointer-events-none opacity-0"
+          }`}
+        >
+          <Menu aria-hidden className="h-5 w-5" strokeWidth={1.75} />
+        </button>
       </div>
       {open ? (
         <div className="relative mt-3 grid gap-3 md:border-l md:border-line/60 md:pl-6">{children}</div>

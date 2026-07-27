@@ -1,13 +1,23 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Menu, X } from "lucide-react";
+import { Menu } from "lucide-react";
 import { BrandLogo } from "./brand-logo";
+import { MOBILE_NAV_OPEN_EVENT } from "./mobile-nav-events";
 import { navGroupItems } from "./nav";
 
 export function MobileNav({ activeNavId }: { activeNavId: string }) {
   const [open, setOpen] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    function openMobileNav() {
+      setOpen(true);
+    }
+
+    window.addEventListener(MOBILE_NAV_OPEN_EVENT, openMobileNav);
+    return () => window.removeEventListener(MOBILE_NAV_OPEN_EVENT, openMobileNav);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -29,7 +39,7 @@ export function MobileNav({ activeNavId }: { activeNavId: string }) {
 
   return (
     <>
-      <div className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-panel px-4 py-3 lg:hidden">
+      <div className="relative z-30 flex h-12 items-center justify-between border-b border-line bg-panel px-4 lg:hidden">
         <a aria-label="AI·RADAR 首页" className="inline-flex" href="/latest">
           <BrandLogo className="h-8 w-auto" />
         </a>
@@ -37,15 +47,11 @@ export function MobileNav({ activeNavId }: { activeNavId: string }) {
           type="button"
           aria-expanded={open}
           aria-controls="mobile-nav-drawer"
-          aria-label={open ? "关闭导航菜单" : "打开导航菜单"}
-          onClick={() => setOpen((value) => !value)}
-          className="flex h-10 w-10 items-center justify-center rounded-md border border-line text-ink-mid transition hover:border-signal/40 hover:text-ink"
+          aria-label="打开导航菜单"
+          onClick={() => setOpen(true)}
+          className="flex h-10 w-10 items-center justify-center text-ink-mid transition-colors hover:text-signal"
         >
-          {open ? (
-            <X aria-hidden className="h-5 w-5" strokeWidth={1.75} />
-          ) : (
-            <Menu aria-hidden className="h-5 w-5" strokeWidth={1.75} />
-          )}
+          <Menu aria-hidden className="h-5 w-5" strokeWidth={1.75} />
         </button>
       </div>
 
@@ -64,7 +70,7 @@ export function MobileNav({ activeNavId }: { activeNavId: string }) {
         role="dialog"
         aria-modal="true"
         aria-label="站内导航"
-        className={`fixed inset-y-0 right-0 z-50 w-[240px] overflow-y-auto border-l border-line bg-panel px-4 py-5 outline-none transition-transform duration-300 ease-out lg:hidden ${
+        className={`fixed inset-y-0 right-0 z-50 w-[216px] overflow-y-auto border-l border-line bg-panel px-4 py-5 outline-none transition-transform duration-300 ease-out lg:hidden ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
       >
