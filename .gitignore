@@ -17,3 +17,11 @@ node_modules/
 /data/
 /output/
 .worktrees/
+
+# Local-only Tencent Cloud deployment, sync, and backup automation.
+/infra/launchd/com.suversal.ai-radar.autosync.plist
+/infra/launchd/com.suversal.ai-radar.backup.plist
+/scripts/auto_sync_watcher.sh
+/scripts/backup_local_db.sh
+/scripts/deploy_to_server.sh
+/scripts/sync_db_to_server.sh
