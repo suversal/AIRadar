@@ -114,45 +114,6 @@ def _published_sort_key(item: dict[str, Any]) -> str:
     return str(item.get("published_at") or "")
 
 
-def build_events_payload(
-    daily_payloads: list[dict[str, Any]],
-    *,
-    category: str | None = None,
-    focus: str | None = None,
-    source: str | None = None,
-    tag: str | None = None,
-    q: str | None = None,
-    topic: str | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> dict[str, Any]:
-    items, report_dates, updated_at = _merge_daily_items(daily_payloads)
-    filtered = [
-        item
-        for item in items
-        if _item_matches(
-            item,
-            category=category,
-            focus=focus,
-            source=source,
-            tag=tag,
-            q=q,
-            topic=topic,
-        )
-    ]
-    filtered.sort(key=_published_sort_key, reverse=True)
-    page = filtered[offset : offset + limit]
-    return {
-        "report_dates": report_dates,
-        "updated_at": updated_at,
-        "total": len(filtered),
-        "limit": limit,
-        "offset": offset,
-        "article_count": len(page),
-        "items": page,
-    }
-
-
 def build_events_payload_from_items(
     items: list[dict[str, Any]],
     *,

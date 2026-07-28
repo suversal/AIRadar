@@ -18,62 +18,16 @@ except ModuleNotFoundError:  # pragma: no cover - lightweight dependency guard
     StarletteRequest = Any
 
 from app.api.public import (
-    _merge_daily_items,
-    build_daily_payload,
     build_daily_payload_from_repository,
-    build_events_payload,
     build_events_payload_from_items,
     build_hotspots_payload,
-    build_latest_payload,
     build_latest_selected_payload_from_repository,
     build_period_payload,
 )
 from app.core.config import load_env_file
 from app.services.taxonomy import SOURCE_FILTER_KEYS
-from app.storage.json_store import read_json
 
 DATA_DIR = Path("data")
-
-
-def load_latest_daily_json(data_dir: Path = DATA_DIR) -> dict:
-    reports_dir = data_dir / "reports"
-    if not reports_dir.exists():
-        return {
-            "report_date": date.today().isoformat(),
-            "title": "Suversal AI Radar 日报",
-            "summary": "No report generated yet.",
-            "updated_at": None,
-            "items": [],
-            "sections": {},
-            "article_count": 0,
-        }
-    candidates = sorted(reports_dir.glob("*.json"))
-    if not candidates:
-        return {
-            "report_date": date.today().isoformat(),
-            "title": "Suversal AI Radar 日报",
-            "summary": "No report generated yet.",
-            "updated_at": None,
-            "items": [],
-            "sections": {},
-            "article_count": 0,
-        }
-    return read_json(candidates[-1])
-
-
-def load_daily_reports_between(data_dir: Path, start_date: date, end_date: date) -> list[dict]:
-    reports_dir = data_dir / "reports"
-    if not reports_dir.exists():
-        return []
-    payloads = []
-    for report_path in sorted(reports_dir.glob("*.json")):
-        try:
-            report_date = date.fromisoformat(report_path.stem)
-        except ValueError:
-            continue
-        if start_date <= report_date <= end_date:
-            payloads.append(read_json(report_path))
-    return payloads
 
 
 def _env_int(name: str, default: int) -> int:
@@ -277,9 +231,12 @@ def create_app(
         if report_repository_factory is not None:
             return nullcontext(report_repository_factory())
         database_url = os.getenv("DATABASE_URL")
-        if database_url:
-            return open_database_report_repository(database_url)
-        return None
+        if not database_url:
+            raise HTTPException(
+                status_code=503,
+                detail="This endpoint requires database mode (set DATABASE_URL).",
+            )
+        return open_database_report_repository(database_url)
 
     def run_refresh() -> dict[str, Any]:
         if refresh_runner is not None:
@@ -308,28 +265,17 @@ def create_app(
             raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
         if offset < 0:
             raise HTTPException(status_code=400, detail="offset must be non-negative")
-        repository_context = report_repository_context()
-        if repository_context is not None:
-            with repository_context as repository:
-                return build_latest_selected_payload_from_repository(
-                    repository,
-                    end_date=date.today(),
-                    limit=limit,
-                    offset=offset,
-                    category=category,
-                    focus=focus,
-                    tag=tag,
-                    q=q,
-                )
-        return build_latest_payload(
-            load_latest_daily_json(data_dir),
-            category=category,
-            focus=focus,
-            tag=tag,
-            q=q,
-            limit=limit,
-            offset=offset,
-        )
+        with report_repository_context() as repository:
+            return build_latest_selected_payload_from_repository(
+                repository,
+                end_date=date.today(),
+                limit=limit,
+                offset=offset,
+                category=category,
+                focus=focus,
+                tag=tag,
+                q=q,
+            )
 
     @app.get("/api/public/daily/{report_date}")
     def daily(report_date: str) -> dict:
@@ -338,37 +284,18 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="Invalid report date") from exc
 
-        repository_context = report_repository_context()
-        if repository_context is not None:
-            with repository_context as repository:
-                return build_daily_payload_from_repository(repository, parsed_date)
-        report_path = data_dir / "reports" / f"{report_date}.json"
-        if report_path.exists():
-            return build_daily_payload(read_json(report_path))
-        return build_daily_payload(load_latest_daily_json(data_dir))
+        with report_repository_context() as repository:
+            return build_daily_payload_from_repository(repository, parsed_date)
 
     def load_payloads_between(start_date: date, end_date: date) -> list[dict]:
-        repository_context = report_repository_context()
-        if repository_context is not None:
-            with repository_context as repository:
-                return repository.get_daily_report_payloads_between(start_date, end_date)
-        return load_daily_reports_between(data_dir, start_date, end_date)
+        with report_repository_context() as repository:
+            return repository.get_daily_report_payloads_between(start_date, end_date)
 
     def load_event_items(days: int) -> list[dict]:
         end_date = date.today()
         start_date = end_date - timedelta(days=days - 1)
-        repository_context = report_repository_context()
-        if repository_context is not None:
-            with repository_context as repository:
-                return repository.get_all_event_items_between(start_date, end_date)
-        payloads = load_daily_reports_between(data_dir, start_date, end_date)
-        merged: dict[str, dict] = {}
-        for payload in sorted(payloads, key=lambda p: p.get("report_date") or ""):
-            for item in payload.get("items", []):
-                event_id = item.get("event_id") or item.get("original_url") or item.get("title")
-                if event_id is not None:
-                    merged[str(event_id)] = item
-        return list(merged.values())
+        with report_repository_context() as repository:
+            return repository.get_all_event_items_between(start_date, end_date)
 
     @app.get("/api/public/events")
     def events(
@@ -395,47 +322,33 @@ def create_app(
             )
         end_date = date.today()
         start_date = end_date - timedelta(days=days - 1)
-        repository_context = report_repository_context()
-        if repository_context is not None:
-            with repository_context as repository:
-                # q/topic/tag matching only exists in Python today (title
-                # override precedence, topic keyword and exact-tag rules), so only the
-                # filter-free/category-only case - by far the most common
-                # /all load - gets the SQL-pushdown fast path; q, topic, or tag
-                # falls back to the full materialize-then-filter path.
-                if not q and not topic and not category and not tag:
-                    items, total, updated_at = repository.count_and_get_all_event_items_between(
-                        start_date,
-                        end_date,
-                        category=focus,
-                        source=source,
-                        limit=limit,
-                        offset=offset,
-                    )
-                    return {
-                        "report_dates": [],
-                        "updated_at": updated_at,
-                        "total": total,
-                        "limit": limit,
-                        "offset": offset,
-                        "article_count": len(items),
-                        "items": items,
-                    }
-                items = repository.get_all_event_items_between(start_date, end_date)
-            return build_events_payload_from_items(
-                items,
-                category=category,
-                focus=focus,
-                source=source,
-                tag=tag,
-                q=q,
-                topic=topic,
-                limit=limit,
-                offset=offset,
-            )
-        payloads = load_daily_reports_between(data_dir, start_date, end_date)
-        return build_events_payload(
-            payloads,
+        with report_repository_context() as repository:
+            # q/topic/tag matching only exists in Python today (title
+            # override precedence, topic keyword and exact-tag rules), so only the
+            # filter-free/category-only case - by far the most common
+            # /all load - gets the SQL-pushdown fast path; q, topic, or tag
+            # falls back to the full materialize-then-filter path.
+            if not q and not topic and not category and not tag:
+                items, total, updated_at = repository.count_and_get_all_event_items_between(
+                    start_date,
+                    end_date,
+                    category=focus,
+                    source=source,
+                    limit=limit,
+                    offset=offset,
+                )
+                return {
+                    "report_dates": [],
+                    "updated_at": updated_at,
+                    "total": total,
+                    "limit": limit,
+                    "offset": offset,
+                    "article_count": len(items),
+                    "items": items,
+                }
+            items = repository.get_all_event_items_between(start_date, end_date)
+        return build_events_payload_from_items(
+            items,
             category=category,
             focus=focus,
             source=source,
@@ -463,25 +376,12 @@ def create_app(
         # query window is day-granular and padded: the precise hour cutoff on
         # last_seen_at/published_at happens inside build_hotspots_payload
         start_date = end_date - timedelta(days=(hours // 24) + 2)
-        repository_context = report_repository_context()
-        if repository_context is not None:
-            with repository_context as repository:
-                items = repository.get_all_event_items_between(
-                    start_date, end_date, selected_only=True
-                )
-            return build_hotspots_payload(
-                items,
-                category=category,
-                focus=focus,
-                tag=tag,
-                q=q,
-                hours=hours,
-                limit=limit,
+        with report_repository_context() as repository:
+            items = repository.get_all_event_items_between(
+                start_date, end_date, selected_only=True
             )
-        payloads = load_daily_reports_between(data_dir, start_date, end_date)
-        merged_items, _report_dates, _updated_at = _merge_daily_items(payloads)
         return build_hotspots_payload(
-            merged_items,
+            items,
             category=category,
             focus=focus,
             tag=tag,
@@ -500,40 +400,28 @@ def create_app(
 
     @app.get("/api/public/events/{event_id}")
     def event_detail(event_id: str) -> dict:
-        repository_context = report_repository_context()
-        if repository_context is not None:
-            with repository_context as repository:
-                item = repository.get_event_item(event_id)
-            if item is None:
-                raise HTTPException(status_code=404, detail="Event not found")
-            return item
-        end_date = date.today()
-        payloads = load_daily_reports_between(data_dir, end_date - timedelta(days=30), end_date)
-        for payload in reversed(payloads):
-            for item in payload.get("items", []):
-                if str(item.get("event_id")) == event_id:
-                    return item
-        raise HTTPException(status_code=404, detail="Event not found")
+        with report_repository_context() as repository:
+            item = repository.get_event_item(event_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="Event not found")
+        return item
 
     def period_report(mode: str, period_key: str, range_start: date, range_end: date) -> dict:
         # Prefer the persisted masthead (which events, in what order) hydrated
         # to their current live content - same event_id/live-resolve pattern
         # as daily reports. Only fall back to recomputing the period from
-        # scratch when no snapshot exists yet (e.g. the period is still in
-        # progress and hasn't had a pipeline run persist one, or there is no
-        # database repository configured at all).
-        repository_context = report_repository_context()
+        # scratch when no snapshot exists yet (the period is still in
+        # progress and hasn't had a pipeline run persist one).
         persisted: Optional[dict[str, Any]] = None
         hydrated_items: Optional[list[dict[str, Any]]] = None
-        if repository_context is not None:
-            with repository_context as repository:
-                persisted = getattr(repository, "get_period_report", lambda *a: None)(
-                    mode, period_key
-                )
-                entries = persisted.get("entries") if persisted else None
-                if entries:
-                    event_ids = [entry["event_id"] for entry in entries if entry.get("event_id")]
-                    hydrated_items = repository.get_event_items_by_ids(event_ids)
+        with report_repository_context() as repository:
+            persisted = getattr(repository, "get_period_report", lambda *a: None)(
+                mode, period_key
+            )
+            entries = persisted.get("entries") if persisted else None
+            if entries:
+                event_ids = [entry["event_id"] for entry in entries if entry.get("event_id")]
+                hydrated_items = repository.get_event_items_by_ids(event_ids)
 
         if hydrated_items is not None:
             payload = {
@@ -593,25 +481,20 @@ def create_app(
             # 2026-07-13 修复:当前自然周期(本周/本月)在第一次同步生成
             # 快照之前没有真实内容——周期刚翻页时不能硬套一个空壳当前
             # 周期，落到最近一个真正生成过快照的期次
-            repository_context = report_repository_context()
-            if repository_context is not None:
-                with repository_context as repository:
-                    has_snapshot = repository.get_period_report(kind, key) is not None
-                    if not has_snapshot:
-                        entries = getattr(
-                            repository, "list_period_reports", lambda *a, **k: []
-                        )(kind, limit=1)
-                        if entries:
-                            key = entries[0]["period_key"]
+            with report_repository_context() as repository:
+                has_snapshot = repository.get_period_report(kind, key) is not None
+                if not has_snapshot:
+                    entries = getattr(
+                        repository, "list_period_reports", lambda *a, **k: []
+                    )(kind, limit=1)
+                    if entries:
+                        key = entries[0]["period_key"]
         range_start, range_end = period_range_for_key(kind, key)
         return period_report(kind, key, range_start, range_end)
 
     def _period_archive(kind: str) -> dict:
-        repository_context = report_repository_context()
-        entries: list[dict] = []
-        if repository_context is not None:
-            with repository_context as repository:
-                entries = getattr(repository, "list_period_reports", lambda *a, **k: [])(kind)
+        with report_repository_context() as repository:
+            entries = getattr(repository, "list_period_reports", lambda *a, **k: [])(kind)
         return {
             "entries": [
                 {
@@ -627,16 +510,9 @@ def create_app(
 
     @app.get("/api/public/reports/daily/archive")
     def daily_archive() -> dict:
-        repository_context = report_repository_context()
-        if repository_context is not None:
-            with repository_context as repository:
-                dates = getattr(repository, "list_daily_report_dates", lambda **k: [])()
-            return {"dates": dates}
-        reports_dir = data_dir / "reports"
-        dates = sorted(
-            (path.stem for path in reports_dir.glob("*.json")), reverse=True
-        ) if reports_dir.exists() else []
-        return {"dates": list(dates)}
+        with report_repository_context() as repository:
+            dates = getattr(repository, "list_daily_report_dates", lambda **k: [])()
+        return {"dates": dates}
 
     @app.get("/api/public/reports/weekly")
     def weekly_latest() -> dict:
@@ -674,13 +550,7 @@ def create_app(
         if email and len(email) > 320:
             raise HTTPException(status_code=422, detail="email is too long")
 
-        repository_context = report_repository_context()
-        if repository_context is None:
-            raise HTTPException(
-                status_code=503,
-                detail="Feedback requires database mode (set DATABASE_URL).",
-            )
-        with repository_context as repository:
+        with report_repository_context() as repository:
             repository.create_feedback_submission(message=message, email=email)
             repository.session.commit()
 
@@ -699,13 +569,7 @@ def create_app(
 
     @app.get("/api/admin/overview", dependencies=[admin_guard])
     def admin_overview() -> dict:
-        repository_context = report_repository_context()
-        if repository_context is None:
-            raise HTTPException(
-                status_code=503,
-                detail="Admin overview requires database mode (set DATABASE_URL).",
-            )
-        with repository_context as repository:
+        with report_repository_context() as repository:
             return {
                 "runs": repository.get_recent_pipeline_runs(limit=20),
                 "sources": repository.list_sources_with_health(),
@@ -713,13 +577,7 @@ def create_app(
             }
 
     def _admin_repository_context():
-        repository_context = report_repository_context()
-        if repository_context is None:
-            raise HTTPException(
-                status_code=503,
-                detail="This admin feature requires database mode (set DATABASE_URL).",
-            )
-        return repository_context
+        return report_repository_context()
 
     def _require_manual_feature(name: str = "ADMIN_MANUAL_ARTICLE_ENABLED") -> None:
         from app.services.manual_articles import env_enabled
@@ -744,10 +602,7 @@ def create_app(
         )
 
         try:
-            context = report_repository_context()
-            if context is None:
-                return
-            with context as repository:
+            with report_repository_context() as repository:
                 try:
                     process_and_materialize_submission(repository, submission_id)
                     repository.session.commit()
