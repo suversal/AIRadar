@@ -25,3 +25,4 @@ node_modules/
 /scripts/backup_local_db.sh
 /scripts/deploy_to_server.sh
 /scripts/sync_db_to_server.sh
+/scripts/rebuild_mobile_web.sh

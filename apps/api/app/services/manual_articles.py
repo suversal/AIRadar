@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 from app.crawlers.base import canonicalize_url, normalize_article, stable_hash
 from app.db.models import ArticleSubmissionModel, RawArticleModel
-from app.models.domain import ScoreDimensions, Source
+from app.models.domain import ContentValueDimensions, Source
 from app.services.ai_service import embedding_input, provider_from_env
 from app.services.manual_article_fetcher import ManualFetchError, fetch_manual_article
 from app.services.manual_richtext import (
@@ -199,6 +199,7 @@ def _serialize_scoring(
     scoring: Any, embedding: list[float] | None, embedding_model: str
 ) -> dict[str, Any]:
     return {
+        "ai_focus": scoring.ai_focus,
         "dimensions": asdict(scoring.dimensions),
         "category": scoring.category,
         "focus_category": scoring.focus_category,
@@ -387,10 +388,14 @@ def publish_submission(repository: Any, submission_id: str) -> ArticleSubmission
     )
     if model.raw_article_id:
         article.id = model.raw_article_id
-    dimensions = ScoreDimensions(**{key: float(value) for key, value in ai["dimensions"].items()})
+    dimensions = ContentValueDimensions(
+        **{key: float(value) for key, value in ai["dimensions"].items()}
+    )
+    ai_focus = str(ai.get("ai_focus") or "contributing")
     processed = select_processed_article(
         article=article,
         source=source,
+        ai_focus=ai_focus,
         dimensions=dimensions,
         category=str(ai.get("category") or "industry"),
         tags=list(ai.get("tags") or []),
@@ -401,7 +406,6 @@ def publish_submission(repository: Any, submission_id: str) -> ArticleSubmission
             "reason_zh": str(ai.get("reason_zh") or ""),
             "action_zh": str(ai.get("action_zh") or ""),
         },
-        now=now,
         focus_category=(
             str(ai.get("focus_category"))
             if ai.get("focus_category")

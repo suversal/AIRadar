@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
-from app.models.domain import PrefilterResult, RawArticle, ScoreDimensions, ScoringResult, Source
+from app.models.domain import ContentValueDimensions, PrefilterResult, RawArticle, ScoringResult, Source
 from app.pipeline.runner import (
     _text_blocks_for_translation,
     _translation_paragraphs_for,
@@ -639,13 +639,11 @@ class PipelineTests(unittest.TestCase):
                 "content": cached_full_body,
                 "embedding": cached_vector,
                 "scoring": {
+                    "ai_focus": "primary",
                     "dimensions": {
-                        "ai_relevance": 9,
-                        "novelty": 8,
                         "impact": 8,
-                        "information_density": 7,
-                        "actionability": 7,
-                        "creator_value": 6,
+                        "novelty": 8,
+                        "substance": 7,
                     },
                     "category": "model_release",
                     "tags": ["Agent"],
@@ -719,6 +717,150 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(cached_processed.raw_article_id, "persisted-raw-id")
         self.assertEqual(cached_article.metadata["translated_paragraphs"], ["缓存译文段落"])
 
+    def test_terminal_cached_article_is_read_only_and_restores_persisted_snapshot(self):
+        from app.crawlers.base import canonicalize_url, stable_hash
+
+        source = Source(
+            id="ifanr",
+            name="爱范儿",
+            source_role="context",
+            tier="T3",
+            type="rss",
+            category="media",
+            url="https://www.ifanr.com/feed",
+            homepage="https://www.ifanr.com",
+            allowed_domains=["ifanr.com"],
+            language="zh",
+        )
+        url = "https://www.ifanr.com/1673165"
+        url_hash = stable_hash(canonicalize_url(url))
+        full_body = "爱范儿已经持久化的完整正文第一段。\n\n完整正文第二段。"
+        full_blocks = [
+            {"type": "paragraph", "text": "爱范儿已经持久化的完整正文第一段。"},
+            {"type": "paragraph", "text": "完整正文第二段。"},
+        ]
+        raw_items = [{
+            "source_url": url,
+            "title": "爱范儿文章",
+            "content": "本轮 RSS 的短摘要",
+            "author": "爱范儿",
+            "published_at": datetime(2026, 7, 27, 8, tzinfo=timezone.utc),
+            "language": "zh",
+            "raw_score": {},
+            "metadata": {
+                "body_fetch": "deferred",
+                "original_text": "本轮 RSS 的短摘要",
+                "original_paragraphs": ["本轮 RSS 的短摘要"],
+                "original_blocks": [{"type": "paragraph", "text": "本轮 RSS 的短摘要"}],
+            },
+        }]
+        cached_results = {url_hash: {
+            "raw_article_id": "persisted-ifanr-id",
+            "content": full_body,
+            "scoring": {
+                "ai_focus": "primary",
+                "dimensions": {
+                    "impact": 8,
+                    "novelty": 8,
+                    "substance": 8,
+                },
+                "category": "industry",
+                "tags": ["AI"],
+                "title_zh": "持久化的中文标题",
+                "one_line_summary": "持久化摘要",
+                "summary_zh": "持久化核心摘要",
+                "reason_zh": "持久化推荐理由",
+                "action_zh": "持久化动作",
+            },
+            "processed": {
+                "raw_article_id": "persisted-ifanr-id",
+                "event_cluster_id": "persisted-event-id",
+                "ai_focus": "primary",
+                "dimensions": {
+                    "impact": 8,
+                    "novelty": 8,
+                    "substance": 8,
+                },
+                "final_score": 86.0,
+                "evidence_score": 65.0,
+                "title_zh": "持久化的中文标题",
+                "one_line_summary": "持久化摘要",
+                "summary_zh": "持久化核心摘要",
+                "reason_zh": "持久化推荐理由",
+                "action_zh": "持久化动作",
+                "category": "industry",
+                "focus_category": "industry",
+                "tags": ["AI"],
+                "selected": True,
+                "status": "processed",
+                "rejection_reason": None,
+                "selection_origin": "score",
+                "selection_reason": "final_score:86>=threshold",
+            },
+            "metadata": {
+                "content_extraction_version": 2,
+                "original_text": full_body,
+                "original_paragraphs": [block["text"] for block in full_blocks],
+                "original_blocks": full_blocks,
+            },
+            "raw_article": {
+                "id": "persisted-ifanr-id",
+                "source_url": url,
+                "title": "爱范儿文章",
+                "content": full_body,
+                "author": "爱范儿",
+                "published_at": datetime(2026, 7, 27, 8, tzinfo=timezone.utc),
+                "language": "zh",
+                "raw_score": {},
+                "metadata": {
+                    "content_extraction_version": 2,
+                    "original_text": full_body,
+                    "original_paragraphs": [block["text"] for block in full_blocks],
+                    "original_blocks": full_blocks,
+                },
+                "title_hash": "persisted-title-hash",
+                "url_hash": url_hash,
+                "status": "processed",
+                "skipped_reason": None,
+            },
+        }}
+
+        class NoActionProvider(FakeAIProvider):
+            def prefilter(self, text):
+                raise AssertionError("terminal article must not be prefiltered")
+
+            def score_article(self, title, content):
+                raise AssertionError("terminal article must not be rescored")
+
+            def embed_text(self, text):
+                raise AssertionError("terminal article must not be re-embedded")
+
+            def translate_paragraphs(self, paragraphs):
+                raise AssertionError("terminal article must not be translated")
+
+        callbacks: list[str] = []
+        with patch(
+            "app.crawlers.page_content.prefer_full_page_content",
+            side_effect=AssertionError("terminal article must not refetch its body"),
+        ):
+            result = run_pipeline(
+                sources=[source],
+                raw_items_by_source={source.id: raw_items},
+                ai_provider=NoActionProvider(),
+                now=datetime(2026, 7, 27, 12, tzinfo=timezone.utc),
+                report_date=date(2026, 7, 27),
+                cached_results=cached_results,
+                on_article_processed=lambda article, *_: callbacks.append(article.id),
+            )
+
+        article = result.raw_articles[0]
+        self.assertEqual(article.id, "persisted-ifanr-id")
+        self.assertEqual(article.content, full_body)
+        self.assertEqual(article.metadata["original_blocks"], full_blocks)
+        self.assertEqual(result.read_only_raw_article_ids, {"persisted-ifanr-id"})
+        self.assertEqual(callbacks, [])
+        self.assertEqual(result.daily_report.article_count, 1)
+
     def test_cached_original_blocks_survive_a_thin_rerun(self):
         # regression for the qbitai bug: a cached article already has a fully
         # extracted body (original_blocks non-empty), but this round's RSS
@@ -771,13 +913,11 @@ class PipelineTests(unittest.TestCase):
                 "content": "趋境科技完成A轮融资，半年内募资10亿",
                 "embedding": [0.1] + [0.0] * 511,
                 "scoring": {
+                    "ai_focus": "contributing",
                     "dimensions": {
-                        "ai_relevance": 8,
-                        "novelty": 6,
                         "impact": 6,
-                        "information_density": 6,
-                        "actionability": 5,
-                        "creator_value": 5,
+                        "novelty": 6,
+                        "substance": 6,
                     },
                     "category": "funding",
                     "tags": ["融资"],
@@ -812,6 +952,71 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(cached_article.metadata["original_paragraphs"])
         self.assertIn("高品质AI Token", cached_article.metadata["original_text"])
 
+    def test_cached_aihot_body_replaces_nonempty_rss_summary_structure(self):
+        from app.crawlers.base import normalize_article
+        from app.pipeline.runner import _hydrate_article_from_cache
+
+        source = Source(
+            id="aihot_feed",
+            name="AI HOT 每日精选",
+            source_role="aggregator",
+            tier="T3",
+            type="rss",
+            category="media",
+            url="https://aihot.virxact.com/feed.xml",
+            homepage="https://aihot.virxact.com",
+            allowed_domains=["aihot.virxact.com"],
+            language="zh",
+            can_be_main_source=False,
+        )
+        summary = "这是非空的 AI HOT RSS 摘要。"
+        article = normalize_article(
+            source=source,
+            source_url="https://aihot.virxact.com/items/example",
+            title="AI HOT 缓存正文测试",
+            content=summary,
+            author="AI HOT",
+            published_at=datetime(2026, 7, 26, 12, tzinfo=timezone.utc),
+            language="zh",
+            raw_score={},
+            metadata={
+                "body_fetch": "deferred",
+                "aihot_permalink": "https://aihot.virxact.com/items/example",
+                "original_text": summary,
+                "original_paragraphs": [summary],
+                "original_blocks": [{"type": "paragraph", "text": summary}],
+                "original_images": [],
+            },
+        )
+        full_paragraphs = [
+            "这是 AI HOT 条目页抓取到的完整正文第一段。" * 4,
+            "这是完整正文第二段，不能被下一轮 RSS 摘要覆盖。" * 4,
+        ]
+        full_blocks = [
+            {"type": "paragraph", "text": paragraph} for paragraph in full_paragraphs
+        ]
+        cached = {
+            "raw_article_id": "persisted-aihot-id",
+            "language": "zh",
+            "content": "\n\n".join(full_paragraphs),
+            "metadata": {
+                "content_extraction_version": 2,
+                "original_text": "\n\n".join(full_paragraphs),
+                "original_paragraphs": full_paragraphs,
+                "original_blocks": full_blocks,
+                "original_images": [],
+            },
+        }
+
+        _hydrate_article_from_cache(article, cached)
+
+        self.assertEqual(article.id, "persisted-aihot-id")
+        self.assertEqual(article.content, cached["content"])
+        self.assertEqual(article.metadata["original_text"], cached["metadata"]["original_text"])
+        self.assertEqual(article.metadata["original_paragraphs"], full_paragraphs)
+        self.assertEqual(article.metadata["original_blocks"], full_blocks)
+        self.assertEqual(article.metadata["original_images"], [])
+
     def test_github_blog_profile_upgrade_refetches_and_rescores_only_stale_body(self):
         from app.crawlers.base import canonicalize_url, stable_hash
         from app.pipeline.runner import translation_source_hash
@@ -845,9 +1050,9 @@ class PipelineTests(unittest.TestCase):
             "raw_article_id": "github-existing-id",
             "content": "Wrong recommendation card body.",
             "scoring": {
+                "ai_focus": "contributing",
                 "dimensions": {
-                    "ai_relevance": 8, "novelty": 6, "impact": 6,
-                    "information_density": 5, "actionability": 5, "creator_value": 5,
+                    "impact": 6, "novelty": 6, "substance": 5,
                 },
                 "category": "industry",
                 "tags": ["Wrong"],
@@ -913,6 +1118,7 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("Real GitHub Blog body", provider.asserted_content)
         self.assertNotEqual(result.processed_articles[0].title_zh, "错误的推荐卡片标题")
         self.assertEqual(result.raw_articles[0].metadata["content_profile"], "github-blog-v1")
+        self.assertEqual(result.read_only_raw_article_ids, set())
         self.assertFalse(any(
             block.get("type") == "byline"
             for block in result.raw_articles[0].metadata["translated_blocks"]
@@ -1474,7 +1680,7 @@ class PipelineTests(unittest.TestCase):
 
                     return dc_replace(
                         result,
-                        dimensions=ScoreDimensions(3, 2, 2, 2, 2, 2),
+                        dimensions=ContentValueDimensions(impact=2, novelty=2, substance=2),
                     )
                 return result
 
@@ -1819,7 +2025,8 @@ class PipelineTests(unittest.TestCase):
         class EmbeddingFailureProvider(FakeAIProvider):
             def score_article(self, title, content):
                 return ScoringResult(
-                    dimensions=ScoreDimensions(9, 8, 8, 8, 7, 7),
+                    ai_focus="primary",
+                    dimensions=ContentValueDimensions(impact=8, novelty=8, substance=8),
                     category="model_release",
                     tags=["Agent"],
                     title_zh="OpenAI 发布新智能体模型",
@@ -1882,7 +2089,8 @@ class PipelineTests(unittest.TestCase):
         class LowScoreEmbeddingFailureProvider(FakeAIProvider):
             def score_article(self, title, content):
                 return ScoringResult(
-                    dimensions=ScoreDimensions(7, 3, 3, 4, 2, 2),
+                    ai_focus="contributing",
+                    dimensions=ContentValueDimensions(impact=3, novelty=3, substance=2.67),
                     category="product_release",
                     tags=["AI 产品"],
                     title_zh="一项小型 AI 产品更新",
@@ -1908,7 +2116,7 @@ class PipelineTests(unittest.TestCase):
         processed = result.processed_articles[0]
         self.assertFalse(processed.selected)
         self.assertEqual(processed.status, "rejected")
-        self.assertEqual(processed.rejection_reason, "below_threshold:68")
+        self.assertTrue(processed.rejection_reason.startswith("final_score:"))
         # /all is sourced from processed_articles, including rejected rows.
         # Keeping this row is the public-dynamics visibility boundary.
         self.assertEqual(len(result.event_clusters), 1)
@@ -1953,7 +2161,7 @@ class PipelineTests(unittest.TestCase):
             top_n=2,
         )
 
-        self.assertEqual(result.skipped_reasons["below_threshold"], 3)
+        self.assertEqual(result.skipped_reasons["final_score"], 3)
         self.assertEqual(len([item for item in result.processed_articles if item.selected]), 0)
         self.assertEqual(result.daily_report.article_count, 0)
         self.assertEqual(len(result.daily_report.json_data["items"]), 0)
@@ -2394,7 +2602,8 @@ class FixedVectorAIProvider(FakeAIProvider):
 
     def score_article(self, title: str, content: str) -> ScoringResult:
         return ScoringResult(
-            dimensions=ScoreDimensions(9, 8, 8, 7, 7, 6),
+            ai_focus="primary",
+            dimensions=ContentValueDimensions(impact=8, novelty=8, substance=7),
             category="model_release",
             tags=["AI"],
             title_zh=title,
@@ -2411,14 +2620,8 @@ class LowScoreAIProvider(FakeAIProvider):
 
     def score_article(self, title: str, content: str) -> ScoringResult:
         return ScoringResult(
-            dimensions=ScoreDimensions(
-                ai_relevance=6,
-                novelty=5,
-                impact=5,
-                information_density=5,
-                actionability=4,
-                creator_value=4,
-            ),
+            ai_focus="contributing",
+            dimensions=ContentValueDimensions(impact=5, novelty=5, substance=4.33),
             category="industry",
             tags=["AI"],
             title_zh=title,
@@ -2491,14 +2694,8 @@ class TranslatingAIProvider(FakeAIProvider):
     def score_article(self, title: str, content: str) -> ScoringResult:
         score = 9 if "seven bugs" in title else 6
         return ScoringResult(
-            dimensions=ScoreDimensions(
-                ai_relevance=score,
-                novelty=score,
-                impact=score,
-                information_density=score,
-                actionability=score,
-                creator_value=score,
-            ),
+            ai_focus="primary" if score >= 9 else "contributing",
+            dimensions=ContentValueDimensions(impact=score, novelty=score, substance=score),
             category="industry",
             tags=["AI"],
             title_zh=title,
@@ -2522,14 +2719,8 @@ class ReadmeAwareAIProvider(TranslatingAIProvider):
         else:
             score = 5
         return ScoringResult(
-            dimensions=ScoreDimensions(
-                ai_relevance=score,
-                novelty=score,
-                impact=score,
-                information_density=score,
-                actionability=score,
-                creator_value=score,
-            ),
+            ai_focus="primary" if score >= 9 else "contributing",
+            dimensions=ContentValueDimensions(impact=score, novelty=score, substance=score),
             category="industry",
             tags=["AI"],
             title_zh=title,

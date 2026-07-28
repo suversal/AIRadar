@@ -13,7 +13,7 @@ services:
       POSTGRES_DB: radar
       TZ: Asia/Shanghai
     ports:
-      - "127.0.0.1:5432:5432"
+      - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro

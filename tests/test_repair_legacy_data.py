@@ -77,13 +77,13 @@ class RepairLegacyDataTests(unittest.TestCase):
                 )
             ]
         )
-        from app.models.domain import EventCluster, ProcessedArticle, ScoreDimensions
+        from app.models.domain import ContentValueDimensions, EventCluster, ProcessedArticle
 
         processed = ProcessedArticle(
             raw_article_id="a1",
             event_cluster_id="e-1",
-            dimensions=ScoreDimensions(9, 8, 8, 7, 7, 6),
-            base_score=7.8,
+            ai_focus="primary",
+            dimensions=ContentValueDimensions(impact=8, novelty=8, substance=7),
             final_score=88.0,
             title_zh="中文标题",
             one_line_summary="一句话",

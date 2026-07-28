@@ -1106,12 +1106,7 @@ def create_app(
                     article.metadata.get("body_fetch") == "deferred"
                     and cached_version < content_extraction_version_for_url(article.source_url)
                 )
-                has_translation = bool(
-                    cached_metadata.get("translated_paragraphs")
-                    or cached_metadata.get("translated_blocks")
-                )
-                needs_translation = article.language.lower().startswith("en") and not has_translation
-                if existing is not None and not needs_translation and not cached_content_stale:
+                if existing is not None and not cached_content_stale:
                     article_results[index] = {
                         "title": existing["title"],
                         "url": existing["url"],

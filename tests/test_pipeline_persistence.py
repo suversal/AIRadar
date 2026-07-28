@@ -10,6 +10,62 @@ from app.pipeline.persistence import persist_pipeline_result
 
 
 class PipelinePersistenceTests(unittest.TestCase):
+    def test_read_only_terminal_articles_do_not_write_article_or_event_rows(self):
+        repository = FakeRepository()
+        article = RawArticle(
+            id="existing",
+            source_id="ifanr",
+            source_name="爱范儿",
+            source_role="context",
+            source_tier="T3",
+            source_url="https://www.ifanr.com/1673165",
+            title="爱范儿文章",
+            content="已持久化正文",
+            author="爱范儿",
+            published_at=datetime(2026, 7, 27, 9, tzinfo=timezone.utc),
+            language="zh",
+            raw_score={},
+            metadata={},
+            title_hash="title-existing",
+            url_hash="url-existing",
+        )
+        report = DailyReport(
+            report_date=date(2026, 7, 27),
+            markdown="# report",
+            json_data={
+                "report_date": "2026-07-27",
+                "items": [{
+                    "event_id": "event-existing",
+                    "raw_article_id": "existing",
+                    "reason": "既有推荐理由",
+                    "final_score": 88.0,
+                }],
+                "article_count": 1,
+            },
+            article_count=1,
+        )
+        result = PipelineResult(
+            raw_articles=[article],
+            processed_articles=[],
+            event_clusters=[],
+            daily_report=report,
+            skipped_reasons={},
+            embeddings={"existing": [0.1, 0.2]},
+            read_only_raw_article_ids={"existing"},
+        )
+
+        persist_pipeline_result(repository, sources=[], result=result)
+
+        self.assertEqual(
+            repository.calls,
+            [
+                "sources",
+                "daily_report",
+                "daily_report_entries",
+                "pipeline_run",
+            ],
+        )
+
     def test_persist_pipeline_result_writes_sources_raw_articles_and_daily_report(self):
         repository = FakeRepository()
         source = Source(
@@ -399,7 +455,7 @@ class PipelinePersistenceTests(unittest.TestCase):
         # them - otherwise they reference an event_clusters row that was
         # never created, and the processed_articles write raises a foreign
         # key violation.
-        from app.models.domain import ProcessedArticle, ScoreDimensions
+        from app.models.domain import ContentValueDimensions, ProcessedArticle
 
         repository = FakeRepository()
         repository.cluster_redirects = {"c-new": "c-existing"}
@@ -423,8 +479,8 @@ class PipelinePersistenceTests(unittest.TestCase):
         processed = ProcessedArticle(
             raw_article_id="a1",
             event_cluster_id="c-new",
-            dimensions=ScoreDimensions(9, 8, 8, 7, 7, 6),
-            base_score=7.8,
+            ai_focus="primary",
+            dimensions=ContentValueDimensions(impact=8, novelty=8, substance=7),
             final_score=88.0,
             title_zh="t",
             one_line_summary="s",
@@ -465,7 +521,7 @@ class PipelinePersistenceTests(unittest.TestCase):
         # 台账指标(2026-07-12):新入库 = 本轮首次插入的文章数;
         # 精选(新增) = 新入库且 selected 的数量——已存在文章即使本轮再次
         # 入选也不计入,否则缓存复用会把数字重新灌水
-        from app.models.domain import ProcessedArticle, ScoreDimensions
+        from app.models.domain import ContentValueDimensions, ProcessedArticle
 
         def _raw(article_id):
             return RawArticle(
@@ -490,8 +546,8 @@ class PipelinePersistenceTests(unittest.TestCase):
             return ProcessedArticle(
                 raw_article_id=article_id,
                 event_cluster_id=None,
-                dimensions=ScoreDimensions(9, 8, 8, 7, 7, 6),
-                base_score=7.8,
+                ai_focus="primary",
+                dimensions=ContentValueDimensions(impact=8, novelty=8, substance=7),
                 final_score=88.0 if selected else 40.0,
                 title_zh=article_id,
                 one_line_summary="s",
@@ -567,7 +623,7 @@ class PipelinePersistenceTests(unittest.TestCase):
         # 幂等(upsert),最终整轮落库再补聚类/日报
         import tempfile
 
-        from app.models.domain import ProcessedArticle, ScoreDimensions
+        from app.models.domain import ContentValueDimensions, ProcessedArticle
         from app.pipeline.persistence import persist_single_article_to_database
 
         article = RawArticle(
@@ -590,8 +646,8 @@ class PipelinePersistenceTests(unittest.TestCase):
         processed = ProcessedArticle(
             raw_article_id="live1",
             event_cluster_id=None,
-            dimensions=ScoreDimensions(9, 8, 8, 7, 7, 6),
-            base_score=7.8,
+            ai_focus="primary",
+            dimensions=ContentValueDimensions(impact=8, novelty=8, substance=7),
             final_score=88.0,
             title_zh="标题",
             one_line_summary="s",

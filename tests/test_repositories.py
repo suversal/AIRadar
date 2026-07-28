@@ -1805,7 +1805,13 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(hit["raw_article_id"], "a1")
         self.assertEqual(hit["scoring"]["title_zh"], "中文标题")
         self.assertEqual(hit["scoring"]["category"], "model_release")
-        self.assertEqual(hit["scoring"]["dimensions"]["ai_relevance"], 9)
+        self.assertEqual(hit["scoring"]["dimensions"]["impact"], 8)
+        self.assertEqual(hit["scoring"]["ai_focus"], "primary")
+        self.assertEqual(hit["raw_article"]["id"], "a1")
+        self.assertEqual(hit["raw_article"]["content"], "AI model release")
+        self.assertEqual(hit["processed"]["raw_article_id"], "a1")
+        self.assertEqual(hit["processed"]["status"], "processed")
+        self.assertIsNone(hit["processed"]["event_cluster_id"])
         self.assertEqual(hit["metadata"]["translated_paragraphs"], ["中文段落"])
         # README 状态必须跨轮回填，否则每轮刷新都重抓全部 README（打光
         # GitHub 匿名限额），限流自愈标记也传不到下一轮
@@ -2819,13 +2825,13 @@ class RepositoryTests(unittest.TestCase):
         self.assertIsNone(stored.email)
 
     def _processed(self, raw_article_id, *, final_score=88.0):
-        from app.models.domain import ProcessedArticle, ScoreDimensions
+        from app.models.domain import ContentValueDimensions, ProcessedArticle
 
         return ProcessedArticle(
             raw_article_id=raw_article_id,
             event_cluster_id=None,
-            dimensions=ScoreDimensions(9, 8, 8, 7, 7, 6),
-            base_score=7.8,
+            ai_focus="primary",
+            dimensions=ContentValueDimensions(impact=8, novelty=8, substance=7),
             final_score=final_score,
             title_zh="中文标题",
             one_line_summary="一句话摘要",

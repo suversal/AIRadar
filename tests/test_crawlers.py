@@ -135,6 +135,56 @@ via AI HOT · https://aihot.virxact.com/items/cmrfiocpi0035ihjlcm4qu8af]]></desc
             "https://casp.ac/reports/ai-enabled-terrorism",
         )
 
+    def test_aihot_rss_supports_linked_read_original_format(self):
+        source = Source(
+            id="aihot_feed",
+            name="AI HOT 每日精选",
+            source_role="aggregator",
+            tier="T3",
+            type="rss",
+            category="media",
+            url="https://aihot.virxact.com/feed.xml",
+            homepage="https://aihot.virxact.com",
+            allowed_domains=["aihot.virxact.com"],
+            language="zh",
+            can_be_main_source=False,
+            config={
+                "original_url_from_description": True,
+                "use_aihot_item_page": True,
+            },
+        )
+        xml = """<?xml version="1.0"?>
+        <rss version="2.0"><channel><item>
+          <title><![CDATA[OpenAI和Anthropic游说限制中国开源模型]]></title>
+          <link>https://aihot.virxact.com/items/cms1uvdxz0016rog2smc5vo7m</link>
+          <description><![CDATA[
+<p>AI HOT 当前返回的摘要正文。</p>
+<p>🔗 <a href="https://www.ithome.com/0/981/797.htm?from=rss&amp;lang=zh">阅读原文</a></p>
+<p>via AI HOT · <a href="https://aihot.virxact.com/items/cms1uvdxz0016rog2smc5vo7m">AI HOT</a></p>
+          ]]></description>
+          <pubDate>Sun, 26 Jul 2026 12:54:28 GMT</pubDate>
+        </item></channel></rss>
+        """
+
+        articles = parse_rss(xml, source)
+
+        self.assertEqual(len(articles), 1)
+        article = articles[0]
+        self.assertEqual(
+            article.source_url,
+            "https://www.ithome.com/0/981/797.htm?from=rss&lang=zh",
+        )
+        self.assertEqual(
+            article.metadata["aihot_permalink"],
+            "https://aihot.virxact.com/items/cms1uvdxz0016rog2smc5vo7m",
+        )
+        self.assertEqual(article.metadata["aihot_summary_zh"], "AI HOT 当前返回的摘要正文。")
+        self.assertEqual(article.content, "AI HOT 当前返回的摘要正文。")
+        self.assertEqual(
+            article.metadata["original_blocks"],
+            [{"type": "paragraph", "text": "AI HOT 当前返回的摘要正文。"}],
+        )
+
     def test_aihot_rss_falls_back_to_item_link_without_original_url(self):
         source = Source(
             id="aihot_feed",

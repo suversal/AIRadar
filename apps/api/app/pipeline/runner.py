@@ -12,11 +12,11 @@ from app.crawlers.base import normalize_article, stable_hash
 from app.crawlers.article_content import content_extraction_version_for_url
 from app.crawlers.github_readme import fetch_github_readme, repo_path_from_github_url
 from app.models.domain import (
+    ContentValueDimensions,
     DailyReport,
     PipelineResult,
     ProcessedArticle,
     RawArticle,
-    ScoreDimensions,
     ScoringResult,
     Source,
 )
@@ -25,9 +25,6 @@ from app.services.clustering_service import cluster_articles
 from app.services.daily_report_service import build_daily_json, render_daily_markdown
 from app.services.scoring_service import select_processed_article
 from app.services.source_policy import (
-    FORCE_SELECTION_ALWAYS,
-    FORCE_SELECTION_NEVER,
-    forced_selection,
     is_trusted_curated_source,
     is_unfetchable_article_domain,
 )
@@ -178,13 +175,11 @@ def _cached_scoring_result(cached: dict[str, Any] | None) -> ScoringResult | Non
     dimensions = scoring.get("dimensions") or {}
     try:
         return ScoringResult(
-            dimensions=ScoreDimensions(
-                ai_relevance=float(dimensions["ai_relevance"]),
-                novelty=float(dimensions["novelty"]),
+            ai_focus=str(scoring["ai_focus"]),  # type: ignore[arg-type]
+            dimensions=ContentValueDimensions(
                 impact=float(dimensions["impact"]),
-                information_density=float(dimensions["information_density"]),
-                actionability=float(dimensions["actionability"]),
-                creator_value=float(dimensions["creator_value"]),
+                novelty=float(dimensions["novelty"]),
+                substance=float(dimensions["substance"]),
             ),
             category=str(scoring["category"]),
             tags=[str(tag) for tag in scoring.get("tags") or []],
@@ -201,6 +196,103 @@ def _cached_scoring_result(cached: dict[str, Any] | None) -> ScoringResult | Non
         )
     except (KeyError, TypeError, ValueError):
         return None
+
+
+def _cached_processed_article(
+    cached: dict[str, Any] | None,
+) -> ProcessedArticle | None:
+    if not cached or not cached.get("processed"):
+        return None
+    processed = cached["processed"]
+    dimensions = processed.get("dimensions") or {}
+    try:
+        return ProcessedArticle(
+            raw_article_id=str(processed["raw_article_id"]),
+            event_cluster_id=(
+                str(processed["event_cluster_id"])
+                if processed.get("event_cluster_id")
+                else None
+            ),
+            ai_focus=str(processed["ai_focus"]),  # type: ignore[arg-type]
+            dimensions=ContentValueDimensions(
+                impact=float(dimensions["impact"]),
+                novelty=float(dimensions["novelty"]),
+                substance=float(dimensions["substance"]),
+            ),
+            final_score=float(processed["final_score"]),
+            title_zh=str(processed["title_zh"]),
+            one_line_summary=str(processed["one_line_summary"]),
+            summary_zh=str(processed["summary_zh"]),
+            reason_zh=str(processed["reason_zh"]),
+            action_zh=str(processed["action_zh"]),
+            category=str(processed["category"]),
+            focus_category=(
+                str(processed["focus_category"])
+                if processed.get("focus_category")
+                else None
+            ),
+            tags=[str(tag) for tag in processed.get("tags") or []],
+            selected=bool(processed["selected"]),
+            status=str(processed["status"]),
+            rejection_reason=(
+                str(processed["rejection_reason"])
+                if processed.get("rejection_reason")
+                else None
+            ),
+            selection_origin=str(processed.get("selection_origin") or "score"),
+            selection_reason=(
+                str(processed["selection_reason"])
+                if processed.get("selection_reason")
+                else None
+            ),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _terminal_cache_is_current(
+    article: RawArticle,
+    cached: dict[str, Any] | None,
+) -> bool:
+    if not cached:
+        return False
+    terminal = bool(
+        cached.get("processed")
+        or cached.get("scoring")
+        or cached.get("skipped_reason") == "not_ai_related"
+    )
+    if not terminal:
+        return False
+    cached_version = int(
+        ((cached.get("metadata") or {}).get("content_extraction_version") or 0)
+    )
+    return not (
+        article.metadata.get("body_fetch") == "deferred"
+        and cached_version < content_extraction_version_for_url(article.source_url)
+    )
+
+
+def _restore_terminal_article_snapshot(
+    article: RawArticle,
+    cached: dict[str, Any],
+) -> None:
+    raw = cached.get("raw_article")
+    if not raw:
+        _hydrate_article_from_cache(article, cached)
+        return
+    article.id = str(raw["id"])
+    article.source_url = str(raw["source_url"])
+    article.title = str(raw["title"])
+    article.content = str(raw.get("content") or "")
+    article.author = raw.get("author")
+    article.published_at = raw["published_at"]
+    article.language = str(raw.get("language") or article.language)
+    article.raw_score = dict(raw.get("raw_score") or {})
+    article.metadata = dict(raw.get("metadata") or {})
+    article.title_hash = str(raw["title_hash"])
+    article.url_hash = str(raw["url_hash"])
+    article.status = str(raw.get("status") or "raw")
+    article.skipped_reason = raw.get("skipped_reason")
 
 
 def source_recent_days(source: Source) -> int:
@@ -270,6 +362,78 @@ def _notify_article_processed(callback: Any, article: RawArticle, processed, emb
         callback(article, processed, embedding)
     except Exception:
         pass
+
+
+def _rejection_bucket(processed: ProcessedArticle) -> str | None:
+    """Coarse, low-cardinality reporting bucket derived from the specific
+    rejection_reason (e.g. "value_score:45.2<threshold:60.0" -> "value_score")
+    - pipeline run stats count occurrences per bucket, so the full per-article
+    reason (with its numeric values) would blow up the counter's cardinality."""
+    if processed.selected or not processed.rejection_reason:
+        return None
+    return processed.rejection_reason.split(":", 1)[0]
+
+
+def _build_processed_article(
+    *,
+    article: RawArticle,
+    source: Source,
+    scoring: ScoringResult,
+) -> ProcessedArticle:
+    # 所有信源都走同一套三层判断(分类→价值分→可信度)决定是否精选 - 不再有
+    # 任何信源能绕开评分直接强制入选/强制排除(2026-07-28 移除force_selection)
+    processed = select_processed_article(
+        article=article,
+        source=source,
+        ai_focus=scoring.ai_focus,
+        dimensions=scoring.dimensions,
+        category=scoring.category,
+        tags=scoring.tags,
+        generated_fields={
+            "title_zh": scoring.title_zh,
+            "one_line_summary": scoring.one_line_summary,
+            "summary_zh": scoring.summary_zh,
+            "reason_zh": scoring.reason_zh,
+            "action_zh": scoring.action_zh,
+        },
+        focus_category=scoring.focus_category,
+    )
+    aihot_summary_zh = article.metadata.get("aihot_summary_zh")
+    if aihot_summary_zh:
+        processed = replace(processed, summary_zh=aihot_summary_zh)
+    rss_title = article.metadata.get("rss_title")
+    if article.metadata.get("source_type") == "telegram_rss" and rss_title:
+        processed = replace(processed, title_zh=str(rss_title).strip())
+    return processed
+
+
+def _reuse_terminal_cached_article(
+    *,
+    article: RawArticle,
+    source: Source,
+    cached: dict[str, Any],
+) -> tuple[ProcessedArticle | None, list[float] | None, str | None]:
+    if cached.get("skipped_reason") == "not_ai_related" and not cached.get("scoring"):
+        article.status = "skipped"
+        article.skipped_reason = "not_ai_related"
+        return None, None, "not_ai_related"
+    processed = _cached_processed_article(cached)
+    if processed is None:
+        scoring = _cached_scoring_result(cached)
+        if scoring is None:
+            return None, None, cached.get("skipped_reason")
+        processed = _build_processed_article(
+            article=article,
+            source=source,
+            scoring=scoring,
+        )
+    cached_embedding = cached.get("embedding")
+    embedding = (
+        [float(value) for value in cached_embedding]
+        if cached_embedding is not None
+        else None
+    )
+    return processed, embedding, _rejection_bucket(processed)
 
 
 def _process_candidate_article(
@@ -386,54 +550,11 @@ def _process_candidate_article(
                 raise
             scoring = _trusted_curated_fallback_scoring(article)
             article.metadata["ai_fallback"] = "score_error"
-    processed = select_processed_article(
+    processed = _build_processed_article(
         article=article,
         source=source,
-        dimensions=scoring.dimensions,
-        category=scoring.category,
-        tags=scoring.tags,
-        generated_fields={
-            "title_zh": scoring.title_zh,
-            "one_line_summary": scoring.one_line_summary,
-            "summary_zh": scoring.summary_zh,
-            "reason_zh": scoring.reason_zh,
-            "action_zh": scoring.action_zh,
-        },
-        now=now,
-        source_count=1,
-        focus_category=scoring.focus_category,
+        scoring=scoring,
     )
-    forced = forced_selection(source)
-    if forced == FORCE_SELECTION_ALWAYS:
-        processed = replace(
-            processed,
-            selected=True,
-            status="processed",
-            rejection_reason=None,
-            selection_origin="curated_source",
-            selection_reason=f"force_selection:always:{source.id}",
-        )
-    elif forced == FORCE_SELECTION_NEVER:
-        processed = replace(
-            processed,
-            selected=False,
-            status="rejected",
-            rejection_reason=f"force_selection:never:{source.id}",
-            selection_origin="curated_source",
-            selection_reason=None,
-        )
-    # AI HOT's own RSS description already IS a written-by-them summary -
-    # use it verbatim instead of our own AI-generated one
-    aihot_summary_zh = article.metadata.get("aihot_summary_zh")
-    if aihot_summary_zh:
-        processed = replace(processed, summary_zh=aihot_summary_zh)
-    # Telegram RSS titles are editorial copy from the channel and are the
-    # product-visible headline. AI still generates summary/reason/category,
-    # but must never silently rewrite the RSS title (including its emoji and
-    # reply/update markers).
-    rss_title = article.metadata.get("rss_title")
-    if article.metadata.get("source_type") == "telegram_rss" and rss_title:
-        processed = replace(processed, title_zh=str(rss_title).strip())
     # 缓存文章直接复用库里的向量:重算既浪费 CPU,又会在内容有差异时
     # 用劣质向量覆盖全文向量
     cached_embedding = (cached or {}).get("embedding") if scoring_was_cached else None
@@ -461,7 +582,7 @@ def _process_candidate_article(
             article.metadata["embedding_error"] = (
                 f"{type(exc).__name__}: {exc}"[:500]
             )
-    skipped_reason = None if processed.selected else "below_threshold"
+    skipped_reason = _rejection_bucket(processed)
     return processed, embedding, skipped_reason
 
 
@@ -485,7 +606,13 @@ def _trusted_curated_fallback_scoring(article: RawArticle) -> ScoringResult:
         else "来自 AI HOT 每日精编候选池，模型处理失败后保留原始信息。"
     )
     return ScoringResult(
-        dimensions=ScoreDimensions(8, 5, 5, 5, 4, 4),
+        # 模型调用失败时的保守占位判断:trusted_curated信源(AI HOT/Telegram
+        # AI频道)本身已经过上游AI相关性筛选，contributing是不夸大也不错判
+        # 的中间档；三个价值维度给中等偏低的默认猜测，实际能否入选仍然要走
+        # 正常的value_score/evidence_score门槛判断,不再有force_selection
+        # 兜底强制入选
+        ai_focus="contributing",
+        dimensions=ContentValueDimensions(impact=5, novelty=5, substance=4.5),
         category=category_map.get(feed_category, "industry"),
         tags=[tag for tag in [feed_category, source_tag] if tag],
         title_zh=article.title,
@@ -908,8 +1035,24 @@ def _hydrate_article_from_cache(article: RawArticle, cached: dict[str, Any]) -> 
         and incoming_extraction_version < required_extraction_version
     )
     if reuse_cached_content:
+        cached_body_size = len(
+            str(cached_metadata.get("original_text") or cached.get("content") or "").strip()
+        )
+        incoming_body_size = len(
+            str(article.metadata.get("original_text") or article.content or "").strip()
+        )
+        # AI HOT's RSS description is a non-empty summary, while its dedicated
+        # /items/{id} fetch supplies the full body. A later cached run must not
+        # mistake those valid-looking summary blocks for a better body and
+        # overwrite the previously extracted original_blocks. Prefer the
+        # cached AI HOT structure only when it is demonstrably more complete.
+        prefer_cached_aihot_body = bool(article.metadata.get("aihot_permalink")) and (
+            cached_body_size > incoming_body_size
+        )
         for key in _CACHED_CONTENT_STRUCTURE_KEYS:
-            if not article.metadata.get(key) and cached_metadata.get(key):
+            if prefer_cached_aihot_body and key in cached_metadata:
+                article.metadata[key] = cached_metadata[key]
+            elif not article.metadata.get(key) and cached_metadata.get(key):
                 article.metadata[key] = cached_metadata[key]
     cached_content = cached.get("content") or ""
     if reuse_cached_content and len(cached_content) > len(article.content or ""):
@@ -933,6 +1076,7 @@ def run_pipeline(
     source_by_id = {source.id: source for source in sources}
     cached_results = cached_results or {}
     raw_articles: list[RawArticle] = []
+    read_only_url_hashes: set[str] = set()
     skipped = Counter()
 
     for source_id, raw_items in raw_items_by_source.items():
@@ -941,7 +1085,11 @@ def run_pipeline(
             article = normalize_article(source=source, **item)
             cached = cached_results.get(article.url_hash)
             if cached:
-                _hydrate_article_from_cache(article, cached)
+                if _terminal_cache_is_current(article, cached):
+                    read_only_url_hashes.add(article.url_hash)
+                    _restore_terminal_article_snapshot(article, cached)
+                else:
+                    _hydrate_article_from_cache(article, cached)
             raw_articles.append(article)
 
     # 只处理最近 N 天发布(2026-07-12 深夜决策,2026-07-15 从固定"仅当天"
@@ -959,6 +1107,11 @@ def run_pipeline(
     )
     raw_articles = dedupe_articles(raw_articles)
     candidate_articles = list(raw_articles)
+    read_only_raw_article_ids = {
+        article.id
+        for article in raw_articles
+        if article.url_hash in read_only_url_hashes
+    }
     skipped_reason_by_raw_id: dict[str, str] = {}
 
     processed_articles: list[ProcessedArticle] = []
@@ -972,36 +1125,57 @@ def run_pipeline(
     ] = []
     if max_workers == 1:
         for index, article in enumerate(candidate_articles):
-            processed, embedding, skipped_reason = _safe_process_candidate_article(
-                article=article,
-                source_by_id=source_by_id,
-                ai_provider=ai_provider,
-                now=now,
-                skip_prefilter=skip_prefilter,
-                cached=cached_results.get(article.url_hash),
-            )
-            candidate_results.append((index, article, processed, embedding, skipped_reason))
-            _notify_article_processed(on_article_processed, article, processed, embedding)
-    else:
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(
-                    _safe_process_candidate_article,
+            cached = cached_results.get(article.url_hash)
+            if article.id in read_only_raw_article_ids and cached:
+                processed, embedding, skipped_reason = _reuse_terminal_cached_article(
+                    article=article,
+                    source=source_by_id[article.source_id],
+                    cached=cached,
+                )
+            else:
+                processed, embedding, skipped_reason = _safe_process_candidate_article(
                     article=article,
                     source_by_id=source_by_id,
                     ai_provider=ai_provider,
                     now=now,
                     skip_prefilter=skip_prefilter,
-                    cached=cached_results.get(article.url_hash),
-                ): (index, article)
-                for index, article in enumerate(candidate_articles)
-            }
+                    cached=cached,
+                )
+            candidate_results.append((index, article, processed, embedding, skipped_reason))
+            if article.id not in read_only_raw_article_ids:
+                _notify_article_processed(on_article_processed, article, processed, embedding)
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {}
+            for index, article in enumerate(candidate_articles):
+                cached = cached_results.get(article.url_hash)
+                if article.id in read_only_raw_article_ids and cached:
+                    future = executor.submit(
+                        _reuse_terminal_cached_article,
+                        article=article,
+                        source=source_by_id[article.source_id],
+                        cached=cached,
+                    )
+                else:
+                    future = executor.submit(
+                        _safe_process_candidate_article,
+                        article=article,
+                        source_by_id=source_by_id,
+                        ai_provider=ai_provider,
+                        now=now,
+                        skip_prefilter=skip_prefilter,
+                        cached=cached,
+                    )
+                futures[future] = (index, article)
             for future in as_completed(futures):
                 index, article = futures[future]
                 processed, embedding, skipped_reason = future.result()
                 candidate_results.append((index, article, processed, embedding, skipped_reason))
                 # 主线程串行通知,回调内的 DB 会话无并发问题
-                _notify_article_processed(on_article_processed, article, processed, embedding)
+                if article.id not in read_only_raw_article_ids:
+                    _notify_article_processed(
+                        on_article_processed, article, processed, embedding
+                    )
 
     for _, article, processed, embedding, skipped_reason in sorted(
         candidate_results,
@@ -1038,6 +1212,17 @@ def run_pipeline(
 
     processed_by_article = {processed.raw_article_id: processed for processed in processed_articles}
     for cluster in clusters:
+        if all(
+            article_id in read_only_raw_article_ids
+            for article_id in cluster.article_ids
+        ):
+            persisted_event_ids = {
+                processed_by_article[article_id].event_cluster_id
+                for article_id in cluster.article_ids
+                if processed_by_article[article_id].event_cluster_id
+            }
+            if len(persisted_event_ids) == 1:
+                cluster.id = persisted_event_ids.pop()
         main_processed = processed_by_article[cluster.main_article_id]
         cluster.category = main_processed.category
         cluster.tags = main_processed.tags
@@ -1060,12 +1245,17 @@ def run_pipeline(
         for processed in processed_articles
         if processed.raw_article_id in articles_by_id
     ]
-    _attach_github_readmes(articles=displayable_articles)
+    mutable_displayable_articles = [
+        article
+        for article in displayable_articles
+        if article.id not in read_only_raw_article_ids
+    ]
+    _attach_github_readmes(articles=mutable_displayable_articles)
     stage_timings["readme"] = round(time.perf_counter() - stage_started, 3)
     stage_started = time.perf_counter()
 
     _translate_processed_english_articles(
-        articles=displayable_articles,
+        articles=mutable_displayable_articles,
         ai_provider=ai_provider,
         ai_concurrency=ai_concurrency,
     )
@@ -1105,4 +1295,5 @@ def run_pipeline(
         embedding_model=_embedding_model_name(ai_provider),
         skipped_reason_by_raw_id=skipped_reason_by_raw_id,
         stage_timings=stage_timings,
+        read_only_raw_article_ids=read_only_raw_article_ids,
     )

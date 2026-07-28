@@ -202,7 +202,7 @@ class AdminSourcesApiTests(unittest.TestCase):
         # no re-processing spent on an article we already have a verdict for
         self.assertEqual(len(self.repository.processed_upserts), 0)
 
-    def test_test_endpoint_repairs_missing_translation_for_duplicate(self):
+    def test_test_endpoint_does_not_repair_missing_translation_for_duplicate(self):
         from datetime import datetime, timezone
 
         from app.models.domain import RawArticle
@@ -234,13 +234,11 @@ class AdminSourcesApiTests(unittest.TestCase):
                 ],
             },
             "scoring": {
+                "ai_focus": "primary",
                 "dimensions": {
-                    "ai_relevance": 9,
-                    "novelty": 8,
                     "impact": 8,
-                    "information_density": 8,
-                    "actionability": 7,
-                    "creator_value": 7,
+                    "novelty": 8,
+                    "substance": 8,
                 },
                 "category": "model_release",
                 "tags": ["OpenAI"],
@@ -287,10 +285,8 @@ class AdminSourcesApiTests(unittest.TestCase):
         self.assertEqual(body["articles"][0]["outcome"], "duplicate")
         self.assertEqual(body["ingested_count"], 0)
         self.assertEqual(body["accepted_count"], 0)
-        repaired = self.repository.raw_upserts[0]
-        self.assertEqual(repaired.id, "manual-repair")
-        self.assertEqual(repaired.content, "Full English article body about an OpenAI agent model.")
-        self.assertTrue(repaired.metadata.get("translated_paragraphs"))
+        self.assertEqual(self.repository.raw_upserts, [])
+        self.assertEqual(self.repository.processed_upserts, [])
 
     def test_test_endpoint_translation_failure_does_not_fail_source_sync(self):
         from datetime import datetime, timezone

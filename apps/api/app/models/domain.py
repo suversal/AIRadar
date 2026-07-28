@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 
 @dataclass
@@ -48,14 +48,20 @@ class RawArticle:
     skipped_reason: str | None = None
 
 
+AIFocus = Literal["primary", "contributing", "tangential"]
+
+
 @dataclass
-class ScoreDimensions:
-    ai_relevance: float
-    novelty: float
+class ContentValueDimensions:
+    """三个正交的内容价值维度(0-10)，替代原六维加权评分里彼此重叠的
+    novelty/impact/information_density/actionability/creator_value。
+    ai_relevance不再是这里的一个分量——它是否为AI内容由独立的AIFocus
+    分类层判断，不参与value_score的加权求和，避免高分维度稀释掉
+    "这根本不是AI内容"这个判断。"""
+
     impact: float
-    information_density: float
-    actionability: float
-    creator_value: float
+    novelty: float
+    substance: float
 
 
 @dataclass
@@ -67,7 +73,8 @@ class PrefilterResult:
 
 @dataclass
 class ScoringResult:
-    dimensions: ScoreDimensions
+    ai_focus: AIFocus
+    dimensions: ContentValueDimensions
     category: str
     tags: list[str]
     title_zh: str
@@ -82,8 +89,11 @@ class ScoringResult:
 class ProcessedArticle:
     raw_article_id: str
     event_cluster_id: str | None
-    dimensions: ScoreDimensions
-    base_score: float
+    ai_focus: AIFocus
+    dimensions: ContentValueDimensions
+    # final_score = value_score(impact/novelty/substance加权) × 信源tier系数
+    # (T1=1.2/T2=1.1/T3=1.0，只加成不惩罚)，clamp到0-100。这是唯一展示给
+    # 用户看的分数 - 见scoring_service.py的compute_final_score()
     final_score: float
     title_zh: str
     one_line_summary: str
@@ -145,3 +155,6 @@ class PipelineResult:
     # 每阶段耗时(秒):ai_candidates/clustering/readme/translation/report,
     # 用于定位"AI 处理中"这个粗阶段里时间的真实去向
     stage_timings: dict[str, float] = field(default_factory=dict)
+    # 本轮仅从持久化快照读取、不得再次写回的终态文章。它们仍可参与
+    # 聚类和成报，但不能覆盖 raw/processed/embedding/event 数据。
+    read_only_raw_article_ids: set[str] = field(default_factory=set)

@@ -4,6 +4,7 @@ import email.utils
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
+from html import unescape
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -124,26 +125,53 @@ def _entry_author(element: ET.Element) -> str:
     return ""
 
 
+_AIHOT_LINKED_READ_ORIGINAL_RE = re.compile(
+    r'<a\b[^>]*\bhref\s*=\s*["\'](?P<url>https?://[^"\']+)["\'][^>]*>'
+    r"\s*阅读原文\s*</a>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
+
 def _original_url_from_description(description: str) -> str:
-    match = re.search(
-        r"(?:🔗\s*)?阅读原文\s*[：:]\s*(https?://[^\s<>]+)",
-        description,
-        flags=re.IGNORECASE,
-    )
-    if match is None:
-        return ""
-    candidate = match.group(1).rstrip("，。；、")
+    # AI HOT originally emitted plain text:
+    #   🔗 阅读原文：https://example.com/article
+    # It now emits an HTML link:
+    #   🔗 <a href="https://example.com/article">阅读原文</a>
+    # Keep both formats because older cached feed captures are still used by
+    # tests and local replay/repair tools.
+    linked_match = _AIHOT_LINKED_READ_ORIGINAL_RE.search(description)
+    if linked_match is not None:
+        candidate = unescape(linked_match.group("url"))
+    else:
+        plain_match = re.search(
+            r"(?:🔗\s*)?阅读原文\s*[：:]\s*(https?://[^\s<>]+)",
+            description,
+            flags=re.IGNORECASE,
+        )
+        if plain_match is None:
+            return ""
+        candidate = plain_match.group(1)
+    candidate = candidate.rstrip("，。；、")
     parsed = urlsplit(candidate)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return ""
     return candidate
 
 
-# AI HOT's own description already reads: "<AI 摘要>\n\n🔗 阅读原文：<url>\n\n
-# via AI HOT · <permalink>" - everything from the "阅读原文" marker onward is
-# boilerplate we generate ourselves elsewhere, only the summary paragraph
-# itself is useful as summary_zh
-_AIHOT_READ_ORIGINAL_MARKER_RE = re.compile(r"(?:🔗\s*)?阅读原文\s*[：:]")
+# AI HOT's description tail has existed in two forms:
+#   🔗 阅读原文：<url>
+#   <p>🔗 <a href="<url>">阅读原文</a></p>
+# Everything from that marker onward is link-out boilerplate, not article
+# content. Start at the surrounding <p> when present so truncation does not
+# leave a dangling empty paragraph in original_blocks.
+_AIHOT_READ_ORIGINAL_MARKER_RE = re.compile(
+    r"(?:<p\b[^>]*>\s*)?(?:"
+    r"🔗\s*(?:<a\b[^>]*>\s*)?阅读原文(?:\s*</a>)?(?:\s*[：:])?"
+    r"|<a\b[^>]*>\s*阅读原文\s*</a>"
+    r"|阅读原文\s*[：:]"
+    r")",
+    flags=re.IGNORECASE | re.DOTALL,
+)
 
 
 def _truncate_at_aihot_marker(text: str) -> str:

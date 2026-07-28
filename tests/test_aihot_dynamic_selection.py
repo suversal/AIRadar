@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
-from app.models.domain import PrefilterResult, ScoreDimensions, ScoringResult, Source
+from app.models.domain import ContentValueDimensions, PrefilterResult, ScoringResult, Source
 from app.pipeline.runner import run_pipeline
 from app.services.ai_service import FakeAIProvider
 
@@ -17,7 +17,8 @@ class LowScoreProvider(FakeAIProvider):
 
     def score_article(self, title, content):
         return ScoringResult(
-            dimensions=ScoreDimensions(2, 2, 2, 2, 2, 2),
+            ai_focus="contributing",
+            dimensions=ContentValueDimensions(impact=2, novelty=2, substance=2),
             category="industry",
             tags=["AI HOT"],
             title_zh=title,
@@ -38,7 +39,8 @@ class LowScoreProvider(FakeAIProvider):
 class HighScoreProvider(LowScoreProvider):
     def score_article(self, title, content):
         return ScoringResult(
-            dimensions=ScoreDimensions(9, 9, 9, 9, 9, 9),
+            ai_focus="primary",
+            dimensions=ContentValueDimensions(impact=9, novelty=9, substance=9),
             category="industry",
             tags=["AI HOT"],
             title_zh=title,
@@ -55,7 +57,8 @@ class TelegramProvider(FakeAIProvider):
 
     def score_article(self, title, content):
         return ScoringResult(
-            dimensions=ScoreDimensions(2, 2, 2, 2, 2, 2),
+            ai_focus="contributing",
+            dimensions=ContentValueDimensions(impact=2, novelty=2, substance=2),
             category="industry",
             tags=["Telegram"],
             title_zh="AI 改写标题（不应展示）",
@@ -99,7 +102,7 @@ def aihot_all_source():
         allowed_domains=["aihot.virxact.com"],
         language="zh",
         can_be_main_source=False,
-        config={"selection_policy": "trusted_curated", "force_selection": "never"},
+        config={"selection_policy": "trusted_curated"},
     )
 
 
@@ -119,7 +122,6 @@ def aihot_source():
         config={
             "crawl_limit": 50,
             "selection_policy": "trusted_curated",
-            "force_selection": "always",
         },
     )
 
@@ -159,7 +161,7 @@ class AIHotDynamicSelectionTests(unittest.TestCase):
         processed = result.processed_articles[0]
         self.assertFalse(processed.selected)
         self.assertEqual(processed.selection_origin, "score")
-        self.assertTrue(processed.rejection_reason.startswith("below_threshold:"))
+        self.assertTrue(processed.rejection_reason.startswith("final_score:"))
         self.assertEqual(processed.title_zh, rss_title)
         self.assertEqual(processed.summary_zh, "AI 根据结构化正文生成的摘要")
 
@@ -199,7 +201,10 @@ class AIHotDynamicSelectionTests(unittest.TestCase):
         self.assertIn("可信精选信源", processed.reason_zh)
         self.assertNotIn("AI HOT", processed.reason_zh)
 
-    def test_trusted_curated_items_bypass_candidate_budget_and_score_threshold(self):
+    def test_trusted_curated_bypasses_candidate_budget_but_still_needs_to_score(self):
+        # trusted_curated只跳过标题级prefilter(省一次调用成本)，2026-07-28起
+        # 不再有force_selection - 全部13条都要真正走完整评分，低分内容不会
+        # 再被信源身份自动救进精选
         source = aihot_source()
         items = [
             {
@@ -223,11 +228,48 @@ class AIHotDynamicSelectionTests(unittest.TestCase):
             report_date=date(2026, 7, 1),
         )
 
+        # all 13 reached full scoring (prefilter never ran to skip any of
+        # them), but LowScoreProvider's low value dims now genuinely fail
+        # the value_score gate - nothing forces them into 精选 anymore
         self.assertEqual(len(result.processed_articles), 13)
-        self.assertTrue(all(item.selected for item in result.processed_articles))
-        self.assertTrue(all(item.selection_origin == "curated_source" for item in result.processed_articles))
-        self.assertEqual(result.daily_report.article_count, 13)
+        self.assertTrue(all(item.selection_origin == "score" for item in result.processed_articles))
+        self.assertFalse(any(item.selected for item in result.processed_articles))
+        self.assertTrue(
+            all(item.rejection_reason.startswith("final_score:") for item in result.processed_articles)
+        )
+        self.assertEqual(result.daily_report.article_count, 0)
         self.assertNotIn("candidate_limit", result.skipped_reasons)
+
+    def test_trusted_curated_is_selected_when_it_genuinely_scores_well(self):
+        # 证明"信源不再自动入选"不等于"信源不可能入选" - 真正评上了(三层判断
+        # 都过关)一样能进精选，只是不再无条件
+        source = aihot_source()
+        items = [
+            {
+                "source_url": f"https://aihot.virxact.com/posts/high-{index}",
+                "title": f"条目 {index}",
+                "content": f"这是第 {index} 条 AI 精编内容，正文完整。",
+                "author": "AI HOT",
+                "published_at": datetime(2026, 7, 1, 4, tzinfo=timezone.utc),
+                "language": "zh",
+                "raw_score": {},
+                "metadata": {"feed_position": index + 1},
+            }
+            for index in range(3)
+        ]
+
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={source.id: items},
+            ai_provider=HighScoreProvider(),
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 1),
+        )
+
+        self.assertEqual(len(result.processed_articles), 3)
+        self.assertTrue(all(item.selected for item in result.processed_articles))
+        self.assertTrue(all(item.selection_origin == "score" for item in result.processed_articles))
+        self.assertEqual(result.daily_report.article_count, 3)
 
     def test_aihot_summary_zh_metadata_overrides_ai_generated_summary(self):
         # AI HOT's own RSS description (captured at crawl time into
@@ -449,10 +491,11 @@ class AIHotDynamicSelectionTests(unittest.TestCase):
         self.assertEqual(article.metadata.get("aihot_summary_zh"), "薄摘要占位内容")
         self.assertNotIn("original_paragraphs", article.metadata)
 
-    def test_force_selection_never_keeps_aihot_all_out_of_selection_even_at_high_score(self):
-        # aihot_all shares aihot_feed's trusted_curated prefilter skip, but
-        # must never enter 精选 regardless of how well it scores - unlike
-        # aihot_feed, which force_selection:always pushes in unconditionally
+    def test_aihot_all_can_be_selected_when_it_genuinely_scores_well(self):
+        # 2026-07-28起force_selection:never已移除 - aihot_all(全部动态
+        # firehose)不再因为信源身份被无条件排除在精选之外，只要真的通过
+        # ai_focus分类+value_score+evidence_score三层判断就能入选，这是
+        # "所有文章都要走评分判断精选"的直接推论
         source = aihot_all_source()
         items = [
             {
@@ -477,9 +520,38 @@ class AIHotDynamicSelectionTests(unittest.TestCase):
         )
 
         self.assertEqual(len(result.processed_articles), 3)
+        self.assertTrue(all(item.selected for item in result.processed_articles))
+        self.assertTrue(all(item.selection_origin == "score" for item in result.processed_articles))
+        self.assertEqual(result.daily_report.article_count, 3)
+
+    def test_aihot_all_low_score_still_rejected_like_any_other_source(self):
+        source = aihot_all_source()
+        items = [
+            {
+                "source_url": f"https://aihot.virxact.com/all/low-{index}",
+                "title": f"条目 {index}",
+                "content": f"这是第 {index} 条 AI 动态内容，正文完整。",
+                "author": "AI HOT",
+                "published_at": datetime(2026, 7, 1, 4, tzinfo=timezone.utc),
+                "language": "zh",
+                "raw_score": {},
+                "metadata": {"feed_position": index + 1},
+            }
+            for index in range(3)
+        ]
+
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={source.id: items},
+            ai_provider=LowScoreProvider(),
+            now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 7, 1),
+        )
+
+        self.assertEqual(len(result.processed_articles), 3)
         self.assertFalse(any(item.selected for item in result.processed_articles))
         self.assertTrue(
-            all(item.rejection_reason == f"force_selection:never:{source.id}" for item in result.processed_articles)
+            all(item.rejection_reason.startswith("final_score:") for item in result.processed_articles)
         )
         self.assertEqual(result.daily_report.article_count, 0)
 
@@ -497,7 +569,9 @@ class AIHotDynamicSelectionTests(unittest.TestCase):
             allowed_domains=["official.example"],
         )
 
-        class SameVectorProvider(LowScoreProvider):
+        # 2026-07-28起没有force_selection了,两篇文章都要真正评上分才能入选,
+        # 所以这里改用HighScoreProvider,不再依赖curated一侧的信源身份兜底
+        class SameVectorProvider(HighScoreProvider):
             def prefilter(self, text):
                 return PrefilterResult(True, 1.0, "test")
 
@@ -539,6 +613,8 @@ class AIHotDynamicSelectionTests(unittest.TestCase):
         self.assertEqual(result.daily_report.json_data["items"][0]["main_source"]["name"], "Official")
 
     def test_daily_report_uses_shanghai_calendar_date(self):
+        # HighScoreProvider(不再是LowScoreProvider) - 这条要真的入选日报
+        # 才能验证"日报按上海日历日取哪一条"，不能再指望信源身份兜底选中
         source = aihot_source()
         items = [
             {
@@ -566,7 +642,7 @@ class AIHotDynamicSelectionTests(unittest.TestCase):
         result = run_pipeline(
             sources=[source],
             raw_items_by_source={source.id: items},
-            ai_provider=LowScoreProvider(),
+            ai_provider=HighScoreProvider(),
             now=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
             report_date=date(2026, 7, 1),
         )

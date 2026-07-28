@@ -93,8 +93,22 @@ def persist_pipeline_result(
     intake_inserted_ids: list[str] | None = None,
 ) -> PipelinePersistenceSummary:
     source_result = repository.upsert_sources(sources)
-    raw_result = repository.upsert_raw_articles(
-        result.raw_articles, pipeline_run_id=pipeline_run_id
+    writable_ids = {
+        article.id
+        for article in result.raw_articles
+        if article.id not in result.read_only_raw_article_ids
+    }
+    writable_raw_articles = [
+        article for article in result.raw_articles if article.id in writable_ids
+    ]
+    all_articles_read_only = bool(result.raw_articles) and not writable_raw_articles
+    has_article_write_cycle = not all_articles_read_only
+    raw_result = (
+        repository.upsert_raw_articles(
+            writable_raw_articles, pipeline_run_id=pipeline_run_id
+        )
+        if has_article_write_cycle
+        else None
     )
 
     articles_by_id = {article.id: article for article in result.raw_articles}
@@ -102,10 +116,12 @@ def persist_pipeline_result(
     # title/body. Remove any older derived vector before cross-day clustering,
     # otherwise the repository could silently merge the article using stale
     # evidence even though the in-run cluster correctly kept it standalone.
-    for article in result.raw_articles:
+    for article in writable_raw_articles:
         if article.metadata.get("ai_fallback") == "embedding_error":
             repository.delete_article_embedding(article.id)
     for raw_article_id, vector in result.embeddings.items():
+        if raw_article_id not in writable_ids:
+            continue
         article = articles_by_id.get(raw_article_id)
         repository.upsert_article_embedding(
             raw_article_id,
@@ -122,10 +138,19 @@ def persist_pipeline_result(
     # embeddings must be written first: the repository's cross-day merge
     # looks up existing events' main-article embeddings while deciding
     # whether an incoming cluster should join one instead of creating new
-    cluster_result = repository.upsert_event_clusters(
-        result.event_clusters,
-        cluster_window_hours=cluster_window_hours,
-        similarity_threshold=similarity_threshold,
+    writable_clusters = [
+        cluster
+        for cluster in result.event_clusters
+        if any(article_id in writable_ids for article_id in cluster.article_ids)
+    ]
+    cluster_result = (
+        repository.upsert_event_clusters(
+            writable_clusters,
+            cluster_window_hours=cluster_window_hours,
+            similarity_threshold=similarity_threshold,
+        )
+        if writable_clusters or has_article_write_cycle
+        else None
     )
     # a cluster's id was stamped onto processed_articles/daily_report items
     # back in run_pipeline(), before the repository decided (via the merge
@@ -133,14 +158,22 @@ def persist_pipeline_result(
     # event instead of creating its own row - remap through redirects or
     # these rows would reference an event_clusters id that was never created
     redirects: dict[str, str] = getattr(cluster_result, "redirects", None) or {}
-    processed_articles = result.processed_articles
+    processed_articles = [
+        processed
+        for processed in result.processed_articles
+        if processed.raw_article_id in writable_ids
+    ]
     if redirects:
         processed_articles = [
             replace(processed, event_cluster_id=redirects.get(processed.event_cluster_id, processed.event_cluster_id))
             for processed in processed_articles
         ]
-    processed_result = repository.upsert_processed_articles(
-        processed_articles, pipeline_run_id=pipeline_run_id
+    processed_result = (
+        repository.upsert_processed_articles(
+            processed_articles, pipeline_run_id=pipeline_run_id
+        )
+        if processed_articles or has_article_write_cycle
+        else None
     )
     daily_result = repository.upsert_daily_report(
         result.daily_report, pipeline_run_id=pipeline_run_id

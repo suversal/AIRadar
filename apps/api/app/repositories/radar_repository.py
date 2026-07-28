@@ -1551,29 +1551,8 @@ class RadarRepository:
             )
         return counts
 
-    CACHED_METADATA_KEYS = (
-        "original_markdown",
-        "readme_name",
-        "readme_language",
-        "readme_selection",
-        # 跨轮跳过已成功的 README 抓取（省 GitHub API 限额），
-        # zh_probe=failed 的自愈重试标记也要传到下一轮
-        "readme_status",
-        "readme_zh_probe",
-        # 缓存命中时不会重新抓正文（见 pipeline/runner.py 的 cached 分支），
-        # 这四个字段必须带到下一轮，否则会被本轮薄摘要解析出的空结构覆盖
-        "original_paragraphs",
-        "original_blocks",
-        "original_text",
-        "original_images",
-        "content_extraction_version",
-        "content_profile",
-        "content_extraction_diagnostics",
-    )
-
-    # 缓存命中时只应回填这几个"正文结构"字段——且只在本轮值为空时才用缓存
-    # 值，不能像 README 字段那样用 setdefault（RSS 抓取阶段已经无条件写入
-    # 这些 key，哪怕值是空列表，setdefault 也不会覆盖）
+    # 可更新文章做常规 metadata 合并时，正文结构仍需要防止被薄摘要清空。
+    # 终态文章则由 runner 直接恢复完整持久化快照，不经过这条合并路径。
     _CACHED_CONTENT_STRUCTURE_KEYS = (
         "original_paragraphs",
         "original_blocks",
@@ -1610,9 +1589,9 @@ class RadarRepository:
         for raw, processed, translation, embedding in rows:
             raw_metadata = dict(raw.raw_metadata or {})
             metadata = {
-                key: raw_metadata[key]
-                for key in self.CACHED_METADATA_KEYS
-                if raw_metadata.get(key)
+                key: value
+                for key, value in raw_metadata.items()
+                if key != "raw_score"
             }
             if translation is not None and translation.translated_paragraphs:
                 metadata["translated_paragraphs"] = translation.translated_paragraphs
@@ -1623,13 +1602,11 @@ class RadarRepository:
             scoring = None
             if processed is not None:
                 scoring = {
+                    "ai_focus": processed.ai_focus,
                     "dimensions": {
-                        "ai_relevance": processed.ai_relevance,
-                        "novelty": processed.novelty,
                         "impact": processed.impact,
-                        "information_density": processed.information_density,
-                        "actionability": processed.actionability,
-                        "creator_value": processed.creator_value,
+                        "novelty": processed.novelty,
+                        "substance": processed.substance,
                     },
                     "category": processed.category,
                     "focus_category": processed.focus_category,
@@ -1643,7 +1620,46 @@ class RadarRepository:
             cached[raw.url_hash] = {
                 "raw_article_id": raw.id,
                 "language": raw.language,
+                "raw_article": {
+                    "id": raw.id,
+                    "source_url": raw.source_url,
+                    "title": raw.title,
+                    "content": raw.content,
+                    "author": raw.author,
+                    "published_at": raw.published_at,
+                    "language": raw.language,
+                    "raw_score": dict(raw_metadata.get("raw_score") or {}),
+                    "metadata": dict(metadata),
+                    "title_hash": raw.title_hash,
+                    "url_hash": raw.url_hash,
+                    "status": raw.status,
+                    "skipped_reason": raw.skipped_reason,
+                },
                 "scoring": scoring,
+                "processed": (
+                    {
+                        "raw_article_id": processed.raw_article_id,
+                        "event_cluster_id": processed.event_cluster_id,
+                        "ai_focus": scoring["ai_focus"],
+                        "dimensions": dict(scoring["dimensions"]),
+                        "final_score": processed.final_score,
+                        "title_zh": processed.title_zh,
+                        "one_line_summary": processed.one_line_summary,
+                        "summary_zh": processed.summary_zh,
+                        "reason_zh": processed.reason_zh,
+                        "action_zh": processed.action_zh,
+                        "category": processed.category,
+                        "focus_category": processed.focus_category,
+                        "tags": list(processed.tags or []),
+                        "selected": processed.status == "processed",
+                        "status": processed.status,
+                        "rejection_reason": processed.rejection_reason,
+                        "selection_origin": processed.selection_origin,
+                        "selection_reason": processed.selection_reason,
+                    }
+                    if processed is not None
+                    else None
+                ),
                 "skipped_reason": raw.skipped_reason if scoring is None else None,
                 "metadata": metadata,
                 # 缓存文章不再拉正文(2026-07-12 流程重排):把库里的全文
@@ -2476,6 +2492,7 @@ def _event_item(
         "scoring_category_label": scoring_category_label(category),
         "tags": tags,
         "final_score": processed.final_score,
+        "ai_focus": processed.ai_focus,
         "selected": processed.status == "processed",
         "selection_origin": processed.selection_origin,
         "selection_reason": processed.selection_reason,
@@ -2569,13 +2586,10 @@ def _apply_processed_article(model: ProcessedArticleModel, processed: ProcessedA
     # the source of truth; this column is a read cache of it)
     if processed.event_cluster_id is not None:
         model.event_cluster_id = processed.event_cluster_id
-    model.ai_relevance = processed.dimensions.ai_relevance
-    model.novelty = processed.dimensions.novelty
+    model.ai_focus = processed.ai_focus
     model.impact = processed.dimensions.impact
-    model.information_density = processed.dimensions.information_density
-    model.actionability = processed.dimensions.actionability
-    model.creator_value = processed.dimensions.creator_value
-    model.base_score = processed.base_score
+    model.novelty = processed.dimensions.novelty
+    model.substance = processed.dimensions.substance
     model.final_score = processed.final_score
     model.title_zh = processed.title_zh
     model.one_line_summary = processed.one_line_summary

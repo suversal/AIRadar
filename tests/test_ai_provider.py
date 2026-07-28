@@ -112,26 +112,27 @@ class ScoringPromptTests(unittest.TestCase):
         self.assertIn("重磅", prompt)
 
     def test_scoring_system_prompt_includes_dimension_rubric_anchors(self):
-        # 2026-07-20 诊断：六维评分此前完全没有 0-10 分锚点，模型只能凭感觉打
-        # 分——这里锁定每个维度都带有具体的分档说明，防止回归成裸的字段名列表
+        # 2026-07-28 重构：ai_relevance 不再是六维加权里的一个分量，改为独立
+        # 的三态 ai_focus 分类层(primary/contributing/tangential)；剩余的
+        # information_density/actionability/creator_value 三个重叠维度合并
+        # 为 substance。这里锁定新的字段名和分档锚点仍然带有具体说明，防止
+        # 回归成裸的字段名列表
         from app.services.ai_service import scoring_system_prompt
 
         prompt = scoring_system_prompt()
 
-        for dimension_keyword in (
-            "ai_relevance",
-            "novelty",
-            "impact",
-            "information_density",
-            "actionability",
-            "creator_value",
-        ):
+        for keyword in ("primary", "contributing", "tangential"):
+            self.assertIn(keyword, prompt)
+        for dimension_keyword in ("impact", "novelty", "substance"):
             self.assertIn(dimension_keyword, prompt)
         # 具体锚点用词，确保不是只列了维度名而没有分档标准
         self.assertIn("刷新SOTA", prompt)
         self.assertIn("增量迭代", prompt)
         self.assertIn("benchmark", prompt)
         self.assertIn("不得因为想输出", prompt)  # 信息不足时不得编造高分
+        # 车企OTA反例是这次重构直接命中的误判案例，必须锁定在rubric里
+        self.assertIn("智驾", prompt)
+        self.assertIn("OTA", prompt)
 
     def test_scoring_system_prompt_includes_category_boundary_examples(self):
         # 2026-07-20 诊断：8 个分类之前只是裸的英文枚举，model_release/
@@ -160,13 +161,11 @@ class ScoringPromptTests(unittest.TestCase):
                         "message": {
                             "content": json.dumps(
                                 {
+                                    "ai_focus": "primary",
                                     "dimensions": {
-                                        "ai_relevance": 9,
-                                        "novelty": 8,
                                         "impact": 8,
-                                        "information_density": 7,
-                                        "actionability": 7,
-                                        "creator_value": 6,
+                                        "novelty": 8,
+                                        "substance": 7,
                                     },
                                     "category": "model_release",
                                     "tags": ["Agent"],
@@ -262,13 +261,11 @@ class AIProviderTests(unittest.TestCase):
     def test_parse_scoring_payload_clamps_dimension_scores(self):
         parsed = parse_scoring_payload(
             {
+                "ai_focus": "primary",
                 "dimensions": {
-                    "ai_relevance": 12,
+                    "impact": 12,
                     "novelty": -1,
-                    "impact": 7,
-                    "information_density": 8,
-                    "actionability": 6,
-                    "creator_value": 5,
+                    "substance": 7,
                 },
                 "category": "model_release",
                 "focus_category": "model",
@@ -281,22 +278,37 @@ class AIProviderTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(parsed.dimensions.ai_relevance, 10)
+        self.assertEqual(parsed.ai_focus, "primary")
+        self.assertEqual(parsed.dimensions.impact, 10)
         self.assertEqual(parsed.dimensions.novelty, 0)
         self.assertEqual(parsed.focus_category, "model")
+
+    def test_parse_scoring_payload_rejects_invalid_ai_focus(self):
+        with self.assertRaises(ValueError):
+            parse_scoring_payload(
+                {
+                    "ai_focus": "somewhat_related",
+                    "dimensions": {"impact": 5, "novelty": 5, "substance": 5},
+                    "category": "industry",
+                    "tags": [],
+                    "title_zh": "标题",
+                    "one_line_summary": "摘要",
+                    "summary_zh": "摘要",
+                    "reason_zh": "理由",
+                    "action_zh": "行动",
+                }
+            )
 
     def test_parse_scoring_payload_logs_warning_for_off_enum_category(self):
         # 2026-07-20 诊断：模型偶尔吐出枚举外的 category（如
         # "research_insight"），此前完全静默走兜底，无法追溯。这里只要求可
         # 观测（记日志），不要求抛异常——保持现有兜底健壮性不变
         base_payload = {
+            "ai_focus": "primary",
             "dimensions": {
-                "ai_relevance": 8,
-                "novelty": 7,
                 "impact": 7,
-                "information_density": 7,
-                "actionability": 6,
-                "creator_value": 6,
+                "novelty": 7,
+                "substance": 7,
             },
             "category": "research_insight",
             "tags": ["Research"],
@@ -334,13 +346,11 @@ class AIProviderTests(unittest.TestCase):
                         "message": {
                             "content": json.dumps(
                                 {
+                                    "ai_focus": "primary",
                                     "dimensions": {
-                                        "ai_relevance": 9,
-                                        "novelty": 8,
                                         "impact": 7,
-                                        "information_density": 8,
-                                        "actionability": 7,
-                                        "creator_value": 6,
+                                        "novelty": 8,
+                                        "substance": 8,
                                     },
                                     "category": "agent_tooling",
                                     "tags": ["Agent", "Kimi"],
@@ -387,13 +397,11 @@ class AIProviderTests(unittest.TestCase):
                         "message": {
                             "content": json.dumps(
                                 {
+                                    "ai_focus": "primary",
                                     "dimensions": {
-                                        "ai_relevance": 9,
-                                        "novelty": 8,
                                         "impact": 7,
-                                        "information_density": 8,
-                                        "actionability": 7,
-                                        "creator_value": 6,
+                                        "novelty": 8,
+                                        "substance": 8,
                                     },
                                     "category": "agent_tooling",
                                     "tags": ["Agent", "DeepSeek"],
@@ -426,13 +434,11 @@ class AIProviderTests(unittest.TestCase):
         provider = DeepSeekProvider("test-key", max_tokens=2048)
         calls = []
         valid = {
+            "ai_focus": "primary",
             "dimensions": {
-                "ai_relevance": 9,
-                "novelty": 8,
                 "impact": 7,
-                "information_density": 8,
-                "actionability": 7,
-                "creator_value": 6,
+                "novelty": 8,
+                "substance": 8,
             },
             "category": "tutorial",
             "tags": ["开源"],

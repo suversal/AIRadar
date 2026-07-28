@@ -155,21 +155,21 @@ class ManualArticleServiceTests(unittest.TestCase):
 
     def test_admin_selection_survives_automatic_upsert(self):
         from app.db.models import ProcessedArticleModel
-        from app.models.domain import ProcessedArticle, ScoreDimensions
+        from app.models.domain import ContentValueDimensions, ProcessedArticle
         from app.repositories.radar_repository import RadarRepository
 
-        dims = ScoreDimensions(8, 8, 8, 8, 8, 8)
+        dims = ContentValueDimensions(impact=8, novelty=8, substance=8)
         first = ProcessedArticle(
-            raw_article_id="a1", event_cluster_id=None, dimensions=dims, base_score=8,
+            raw_article_id="a1", event_cluster_id=None, ai_focus="primary", dimensions=dims,
             final_score=80, title_zh="A", one_line_summary="A", summary_zh="A",
             reason_zh="A", action_zh="A", category="industry", tags=[], selected=True,
             status="processed", selection_origin="admin", selection_reason="admin:force_selected",
         )
         automatic = ProcessedArticle(
-            raw_article_id="a1", event_cluster_id=None, dimensions=dims, base_score=4,
+            raw_article_id="a1", event_cluster_id=None, ai_focus="primary", dimensions=dims,
             final_score=40, title_zh="B", one_line_summary="B", summary_zh="B",
             reason_zh="B", action_zh="B", category="industry", tags=[], selected=False,
-            status="rejected", rejection_reason="below_threshold:70",
+            status="rejected", rejection_reason="final_score:40<threshold:60",
         )
         with self.Session() as session:
             repository = RadarRepository(session)
@@ -183,12 +183,12 @@ class ManualArticleServiceTests(unittest.TestCase):
 
     def test_release_admin_selection_uses_raw_article_id_not_integer_primary_key(self):
         from app.db.models import ProcessedArticleModel
-        from app.models.domain import ProcessedArticle, ScoreDimensions
+        from app.models.domain import ContentValueDimensions, ProcessedArticle
         from app.repositories.radar_repository import RadarRepository
 
         processed = ProcessedArticle(
-            raw_article_id="string-raw-id", event_cluster_id=None,
-            dimensions=ScoreDimensions(8, 8, 8, 8, 8, 8), base_score=8,
+            raw_article_id="string-raw-id", event_cluster_id=None, ai_focus="primary",
+            dimensions=ContentValueDimensions(impact=8, novelty=8, substance=8),
             final_score=80, title_zh="A", one_line_summary="A", summary_zh="A",
             reason_zh="A", action_zh="A", category="industry", tags=[], selected=True,
             status="processed", selection_origin="admin", selection_reason="admin:force_selected",

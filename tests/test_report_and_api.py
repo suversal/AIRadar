@@ -12,7 +12,7 @@ from app.api.public import (
     build_latest_payload,
     build_latest_payload_from_repository,
 )
-from app.models.domain import EventCluster, ProcessedArticle, RawArticle, ScoreDimensions, Source
+from app.models.domain import ContentValueDimensions, EventCluster, ProcessedArticle, RawArticle, Source
 from app.services.daily_report_service import build_daily_json, render_daily_markdown
 
 
@@ -79,8 +79,8 @@ class ReportAndAPITests(unittest.TestCase):
         self.processed = ProcessedArticle(
             raw_article_id="a1",
             event_cluster_id="c1",
-            dimensions=ScoreDimensions(9, 8, 8, 8, 7, 6),
-            base_score=8.0,
+            ai_focus="primary",
+            dimensions=ContentValueDimensions(impact=8, novelty=8, substance=8),
             final_score=92.0,
             title_zh="OpenAI 发布 Agent 模型",
             one_line_summary="OpenAI 发布新的 Agent 模型。",

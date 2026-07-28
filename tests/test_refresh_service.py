@@ -6,11 +6,11 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
 from app.models.domain import (
+    ContentValueDimensions,
     DailyReport,
     PipelineResult,
     ProcessedArticle,
     RawArticle,
-    ScoreDimensions,
 )
 from app.services.refresh_service import _build_auto_crawl_results
 
@@ -39,8 +39,8 @@ def _processed(article_id: str, *, selected: bool) -> ProcessedArticle:
     return ProcessedArticle(
         raw_article_id=article_id,
         event_cluster_id=None,
-        dimensions=ScoreDimensions(9, 8, 8, 7, 7, 6),
-        base_score=7.8,
+        ai_focus="primary",
+        dimensions=ContentValueDimensions(impact=8, novelty=8, substance=7),
         final_score=88.0 if selected else 40.0,
         title_zh=f"标题-{article_id}",
         one_line_summary="s",
@@ -51,8 +51,8 @@ def _processed(article_id: str, *, selected: bool) -> ProcessedArticle:
         tags=[],
         selected=selected,
         status="processed" if selected else "rejected",
-        rejection_reason=None if selected else "below_threshold:65",
-        selection_reason="final_score:88.0>=threshold:65" if selected else None,
+        rejection_reason=None if selected else "final_score:40.0<threshold:60.0",
+        selection_reason="final_score:88.0>=threshold:60.0" if selected else None,
     )
 
 
@@ -129,7 +129,7 @@ class BuildAutoCrawlResultsTests(unittest.TestCase):
         self.assertEqual(saved["outcome"], "saved")
         self.assertTrue(saved["selected"])
         self.assertEqual(rejected["outcome"], "rejected")
-        self.assertEqual(rejected["reason"], "below_threshold:65")
+        self.assertEqual(rejected["reason"], "final_score:40.0<threshold:60.0")
         self.assertEqual(skipped["outcome"], "rejected")
         self.assertEqual(skipped["reason"], "not_ai_related")
 
@@ -177,7 +177,7 @@ class BuildAutoCrawlResultsTests(unittest.TestCase):
         self.assertEqual(old_sel["outcome"], "duplicate")
         self.assertTrue(old_sel["selected"])
         self.assertEqual(old_rej["outcome"], "duplicate")
-        self.assertEqual(old_rej["reason"], "below_threshold:65")
+        self.assertEqual(old_rej["reason"], "final_score:40.0<threshold:60.0")
         self.assertEqual(fresh["outcome"], "saved")
         self.assertEqual(junk["outcome"], "rejected")
         self.assertEqual(junk["reason"], "not_ai_related")

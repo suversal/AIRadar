@@ -12,7 +12,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from app.models.domain import PrefilterResult, ScoreDimensions, ScoringResult
+from app.models.domain import AIFocus, ContentValueDimensions, PrefilterResult, ScoringResult
 from app.services.period_summary_service import parse_period_summary_payload
 from app.services.taxonomy import resolve_focus_category
 
@@ -68,8 +68,19 @@ def parse_prefilter_payload(payload: dict[str, Any]) -> PrefilterResult:
     )
 
 
+AI_FOCUS_VALUES: tuple[AIFocus, ...] = ("primary", "contributing", "tangential")
+
+
+def _parse_ai_focus(value: Any) -> AIFocus:
+    normalized = str(value or "").strip().lower()
+    if normalized not in AI_FOCUS_VALUES:
+        raise ValueError(f"scoring payload ai_focus must be one of {AI_FOCUS_VALUES}, got {value!r}")
+    return normalized  # type: ignore[return-value]
+
+
 def parse_scoring_payload(payload: dict[str, Any]) -> ScoringResult:
     required = {
+        "ai_focus",
         "dimensions",
         "category",
         "tags",
@@ -82,15 +93,9 @@ def parse_scoring_payload(payload: dict[str, Any]) -> ScoringResult:
     missing = required - set(payload)
     if missing:
         raise ValueError(f"scoring payload missing fields: {sorted(missing)}")
+    ai_focus = _parse_ai_focus(payload["ai_focus"])
     dimensions = payload["dimensions"]
-    for key in (
-        "ai_relevance",
-        "novelty",
-        "impact",
-        "information_density",
-        "actionability",
-        "creator_value",
-    ):
+    for key in ("impact", "novelty", "substance"):
         if key not in dimensions:
             raise ValueError(f"scoring dimensions missing field: {key}")
     tags = [str(tag) for tag in payload.get("tags", []) if str(tag).strip()]
@@ -116,13 +121,11 @@ def parse_scoring_payload(payload: dict[str, Any]) -> ScoringResult:
         ),
     )
     return ScoringResult(
-        dimensions=ScoreDimensions(
-            ai_relevance=_clamp_dimension(dimensions["ai_relevance"]),
-            novelty=_clamp_dimension(dimensions["novelty"]),
+        ai_focus=ai_focus,
+        dimensions=ContentValueDimensions(
             impact=_clamp_dimension(dimensions["impact"]),
-            information_density=_clamp_dimension(dimensions["information_density"]),
-            actionability=_clamp_dimension(dimensions["actionability"]),
-            creator_value=_clamp_dimension(dimensions["creator_value"]),
+            novelty=_clamp_dimension(dimensions["novelty"]),
+            substance=_clamp_dimension(dimensions["substance"]),
         ),
         category=category,
         tags=tags[:5],
@@ -147,7 +150,8 @@ def parse_translation_payload(payload: dict[str, Any]) -> list[str]:
 
 def _scoring_schema_hint() -> dict[str, Any]:
     return {
-        "dimensions": asdict(ScoreDimensions(0, 0, 0, 0, 0, 0)),
+        "ai_focus": "primary",
+        "dimensions": asdict(ContentValueDimensions(0, 0, 0)),
         "category": "model_release",
         "focus_category": "model",
         "tags": ["Agent"],
@@ -193,29 +197,44 @@ SUGGESTED_TAGS = [
 ]
 
 
-def _dimension_rubric() -> str:
+def _ai_focus_rubric() -> str:
     return (
-        "六维评分标准（0-10分，请严格对照锚点打分，不要凭感觉自由发挥）："
-        "ai_relevance（AI相关度）：9-10分=文章报道的主体事件就是AI技术、模型、"
-        "产品或研究本身；6-8分=AI是文章的重要组成部分之一，但夹杂其他行业内容；"
-        "3-5分=AI只是被顺带提及的功能或修饰词，文章主体是其他行业事件；0-2分="
-        "几乎不提AI或AI只是无关紧要的背景词。"
-        "novelty（新颖度）：9-10分=首次实现某项能力、刷新SOTA、行业首创；6-8分"
-        "=在已有能力基础上的明显改进或新组合；3-5分=现有能力的常规增量迭代或版"
-        "本更新；0-2分=没有实质技术新意，纯营销通稿或重复报道。"
+        "ai_focus（AI主体性分类，从三个离散类别里选一个，不是打分，不允许输出"
+        "中间值或第四种取值）："
+        "primary=AI技术、模型、产品或研究本身就是文章报道的主体事件；"
+        "contributing=AI是文章重要组成部分之一，但文章主体还涉及其他行业事件"
+        "（如'某公司发布财报，其中AI业务收入增长30%'——AI只是财报的一个板块，"
+        "不是财报本身）；"
+        "tangential=AI/智能化只是顺带提及的功能、卖点或修饰词，文章主体是其他"
+        "行业的事件。自检法：把文章里AI相关的字眼全部去掉，剩下的内容是否仍能"
+        "独立成立一篇完整、有意义的报道？如果是，判tangential，不要因为出现了"
+        "'智能''AI''智驾'这类字面词就顺势判高。"
+        "典型误判陷阱——车企/智能座舱类通稿：某车企OTA更新稿列举了多项车辆功能"
+        "（智驾领航、城区/园区巡航、车外语音播报、车载K歌、胎压提醒、悬架灯光"
+        "等），即使'智驾领航''自动泊车'字面像AI/自动驾驶术语，只要文章主体是"
+        "罗列一次OTA推送里的多项车辆功能更新（尤其还夹杂大量与AI完全无关的舒适"
+        "性/娱乐性配置），且没有具体讲述智驾感知或决策算法本身的技术进展，就应"
+        "判tangential，不得因为几个高频关键词就判到contributing或更高；只有当"
+        "文章是聚焦讲述智驾算法/模型能力本身的技术突破（如接管率、感知范围、"
+        "训练方法的具体变化）时，才可能是contributing甚至primary。"
+    )
+
+
+def _value_dimension_rubric() -> str:
+    return (
+        "内容价值三维评分标准（0-10分，请严格对照锚点打分，只在ai_focus为"
+        "primary或contributing时才需要打这三维；不要凭感觉自由发挥）："
         "impact（影响力）：9-10分=可能改变行业格局或大量用户/开发者的工作方式；"
         "6-8分=对某个细分领域或产品线有明确影响；3-5分=影响范围有限，多为个案"
         "或局部优化；0-2分=几乎没有实际影响。"
-        "information_density（信息密度）：9-10分=包含具体数据、参数、"
-        "benchmark、技术细节或限制条件；6-8分=有一定具体信息但不够完整；3-5分"
-        "=以描述性语言为主，具体细节较少；0-2分=几乎是空洞的公关辞令，没有可验"
-        "证的信息。"
-        "actionability（可操作性）：9-10分=读者能据此立即采取具体行动（试用、"
-        "复现、决策参考）；6-8分=有明确的下一步方向但需要额外查证；3-5分=仅供"
-        "了解，无直接行动价值；0-2分=与读者的实际行动完全无关。"
-        "creator_value（创作者价值）：9-10分=对内容创作者/开发者的选题、产品决"
-        "策有直接参考价值；6-8分=有一定参考价值但不是核心信息源；3-5分=价值有"
-        "限，仅作背景了解；0-2分=对创作者/开发者几乎没有参考价值。"
+        "novelty（新颖度）：9-10分=首次实现某项能力、刷新SOTA、行业首创；6-8分"
+        "=在已有能力基础上的明显改进或新组合；3-5分=现有能力的常规增量迭代或版"
+        "本更新；0-2分=没有实质技术新意，纯营销通稿或重复报道。"
+        "substance（信息含金量）：回答'这篇文章给读者提供的具体、可核实、可利"
+        "用的信息有多少'——9-10分=包含具体数据、参数、benchmark、复现细节或明"
+        "确的下一步行动；6-8分=有一定具体信息但不够完整；3-5分=以描述性语言为"
+        "主，具体细节较少，或虽然细节很多但都是与AI/技术能力无关的功能罗列；"
+        "0-2分=几乎是空洞的公关辞令，没有可验证的信息。"
         "以上维度必须基于原文实际内容打分，不得因为想输出'完整'的高分而编造原文"
         "没有提到的技术细节、数据或结论；原文信息不足以支撑判断时，给出偏保守、"
         "居中的分数，如实反映不确定性，不得瞎猜。"
@@ -279,12 +298,14 @@ def _focus_taxonomy_guide() -> str:
 def scoring_system_prompt() -> str:
     schema_hint = _scoring_schema_hint()
     return (
-        _dimension_rubric() + " "
+        _ai_focus_rubric() + " "
+        + _value_dimension_rubric() + " "
         + _category_taxonomy_guide() + " "
         + _focus_taxonomy_guide() + " "
         + "Score the AI news item for a Chinese AI intelligence daily report. "
         "Return strict JSON matching this example: "
         f"{json.dumps(schema_hint, ensure_ascii=False)}. "
+        f"ai_focus MUST be exactly one of: {', '.join(AI_FOCUS_VALUES)}. "
         f"category MUST be exactly one of: {', '.join(SCORING_CATEGORIES)}. "
         "focus_category MUST be exactly one of: model, product, technology, industry, tutorial. "
         "tags: up to 5 short Chinese or product-name tags; prefer this vocabulary "
@@ -309,6 +330,10 @@ def scoring_system_prompt() -> str:
 
 
 def prefilter_system_prompt() -> str:
+    # 这里只有标题+截断摘要，用来做一次省成本的粗筛；判断标准必须跟
+    # scoring阶段_ai_focus_rubric()里的tangential定义完全一致——is_ai_related
+    # =false 等价于全文级判断会得到tangential，否则prefilter通过的文章到了
+    # scoring阶段又被判tangential，会显得两次判断标准不一致。
     return (
         "Return JSON with is_ai_related, confidence, reason. "
         "Only mark true for AI technology, products, research, industry, tooling. "
@@ -317,7 +342,9 @@ def prefilter_system_prompt() -> str:
         "事件属于其他行业（如产品发布、销量、财报、人事变动等），AI只是作为其"
         "中一项功能或卖点被顺带提及，判定为不相关，无论所属行业是什么。自检方"
         "法：这篇文章如果去掉AI相关的字眼，还剩下一个完整、独立成立的非AI新闻"
-        "吗？如果是，判不相关。"
+        "吗？如果是，判不相关。典型陷阱：车企OTA/智能座舱类通稿即使包含'智驾"
+        "领航''自动泊车'这类字面像AI术语的词，只要文章主体是罗列多项车辆功能"
+        "更新（尤其还夹杂大量与AI无关的娱乐/舒适性配置），判不相关。"
     )
 
 
@@ -413,16 +440,14 @@ class FakeAIProvider:
         else:
             category = "industry"
             tags = ["AI"]
-        dimensions = ScoreDimensions(
-            ai_relevance=9,
-            novelty=8,
+        dimensions = ContentValueDimensions(
             impact=8,
-            information_density=7,
-            actionability=7,
-            creator_value=6,
+            novelty=8,
+            substance=7,
         )
         title_zh = title if any("\u4e00" <= char <= "\u9fff" for char in title) else f"{title}"
         return ScoringResult(
+            ai_focus="primary",
             dimensions=dimensions,
             category=category,
             tags=tags,

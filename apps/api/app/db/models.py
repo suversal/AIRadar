@@ -175,13 +175,15 @@ class ProcessedArticleModel(Base):
     event_cluster_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("event_clusters.id"), index=True
     )
-    ai_relevance: Mapped[float] = mapped_column(Float, nullable=False)
-    novelty: Mapped[float] = mapped_column(Float, nullable=False)
+    # AI主体性分类:primary/contributing/tangential - 独立于下面三个内容价值
+    # 维度,是"这是不是AI内容"的分类判断,不参与value_score加权,详见
+    # app.services.scoring_service
+    ai_focus: Mapped[str] = mapped_column(String, nullable=False)
     impact: Mapped[float] = mapped_column(Float, nullable=False)
-    information_density: Mapped[float] = mapped_column(Float, nullable=False)
-    actionability: Mapped[float] = mapped_column(Float, nullable=False)
-    creator_value: Mapped[float] = mapped_column(Float, nullable=False)
-    base_score: Mapped[float] = mapped_column(Float, nullable=False)
+    novelty: Mapped[float] = mapped_column(Float, nullable=False)
+    substance: Mapped[float] = mapped_column(Float, nullable=False)
+    # final_score = value_score(impact/novelty/substance加权) × 信源tier系数
+    # (T1=1.2/T2=1.1/T3=1.0，只加成不惩罚) - 见scoring_service.compute_final_score
     final_score: Mapped[float] = mapped_column(Float, nullable=False)
     title_zh: Mapped[str] = mapped_column(Text, nullable=False)
     one_line_summary: Mapped[str] = mapped_column(Text, nullable=False)

@@ -20,9 +20,7 @@ ROLE_PRIORITY = {
 }
 
 TIER_PRIORITY = {
-    "T1": 4,
-    "T1_5": 3,
-    "T1.5": 3,
+    "T1": 3,
     "T2": 2,
     "T3": 1,
 }

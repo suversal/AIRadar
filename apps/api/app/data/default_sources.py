@@ -65,7 +65,7 @@ def default_sources() -> list[Source]:
             id="microsoft_research",
             name="Microsoft Research Blog",
             source_role="authority",
-            tier="T1_5",
+            tier="T2",
             type="rss",
             category="research",
             url="https://www.microsoft.com/en-us/research/feed/",
@@ -78,7 +78,7 @@ def default_sources() -> list[Source]:
             id="bair_blog",
             name="Berkeley AI Research Blog",
             source_role="authority",
-            tier="T1_5",
+            tier="T2",
             type="rss",
             category="research",
             url="https://bair.berkeley.edu/blog/feed.xml",
@@ -91,7 +91,7 @@ def default_sources() -> list[Source]:
             id="nvidia_blog",
             name="NVIDIA Blog",
             source_role="authority",
-            tier="T1_5",
+            tier="T2",
             type="rss",
             category="official",
             url="https://blogs.nvidia.com/feed/",
@@ -104,7 +104,7 @@ def default_sources() -> list[Source]:
             id="qwen_blog",
             name="Qwen Blog",
             source_role="authority",
-            tier="T1_5",
+            tier="T2",
             type="rss",
             category="official",
             url="https://qwenlm.github.io/blog/index.xml",
@@ -171,7 +171,7 @@ def default_sources() -> list[Source]:
             id="arxiv_ai",
             name="arXiv AI",
             source_role="authority",
-            tier="T1_5",
+            tier="T2",
             type="arxiv",
             category="research",
             url=(
@@ -421,10 +421,9 @@ def default_sources() -> list[Source]:
                 # (2026-07-15,取代原来的 ingest_all_dates 开关) means no
                 # date restriction at all, editable from the admin UI.
                 "recent_days": 0,
-                # this feed is already a hand-curated "daily picks" list -
-                # every item should make it into 精选 by default, not just
-                # the ones that clear the usual score threshold
-                "force_selection": "always",
+                # 2026-07-28起不再有force_selection:always - 这个信源的文章
+                # 现在必须像所有其他信源一样，走完整的ai_focus分类→value_score
+                # →evidence_score三层判断才能进精选，不再无条件入选
                 # AI HOT already extracted + translated this article
                 # themselves (see crawlers/aihot_content.py) - fetch their
                 # own /items/{id} page for body+translation instead of the
@@ -456,10 +455,10 @@ def default_sources() -> list[Source]:
                 # AI HOT already curates for AI relevance upstream - no need
                 # to spend a prefilter call re-verifying it
                 "selection_policy": "trusted_curated",
-                # unlike its "每日精选" sibling, this is the firehose of
-                # everything - it should never surface in 精选 regardless of
-                # score, only be browsable/ingested
-                "force_selection": "never",
+                # 2026-07-28起不再有force_selection:never - 这个"全部动态"
+                # firehose的文章如果确实通过了三层判断(ai_focus够格+value_score
+                # 达标+evidence_score达标)，现在允许出现在精选里，不再因为信源
+                # 身份被无条件排除；同一事件下更完整的信源仍会走事件聚类合并
                 # same rationale as aihot_feed - reuse AI HOT's own
                 # extraction+translation instead of doing it ourselves
                 "use_aihot_item_page": True,
@@ -532,7 +531,7 @@ def default_sources() -> list[Source]:
             id="huggingface_papers",
             name="HuggingFace Trending Papers",
             source_role="authority",
-            tier="T1_5",
+            tier="T2",
             type="huggingface_papers",
             category="research",
             url="https://huggingface.co/api/daily_papers",
