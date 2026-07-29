@@ -72,6 +72,135 @@ class ManualArticleServiceTests(unittest.TestCase):
         self.assertEqual(processed.selection_origin, "admin")
         self.assertEqual(processed.status, "processed")
 
+    def test_blank_draft_tags_fall_back_to_ai_tags(self):
+        from app.db.models import EditorialOverrideModel
+        from app.repositories.radar_repository import RadarRepository
+        from app.services.ai_service import FakeAIProvider
+        from app.services.manual_articles import (
+            create_submission,
+            process_submission,
+            publish_submission,
+        )
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            submission = create_submission(
+                repository,
+                {
+                    "editor_document": self._document(),
+                    "manual_fields": {"tags": None},
+                },
+            )
+            process_submission(repository, submission.id, ai_provider=FakeAIProvider())
+            ai_tags = list((submission.ai_fields or {}).get("tags") or [])
+            publish_submission(repository, submission.id)
+            override = session.query(EditorialOverrideModel).one()
+            detail = repository.get_event_item(f"a{submission.raw_article_id[:12]}")
+
+        self.assertTrue(ai_tags)
+        self.assertIsNone(submission.manual_fields["tags"])
+        self.assertEqual(submission.field_provenance["tags"], "ai")
+        self.assertIsNone(override.tags)
+        self.assertEqual(detail["tags"], ai_tags)
+
+    def test_clearing_draft_manual_tags_restores_ai_tags(self):
+        from app.db.models import EditorialOverrideModel
+        from app.repositories.radar_repository import RadarRepository
+        from app.services.ai_service import FakeAIProvider
+        from app.services.manual_articles import (
+            create_submission,
+            process_submission,
+            publish_submission,
+            update_submission,
+        )
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            submission = create_submission(
+                repository,
+                {
+                    "editor_document": self._document(),
+                    "manual_fields": {"tags": ["人工标签"]},
+                },
+            )
+            update_submission(submission, {"manual_fields": {"tags": None}})
+            process_submission(repository, submission.id, ai_provider=FakeAIProvider())
+            ai_tags = list((submission.ai_fields or {}).get("tags") or [])
+            publish_submission(repository, submission.id)
+            override = session.query(EditorialOverrideModel).one()
+            detail = repository.get_event_item(f"a{submission.raw_article_id[:12]}")
+
+        self.assertIsNone(submission.manual_fields["tags"])
+        self.assertIsNone(override.tags)
+        self.assertEqual(detail["tags"], ai_tags)
+
+    def test_nonempty_draft_tags_still_override_ai_tags(self):
+        from app.db.models import EditorialOverrideModel
+        from app.repositories.radar_repository import RadarRepository
+        from app.services.ai_service import FakeAIProvider
+        from app.services.manual_articles import (
+            create_submission,
+            process_submission,
+            publish_submission,
+        )
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            submission = create_submission(
+                repository,
+                {
+                    "editor_document": self._document(),
+                    "manual_fields": {"tags": ["人工标签"]},
+                },
+            )
+            process_submission(repository, submission.id, ai_provider=FakeAIProvider())
+            publish_submission(repository, submission.id)
+            override = session.query(EditorialOverrideModel).one()
+            detail = repository.get_event_item(f"a{submission.raw_article_id[:12]}")
+
+        self.assertEqual(submission.field_provenance["tags"], "manual")
+        self.assertEqual(override.tags, ["人工标签"])
+        self.assertEqual(detail["tags"], ["人工标签"])
+
+    def test_legacy_empty_ai_tag_override_repair_is_precise(self):
+        from app.db.models import EditorialOverrideModel
+        from app.repositories.radar_repository import RadarRepository
+        from app.services.ai_service import FakeAIProvider
+        from app.services.manual_articles import (
+            create_submission,
+            process_submission,
+            publish_submission,
+        )
+        from scripts.repair_empty_manual_tag_overrides import (
+            apply_repairs,
+            inspect_candidates,
+        )
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            submission = create_submission(
+                repository,
+                {
+                    "editor_document": self._document(),
+                    "manual_fields": {"tags": None},
+                },
+            )
+            process_submission(repository, submission.id, ai_provider=FakeAIProvider())
+            publish_submission(repository, submission.id)
+            override = session.query(EditorialOverrideModel).one()
+            override.tags = []
+            session.flush()
+
+            before = inspect_candidates(session, [submission.raw_article_id])
+            repaired = apply_repairs(session, before)
+            session.flush()
+            after = inspect_candidates(session, [submission.raw_article_id])
+
+        self.assertEqual(before[0].status, "eligible")
+        self.assertEqual(repaired, 1)
+        self.assertEqual(after[0].status, "already_repaired")
+        self.assertIsNone(override.tags)
+
     def test_insufficient_editor_content_remains_failed_draft(self):
         from app.repositories.radar_repository import RadarRepository
         from app.services.ai_service import FakeAIProvider

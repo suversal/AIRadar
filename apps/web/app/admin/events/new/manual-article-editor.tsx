@@ -6,6 +6,11 @@ import type { IJodit } from "jodit/esm/types/jodit";
 import type { Config } from "jodit/esm/config";
 import type { DeepPartial } from "jodit/esm/types";
 import { proxiedImageUrl } from "@/lib/images";
+import {
+  contentBlocksToHtml,
+  editorDocumentHtml,
+  type EditorDocument,
+} from "@/lib/editor-document";
 
 import "jodit/es2021/jodit.min.css";
 
@@ -16,12 +21,31 @@ type Submission = {
   publication_status: "draft" | "published";
   processing_status: "idle" | "fetching" | "scoring" | "ready" | "failed";
   original_url?: string | null;
-  editor_document?: { type?: string; html?: string; content?: unknown[] };
+  editor_document?: EditorDocument;
   manual_fields?: Record<string, unknown>;
   selection_mode?: "auto" | "force_selected";
   last_error_detail?: string | null;
   ai_fields?: Record<string, unknown>;
   raw_article_id?: string | null;
+};
+
+type EditableEvent = {
+  event_id: string;
+  title: string;
+  one_line_summary?: string;
+  summary?: string;
+  author?: string | null;
+  published_at?: string | null;
+  scoring_category?: string;
+  category?: string;
+  tags?: string[];
+  editable_original_url?: string;
+  original_url?: string;
+  original_content?: string;
+  original_paragraphs?: string[];
+  original_blocks?: unknown[];
+  editor_document?: EditorDocument;
+  selection_mode?: "auto" | "force_selected";
 };
 
 const CATEGORY_OPTIONS = [
@@ -50,63 +74,6 @@ async function api(path: string, init?: RequestInit) {
     );
   }
   return payload;
-}
-
-function legacyDocumentToHtml(node?: Record<string, unknown>): string {
-  if (!node) return "";
-  if (node.type === "text") {
-    let value = String(node.text ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;");
-    for (const mark of (Array.isArray(node.marks) ? node.marks : []) as Array<Record<string, unknown>>) {
-      const attrs = (mark.attrs ?? {}) as Record<string, unknown>;
-      if (mark.type === "bold") value = `<strong>${value}</strong>`;
-      else if (mark.type === "italic") value = `<em>${value}</em>`;
-      else if (mark.type === "strike") value = `<del>${value}</del>`;
-      else if (mark.type === "underline") value = `<u>${value}</u>`;
-      else if (mark.type === "subscript") value = `<sub>${value}</sub>`;
-      else if (mark.type === "superscript") value = `<sup>${value}</sup>`;
-      else if (mark.type === "code") value = `<code>${value}</code>`;
-      else if (mark.type === "link" && attrs.href) value = `<a href="${String(attrs.href)}">${value}</a>`;
-      else if (mark.type === "textStyle") {
-        const style = [attrs.color ? `color:${attrs.color}` : "", attrs.fontSize ? `font-size:${attrs.fontSize}` : ""].filter(Boolean).join(";");
-        if (style) value = `<span style="${style}">${value}</span>`;
-      } else if (mark.type === "highlight" && attrs.color) {
-        value = `<mark style="background-color:${attrs.color}">${value}</mark>`;
-      }
-    }
-    return value;
-  }
-  const children = Array.isArray(node.content)
-    ? node.content.map((child) => legacyDocumentToHtml(child as Record<string, unknown>)).join("")
-    : "";
-  if (node.type === "doc") return children;
-  if (node.type === "paragraph") return `<p>${children || "<br>"}</p>`;
-  if (node.type === "heading") {
-    const level = Math.max(1, Math.min(6, Number((node.attrs as { level?: number })?.level ?? 2)));
-    return `<h${level}>${children}</h${level}>`;
-  }
-  if (node.type === "bulletList") return `<ul>${children}</ul>`;
-  if (node.type === "orderedList") return `<ol>${children}</ol>`;
-  if (node.type === "listItem") return `<li>${children}</li>`;
-  if (node.type === "blockquote") return `<blockquote>${children}</blockquote>`;
-  if (node.type === "codeBlock") return `<pre><code>${children}</code></pre>`;
-  if (node.type === "horizontalRule") return "<hr>";
-  if (node.type === "hardBreak") return "<br>";
-  if (node.type === "image") {
-    const attrs = (node.attrs ?? {}) as { src?: string; alt?: string; title?: string };
-    return attrs.src
-      ? `<img src="${attrs.src}" alt="${attrs.alt ?? ""}" title="${attrs.title ?? ""}">`
-      : "";
-  }
-  return children;
-}
-
-function documentHtml(document?: Submission["editor_document"]) {
-  if (!document) return "";
-  if (document.type === "html") return String(document.html ?? "");
-  return legacyDocumentToHtml(document as Record<string, unknown>);
 }
 
 const LAZY_IMAGE_ATTRIBUTES = [
@@ -190,15 +157,18 @@ function datetimeLocal(value: unknown) {
 
 export function ManualArticleEditor({
   imageUploadEnabled,
+  initialEventId,
   initialSubmissionId,
 }: {
   imageUploadEnabled: boolean;
+  initialEventId?: string;
   initialSubmissionId?: string;
 }) {
   const editorRef = useRef<IJodit | null>(null);
   const contentRef = useRef("");
   const loadedId = useRef<string | null>(null);
   const [submission, setSubmission] = useState<Submission | null>(null);
+  const [editableEvent, setEditableEvent] = useState<EditableEvent | null>(null);
   const [content, setContent] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -211,7 +181,9 @@ export function ManualArticleEditor({
   const [category, setCategory] = useState("");
   const [tags, setTags] = useState("");
   const [forceSelected, setForceSelected] = useState(false);
-  const isPublished = submission?.publication_status === "published";
+  const editingPublishedEvent = Boolean(initialEventId);
+  const isPublished =
+    !editingPublishedEvent && submission?.publication_status === "published";
 
   const config = useMemo<DeepPartial<Config>>(
     () => ({
@@ -276,7 +248,7 @@ export function ManualArticleEditor({
         setSubmission(item);
         setOriginalUrl(String(item.original_url ?? ""));
         const loadedContent = prepareEditorHtml(
-          documentHtml(item.editor_document),
+          editorDocumentHtml(item.editor_document),
           String(item.original_url ?? ""),
         );
         contentRef.current = loadedContent;
@@ -294,7 +266,56 @@ export function ManualArticleEditor({
       .finally(() => setBusy(false));
   }, [initialSubmissionId]);
 
-  function manualFields() {
+  useEffect(() => {
+    if (!initialEventId || loadedId.current === `event:${initialEventId}`) return;
+    loadedId.current = `event:${initialEventId}`;
+    setBusy(true);
+    void api(`events/${initialEventId}`)
+      .then((item: EditableEvent) => {
+        setEditableEvent(item);
+        setOriginalUrl(String(item.editable_original_url ?? item.original_url ?? ""));
+        const sourceHtml =
+          editorDocumentHtml(item.editor_document) ||
+          contentBlocksToHtml(item.original_blocks) ||
+          contentBlocksToHtml(
+            (item.original_paragraphs ?? []).map((paragraph) => ({
+              type: "paragraph",
+              text: paragraph,
+            })),
+          ) ||
+          contentBlocksToHtml(
+            item.original_content
+              ? [{ type: "paragraph", text: item.original_content }]
+              : [],
+          );
+        const loadedContent = prepareEditorHtml(
+          sourceHtml,
+          String(item.editable_original_url ?? item.original_url ?? ""),
+        );
+        contentRef.current = loadedContent;
+        setContent(loadedContent);
+        setTitle(String(item.title ?? ""));
+        setOneLineSummary(String(item.one_line_summary ?? ""));
+        setSummary(String(item.summary ?? ""));
+        setAuthor(String(item.author ?? ""));
+        setPublishedAt(datetimeLocal(item.published_at));
+        setCategory(String(item.scoring_category ?? item.category ?? ""));
+        setTags((item.tags ?? []).join(", "));
+        setForceSelected(item.selection_mode === "force_selected");
+      })
+      .catch((error) => setMessage(error instanceof Error ? error.message : "文章加载失败"))
+      .finally(() => setBusy(false));
+  }, [initialEventId]);
+
+  function manualFields({
+    useAiWhenTagsBlank = false,
+  }: {
+    useAiWhenTagsBlank?: boolean;
+  } = {}) {
+    const parsedTags = tags
+      .split(/[,，\s]+/)
+      .map((value) => value.trim())
+      .filter(Boolean);
     return {
       title: title.trim(),
       one_line_summary: oneLineSummary.trim(),
@@ -302,7 +323,7 @@ export function ManualArticleEditor({
       author: author.trim(),
       published_at: publishedAt ? new Date(publishedAt).toISOString() : "",
       category,
-      tags: tags.split(/[,，\s]+/).map((value) => value.trim()).filter(Boolean),
+      tags: useAiWhenTagsBlank && parsedTags.length === 0 ? null : parsedTags,
     };
   }
 
@@ -311,7 +332,7 @@ export function ManualArticleEditor({
     const payload = {
       original_url: originalUrl.trim() || null,
       editor_document: { type: "html", html },
-      manual_fields: manualFields(),
+      manual_fields: manualFields({ useAiWhenTagsBlank: true }),
       selection_mode: forceSelected ? "force_selected" : "auto",
     };
     if (submission) {
@@ -321,6 +342,37 @@ export function ManualArticleEditor({
       });
     }
     return api("article-submissions", { method: "POST", body: JSON.stringify(payload) });
+  }
+
+  async function savePublishedEvent() {
+    if (!initialEventId) return;
+    const fields = manualFields();
+    const result = await api(`events/${initialEventId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        title_zh: fields.title,
+        one_line_summary: fields.one_line_summary,
+        summary_zh: fields.summary_zh,
+        author: fields.author,
+        published_at: fields.published_at || undefined,
+        category: fields.category,
+        tags: fields.tags,
+        original_url: originalUrl.trim(),
+        editor_document: {
+          type: "html",
+          html: contentRef.current || content,
+        },
+        selection_mode: forceSelected ? "force_selected" : "auto",
+      }),
+    });
+    const updated = Array.isArray(result.updated)
+      ? result.updated.map((field: unknown) => String(field))
+      : [];
+    if (!updated.includes("editor_document")) {
+      throw new Error(
+        "API 服务仍是旧版本，正文未保存。请重启 API 后再次点击保存。",
+      );
+    }
   }
 
   async function waitUntilFinished(id: string) {
@@ -338,10 +390,15 @@ export function ManualArticleEditor({
     setBusy(true);
     setMessage(null);
     try {
+      if (editingPublishedEvent) {
+        await savePublishedEvent();
+        setMessage("文章修改已保存，内容详情已立即更新。");
+        return;
+      }
       const saved = await saveDraft();
       setSubmission(saved);
       const savedContent = prepareEditorHtml(
-        documentHtml(saved.editor_document),
+        editorDocumentHtml(saved.editor_document),
         String(saved.original_url ?? originalUrl),
       );
       contentRef.current = savedContent;
@@ -450,18 +507,23 @@ export function ManualArticleEditor({
 
       <section className="rounded-md border border-line bg-panel p-5">
         <label className="flex items-center gap-2 text-sm font-semibold text-ink"><input checked={forceSelected} disabled={isPublished} onChange={(event) => setForceSelected(event.target.checked)} type="checkbox" />手动精选（仍保留真实 AI 分数）</label>
-        {submission ? (
+        {submission || editableEvent ? (
           <div className="mt-4 rounded border border-line bg-canvas p-4 text-sm text-ink-mid">
-            <div>状态：{submission.processing_status} / {submission.publication_status}</div>
+            <div>
+              状态：
+              {submission
+                ? `${submission.processing_status} / ${submission.publication_status}`
+                : "已进入内容管理"}
+            </div>
             {previewTitle ? <h3 className="mt-3 text-lg font-semibold text-ink">{previewTitle}</h3> : null}
             {previewSummary ? <p className="mt-2 leading-6">{previewSummary}</p> : null}
           </div>
         ) : null}
         {message ? <p className="mt-4 rounded border border-line bg-canvas px-3 py-2 text-sm text-ink-mid">{message}</p> : null}
         <div className="mt-5 flex flex-wrap justify-end gap-3">
-          <a className="rounded border border-line px-4 py-2 text-sm font-semibold text-ink-mid" href="/admin/drafts">返回草稿管理</a>
-          <button className="rounded border border-line px-4 py-2 text-sm font-semibold text-ink-mid disabled:opacity-40" disabled={busy || isPublished} onClick={saveOnly} type="button">保存草稿</button>
-          <button className="rounded bg-signal px-4 py-2 text-sm font-semibold text-canvas disabled:opacity-40" disabled={busy || isPublished} onClick={scoreAndEnterContent} type="button">{busy ? "处理中…" : "保存内容并生成 AI 评分"}</button>
+          <a className="rounded border border-line px-4 py-2 text-sm font-semibold text-ink-mid" href={editingPublishedEvent ? "/admin/events" : "/admin/drafts"}>{editingPublishedEvent ? "返回内容管理" : "返回草稿管理"}</a>
+          <button className="rounded border border-line px-4 py-2 text-sm font-semibold text-ink-mid disabled:opacity-40" disabled={busy || isPublished} onClick={saveOnly} type="button">{editingPublishedEvent ? (busy ? "保存中…" : "保存修改") : "保存草稿"}</button>
+          {!editingPublishedEvent ? <button className="rounded bg-signal px-4 py-2 text-sm font-semibold text-canvas disabled:opacity-40" disabled={busy || isPublished} onClick={scoreAndEnterContent} type="button">{busy ? "处理中…" : "保存内容并生成 AI 评分"}</button> : null}
         </div>
       </section>
     </div>

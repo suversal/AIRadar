@@ -91,7 +91,6 @@ export function EventsManager({
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [editing, setEditing] = useState<AdminEvent | null>(null);
   const [deletingEvent, setDeletingEvent] = useState<AdminEvent | null>(null);
   const [titleInput, setTitleInput] = useState(title);
   const [categoryInput, setCategoryInput] = useState(category);
@@ -137,25 +136,6 @@ export function EventsManager({
     await run(event.event_id, async () => {
       await api(`events/${event.event_id}`, { method: "DELETE" });
       setDeletingEvent(null);
-    });
-  }
-
-  async function saveEdit(form: FormData) {
-    if (!editing) return;
-    const payload = {
-      title_zh: String(form.get("title_zh") ?? "").trim(),
-      category: String(form.get("category") ?? ""),
-      tags: String(form.get("tags") ?? "")
-        .split(/[,，\s]+/)
-        .map((tag) => tag.trim())
-        .filter(Boolean),
-    };
-    await run(editing.event_id, async () => {
-      await api(`events/${editing.event_id}`, {
-        method: "PATCH",
-        body: JSON.stringify(payload),
-      });
-      setEditing(null);
     });
   }
 
@@ -403,13 +383,12 @@ export function EventsManager({
                     >
                       {event.hidden ? "恢复" : "隐藏"}
                     </button>
-                    <button
+                    <a
                       className="shrink-0 whitespace-nowrap rounded border border-line px-2.5 py-1 text-ink-mid hover:border-signal/40 hover:text-signal"
-                      onClick={() => setEditing(event)}
-                      type="button"
+                      href={`/admin/events/${encodeURIComponent(event.event_id)}/edit`}
                     >
                       编辑
-                    </button>
+                    </a>
                     <button
                       className="shrink-0 whitespace-nowrap rounded border border-line px-2.5 py-1 text-ink-mid hover:border-danger/40 hover:text-danger"
                       disabled={busy === event.event_id}
@@ -515,61 +494,6 @@ export function EventsManager({
           </a>
         </div>
       </div>
-
-      {editing ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <form action={saveEdit} className="w-full max-w-lg rounded-md border border-line bg-panel p-6">
-            <h2 className="text-lg font-semibold text-ink">编辑事件</h2>
-            <label className="mt-4 block text-xs text-ink-dim">
-              中文标题
-              <input
-                className="mt-1 w-full rounded border border-line bg-canvas px-3 py-2 text-sm text-ink"
-                defaultValue={editing.title}
-                name="title_zh"
-              />
-            </label>
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <label className="block text-xs text-ink-dim">
-                分类
-                <select
-                  className="mt-1 w-full rounded border border-line bg-canvas px-3 py-2 text-sm text-ink"
-                  defaultValue={editing.scoring_category ?? editing.category}
-                  name="category"
-                >
-                  {CATEGORY_OPTIONS.map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-xs text-ink-dim">
-                标签（逗号分隔）
-                <input
-                  className="mt-1 w-full rounded border border-line bg-canvas px-3 py-2 text-sm text-ink"
-                  defaultValue={(editing.tags ?? []).join(", ")}
-                  name="tags"
-                />
-              </label>
-            </div>
-            <div className="mt-5 flex justify-end gap-3 text-sm font-semibold">
-              <button
-                className="rounded border border-line px-4 py-2 text-ink-mid hover:text-ink"
-                onClick={() => setEditing(null)}
-                type="button"
-              >
-                取消
-              </button>
-              <button
-                className="rounded border border-signal bg-signal px-4 py-2 text-canvas hover:bg-signal-bright"
-                type="submit"
-              >
-                保存
-              </button>
-            </div>
-          </form>
-        </div>
-      ) : null}
 
       {deletingEvent ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">

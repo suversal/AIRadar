@@ -72,11 +72,11 @@ export function DraftsManager({ initialDrafts }: { initialDrafts: ArticleDraft[]
           <tbody className="divide-y divide-line">
             {initialDrafts.map((draft) => (
               <tr key={draft.id} className={TABLE_ROW}>
-                <td className="px-4 py-3"><a className="block truncate font-semibold text-ink hover:text-signal" href={`/admin/drafts/new?id=${encodeURIComponent(draft.id)}`}>{titleOf(draft)}</a>{draft.last_error_detail ? <p className="mt-1 truncate text-xs text-danger" title={draft.last_error_detail}>{draft.last_error_detail}</p> : null}</td>
+                <td className="px-4 py-3"><a className="block truncate font-semibold text-ink hover:text-signal" href={`/admin/drafts/${encodeURIComponent(draft.id)}`} target="_blank">{titleOf(draft)}</a>{draft.last_error_detail ? <p className="mt-1 truncate text-xs text-danger" title={draft.last_error_detail}>{draft.last_error_detail}</p> : null}</td>
                 <td className="px-4 py-3 text-xs text-ink-mid">{draft.mode === "url" ? "原文链接" : "富文本创作"}</td>
                 <td className="px-4 py-3"><Pill tone={draft.processing_status === "failed" ? "danger" : "signal"}>{draft.processing_status === "failed" ? "处理失败" : "草稿"}</Pill></td>
                 <td className="readout px-4 py-3 text-xs text-ink-dim">{stamp(draft.updated_at)}</td>
-                <td className="px-4 py-3"><div className="flex gap-2 text-xs font-semibold"><a className="rounded border border-line px-2.5 py-1 text-ink-mid hover:text-signal" href={`/admin/drafts/new?id=${encodeURIComponent(draft.id)}`}>继续编辑</a><button className="rounded border border-line px-2.5 py-1 text-ink-mid hover:text-danger disabled:opacity-40" disabled={busy === draft.id} onClick={() => deleteDraft(draft.id)} type="button">删除</button></div></td>
+                <td className="px-4 py-3"><div className="flex gap-2 text-xs font-semibold"><a className="rounded border border-line px-2.5 py-1 text-ink-mid hover:text-signal" href={`/admin/drafts/${encodeURIComponent(draft.id)}`} target="_blank">预览</a><a className="rounded border border-line px-2.5 py-1 text-ink-mid hover:text-signal" href={`/admin/drafts/new?id=${encodeURIComponent(draft.id)}`}>继续编辑</a><button className="rounded border border-line px-2.5 py-1 text-ink-mid hover:text-danger disabled:opacity-40" disabled={busy === draft.id} onClick={() => deleteDraft(draft.id)} type="button">删除</button></div></td>
               </tr>
             ))}
             {!initialDrafts.length ? <tr><td className="px-4 py-8 text-center text-sm text-ink-dim" colSpan={5}>暂无草稿。</td></tr> : null}

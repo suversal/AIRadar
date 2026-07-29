@@ -173,7 +173,8 @@ class RadarRepository:
             # pubDate; an undated feed still uses normalize_article's fallback
             # clock internally and must not make the stored time drift.
             if (
-                "rss_pubdate_missing" in article.metadata
+                not previous_metadata.get("editorial_published_at")
+                and "rss_pubdate_missing" in article.metadata
                 and not article.metadata.get("rss_pubdate_missing")
             ):
                 existing.published_at = article.published_at
@@ -2018,12 +2019,155 @@ class RadarRepository:
                 cleaned = str(value).strip() if value is not None else ""
                 setattr(override, key, cleaned or None)
         if "tags" in fields:
-            override.tags = [
-                str(tag).strip()
-                for tag in (fields.get("tags") or [])
-                if str(tag).strip()
-            ][:5]
+            tag_values = fields.get("tags")
+            override.tags = (
+                None
+                if tag_values is None
+                else [
+                    str(tag).strip()
+                    for tag in tag_values
+                    if str(tag).strip()
+                ][:5]
+            )
         self.session.flush()
+
+    def get_event_editor_context(self, event_id: str) -> Optional[dict[str, Any]]:
+        """Admin-only fields needed to open the full article editor."""
+        row = self._resolve_processed_row(event_id)
+        if row is None:
+            return None
+        processed, raw, _source, _cluster = row
+        metadata = dict(raw.raw_metadata or {})
+        if "editorial_original_url" in metadata:
+            editable_original_url = str(metadata.get("editorial_original_url") or "")
+        else:
+            editable_original_url = (
+                raw.source_url
+                if str(raw.source_url or "").startswith(("http://", "https://"))
+                else ""
+            )
+        return {
+            "raw_article_id": raw.id,
+            "author": raw.author,
+            "editable_original_url": editable_original_url,
+            "editor_document": dict(metadata.get("editor_document") or {}),
+            "selection_mode": (
+                "force_selected"
+                if processed.selection_origin == "admin" and processed.status == "processed"
+                else "auto"
+            ),
+        }
+
+    def update_event_content(self, event_id: str, fields: dict[str, Any]) -> bool:
+        """Persist full editor changes without writing into AI-owned columns.
+
+        Event identity fields keep using event/article editorial overrides.
+        Source facts and the normalized rich-text body stay on the resolved
+        main raw article, with manual_content_locked protecting the body from
+        later crawler enrichment.
+        """
+        row = self._resolve_processed_row(event_id)
+        if row is None:
+            return False
+        processed, raw, _source, _cluster = row
+
+        moderation = {
+            key: fields[key]
+            for key in ("hidden", "title_zh", "category", "tags")
+            if key in fields
+        }
+        if moderation and not self.update_event_moderation(event_id, moderation):
+            return False
+
+        article_override = {
+            key: fields[key]
+            for key in ("title_zh", "one_line_summary", "summary_zh", "category", "tags")
+            if key in fields
+        }
+        if article_override:
+            self.upsert_article_manual_override(raw.id, article_override)
+
+        metadata = dict(raw.raw_metadata or {})
+        if "author" in fields:
+            raw.author = str(fields.get("author") or "").strip() or None
+        if "published_at" in fields:
+            raw.published_at = fields["published_at"]
+            metadata["rss_pubdate_missing"] = False
+            metadata["editorial_published_at"] = fields["published_at"].isoformat()
+        if "original_url" in fields:
+            metadata["editorial_original_url"] = str(fields.get("original_url") or "").strip()
+        if "editor_document" in fields:
+            document = dict(fields.get("editor_document") or {})
+            blocks = list(fields.get("original_blocks") or [])
+            content = str(fields.get("original_text") or "").strip()
+            raw.content = content
+            metadata.update(
+                {
+                    "editor_document": document,
+                    "original_blocks": blocks,
+                    "original_paragraphs": [
+                        str(block.get("text") or "")
+                        for block in blocks
+                        if isinstance(block, dict)
+                        and block.get("type") in {"paragraph", "heading"}
+                        and str(block.get("text") or "").strip()
+                    ],
+                    "original_images": [
+                        block
+                        for block in blocks
+                        if isinstance(block, dict) and block.get("type") == "image"
+                    ],
+                    "original_text": content,
+                    "content_origin": "manual_editorial_override",
+                    "manual_content_locked": True,
+                }
+            )
+            # The translation was generated from the previous body. Keeping
+            # it would make the detail page show stale Chinese content after
+            # an editor saved a corrected original.
+            self.session.execute(
+                delete(ArticleTranslationModel).where(
+                    ArticleTranslationModel.raw_article_id == raw.id
+                )
+            )
+        raw.raw_metadata = metadata
+
+        if fields.get("selection_mode") == "force_selected":
+            processed.status = "processed"
+            processed.rejection_reason = None
+            processed.selection_origin = "admin"
+            processed.selection_reason = "admin:force_selected"
+        elif fields.get("selection_mode") == "auto":
+            self.release_admin_selection(raw.id)
+
+        submission_id = str(metadata.get("submission_id") or "")
+        submission = self.get_submission_model(submission_id) if submission_id else None
+        if submission is not None:
+            manual = dict(submission.manual_fields or {})
+            manual_key_map = {
+                "title_zh": "title",
+                "one_line_summary": "one_line_summary",
+                "summary_zh": "summary_zh",
+                "author": "author",
+                "category": "category",
+                "tags": "tags",
+            }
+            for source_key, target_key in manual_key_map.items():
+                if source_key in fields:
+                    manual[target_key] = fields[source_key]
+            if "published_at" in fields:
+                manual["published_at"] = fields["published_at"].isoformat()
+            submission.manual_fields = manual
+            if "original_url" in fields:
+                submission.original_url = str(fields.get("original_url") or "").strip() or None
+            if "editor_document" in fields:
+                submission.editor_document = dict(fields.get("editor_document") or {})
+                submission.editor_text = str(fields.get("original_text") or "")
+            if "selection_mode" in fields:
+                submission.selection_mode = str(fields["selection_mode"])
+
+        self.session.flush()
+        return True
 
     def get_submission_model(
         self, submission_id: str, *, for_update: bool = False
@@ -2509,6 +2653,7 @@ def _event_item(
             "category": source.category,
         },
         "source_language": raw.language,
+        "author": raw.author,
         "one_line_summary": one_line_summary,
         "summary": summary_zh,
         "reason": processed.reason_zh,
@@ -2521,7 +2666,11 @@ def _event_item(
         else None,
         "crawled_at": raw.crawled_at.isoformat() if raw.crawled_at else None,
     }
-    if metadata.get("ingest_origin") != "manual_editor":
+    if "editorial_original_url" in metadata:
+        editorial_original_url = str(metadata.get("editorial_original_url") or "").strip()
+        if editorial_original_url:
+            item["original_url"] = editorial_original_url
+    elif metadata.get("ingest_origin") != "manual_editor":
         item["original_url"] = raw.source_url
     images = metadata.get("original_images")
     if images:

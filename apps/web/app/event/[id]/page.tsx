@@ -55,6 +55,10 @@ function hostFromUrl(value?: string) {
   }
 }
 
+function tagHref(tag: string) {
+  return `/all?${new URLSearchParams({ tag })}`;
+}
+
 function originalBlocksFor(event: LatestEvent): OriginalBlock[] {
   // known unscrapable read-original domain (e.g. WeChat) - the backend
   // deliberately withheld original_*, so don't synthesize a fake 原文 block
@@ -241,12 +245,13 @@ export default async function EventDetailPage({
             {event.tags?.length ? (
               <section className="mt-8 flex flex-wrap gap-2" aria-label="标签">
                 {event.tags.map((tag) => (
-                  <span
+                  <a
                     key={tag}
-                    className="rounded-md border border-line-strong bg-panel px-2.5 py-1 text-xs text-ink-mid"
+                    href={tagHref(tag)}
+                    className="rounded-md bg-panel-soft px-3 py-1.5 text-xs text-ink-mid transition hover:bg-line hover:text-signal-bright"
                   >
                     {tag}
-                  </span>
+                  </a>
                 ))}
               </section>
             ) : null}

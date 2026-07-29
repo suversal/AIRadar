@@ -87,7 +87,7 @@ def _manual_fields(payload: dict[str, Any]) -> dict[str, Any]:
         "published_at", "language", "category", "tags", "source_name",
     }
     result = {key: payload[key] for key in allowed if key in payload}
-    if "tags" in result:
+    if "tags" in result and result["tags"] is not None:
         result["tags"] = [str(tag).strip() for tag in (result["tags"] or []) if str(tag).strip()][:5]
     for key in allowed - {"tags"}:
         if key in result and result[key] is not None:
@@ -375,6 +375,8 @@ def publish_submission(repository: Any, submission_id: str) -> ArticleSubmission
         "original_text": content,
         "manual_content_locked": bool(model.editor_text),
     }
+    if model.editor_document:
+        metadata["editor_document"] = dict(model.editor_document)
     article = normalize_article(
         source=source,
         source_url=source_url,
@@ -455,9 +457,10 @@ def publish_submission(repository: Any, submission_id: str) -> ArticleSubmission
         "one_line_summary": manual.get("one_line_summary"),
         "summary_zh": manual.get("summary_zh"),
         "category": manual.get("category"),
+        # Draft tags left blank mean "use AI". Passing None also clears a
+        # stale empty override when an existing submission is re-published.
+        "tags": manual.get("tags") or None,
     }
-    if "tags" in manual:
-        override_fields["tags"] = manual["tags"]
     repository.upsert_article_manual_override(article.id, override_fields)
     model.raw_article_id = article.id
     model.publication_status = "published"

@@ -1186,37 +1186,88 @@ def create_app(
     def admin_event_detail(event_id: str) -> dict:
         with _admin_repository_context() as repository:
             item = repository.get_event_item(event_id, include_hidden=True)
+            context_loader = getattr(repository, "get_event_editor_context", None)
+            editor_context = context_loader(event_id) if callable(context_loader) else None
         if item is None:
             raise HTTPException(status_code=404, detail="Event not found")
+        if editor_context:
+            item.update(editor_context)
         return item
 
     @app.patch("/api/admin/events/{event_id}", dependencies=[admin_guard])
     def admin_moderate_event(event_id: str, payload: dict) -> dict:
-        from app.repositories.radar_repository import RadarRepository
         from app.services.ai_service import SCORING_CATEGORIES
+        from app.services.manual_articles import SubmissionError, _validate_url_syntax
+        from app.services.manual_richtext import (
+            RichTextValidationError,
+            normalize_editor_document,
+        )
         from app.services.taxonomy import DISPLAY_CATEGORIES
 
         allowed_categories = set(SCORING_CATEGORIES) | {key for key, _ in DISPLAY_CATEGORIES}
+        editable_fields = {
+            "hidden", "title_zh", "one_line_summary", "summary_zh", "category",
+            "tags", "author", "published_at", "original_url", "editor_document",
+            "selection_mode",
+        }
         fields = {
             key: value
             for key, value in (payload or {}).items()
-            if key in RadarRepository.EVENT_MODERATION_FIELDS
+            if key in editable_fields
         }
         if not fields:
             raise HTTPException(status_code=400, detail="No editable fields in payload")
+        requested_fields = sorted(fields)
         if "category" in fields and str(fields["category"]) not in allowed_categories:
             raise HTTPException(
                 status_code=400,
                 detail=f"category must be one of: {', '.join(sorted(allowed_categories))}",
             )
+        if "selection_mode" in fields and fields["selection_mode"] not in {
+            "auto", "force_selected",
+        }:
+            raise HTTPException(status_code=422, detail="invalid selection_mode")
+        if "original_url" in fields:
+            original_url = str(fields.get("original_url") or "").strip()
+            if original_url:
+                try:
+                    fields["original_url"] = _validate_url_syntax(original_url)
+                except SubmissionError as exc:
+                    raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+            else:
+                fields["original_url"] = ""
+        if "published_at" in fields:
+            value = str(fields.get("published_at") or "").strip()
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="invalid published_at") from exc
+            fields["published_at"] = (
+                parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
+            )
+        if "editor_document" in fields:
+            try:
+                document, blocks, plain = normalize_editor_document(
+                    fields.get("editor_document") or {}
+                )
+            except RichTextValidationError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            fields["editor_document"] = document
+            fields["original_blocks"] = blocks
+            fields["original_text"] = plain
         with _admin_repository_context() as repository:
-            found = repository.update_event_moderation(event_id, fields)
+            update_content = getattr(repository, "update_event_content", None)
+            found = (
+                update_content(event_id, fields)
+                if callable(update_content)
+                else repository.update_event_moderation(event_id, fields)
+            )
             if not found:
                 raise HTTPException(status_code=404, detail="Event not found")
             commit = getattr(getattr(repository, "session", None), "commit", None)
             if callable(commit):
                 commit()
-        return {"status": "ok", "updated": sorted(fields)}
+        return {"status": "ok", "updated": requested_fields}
 
     @app.delete("/api/admin/events/{event_id}", dependencies=[admin_guard])
     def admin_delete_event(event_id: str) -> dict:

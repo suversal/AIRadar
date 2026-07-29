@@ -2362,6 +2362,68 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(item["selected"], False)
         self.assertFalse(missing)
 
+    def test_update_event_content_persists_full_editor_fields(self):
+        from app.db.models import RawArticleModel
+        from app.repositories.radar_repository import RadarRepository
+
+        article = self._article(article_id="a1", title="Editable", url_hash="hash-a1")
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles([article])
+            repository.upsert_processed_articles([self._processed("a1")])
+            repository.upsert_article_translation(
+                "a1",
+                translated_paragraphs=["旧译文"],
+                translated_blocks=[{"type": "paragraph", "text": "旧译文"}],
+                source_language="en",
+                source_hash="old-body",
+            )
+            session.commit()
+
+            updated = repository.update_event_content(
+                "aa1",
+                {
+                    "title_zh": "完整编辑后的标题",
+                    "one_line_summary": "新的一句话摘要",
+                    "summary_zh": "新的详细摘要",
+                    "author": "编辑作者",
+                    "published_at": datetime(2026, 7, 2, 8, 30, tzinfo=timezone.utc),
+                    "category": "research",
+                    "tags": ["人工标签"],
+                    "original_url": "https://example.com/edited",
+                    "editor_document": {"type": "html", "html": "<h2>正文标题</h2><p>新正文</p>"},
+                    "original_blocks": [
+                        {"type": "heading", "level": 2, "text": "正文标题"},
+                        {"type": "paragraph", "text": "新正文"},
+                    ],
+                    "original_text": "正文标题\n\n新正文",
+                    "selection_mode": "force_selected",
+                },
+            )
+            session.commit()
+
+            detail = repository.get_event_item("aa1", include_hidden=True)
+            editor = repository.get_event_editor_context("aa1")
+            raw = session.get(RawArticleModel, "a1")
+            translation = repository.get_article_translation("a1")
+
+        self.assertTrue(updated)
+        self.assertEqual(detail["title"], "完整编辑后的标题")
+        self.assertEqual(detail["one_line_summary"], "新的一句话摘要")
+        self.assertEqual(detail["summary"], "新的详细摘要")
+        self.assertEqual(detail["author"], "编辑作者")
+        self.assertEqual(detail["scoring_category"], "research")
+        self.assertEqual(detail["tags"], ["人工标签"])
+        self.assertEqual(detail["original_url"], "https://example.com/edited")
+        self.assertEqual(detail["original_blocks"][1]["text"], "新正文")
+        self.assertEqual(editor["selection_mode"], "force_selected")
+        self.assertEqual(editor["editable_original_url"], "https://example.com/edited")
+        self.assertEqual(editor["editor_document"]["type"], "html")
+        self.assertTrue(raw.raw_metadata["manual_content_locked"])
+        self.assertEqual(raw.content, "正文标题\n\n新正文")
+        self.assertIsNone(translation)
+
     def test_delete_raw_article_removes_standalone_article_and_all_dependents(self):
         from app.db.models import (
             ArticleEmbeddingModel,

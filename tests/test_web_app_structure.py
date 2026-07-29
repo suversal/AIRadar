@@ -409,6 +409,50 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("管理员预览", detail)
         self.assertIn("该文章当前处于隐藏状态", detail)
 
+    def test_admin_drafts_have_read_only_detail_preview(self):
+        manager = (
+            WEB / "app" / "admin" / "drafts" / "drafts-manager.tsx"
+        ).read_text(encoding="utf-8")
+        preview = (
+            WEB / "app" / "admin" / "drafts" / "[id]" / "page.tsx"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("/admin/drafts/${encodeURIComponent(draft.id)}", manager)
+        self.assertIn("预览", manager)
+        self.assertIn("草稿预览", preview)
+        self.assertIn("editorDocumentHtml", preview)
+        self.assertIn("预览不会发布内容", preview)
+        self.assertIn("继续编辑", preview)
+
+    def test_admin_content_edit_reuses_the_full_draft_editor(self):
+        manager = (
+            WEB / "app" / "admin" / "events" / "events-manager.tsx"
+        ).read_text(encoding="utf-8")
+        edit_page = (
+            WEB / "app" / "admin" / "events" / "[id]" / "edit" / "page.tsx"
+        ).read_text(encoding="utf-8")
+        editor = (
+            WEB / "app" / "admin" / "events" / "new" / "manual-article-editor.tsx"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("/admin/events/${encodeURIComponent(event.event_id)}/edit", manager)
+        self.assertIn("ManualArticleEditor", edit_page)
+        self.assertIn("initialEventId={id}", edit_page)
+        for field in [
+            "one_line_summary",
+            "summary_zh",
+            "author",
+            "published_at",
+            "original_url",
+            "editor_document",
+            "selection_mode",
+        ]:
+            self.assertIn(field, editor)
+        self.assertIn('updated.includes("editor_document")', editor)
+        self.assertIn("API 服务仍是旧版本", editor)
+        self.assertIn("useAiWhenTagsBlank", editor)
+        self.assertIn("parsedTags.length === 0 ? null", editor)
+
     def test_article_images_are_proxied_against_hotlink_protection(self):
         # 中文媒体 CDN 防盗链分两派：infoq（无 Referer 放行）和 qbitai
         # （白名单制，无 Referer 也 403）。浏览器无法伪造 Referer，所以
@@ -665,6 +709,9 @@ class WebAppStructureTests(unittest.TestCase):
         latest_feed = (WEB / "components" / "latest-events-feed.tsx").read_text(
             encoding="utf-8"
         )
+        event_detail = (
+            WEB / "app" / "event" / "[id]" / "page.tsx"
+        ).read_text(encoding="utf-8")
         all_proxy = (WEB / "app" / "api" / "all-events" / "route.ts").read_text(
             encoding="utf-8"
         )
@@ -676,6 +723,9 @@ class WebAppStructureTests(unittest.TestCase):
             self.assertIn("new URLSearchParams({ tag })", feed)
             self.assertNotIn("new URLSearchParams({ q: tag })", feed)
             self.assertIn('params.set("tag", tag)', feed)
+        self.assertIn("new URLSearchParams({ tag })", event_detail)
+        self.assertIn("href={tagHref(tag)}", event_detail)
+        self.assertNotIn("new URLSearchParams({ q: tag })", event_detail)
         for proxy in (all_proxy, latest_proxy):
             self.assertIn('url.searchParams.get("tag")', proxy)
 

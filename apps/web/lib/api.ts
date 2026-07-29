@@ -136,6 +136,7 @@ export type LatestEvent = {
   main_source?: RadarSource;
   coverage?: EventCoverageItem[];
   source_language?: string;
+  author?: string | null;
   one_line_summary?: string;
   summary?: string;
   reason?: string;
