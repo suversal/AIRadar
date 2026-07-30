@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from datetime import datetime
+from typing import Any, Callable
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from app.crawlers.base import stable_hash
@@ -113,6 +114,31 @@ def article_reference_keys(article: RawArticle) -> set[str]:
     return reference_keys_for_article(article.source_url, article.metadata)
 
 
+def event_match_document(article: RawArticle) -> dict[str, Any]:
+    """Minimal provider-neutral document used by the second-stage verifier."""
+    return {
+        "id": article.id,
+        "source": article.source_name,
+        "published_at": article.published_at.isoformat(),
+        "title": article.title,
+        "content": article.content,
+    }
+
+
+def _fits_event_time_window(
+    bucket: list[RawArticle],
+    article: RawArticle,
+    *,
+    max_event_span_hours: float | None,
+) -> bool:
+    if max_event_span_hours is None:
+        return True
+    timestamps = [item.published_at for item in bucket]
+    timestamps.append(article.published_at)
+    span_hours = (max(timestamps) - min(timestamps)).total_seconds() / 3600
+    return span_hours <= max_event_span_hours
+
+
 def cosine_similarity(left: list[float], right: list[float]) -> float:
     if not left or not right or len(left) != len(right):
         return 0.0
@@ -156,6 +182,8 @@ def cluster_articles(
     threshold: float = 0.85,
     sources: dict[str, Source] | None = None,
     final_scores: dict[str, float] | None = None,
+    max_event_span_hours: float | None = 24,
+    same_event_verifier: Callable[[dict[str, Any], dict[str, Any]], bool] | None = None,
 ) -> list[EventCluster]:
     sources = sources or {}
     final_scores = final_scores or {}
@@ -176,8 +204,16 @@ def cluster_articles(
         reference_match = next(
             (
                 index
-                for index, existing_keys in enumerate(bucket_reference_keys)
-                if reference_keys and reference_keys.intersection(existing_keys)
+                for index, (existing_keys, bucket) in enumerate(
+                    zip(bucket_reference_keys, buckets)
+                )
+                if reference_keys
+                and reference_keys.intersection(existing_keys)
+                and _fits_event_time_window(
+                    bucket,
+                    article,
+                    max_event_span_hours=max_event_span_hours,
+                )
             ),
             None,
         )
@@ -209,10 +245,28 @@ def cluster_articles(
             for index, member_vectors in enumerate(bucket_vectors):
                 if not member_vectors:
                     continue
+                if not _fits_event_time_window(
+                    buckets[index],
+                    article,
+                    max_event_span_hours=max_event_span_hours,
+                ):
+                    continue
                 # the weakest link to any existing member, not just the
                 # founder - a bucket only qualifies if the new article is
                 # close to everyone already in it
                 score = min(cosine_similarity(vector, member) for member in member_vectors)
+                if (
+                    score >= best_score
+                    and same_event_verifier is not None
+                    and not all(
+                        same_event_verifier(
+                            event_match_document(existing),
+                            event_match_document(article),
+                        )
+                        for existing in buckets[index]
+                    )
+                ):
+                    continue
                 if score >= best_score:
                     best_index = index
                     best_score = score

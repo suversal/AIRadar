@@ -273,6 +273,16 @@ class WebAppStructureTests(unittest.TestCase):
 
         self.assertIn("member.event_id", event_page)
         self.assertNotIn("href={member.source_url}", event_page)
+        self.assertIn("event.source_count ?? 1", event_page)
+        self.assertIn("event.coverage.length", event_page)
+
+    def test_hotspot_list_displays_source_count_without_report_count(self):
+        latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("{item.source_count ?? 1} 个信源", latest_page)
+        self.assertNotIn("item.coverage.length", latest_page)
 
     def test_hover_card_stays_open_for_copying(self):
         # 悬浮卡(2026-07-12):鼠标移出触发区后延迟关闭,可移入卡片内

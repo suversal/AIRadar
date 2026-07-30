@@ -11,7 +11,7 @@ from app.data.default_sources import default_sources
 from app.models.domain import PipelineResult, RawArticle, Source
 from app.pipeline.persistence import persist_pipeline_result_to_database
 from app.pipeline.runner import run_pipeline
-from app.services.ai_service import provider_from_env
+from app.services.ai_service import build_same_event_verifier, provider_from_env
 from app.storage.json_store import (
     article_to_dict,
     cluster_to_dict,
@@ -427,6 +427,7 @@ def _run_refresh(
         # 2026-07-21: recalibrated 0.93 -> 0.90 after sampling 14 days of
         # same-day zh-language pairs - see core/config.py for the numbers.
         cluster_similarity_threshold=_env_float("CLUSTER_SIMILARITY_THRESHOLD", 0.90),
+        cluster_window_hours=_env_int("CLUSTER_WINDOW_HOURS", 24),
     )
 
     # 阶段耗时落盘:定位"AI 处理中"这个粗阶段里时间的真实去向
@@ -487,6 +488,7 @@ def _run_refresh(
             pipeline_run_id=pipeline_run_id,
             source_report=auto_crawl_results,
             intake_inserted_ids=intake_inserted_ids,
+            same_event_verifier=build_same_event_verifier(ai_provider),
         )
         _report_progress(database_url, pipeline_run_id, phase="reports")
         _regenerate_period_reports(database_url, resolved_date, ai_provider)

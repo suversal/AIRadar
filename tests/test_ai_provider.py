@@ -13,6 +13,7 @@ from app.services.ai_service import (
     KimiProvider,
     OpenAIProvider,
     embedding_input,
+    parse_event_match_payload,
     parse_chat_json,
     parse_prefilter_payload,
     parse_scoring_payload,
@@ -242,6 +243,27 @@ class PrefilterPromptTests(unittest.TestCase):
 
 
 class AIProviderTests(unittest.TestCase):
+    def test_event_match_payload_fails_closed_below_confidence_threshold(self):
+        decision = parse_event_match_payload(
+            {
+                "same_event": True,
+                "confidence": 0.79,
+                "reason": "主题相似，但具体动作证据不足。",
+            }
+        )
+
+        self.assertFalse(decision.confirmed)
+
+    def test_event_match_payload_requires_real_boolean(self):
+        with self.assertRaises(ValueError):
+            parse_event_match_payload(
+                {
+                    "same_event": "false",
+                    "confidence": 0.99,
+                    "reason": "不是同一事件。",
+                }
+            )
+
     def test_parse_prefilter_payload_rejects_missing_required_fields(self):
         with self.assertRaises(ValueError):
             parse_prefilter_payload({"is_ai_related": True})

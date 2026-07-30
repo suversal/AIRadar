@@ -8,15 +8,115 @@ import re
 import threading
 import urllib.error
 import urllib.request
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from app.models.domain import AIFocus, ContentValueDimensions, PrefilterResult, ScoringResult
 from app.services.period_summary_service import parse_period_summary_payload
 from app.services.taxonomy import resolve_focus_category
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class EventMatchDecision:
+    """Structured second-stage evidence for semantic event aggregation."""
+
+    same_event: bool
+    confidence: float
+    reason: str
+
+    @property
+    def confirmed(self) -> bool:
+        # Ambiguous model output must fail closed: a false split is reversible,
+        # while a false merge corrupts source counts, ranking and event detail.
+        return self.same_event and self.confidence >= 0.8
+
+
+def parse_event_match_payload(payload: dict[str, Any]) -> EventMatchDecision:
+    required = {"same_event", "confidence", "reason"}
+    missing = required - set(payload)
+    if missing:
+        raise ValueError(f"event match payload missing fields: {sorted(missing)}")
+    if not isinstance(payload["same_event"], bool):
+        raise ValueError("event match payload same_event must be a boolean")
+    reason = str(payload["reason"] or "").strip()
+    if not reason:
+        raise ValueError("event match payload reason must not be empty")
+    return EventMatchDecision(
+        same_event=payload["same_event"],
+        confidence=_clamp_confidence(payload["confidence"]),
+        reason=reason,
+    )
+
+
+def event_match_system_prompt() -> str:
+    return """
+You decide whether two news reports describe the SAME concrete real-world event.
+Return strict JSON only:
+{"same_event": true|false, "confidence": 0.0-1.0, "reason": "brief explanation"}
+
+SAME requires the same principal actor, same concrete action/announcement,
+same object/result, and compatible event time. Similar topic, company, product
+category, security theme, research field, or generic AI wording is NOT enough.
+A partnership, funding, product launch, policy proposal, research paper, and
+industry alliance are different events even if they share companies or themes.
+When evidence is incomplete, contradictory, or merely similar, return false.
+""".strip()
+
+
+def event_match_user_content(left: dict[str, Any], right: dict[str, Any]) -> str:
+    def compact(document: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": str(document.get("id") or ""),
+            "source": str(document.get("source") or ""),
+            "published_at": str(document.get("published_at") or ""),
+            "title": str(document.get("title") or "")[:500],
+            "content": str(document.get("content") or "")[:1800],
+        }
+
+    return json.dumps(
+        {"left": compact(left), "right": compact(right)},
+        ensure_ascii=False,
+    )
+
+
+def build_same_event_verifier(
+    ai_provider: Any,
+) -> Callable[[dict[str, Any], dict[str, Any]], bool] | None:
+    """Return a cached fail-closed verifier when the real provider supports it."""
+
+    method = getattr(ai_provider, "verify_same_event", None)
+    if not callable(method):
+        return None
+    cache: dict[tuple[str, str], bool] = {}
+
+    def verify(left: dict[str, Any], right: dict[str, Any]) -> bool:
+        left_id = str(left.get("id") or "")
+        right_id = str(right.get("id") or "")
+        key = tuple(sorted((left_id, right_id)))
+        if key in cache:
+            return cache[key]
+        try:
+            decision = method(left, right)
+            confirmed = (
+                decision.confirmed
+                if isinstance(decision, EventMatchDecision)
+                else bool(decision)
+            )
+        except Exception:
+            logger.exception(
+                "same-event verifier failed for %s and %s; keeping events separate",
+                left_id,
+                right_id,
+            )
+            confirmed = False
+        cache[key] = confirmed
+        return confirmed
+
+    return verify
+
 
 AI_KEYWORDS = {
     "ai",
@@ -626,6 +726,24 @@ class OpenAIProvider:
         content = response["choices"][0]["message"]["content"]
         return parse_prefilter_payload(parse_chat_json(content))
 
+    def verify_same_event(
+        self, left: dict[str, Any], right: dict[str, Any]
+    ) -> EventMatchDecision:
+        payload = {
+            "model": self.scoring_model,
+            "response_format": {"type": "json_object"},
+            "temperature": 0,
+            "messages": [
+                {"role": "system", "content": event_match_system_prompt()},
+                {"role": "user", "content": event_match_user_content(left, right)},
+            ],
+        }
+        response = self._post_json(
+            "https://api.openai.com/v1/chat/completions", payload
+        )
+        content = response["choices"][0]["message"]["content"]
+        return parse_event_match_payload(parse_chat_json(content))
+
     def score_article(self, title: str, content: str) -> ScoringResult:
         payload = {
             "model": self.scoring_model,
@@ -743,6 +861,22 @@ class KimiProvider:
         response = self._post_json(f"{self.base_url}/chat/completions", payload)
         content = response["choices"][0]["message"]["content"]
         return parse_prefilter_payload(parse_chat_json(content))
+
+    def verify_same_event(
+        self, left: dict[str, Any], right: dict[str, Any]
+    ) -> EventMatchDecision:
+        payload = {
+            "model": self.model,
+            "response_format": {"type": "json_object"},
+            "temperature": 0,
+            "messages": [
+                {"role": "system", "content": event_match_system_prompt()},
+                {"role": "user", "content": event_match_user_content(left, right)},
+            ],
+        }
+        response = self._post_json(f"{self.base_url}/chat/completions", payload)
+        content = response["choices"][0]["message"]["content"]
+        return parse_event_match_payload(parse_chat_json(content))
 
     def score_article(self, title: str, content: str) -> ScoringResult:
         payload = {
@@ -882,6 +1016,21 @@ class DeepSeekProvider:
         response = self._post_json(f"{self.base_url}/chat/completions", payload)
         content = response["choices"][0]["message"]["content"]
         return parse_prefilter_payload(parse_chat_json(content))
+
+    def verify_same_event(
+        self, left: dict[str, Any], right: dict[str, Any]
+    ) -> EventMatchDecision:
+        payload = self._chat_payload(
+            [
+                {"role": "system", "content": event_match_system_prompt()},
+                {"role": "user", "content": event_match_user_content(left, right)},
+            ],
+            max_tokens=1024,
+            temperature=0,
+        )
+        response = self._post_json(f"{self.base_url}/chat/completions", payload)
+        content = response["choices"][0]["message"]["content"]
+        return parse_event_match_payload(parse_chat_json(content))
 
     def score_article(self, title: str, content: str) -> ScoringResult:
         messages = [

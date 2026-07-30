@@ -273,7 +273,8 @@ export default async function EventDetailPage({
               <section className="mt-8 rounded-md border border-line bg-panel p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h2 className="text-base font-semibold text-signal">
-                    同一事件 · {event.coverage.length} 家报道
+                    同一事件 · {event.source_count ?? 1} 个信源 ·{" "}
+                    {event.coverage.length} 篇报道
                   </h2>
                   <span className="text-sm text-ink-dim">按发布时间排序</span>
                 </div>

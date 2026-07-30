@@ -56,6 +56,59 @@ class ClusteringTests(unittest.TestCase):
         self.assertEqual(len(clusters), 2)
         self.assertEqual(clusters[0].source_count, 2)
 
+    def test_semantic_match_requires_second_stage_confirmation_when_configured(self):
+        articles = [
+            raw_article(
+                "a1",
+                "nvidia",
+                "authority",
+                "T1",
+                "NVIDIA launches an open AI security alliance",
+                8,
+            ),
+            raw_article(
+                "a2",
+                "techcrunch",
+                "signal",
+                "T2",
+                "Meta expands enterprise AI APIs and compute sales",
+                9,
+            ),
+        ]
+        embeddings = {"a1": [1.0, 0.0], "a2": [0.99, 0.01]}
+        compared: list[tuple[str, str]] = []
+
+        clusters = cluster_articles(
+            articles,
+            embeddings,
+            threshold=0.90,
+            same_event_verifier=lambda left, right: (
+                compared.append((left["id"], right["id"])) or False
+            ),
+        )
+
+        self.assertEqual(len(clusters), 2)
+        self.assertEqual(compared, [("a1", "a2")])
+
+    def test_cluster_articles_enforces_maximum_event_time_span(self):
+        first = raw_article(
+            "a1", "openai_blog", "authority", "T1", "OpenAI releases agent model", 8
+        )
+        delayed = raw_article(
+            "a2", "hn", "signal", "T2", "OpenAI agent model discussion", 9
+        )
+        delayed.published_at = delayed.published_at.replace(day=2, hour=9)
+
+        clusters = cluster_articles(
+            [first, delayed],
+            {"a1": [1.0, 0.0], "a2": [0.99, 0.01]},
+            threshold=0.90,
+            max_event_span_hours=24,
+            same_event_verifier=lambda _left, _right: True,
+        )
+
+        self.assertEqual(len(clusters), 2)
+
     def test_cluster_articles_records_member_similarities(self):
         # 聚类时算出的相似度是判定"这两篇是同一事件"的证据，必须随
         # cluster 输出以便落库——否则无法事后解释误合并或阈值边界

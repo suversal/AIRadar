@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from app.crawlers.base import stable_hash
 from app.services.ai_service import embedding_input
@@ -49,6 +49,8 @@ class PipelineRepository(Protocol):
         *,
         cluster_window_hours: int = 72,
         similarity_threshold: float = 0.85,
+        same_event_verifier: Callable[[dict[str, Any], dict[str, Any]], bool]
+        | None = None,
     ) -> Any:
         ...
 
@@ -91,6 +93,7 @@ def persist_pipeline_result(
     pipeline_run_id: int | None = None,
     source_report: dict[str, Any] | None = None,
     intake_inserted_ids: list[str] | None = None,
+    same_event_verifier: Callable[[dict[str, Any], dict[str, Any]], bool] | None = None,
 ) -> PipelinePersistenceSummary:
     source_result = repository.upsert_sources(sources)
     writable_ids = {
@@ -143,11 +146,16 @@ def persist_pipeline_result(
         for cluster in result.event_clusters
         if any(article_id in writable_ids for article_id in cluster.article_ids)
     ]
+    cluster_kwargs: dict[str, Any] = {
+        "cluster_window_hours": cluster_window_hours,
+        "similarity_threshold": similarity_threshold,
+    }
+    if same_event_verifier is not None:
+        cluster_kwargs["same_event_verifier"] = same_event_verifier
     cluster_result = (
         repository.upsert_event_clusters(
             writable_clusters,
-            cluster_window_hours=cluster_window_hours,
-            similarity_threshold=similarity_threshold,
+            **cluster_kwargs,
         )
         if writable_clusters or has_article_write_cycle
         else None
@@ -297,6 +305,7 @@ def persist_pipeline_result_to_database(
     pipeline_run_id: int | None = None,
     source_report: dict[str, Any] | None = None,
     intake_inserted_ids: list[str] | None = None,
+    same_event_verifier: Callable[[dict[str, Any], dict[str, Any]], bool] | None = None,
 ) -> PipelinePersistenceSummary:
     from app.db.session import build_session_factory, session_scope
     from app.repositories.radar_repository import RadarRepository
@@ -314,6 +323,7 @@ def persist_pipeline_result_to_database(
             pipeline_run_id=pipeline_run_id,
             source_report=source_report,
             intake_inserted_ids=intake_inserted_ids,
+            same_event_verifier=same_event_verifier,
         )
 
 

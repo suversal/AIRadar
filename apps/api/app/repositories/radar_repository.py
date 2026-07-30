@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from zoneinfo import ZoneInfo
 
 try:
@@ -707,7 +707,15 @@ class RadarRepository:
         return list(model.content_vector)
 
     def find_similar_recent_event(
-        self, vector: list[float], *, since: datetime, threshold: float = 0.85
+        self,
+        vector: list[float],
+        *,
+        since: datetime,
+        threshold: float = 0.85,
+        candidate_first_seen_at: datetime | None = None,
+        candidate_last_seen_at: datetime | None = None,
+        max_event_span_hours: float | None = None,
+        candidate_filter: Callable[[str], bool] | None = None,
     ) -> Optional[tuple[str, float]]:
         """Cross-day multi-source aggregation: is there an already-published
         event close enough to this vector within the sliding window? Returns
@@ -728,6 +736,7 @@ class RadarRepository:
         rows = self.session.execute(
             select(
                 EventClusterModel.id,
+                EventClusterModel.first_seen_at,
                 EventClusterModel.last_seen_at,
                 ArticleEmbeddingModel.content_vector,
             )
@@ -741,10 +750,12 @@ class RadarRepository:
             )
         ).all()
         candidate_min_scores: dict[str, float] = {}
+        candidate_first_seen: dict[str, datetime] = {}
         candidate_last_seen: dict[str, datetime] = {}
-        for event_id, last_seen_at, member_vector in rows:
+        for event_id, first_seen_at, last_seen_at, member_vector in rows:
             if member_vector is None:
                 continue
+            candidate_first_seen[event_id] = first_seen_at
             candidate_last_seen[event_id] = last_seen_at
             score = cosine_similarity(vector, list(member_vector))
             if event_id not in candidate_min_scores or score < candidate_min_scores[event_id]:
@@ -753,6 +764,21 @@ class RadarRepository:
         best_score = threshold
         for event_id, min_score in candidate_min_scores.items():
             if _ensure_utc(candidate_last_seen[event_id]) < _ensure_utc(since):
+                continue
+            if (
+                max_event_span_hours is not None
+                and candidate_first_seen_at is not None
+                and candidate_last_seen_at is not None
+                and not _event_spans_fit_window(
+                    candidate_first_seen[event_id],
+                    candidate_last_seen[event_id],
+                    candidate_first_seen_at,
+                    candidate_last_seen_at,
+                    max_event_span_hours=max_event_span_hours,
+                )
+            ):
+                continue
+            if candidate_filter is not None and not candidate_filter(event_id):
                 continue
             if min_score >= best_score:
                 best_score = min_score
@@ -783,8 +809,33 @@ class RadarRepository:
             keys.update(reference_keys_for_article(source_url, metadata))
         return keys
 
+    def _event_match_documents(self, article_ids: list[str]) -> list[dict[str, Any]]:
+        if not article_ids:
+            return []
+        rows = self.session.execute(
+            select(RawArticleModel, SourceModel)
+            .join(SourceModel, SourceModel.id == RawArticleModel.source_id)
+            .where(RawArticleModel.id.in_(article_ids))
+        ).all()
+        return [
+            {
+                "id": raw.id,
+                "source": source.name,
+                "published_at": raw.published_at.isoformat(),
+                "title": raw.title,
+                "content": raw.content,
+            }
+            for raw, source in rows
+        ]
+
     def find_recent_event_by_reference_keys(
-        self, reference_keys: set[str], *, since: datetime
+        self,
+        reference_keys: set[str],
+        *,
+        since: datetime,
+        candidate_first_seen_at: datetime | None = None,
+        candidate_last_seen_at: datetime | None = None,
+        max_event_span_hours: float | None = None,
     ) -> Optional[str]:
         """Find an event citing the exact same article/status URL.
 
@@ -798,6 +849,7 @@ class RadarRepository:
         rows = self.session.execute(
             select(
                 EventClusterModel.id,
+                EventClusterModel.first_seen_at,
                 EventClusterModel.last_seen_at,
                 RawArticleModel.source_url,
                 RawArticleModel.raw_metadata,
@@ -812,8 +864,21 @@ class RadarRepository:
             )
         ).all()
         candidates: set[str] = set()
-        for event_id, last_seen_at, source_url, metadata in rows:
+        for event_id, first_seen_at, last_seen_at, source_url, metadata in rows:
             if _ensure_utc(last_seen_at) < _ensure_utc(since):
+                continue
+            if (
+                max_event_span_hours is not None
+                and candidate_first_seen_at is not None
+                and candidate_last_seen_at is not None
+                and not _event_spans_fit_window(
+                    first_seen_at,
+                    last_seen_at,
+                    candidate_first_seen_at,
+                    candidate_last_seen_at,
+                    max_event_span_hours=max_event_span_hours,
+                )
+            ):
                 continue
             if reference_keys.intersection(
                 reference_keys_for_article(source_url, metadata)
@@ -959,7 +1024,12 @@ class RadarRepository:
         self._refresh_event_similarity_scores(target_id)
         return target_id
 
-    def reconcile_recent_events_by_reference(self, *, since: datetime) -> dict[str, str]:
+    def reconcile_recent_events_by_reference(
+        self,
+        *,
+        since: datetime,
+        max_event_span_hours: float | None = None,
+    ) -> dict[str, str]:
         """Consolidate recent split clusters that cite one exact source URL."""
         rows = self.session.execute(
             select(
@@ -995,6 +1065,21 @@ class RadarRepository:
                 continue
             target_id = max(live_ids, key=self._event_merge_rank)
             for source_id in sorted(live_ids - {target_id}):
+                source = self.session.get(EventClusterModel, source_id)
+                target = self.session.get(EventClusterModel, target_id)
+                if (
+                    max_event_span_hours is not None
+                    and source is not None
+                    and target is not None
+                    and not _event_spans_fit_window(
+                        source.first_seen_at,
+                        source.last_seen_at,
+                        target.first_seen_at,
+                        target.last_seen_at,
+                        max_event_span_hours=max_event_span_hours,
+                    )
+                ):
+                    continue
                 self._merge_event_cluster(source_id, target_id, redirects)
         return redirects
 
@@ -1033,19 +1118,46 @@ class RadarRepository:
         *,
         cluster_window_hours: int = 72,
         similarity_threshold: float = 0.85,
+        same_event_verifier: Callable[[dict[str, Any], dict[str, Any]], bool]
+        | None = None,
     ) -> WriteResult:
         inserted = 0
         updated = 0
         redirects: dict[str, str] = {}
         for cluster in clusters:
+            # Resolve existing per-article membership before choosing a target.
+            # Membership is globally unique, so an incoming bucket containing
+            # an old member must extend that member's event. Creating a fresh
+            # target first and then moving the old event wholesale allowed one
+            # borderline article pair to drag every historical member into an
+            # unrelated new hotspot.
+            prior_memberships = self.session.scalars(
+                select(EventClusterArticleModel).where(
+                    EventClusterArticleModel.raw_article_id.in_(cluster.article_ids)
+                )
+            ).all()
+            prior_event_by_article = {
+                membership.raw_article_id: membership.event_cluster_id
+                for membership in prior_memberships
+            }
+            prior_event_ids = set(prior_event_by_article.values())
             model = self.session.get(EventClusterModel, cluster.id)
             target_id = cluster.id
+
+            if model is None and prior_event_ids:
+                target_id = max(prior_event_ids, key=self._event_merge_rank)
+                model = self.session.get(EventClusterModel, target_id)
+                redirects[cluster.id] = target_id
 
             if model is None:
                 since = cluster.last_seen_at - timedelta(hours=cluster_window_hours)
                 reference_keys = self._reference_keys_for_articles(cluster.article_ids)
                 reference_match = self.find_recent_event_by_reference_keys(
-                    reference_keys, since=since
+                    reference_keys,
+                    since=since,
+                    candidate_first_seen_at=cluster.first_seen_at,
+                    candidate_last_seen_at=cluster.last_seen_at,
+                    max_event_span_hours=cluster_window_hours,
                 )
                 if reference_match is not None:
                     target_id = reference_match
@@ -1055,8 +1167,43 @@ class RadarRepository:
             if model is None:
                 main_vector = self._get_embedding_vector(cluster.main_article_id)
                 if main_vector is not None:
+                    incoming_documents = self._event_match_documents(
+                        [cluster.main_article_id]
+                    )
+                    incoming_document = (
+                        incoming_documents[0] if incoming_documents else None
+                    )
+                    verification_cache: dict[str, bool] = {}
+
+                    def verified_candidate(event_id: str) -> bool:
+                        if same_event_verifier is None:
+                            return True
+                        if event_id in verification_cache:
+                            return verification_cache[event_id]
+                        if incoming_document is None:
+                            verification_cache[event_id] = False
+                            return False
+                        member_ids = self.session.scalars(
+                            select(EventClusterArticleModel.raw_article_id).where(
+                                EventClusterArticleModel.event_cluster_id == event_id
+                            )
+                        ).all()
+                        documents = self._event_match_documents(list(member_ids))
+                        confirmed = bool(documents) and all(
+                            same_event_verifier(incoming_document, document)
+                            for document in documents
+                        )
+                        verification_cache[event_id] = confirmed
+                        return confirmed
+
                     match = self.find_similar_recent_event(
-                        main_vector, since=since, threshold=similarity_threshold
+                        main_vector,
+                        since=since,
+                        threshold=similarity_threshold,
+                        candidate_first_seen_at=cluster.first_seen_at,
+                        candidate_last_seen_at=cluster.last_seen_at,
+                        max_event_span_hours=cluster_window_hours,
+                        candidate_filter=verified_candidate,
                     )
                     if match is not None:
                         target_id, _matched_score = match
@@ -1070,30 +1217,32 @@ class RadarRepository:
                 _apply_event_cluster(model, cluster)
             else:
                 updated += 1
+                eligible_article_ids = {
+                    article_id
+                    for article_id in cluster.article_ids
+                    if prior_event_by_article.get(article_id) in {None, target_id}
+                }
+                skipped_existing_members = len(eligible_article_ids) != len(
+                    cluster.article_ids
+                )
                 # a lower-scoring later bucket must not steal the main-article
                 # slot or overwrite the title/summary of the existing event
-                if cluster.final_score > model.final_score:
+                if (
+                    not skipped_existing_members
+                    and cluster.final_score > model.final_score
+                ):
                     _apply_event_cluster(model, cluster)
                 else:
-                    model.last_seen_at = max(
-                        _ensure_utc(model.last_seen_at), _ensure_utc(cluster.last_seen_at)
-                    )
-
-            # A previous run may already have put one of these articles in a
-            # separate event. Consolidate that entire old event before adding
-            # the member so raw_article_id remains globally one-event-only.
-            prior_memberships = self.session.scalars(
-                select(EventClusterArticleModel).where(
-                    EventClusterArticleModel.raw_article_id.in_(cluster.article_ids)
-                )
-            ).all()
-            for membership in prior_memberships:
-                if membership.event_cluster_id == target_id:
-                    continue
-                target_id = self._merge_event_cluster(
-                    membership.event_cluster_id, target_id, redirects
-                )
-                model = self.session.get(EventClusterModel, target_id)
+                    eligible_seen_at = self.session.scalars(
+                        select(RawArticleModel.published_at).where(
+                            RawArticleModel.id.in_(eligible_article_ids)
+                        )
+                    ).all()
+                    if eligible_seen_at:
+                        model.last_seen_at = max(
+                            _ensure_utc(model.last_seen_at),
+                            max(_ensure_utc(value) for value in eligible_seen_at),
+                        )
 
             existing_memberships = self.session.scalars(
                 select(EventClusterArticleModel).where(
@@ -1107,6 +1256,12 @@ class RadarRepository:
             # joined_at for every pre-existing member on every later merge
             for article_id in cluster.article_ids:
                 if article_id in existing_article_ids:
+                    continue
+                # Never move an already-owned article as a side effect of a
+                # new bucket. If two existing events appear in one candidate
+                # bucket, keep both intact; only exact event-level
+                # reconciliation may consolidate them.
+                if prior_event_by_article.get(article_id) not in {None, target_id}:
                     continue
                 # None (not 0.0) when evidence is unavailable - the column
                 # distinguishes "unknown" from a real low score
@@ -1153,7 +1308,10 @@ class RadarRepository:
             since = min(cluster.last_seen_at for cluster in clusters) - timedelta(
                 hours=cluster_window_hours
             )
-            reference_redirects = self.reconcile_recent_events_by_reference(since=since)
+            reference_redirects = self.reconcile_recent_events_by_reference(
+                since=since,
+                max_event_span_hours=cluster_window_hours,
+            )
             redirects.update(reference_redirects)
             for original_id, target_id in list(redirects.items()):
                 redirects[original_id] = self._follow_redirects(target_id, redirects)
@@ -2484,6 +2642,21 @@ def _ensure_utc(value: datetime) -> datetime:
         # always returns aware datetimes, so naive here always means UTC
         return value.replace(tzinfo=timezone.utc)
     return value
+
+
+def _event_spans_fit_window(
+    left_first: datetime,
+    left_last: datetime,
+    right_first: datetime,
+    right_last: datetime,
+    *,
+    max_event_span_hours: float,
+) -> bool:
+    combined_first = min(_ensure_utc(left_first), _ensure_utc(right_first))
+    combined_last = max(_ensure_utc(left_last), _ensure_utc(right_last))
+    return (
+        combined_last - combined_first
+    ).total_seconds() <= max_event_span_hours * 3600
 
 
 def _schedule_config_payload(model: RefreshScheduleModel) -> dict[str, Any]:

@@ -20,7 +20,11 @@ from app.models.domain import (
     ScoringResult,
     Source,
 )
-from app.services.ai_service import FakeAIProvider, embedding_input
+from app.services.ai_service import (
+    FakeAIProvider,
+    build_same_event_verifier,
+    embedding_input,
+)
 from app.services.clustering_service import cluster_articles
 from app.services.daily_report_service import build_daily_json, render_daily_markdown
 from app.services.scoring_service import select_processed_article
@@ -1071,6 +1075,7 @@ def run_pipeline(
     skip_prefilter: bool = False,
     cached_results: dict[str, dict[str, Any]] | None = None,
     cluster_similarity_threshold: float = 0.85,
+    cluster_window_hours: float = 24,
     on_article_processed: Any = None,
 ) -> PipelineResult:
     source_by_id = {source.id: source for source in sources}
@@ -1208,6 +1213,8 @@ def run_pipeline(
         threshold=cluster_similarity_threshold,
         sources=source_by_id,
         final_scores=final_scores,
+        max_event_span_hours=cluster_window_hours,
+        same_event_verifier=build_same_event_verifier(ai_provider),
     )
 
     processed_by_article = {processed.raw_article_id: processed for processed in processed_articles}

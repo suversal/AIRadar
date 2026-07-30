@@ -1760,6 +1760,102 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(len(all_clusters), 2)
         self.assertEqual(result.inserted, 1)
 
+    def test_cross_day_semantic_merge_requires_second_stage_confirmation(self):
+        from app.db.models import EventClusterModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles(
+                [
+                    self._article(
+                        article_id="old1",
+                        title="NVIDIA 安全联盟",
+                        url_hash="u-old",
+                    ),
+                    self._article(
+                        article_id="new1",
+                        title="Meta 企业 AI",
+                        url_hash="u-new",
+                    ),
+                ]
+            )
+            repository.upsert_article_embedding(
+                "old1",
+                embedding_model="m",
+                vector=self._vec([1.0, 0.0]),
+                source_hash="h-old",
+            )
+            repository.upsert_article_embedding(
+                "new1",
+                embedding_model="m",
+                vector=self._vec([0.99, 0.01]),
+                source_hash="h-new",
+            )
+            repository.upsert_event_clusters(
+                [self._cluster("e-old", main_article_id="old1")]
+            )
+
+            comparisons: list[tuple[str, str]] = []
+            result = repository.upsert_event_clusters(
+                [self._cluster("e-new", main_article_id="new1")],
+                similarity_threshold=0.90,
+                same_event_verifier=lambda left, right: (
+                    comparisons.append((left["id"], right["id"])) or False
+                ),
+            )
+            session.commit()
+            event_ids = set(session.scalars(select(EventClusterModel.id)).all())
+
+        self.assertEqual(event_ids, {"e-old", "e-new"})
+        self.assertEqual(result.inserted, 1)
+        self.assertEqual(comparisons, [("new1", "old1")])
+
+    def test_candidate_bucket_never_migrates_whole_existing_events(self):
+        from app.db.models import EventClusterArticleModel, EventClusterModel
+        from app.repositories.radar_repository import RadarRepository
+
+        articles = [
+            self._article(article_id="a1", title="NVIDIA 安全联盟", url_hash="u-a1"),
+            self._article(article_id="a2", title="安全联盟跟进报道", url_hash="u-a2"),
+            self._article(article_id="b1", title="Anthropic 合作", url_hash="u-b1"),
+            self._article(article_id="new1", title="Meta 企业 AI", url_hash="u-new1"),
+        ]
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles(articles)
+
+            left = self._cluster("e-left", main_article_id="a1")
+            left.article_ids = ["a1", "a2"]
+            left.source_count = 1
+            repository.upsert_event_clusters([left])
+            repository.upsert_event_clusters(
+                [self._cluster("e-right", main_article_id="b1")]
+            )
+            session.commit()
+
+            incoming = self._cluster("e-incoming", main_article_id="new1")
+            incoming.article_ids = ["a1", "b1", "new1"]
+            incoming.final_score = 99.0
+            result = repository.upsert_event_clusters([incoming])
+            session.commit()
+
+            event_ids = set(session.scalars(select(EventClusterModel.id)).all())
+            membership = {
+                row.raw_article_id: row.event_cluster_id
+                for row in session.scalars(select(EventClusterArticleModel)).all()
+            }
+
+        self.assertEqual(event_ids, {"e-left", "e-right"})
+        self.assertEqual(membership["a1"], "e-left")
+        self.assertEqual(membership["a2"], "e-left")
+        self.assertEqual(membership["b1"], "e-right")
+        self.assertIn(membership["new1"], {"e-left", "e-right"})
+        self.assertNotIn("e-left", result.redirects)
+        self.assertNotIn("e-right", result.redirects)
+
     def _vec(self, leading_dims: list[float]) -> list[float]:
         return list(leading_dims) + [0.0] * (512 - len(leading_dims))
 
