@@ -1812,6 +1812,42 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(result.inserted, 1)
         self.assertEqual(comparisons, [("new1", "old1")])
 
+    def test_cross_day_verifier_skips_candidates_below_vector_threshold(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles(
+                [
+                    self._article(
+                        article_id="old1",
+                        title="完全不相关的旧事件",
+                        url_hash="u-old",
+                    )
+                ]
+            )
+            repository.upsert_article_embedding(
+                "old1",
+                embedding_model="m",
+                vector=self._vec([0.0, 1.0]),
+                source_hash="h-old",
+            )
+            repository.upsert_event_clusters(
+                [self._cluster("e-old", main_article_id="old1")]
+            )
+
+            match = repository.find_similar_recent_event(
+                self._vec([1.0, 0.0]),
+                since=datetime(2026, 7, 1, tzinfo=timezone.utc),
+                threshold=0.90,
+                candidate_filter=lambda _event_id: self.fail(
+                    "below-threshold candidate must not reach AI verification"
+                ),
+            )
+
+        self.assertIsNone(match)
+
     def test_candidate_bucket_never_migrates_whole_existing_events(self):
         from app.db.models import EventClusterArticleModel, EventClusterModel
         from app.repositories.radar_repository import RadarRepository

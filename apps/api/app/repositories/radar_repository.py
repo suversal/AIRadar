@@ -760,9 +760,17 @@ class RadarRepository:
             score = cosine_similarity(vector, list(member_vector))
             if event_id not in candidate_min_scores or score < candidate_min_scores[event_id]:
                 candidate_min_scores[event_id] = score
-        best_id: Optional[str] = None
-        best_score = threshold
-        for event_id, min_score in candidate_min_scores.items():
+        # Rank by cheap vector evidence first. The second-stage AI verifier is
+        # intentionally called only for candidates that already clear the
+        # threshold; running it before this gate turns one persistence pass
+        # into hundreds of serial network calls over unrelated old events.
+        ranked_candidates = sorted(
+            candidate_min_scores.items(),
+            key=lambda item: (-item[1], item[0]),
+        )
+        for event_id, min_score in ranked_candidates:
+            if min_score < threshold:
+                break
             if _ensure_utc(candidate_last_seen[event_id]) < _ensure_utc(since):
                 continue
             if (
@@ -780,12 +788,8 @@ class RadarRepository:
                 continue
             if candidate_filter is not None and not candidate_filter(event_id):
                 continue
-            if min_score >= best_score:
-                best_score = min_score
-                best_id = event_id
-        if best_id is None:
-            return None
-        return best_id, best_score
+            return event_id, min_score
+        return None
 
     def _similarity_between_articles(
         self, left_article_id: str, right_article_id: str
