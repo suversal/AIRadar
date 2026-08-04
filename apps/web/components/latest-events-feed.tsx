@@ -63,11 +63,6 @@ function groupEventsByDate(items: LatestEvent[]) {
   }));
 }
 
-function sourceLine(item: LatestEvent) {
-  const source = item.main_source?.name ?? "未知来源";
-  return `${source} · ${item.source_count ?? 1} 个来源`;
-}
-
 function representativeImage(item: LatestEvent) {
   return item.original_images?.[0];
 }
@@ -194,7 +189,6 @@ export function LatestEventsFeed({
               <EventTimelineRow key={item.event_id} time={formatTime(item.published_at)}>
                 <EventCard
                   item={item}
-                  sourceLine={sourceLine(item)}
                   score={formatScore(item.final_score)}
                   image={representativeImage(item)}
                   tagHref={tagHref}

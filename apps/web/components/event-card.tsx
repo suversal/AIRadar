@@ -6,7 +6,6 @@ import { BookmarkButton } from "@/components/bookmark-button";
 
 export function EventCard({
   item,
-  sourceLine,
   score,
   image,
   tagHref,
@@ -17,7 +16,6 @@ export function EventCard({
   hideImageOnMobile = false,
 }: {
   item: LatestEvent;
-  sourceLine: string;
   score: string;
   image?: { url: string; alt?: string };
   tagHref: (tag: string) => string;
@@ -36,7 +34,9 @@ export function EventCard({
   return (
     <article className="card-hover rounded-md border border-line bg-panel p-3 md:p-4">
       <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0 truncate text-xs leading-5 text-ink-mid">{sourceLine}</div>
+        <div className="min-w-0 truncate text-xs leading-5 text-ink-mid">
+          {item.main_source?.name ?? "未知来源"} · {item.source_count ?? 1} 个来源
+        </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <span className="readout inline-flex h-5 items-center justify-center rounded-full border border-signal/40 px-1.5 text-[11px] font-semibold leading-none text-signal">
             {score}

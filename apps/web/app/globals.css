@@ -68,7 +68,7 @@
    elements already carry their own transition shorthand (see the a/button/
    summary rule below) that would otherwise win and skip this. */
 .theme-transition,
-.theme-transition * {
+.theme-transition *:not(.mobile-theme-options):not(.mobile-theme-option) {
   transition:
     background-color 0.35s ease,
     border-color 0.35s ease,
@@ -132,6 +132,33 @@ summary {
     border-color 0.18s ease,
     box-shadow 0.2s ease,
     transform 0.2s ease;
+}
+
+/* The compact mobile theme control changes its intrinsic width as options
+   enter and leave. A dedicated rule is required here: the generic button
+   transition above otherwise wins over Tailwind's layered utilities and
+   shortens the motion to 200ms. The stagger is supplied per option so the
+   control opens and closes as one composed movement rather than a snap. */
+.mobile-theme-options {
+  transition: gap 0.46s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.mobile-theme-option {
+  will-change: width, opacity, transform;
+  transition:
+    width 0.46s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.3s ease-out,
+    transform 0.46s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.22s ease,
+    color 0.22s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-theme-options,
+  .mobile-theme-option {
+    transition-duration: 0.01ms;
+    transition-delay: 0ms !important;
+  }
 }
 
 [role="button"] {

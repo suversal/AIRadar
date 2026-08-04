@@ -90,6 +90,24 @@ class WebAppStructureTests(unittest.TestCase):
         # the board must rank by the hotspot rule, not slice the feed
         self.assertNotIn("filteredItems.slice(0, 5)", latest_page)
 
+    def test_latest_and_all_event_cards_share_the_same_source_line(self):
+        event_card = (WEB / "components" / "event-card.tsx").read_text(encoding="utf-8")
+        latest_feed = (WEB / "components" / "latest-events-feed.tsx").read_text(encoding="utf-8")
+        all_feed = (WEB / "components" / "all-events-feed.tsx").read_text(encoding="utf-8")
+
+        self.assertIn('{item.main_source?.name ?? "未知来源"} · {item.source_count ?? 1} 个来源', event_card)
+        for feed in [latest_feed, all_feed]:
+            self.assertNotIn("function sourceLine", feed)
+            self.assertNotIn("sourceLine=", feed)
+
+    def test_changelog_describes_reader_visible_outcomes(self):
+        changelog = (WEB / "app" / "changelog" / "page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("移动端主题切换的展开与收起动画更加平滑", changelog)
+        self.assertIn("来源名称 · N 个来源", changelog)
+        for implementation_detail in ["六维加权", "三层判断", "T1/T1.5/T2/T3", "独立的入选分数线"]:
+            self.assertNotIn(implementation_detail, changelog)
+
     def test_mobile_discovery_chrome_is_compact_and_preserves_filter_state(self):
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
         all_page = (WEB / "app" / "all" / "page.tsx").read_text(encoding="utf-8")
@@ -112,14 +130,18 @@ class WebAppStructureTests(unittest.TestCase):
 
     def test_mobile_theme_toggle_collapses_to_the_current_preference(self):
         theme_toggle = (WEB / "components" / "theme-toggle.tsx").read_text(encoding="utf-8")
+        global_css = (WEB / "app" / "globals.css").read_text(encoding="utf-8")
 
         self.assertIn("mobileExpanded", theme_toggle)
         self.assertIn("当前主题：", theme_toggle)
         self.assertIn("md:hidden", theme_toggle)
         self.assertIn("hidden items-center gap-1 md:flex", theme_toggle)
         self.assertIn("setMobileExpanded(false)", theme_toggle)
-        self.assertIn("transition-[width,opacity,transform,background-color,color]", theme_toggle)
-        self.assertIn("duration-300", theme_toggle)
+        self.assertIn("mobile-theme-option", theme_toggle)
+        self.assertIn("transitionDelay", theme_toggle)
+        self.assertIn("width 0.46s", global_css)
+        self.assertIn(":not(.mobile-theme-options):not(.mobile-theme-option)", global_css)
+        self.assertIn("prefers-reduced-motion: reduce", global_css)
 
     def test_mobile_nav_buttons_follow_brand_and_sticky_summary(self):
         mobile_nav = (WEB / "components" / "mobile-nav.tsx").read_text(encoding="utf-8")
@@ -699,7 +721,7 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("推荐理由", event_card)
         self.assertIn("score={formatScore(item.final_score)}", all_feed)
         self.assertNotIn("评分 {score}", event_card)
-        self.assertIn("来源", all_feed)
+        self.assertIn("来源", event_card)
 
     def test_search_page_filters_latest_events(self):
         search_page = (WEB / "app" / "search" / "page.tsx").read_text(encoding="utf-8")

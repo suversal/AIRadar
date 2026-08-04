@@ -104,15 +104,18 @@ export function ThemeToggle() {
     >
       <div
         aria-label="主题"
-        className={`flex items-center transition-[gap] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] md:hidden ${
+        className={`mobile-theme-options flex items-center md:hidden ${
           mobileExpanded ? "gap-1" : "gap-0"
         }`}
+        data-expanded={mobileExpanded}
         id="mobile-theme-options"
         role={mobileExpanded ? "radiogroup" : undefined}
       >
-        {OPTIONS.map(({ value, icon: Icon, label }) => {
+        {OPTIONS.map(({ value, icon: Icon, label }, index) => {
           const active = preference === value;
           const visible = mobileExpanded || active;
+          const motionDelay =
+            (mobileExpanded ? index : OPTIONS.length - 1 - index) * 36;
           return (
             <button
               key={value}
@@ -133,10 +136,13 @@ export function ThemeToggle() {
                 }
                 choose(value);
               }}
-              className={`flex h-10 shrink-0 items-center justify-center overflow-hidden rounded-full transition-[width,opacity,transform,background-color,color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+              style={{
+                transitionDelay: `${motionDelay}ms, ${motionDelay}ms, ${motionDelay}ms, 0ms, 0ms`,
+              }}
+              className={`mobile-theme-option flex h-10 shrink-0 items-center justify-center overflow-hidden rounded-full ${
                 visible
                   ? "w-10 scale-100 opacity-100"
-                  : "pointer-events-none w-0 scale-75 opacity-0"
+                  : "pointer-events-none w-0 scale-90 opacity-0"
               } ${active ? "bg-signal text-canvas" : "text-ink-mid hover:text-ink"}`}
             >
               <Icon aria-hidden className="h-4.5 w-4.5 shrink-0" strokeWidth={2} />
