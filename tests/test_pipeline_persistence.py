@@ -66,6 +66,64 @@ class PipelinePersistenceTests(unittest.TestCase):
             ],
         )
 
+    def test_read_only_terminal_article_can_persist_translation_only_repair(self):
+        repository = FakeRepository()
+        article = RawArticle(
+            id="existing-en",
+            source_id="google_ai_blog",
+            source_name="Google AI Blog",
+            source_role="authority",
+            source_tier="T1",
+            source_url="https://blog.google/ai/update",
+            title="Google releases Gemini model",
+            content="English body",
+            author="Google",
+            published_at=datetime(2026, 8, 4, 9, tzinfo=timezone.utc),
+            language="en",
+            raw_score={},
+            metadata={
+                "translated_paragraphs": ["中文正文"],
+                "translated_blocks": [{"type": "paragraph", "text": "中文正文"}],
+                "translation_source_language": "en",
+                "translation_target_language": "zh",
+                "translation_source_hash": "translation-hash",
+            },
+            title_hash="title-existing-en",
+            url_hash="url-existing-en",
+        )
+        result = PipelineResult(
+            raw_articles=[article],
+            processed_articles=[],
+            event_clusters=[],
+            daily_report=DailyReport(
+                report_date=date(2026, 8, 4),
+                markdown="# report",
+                json_data={"report_date": "2026-08-04", "items": [], "article_count": 0},
+                article_count=0,
+            ),
+            skipped_reasons={},
+            read_only_raw_article_ids={"existing-en"},
+            translation_only_raw_article_ids={"existing-en"},
+        )
+
+        persist_pipeline_result(repository, sources=[], result=result)
+
+        self.assertEqual(
+            repository.calls,
+            [
+                "sources",
+                "article_translation",
+                "daily_report",
+                "daily_report_entries",
+                "pipeline_run",
+            ],
+        )
+        self.assertEqual(repository.translations_written[0][0], "existing-en")
+        self.assertEqual(
+            repository.translations_written[0][1]["translated_paragraphs"],
+            ["中文正文"],
+        )
+
     def test_persist_pipeline_result_writes_sources_raw_articles_and_daily_report(self):
         repository = FakeRepository()
         source = Source(
@@ -763,6 +821,7 @@ class FakeRepository:
         self.calls = []
         self.entries_written = None
         self.embeddings_written = []
+        self.translations_written = []
         self.deleted_embeddings = []
         self.event_cluster_kwargs = None
         self.processed_articles_written = None
@@ -784,6 +843,10 @@ class FakeRepository:
             article.id for article in articles if article.id not in self.raw_existing_ids
         ]
         return FakeWriteResult(inserted=len(inserted_ids), inserted_ids=inserted_ids)
+
+    def upsert_article_translation(self, raw_article_id, **kwargs):
+        self.calls.append("article_translation")
+        self.translations_written.append((raw_article_id, kwargs))
 
     def upsert_article_embedding(
         self, raw_article_id, *, embedding_model, vector, source_hash, **kwargs

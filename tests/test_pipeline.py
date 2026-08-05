@@ -861,6 +861,121 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(callbacks, [])
         self.assertEqual(result.daily_report.article_count, 1)
 
+    def test_terminal_english_article_missing_translation_is_repaired_without_rescoring(self):
+        from app.crawlers.base import canonicalize_url, stable_hash
+
+        source = Source(
+            id="google_ai_blog",
+            name="Google AI Blog",
+            source_role="authority",
+            tier="T1",
+            type="rss",
+            category="official",
+            url="https://blog.google/rss/",
+            homepage="https://blog.google/",
+            allowed_domains=["blog.google"],
+            language="en",
+        )
+        url = "https://blog.google/ai/update"
+        url_hash = stable_hash(canonicalize_url(url))
+        body = "Google released a new Gemini model for developers."
+        blocks = [{"type": "paragraph", "text": body}]
+        raw_items = [{
+            "source_url": url,
+            "title": "Google releases Gemini model",
+            "content": "Thin feed summary",
+            "author": "Google",
+            "published_at": datetime(2026, 8, 4, 8, tzinfo=timezone.utc),
+            "language": "en",
+            "raw_score": {},
+            "metadata": {},
+        }]
+        cached_results = {url_hash: {
+            "raw_article_id": "persisted-google-id",
+            "content": body,
+            "processed": {
+                "raw_article_id": "persisted-google-id",
+                "event_cluster_id": None,
+                "ai_focus": "primary",
+                "dimensions": {"impact": 8, "novelty": 8, "substance": 8},
+                "final_score": 88.0,
+                "title_zh": "Gemini 模型发布",
+                "one_line_summary": "摘要",
+                "summary_zh": "核心摘要",
+                "reason_zh": "推荐理由",
+                "action_zh": "关注后续",
+                "category": "model_release",
+                "focus_category": "model",
+                "tags": ["Gemini"],
+                "selected": True,
+                "status": "processed",
+                "rejection_reason": None,
+                "selection_origin": "score",
+                "selection_reason": "final_score:88>=threshold",
+            },
+            "metadata": {
+                "content_extraction_version": 4,
+                "original_text": body,
+                "original_paragraphs": [body],
+                "original_blocks": blocks,
+            },
+            "raw_article": {
+                "id": "persisted-google-id",
+                "source_url": url,
+                "title": "Google releases Gemini model",
+                "content": body,
+                "author": "Google",
+                "published_at": datetime(2026, 8, 4, 8, tzinfo=timezone.utc),
+                "language": "en",
+                "raw_score": {},
+                "metadata": {
+                    "content_extraction_version": 4,
+                    "original_text": body,
+                    "original_paragraphs": [body],
+                    "original_blocks": blocks,
+                },
+                "title_hash": "persisted-google-title",
+                "url_hash": url_hash,
+                "status": "processed",
+                "skipped_reason": None,
+            },
+        }}
+
+        class TranslationOnlyProvider(FakeAIProvider):
+            def __init__(self):
+                super().__init__()
+                self.calls = []
+
+            def prefilter(self, text):
+                raise AssertionError("terminal article must not be prefiltered")
+
+            def score_article(self, title, content):
+                raise AssertionError("terminal article must not be rescored")
+
+            def embed_text(self, text):
+                raise AssertionError("terminal article must not be re-embedded")
+
+            def translate_paragraphs(self, paragraphs):
+                self.calls.append(list(paragraphs))
+                return [f"译：{paragraph}" for paragraph in paragraphs]
+
+        provider = TranslationOnlyProvider()
+        result = run_pipeline(
+            sources=[source],
+            raw_items_by_source={source.id: raw_items},
+            ai_provider=provider,
+            now=datetime(2026, 8, 4, 12, tzinfo=timezone.utc),
+            report_date=date(2026, 8, 4),
+            cached_results=cached_results,
+        )
+
+        article = result.raw_articles[0]
+        self.assertEqual(result.read_only_raw_article_ids, {"persisted-google-id"})
+        self.assertEqual(result.translation_only_raw_article_ids, {"persisted-google-id"})
+        self.assertEqual(provider.calls, [[body]])
+        self.assertEqual(article.metadata["translated_paragraphs"], [f"译：{body}"])
+        self.assertEqual(article.metadata["translated_blocks"][0]["text"], f"译：{body}")
+
     def test_cached_original_blocks_survive_a_thin_rerun(self):
         # regression for the qbitai bug: a cached article already has a fully
         # extracted body (original_blocks non-empty), but this round's RSS

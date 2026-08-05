@@ -5,6 +5,34 @@
 const BROWSER_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
+const IMAGE_TYPE_BY_EXTENSION: Record<string, string> = {
+  ".avif": "image/avif",
+  ".bmp": "image/bmp",
+  ".gif": "image/gif",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+};
+
+function inferredImageType(url: URL, contentType: string) {
+  const normalizedType = contentType.split(";", 1)[0]?.trim().toLowerCase();
+  if (normalizedType?.startsWith("image/")) {
+    return normalizedType;
+  }
+  // Google Cloud Storage can serve valid WebP/JPEG/PNG objects as generic
+  // octet-stream when their object metadata lacks a content type. Only
+  // recover well-known image extensions; arbitrary binary responses remain
+  // rejected instead of being reflected through this same-origin endpoint.
+  if (normalizedType !== "application/octet-stream") {
+    return null;
+  }
+  const pathname = url.pathname.toLowerCase();
+  return Object.entries(IMAGE_TYPE_BY_EXTENSION).find(([extension]) =>
+    pathname.endsWith(extension),
+  )?.[1] ?? null;
+}
+
 export async function GET(request: Request) {
   const target = new URL(request.url).searchParams.get("url");
   if (!target) {
@@ -30,14 +58,16 @@ export async function GET(request: Request) {
       signal: AbortSignal.timeout(15_000),
     });
     const contentType = upstream.headers.get("content-type") ?? "";
-    if (!upstream.ok || !contentType.startsWith("image/")) {
+    const responseImageType = inferredImageType(parsed, contentType);
+    if (!upstream.ok || !responseImageType) {
       return new Response("upstream is not an image", { status: 502 });
     }
     return new Response(upstream.body, {
       status: 200,
       headers: {
-        "Content-Type": contentType,
+        "Content-Type": responseImageType,
         "Cache-Control": "public, max-age=86400, immutable",
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch {

@@ -344,7 +344,9 @@ def default_sources() -> list[Source]:
             tier="T3",
             type="rss",
             category="media",
-            url="https://36kr.com/feed",
+            # The apex host currently serves a Volcengine security-check HTML
+            # page with HTTP 200; the www host serves the actual RSS document.
+            url="https://www.36kr.com/feed",
             homepage="https://36kr.com",
             allowed_domains=["36kr.com"],
             fetch_interval_min=240,

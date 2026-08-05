@@ -1257,15 +1257,35 @@ def run_pipeline(
         for article in displayable_articles
         if article.id not in read_only_raw_article_ids
     ]
+    read_only_articles_missing_translation = [
+        article
+        for article in displayable_articles
+        if article.id in read_only_raw_article_ids
+        and article.language.lower().startswith("en")
+        and not (
+            article.metadata.get("translated_blocks")
+            or article.metadata.get("translated_paragraphs")
+        )
+    ]
     _attach_github_readmes(articles=mutable_displayable_articles)
     stage_timings["readme"] = round(time.perf_counter() - stage_started, 3)
     stage_started = time.perf_counter()
 
     _translate_processed_english_articles(
-        articles=mutable_displayable_articles,
+        articles=[
+            *mutable_displayable_articles,
+            *read_only_articles_missing_translation,
+        ],
         ai_provider=ai_provider,
         ai_concurrency=ai_concurrency,
     )
+    translation_only_raw_article_ids = {
+        article.id
+        for article in read_only_articles_missing_translation
+        if article.metadata.get("translated_blocks")
+        or article.metadata.get("translated_paragraphs")
+        or article.metadata.get("translation_status")
+    }
     stage_timings["translation"] = round(time.perf_counter() - stage_started, 3)
     stage_started = time.perf_counter()
 
@@ -1303,4 +1323,5 @@ def run_pipeline(
         skipped_reason_by_raw_id=skipped_reason_by_raw_id,
         stage_timings=stage_timings,
         read_only_raw_article_ids=read_only_raw_article_ids,
+        translation_only_raw_article_ids=translation_only_raw_article_ids,
     )

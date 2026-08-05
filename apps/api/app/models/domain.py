@@ -158,3 +158,7 @@ class PipelineResult:
     # 本轮仅从持久化快照读取、不得再次写回的终态文章。它们仍可参与
     # 聚类和成报，但不能覆盖 raw/processed/embedding/event 数据。
     read_only_raw_article_ids: set[str] = field(default_factory=set)
+    # 终态快照通常完全只读；唯一例外是先前流水线在评分后、翻译前中断，
+    # 留下了 processed 行却没有 article_translations。后续运行只补写
+    # 缺失的翻译派生物，不重写原文、评分、向量或事件关系。
+    translation_only_raw_article_ids: set[str] = field(default_factory=set)

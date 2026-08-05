@@ -24,6 +24,21 @@ class PipelineRepository(Protocol):
     def upsert_raw_articles(self, articles: list[RawArticle], **kwargs: Any) -> Any:
         ...
 
+    def upsert_article_translation(
+        self,
+        raw_article_id: str,
+        *,
+        translated_paragraphs: list[str],
+        translated_blocks: list[dict[str, Any]],
+        source_language: str | None,
+        target_language: str,
+        source_hash: str,
+        status: str,
+        error: str | None,
+        **kwargs: Any,
+    ) -> Any:
+        ...
+
     def upsert_article_embedding(
         self,
         raw_article_id: str,
@@ -113,6 +128,26 @@ def persist_pipeline_result(
         if has_article_write_cycle
         else None
     )
+
+    # A refresh can die after per-article scoring has been persisted but
+    # before the batch translation phase. On the next run that processed row
+    # is a terminal read-only cache hit, so repair only its missing translation
+    # without reopening raw/processed/embedding/event data for writes.
+    for article in result.raw_articles:
+        if article.id not in result.translation_only_raw_article_ids:
+            continue
+        metadata = article.metadata
+        repository.upsert_article_translation(
+            article.id,
+            translated_paragraphs=metadata.get("translated_paragraphs") or [],
+            translated_blocks=metadata.get("translated_blocks") or [],
+            source_language=metadata.get("translation_source_language"),
+            target_language=metadata.get("translation_target_language") or "zh",
+            source_hash=metadata.get("translation_source_hash") or "",
+            status=metadata.get("translation_status") or "completed",
+            error=metadata.get("translation_error"),
+            pipeline_run_id=pipeline_run_id,
+        )
 
     articles_by_id = {article.id: article for article in result.raw_articles}
     # An embedding failure means this run has no valid vector for the current
