@@ -1,6 +1,77 @@
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from app.models.domain import Source
+
+# SourcePilot 公众号信源(Phase 1 接入,2026-08-04)。
+# 每行: (id 后缀, 公众号名, tier, source_role, category, 跳预筛, recent_days)
+# 公众号名 = SP 侧 /items?platform= 的值,必须与
+# SourcePilot/config/sources/wechat.yaml 的 accounts[].name 逐字一致
+# (含「月之暗面 Kimi」等内部空格)。
+# 跳预筛(trusted_curated)只给厂商官方号:内容 de facto 全 AI 相关,预筛是
+# 纯浪费;量子位/机器之心日更量大且题材杂,走正常预筛。
+_SP_WECHAT_ACCOUNTS: list[tuple[str, str, str, str, str, bool, int]] = [
+    ("zhipu_qingyan", "智谱清言", "T1", "authority", "official", True, 7),
+    ("zhipu", "智谱", "T1", "authority", "official", True, 7),
+    ("kimi_platform", "Kimi开放平台", "T1", "authority", "official", True, 7),
+    ("moonshot_kimi", "月之暗面 Kimi", "T1", "authority", "official", True, 7),
+    ("qianwen", "千问大模型", "T1", "authority", "official", True, 7),
+    ("tongyi_lab", "通义实验室", "T1", "authority", "official", True, 7),
+    ("deepseek", "DeepSeek", "T1", "authority", "official", True, 7),
+    ("hunyuan", "腾讯混元", "T1", "authority", "official", True, 7),
+    ("wenxin", "百度文心", "T1", "authority", "official", True, 7),
+    ("bytedance_seed", "字节跳动Seed", "T1", "authority", "official", True, 7),
+    ("volcengine", "火山引擎", "T2", "authority", "official", True, 7),
+    ("01ai", "零一万物 01AI", "T2", "authority", "official", True, 7),
+    ("minimax", "MiniMax 稀宇科技", "T2", "authority", "official", True, 7),
+    ("minimax_platform", "MiniMax开放平台", "T2", "authority", "official", True, 7),
+    ("baichuan", "百川智能", "T2", "authority", "official", True, 7),
+    ("stepfun", "阶跃StepFun", "T2", "authority", "official", True, 7),
+    ("mianbi", "面壁智能", "T2", "authority", "official", True, 7),
+    ("xfyun", "讯飞开放平台", "T2", "authority", "official", True, 7),
+    ("kunlun", "昆仑万维集团", "T2", "authority", "official", True, 7),
+    ("baai", "智源研究院", "T2", "authority", "research", True, 7),
+    ("sensetime", "商汤科技SenseTime", "T2", "authority", "official", True, 7),
+    ("qbitai", "量子位", "T2", "context", "media", False, 3),
+    ("jiqizhixin", "机器之心", "T2", "context", "media", False, 3),
+]
+
+
+def _sourcepilot_wechat_sources() -> list[Source]:
+    sources: list[Source] = []
+    for suffix, account, tier, role, category, trusted, recent_days in _SP_WECHAT_ACCOUNTS:
+        config: dict = {
+            "sp_platform": account,
+            "sp_source_type": "wechat",
+            # SP 查询是本机毫秒级读库,同 host 串 6s 礼貌延迟纯属浪费
+            "same_domain_delay_seconds": 0,
+            "sp_article_limit": 20,
+            "recent_days": recent_days,
+        }
+        if trusted:
+            config["selection_policy"] = "trusted_curated"
+        sources.append(
+            Source(
+                id=f"sp_wechat_{suffix}",
+                name=f"公众号 · {account}",
+                source_role=role,
+                tier=tier,
+                type="sourcepilot",
+                category=category,
+                # url 仅用于 run.py 的 domain 分组与 admin 展示;crawler 的
+                # 实际请求用 SOURCEPILOT_BASE_URL 现拼,迁 Tailscale 时改 env
+                # 即可,不用改 23 行 DB
+                url=f"http://127.0.0.1:8420/api/v1/wechat/feed?account={quote(account)}",
+                homepage="https://mp.weixin.qq.com",
+                allowed_domains=["mp.weixin.qq.com"],
+                fetch_interval_min=60,
+                language="zh",
+                can_be_main_source=True,
+                config=config,
+            )
+        )
+    return sources
 
 
 def default_sources() -> list[Source]:
@@ -636,4 +707,5 @@ def default_sources() -> list[Source]:
             # 403; curl gets through (confirmed by direct probe)
             config={"use_curl": True},
         ),
+        *_sourcepilot_wechat_sources(),
     ]

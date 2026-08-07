@@ -7,6 +7,7 @@ from app.crawlers.hn import HackerNewsCrawler
 from app.crawlers.huggingface_papers import HuggingFacePapersCrawler
 from app.crawlers.rss import RSSCrawler
 from app.crawlers.sitemap import SitemapCrawler
+from app.crawlers.sourcepilot import SourcePilotCrawler
 from app.crawlers.telegram_rss import TelegramRSSCrawler
 from app.crawlers.v2ex import V2exCrawler
 from app.models.domain import Source
@@ -27,4 +28,6 @@ def crawler_for_source(source: Source) -> BaseCrawler:
         return V2exCrawler(source)
     if source.type == "telegram_rss":
         return TelegramRSSCrawler(source)
+    if source.type == "sourcepilot":
+        return SourcePilotCrawler(source)
     return RSSCrawler(source)

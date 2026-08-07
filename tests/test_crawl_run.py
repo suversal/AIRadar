@@ -328,6 +328,65 @@ class CrawlRunTests(unittest.TestCase):
 
         self.assertEqual(sleeps, [])
 
+    def test_same_domain_delay_config_zero_skips_wait(self):
+        # SourcePilot 这类本机聚合源:同 host 几十个源,毫秒级读库,
+        # config 里 same_domain_delay_seconds: 0 豁免礼貌延迟
+        def make_sp_source(source_id: str) -> Source:
+            return Source(
+                id=source_id,
+                name=source_id,
+                source_role="authority",
+                tier="T1",
+                type="sourcepilot",
+                category="official",
+                url=f"http://127.0.0.1:8420/api/v1/items?platform={source_id}",
+                homepage="https://mp.weixin.qq.com",
+                allowed_domains=["mp.weixin.qq.com"],
+                config={"same_domain_delay_seconds": 0},
+            )
+
+        sources = [make_sp_source("sp_a"), make_sp_source("sp_b"), make_sp_source("sp_c")]
+        sleeps: list[float] = []
+
+        with patch("app.crawlers.run.time.sleep", side_effect=sleeps.append):
+            crawl_sources(
+                sources,
+                crawler_factory=lambda source: FakeCrawler(articles=[]),
+            )
+
+        self.assertEqual(sleeps, [])
+
+    def test_same_domain_delay_mixed_group_keeps_default_for_unconfigured(self):
+        # 混组时未配置的源仍等满默认值,不损害既有礼貌保证
+        def make_source_with_config(source_id: str, config: dict) -> Source:
+            return Source(
+                id=source_id,
+                name=source_id,
+                source_role="context",
+                tier="T2",
+                type="rss",
+                category="media",
+                url="https://shared.example/feed.xml",
+                homepage="https://shared.example",
+                allowed_domains=["shared.example"],
+                config=config,
+            )
+
+        sources = [
+            make_source_with_config("first", {"same_domain_delay_seconds": 0}),
+            make_source_with_config("second", {}),
+        ]
+        sleeps: list[float] = []
+
+        with patch("app.crawlers.run.time.sleep", side_effect=sleeps.append):
+            crawl_sources(
+                sources,
+                crawler_factory=lambda source: FakeCrawler(articles=[]),
+            )
+
+        self.assertEqual(len(sleeps), 1)
+        self.assertGreater(sleeps[0], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

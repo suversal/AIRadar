@@ -1884,6 +1884,9 @@ class RadarRepository:
         # 原文 block entirely (known unscrapable domain, e.g. WeChat) rather
         # than fall back to a synthesized summary-as-原文 paragraph
         "content_origin",
+        # SourcePilot 契约:time_basis="discovered" 的条目只有收录时间,
+        # 展示层必须写「收录于」,不得伪称原文发布时间
+        "time_basis",
     )
 
     def _all_events_query(

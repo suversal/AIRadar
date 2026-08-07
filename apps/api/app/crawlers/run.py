@@ -26,6 +26,20 @@ def _utc_now_iso() -> str:
 # 可配置)的日期过滤控制,正文按需拉取
 
 
+def _source_domain_delay(source: Source) -> float:
+    """即将被抓的源声明自己与组内上一次请求的最小间隔。默认 6s 礼貌延迟;
+    SourcePilot 这类本机聚合源查询是毫秒级读库,几十个源串 6s 纯属浪费,
+    在 config 里配 same_domain_delay_seconds: 0 豁免。混组时未配置的源
+    仍等满默认值,不损害既有礼貌保证。"""
+    value = (source.config or {}).get("same_domain_delay_seconds")
+    if value is None:
+        return SAME_DOMAIN_DELAY_SECONDS
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        return SAME_DOMAIN_DELAY_SECONDS
+
+
 def _crawl_domain_group(
     group: list[Source],
     *,
@@ -35,8 +49,9 @@ def _crawl_domain_group(
     results: dict[str, dict] = {}
     previous_fetch: float | None = None
     for source in group:
-        if previous_fetch is not None:
-            wait_seconds = SAME_DOMAIN_DELAY_SECONDS - (time.monotonic() - previous_fetch)
+        delay = _source_domain_delay(source)
+        if previous_fetch is not None and delay > 0:
+            wait_seconds = delay - (time.monotonic() - previous_fetch)
             if wait_seconds > 0:
                 time.sleep(wait_seconds)
         previous_fetch = time.monotonic()

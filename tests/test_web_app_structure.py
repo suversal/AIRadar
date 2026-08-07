@@ -661,6 +661,10 @@ class WebAppStructureTests(unittest.TestCase):
         # entirely rather than synthesize one from the AI summary
         self.assertIn("aihot_item_page_link_only", event_page)
         self.assertIn("content_origin?: string", api_source)
+        # SourcePilot 契约:time_basis="discovered" 的条目只有收录时间,
+        # 展示必须写「收录于」,不得伪称原文发布时间
+        self.assertIn("time_basis?: string", api_source)
+        self.assertIn("收录于", event_page)
         self.assertIn("originalMarkdown", reading_toggle)
         self.assertIn("hasOriginalMarkdown", reading_toggle)
         self.assertIn("translatedBlocks.length > 0 && !hasOriginalMarkdown", reading_toggle)

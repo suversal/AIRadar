@@ -26,7 +26,7 @@ function formatScore(score?: number) {
   return Math.round(score).toString();
 }
 
-function formatDateTime(value?: string, contentOrigin?: string) {
+function formatDateTime(value?: string, contentOrigin?: string, timeBasis?: string) {
   if (!value) {
     return contentOrigin === "telegram_rss_description" ? "RSS 未提供发布时间" : "暂无时间";
   }
@@ -34,7 +34,7 @@ function formatDateTime(value?: string, contentOrigin?: string) {
   if (Number.isNaN(date.getTime())) {
     return value;
   }
-  return new Intl.DateTimeFormat("zh-CN", {
+  const formatted = new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -42,6 +42,9 @@ function formatDateTime(value?: string, contentOrigin?: string) {
     minute: "2-digit",
     hour12: false,
   }).format(date);
+  // SourcePilot 契约: time_basis="discovered" 的条目只有收录时间,
+  // 不得伪称原文发布时间
+  return timeBasis === "discovered" ? `收录于 ${formatted}` : formatted;
 }
 
 function hostFromUrl(value?: string) {
@@ -176,14 +179,14 @@ export default async function EventDetailPage({
                       {event.main_source?.name ?? "未知来源"}
                     </span>
                     <span className="hidden md:inline">
-                      {formatDateTime(event.published_at, event.content_origin)}
+                      {formatDateTime(event.published_at, event.content_origin, event.time_basis)}
                     </span>
                     <span className="hidden md:inline">
                       {event.category_label ?? event.category ?? "未分类"}
                     </span>
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-mid md:hidden">
-                    <span>{formatDateTime(event.published_at, event.content_origin)}</span>
+                    <span>{formatDateTime(event.published_at, event.content_origin, event.time_basis)}</span>
                     <span>{event.category_label ?? event.category ?? "未分类"}</span>
                   </div>
                 </div>

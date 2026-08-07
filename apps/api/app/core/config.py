@@ -48,6 +48,9 @@ class Settings:
     openai_api_key: str | None
     jwt_secret: str
     github_token: str | None = None
+    # SourcePilot 聚合上游(sourcepilot 类型信源的实际请求基址;source.url
+    # 里的地址只用于 domain 分组,迁 Tailscale 时改这个 env 即可)
+    sourcepilot_base_url: str = "http://127.0.0.1:8420"
     default_scoring_model: str = "gpt-4.1-mini"
     default_summary_model: str = "gpt-4.1-mini"
     default_embedding_model: str = "text-embedding-3-small"
@@ -75,6 +78,9 @@ class Settings:
             openai_api_key=os.getenv("OPENAI_API_KEY"),
             jwt_secret=os.getenv("JWT_SECRET", "dev-only-change-me"),
             github_token=os.getenv("GITHUB_TOKEN"),
+            sourcepilot_base_url=os.getenv(
+                "SOURCEPILOT_BASE_URL", "http://127.0.0.1:8420"
+            ),
             default_scoring_model=os.getenv("DEFAULT_SCORING_MODEL", "gpt-4.1-mini"),
             default_summary_model=os.getenv("DEFAULT_SUMMARY_MODEL", "gpt-4.1-mini"),
             default_embedding_model=os.getenv(

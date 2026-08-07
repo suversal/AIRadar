@@ -155,6 +155,9 @@ export type LatestEvent = {
   // Includes "aihot_item_page_link_only" and
   // "telegram_rss_description" content provenance markers.
   content_origin?: string;
+  // SourcePilot 契约: "published" = published_at 可信;"discovered" = 只有
+  // 收录时间,展示必须写「收录于」,不得伪称原文发布时间。
+  time_basis?: string;
 };
 
 export type LatestReport = {
