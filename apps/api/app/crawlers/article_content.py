@@ -5,7 +5,7 @@ import json
 import re
 from dataclasses import dataclass
 from typing import Any, Iterable
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 
@@ -43,6 +43,10 @@ _NAMED_COLORS = {
     "khaki", "orchid", "tomato", "chocolate", "tan",
 }
 _STYLE_COLOR_RE = re.compile(r"(?:^|;)\s*color\s*:\s*([^;]+)", re.IGNORECASE)
+_STYLE_ALIGN_RE = re.compile(r"(?:^|;)\s*text-align\s*:\s*([a-z]+)", re.IGNORECASE)
+#: RGB 三分量极差小于等于它就算灰阶（含纯黑纯白）。24/255 ≈ 9%，
+#: 足以放过品牌色，又能挡住 #333 / #eee 这类"几乎是灰"的正文色。
+_NEUTRAL_SATURATION_TOLERANCE = 24
 _CJK_RE = re.compile(r"[一-鿿]")
 _LATIN_RE = re.compile(r"[A-Za-z]")
 _AVATAR_RE = re.compile(r"(?:avatar|author[-_ ]?(?:image|photo)|profile[-_ ]?(?:image|photo))", re.I)
@@ -261,13 +265,81 @@ def _x_status_url(value: str | None, base_url: str | None) -> str | None:
     return f"https://x.com/{match.group(1)}/status/{match.group(2)}"
 
 
+def _rgb_components(candidate: str) -> tuple[int, int, int] | None:
+    """把 #rgb / #rrggbb / rgb() / rgba() 解析成 0-255 三元组，解析不了返回 None。"""
+    text = candidate.strip().lower()
+    if text.startswith("#"):
+        digits = text[1:]
+        if len(digits) in (3, 4):
+            digits = "".join(ch * 2 for ch in digits[:3])
+        if len(digits) >= 6:
+            try:
+                return (
+                    int(digits[0:2], 16),
+                    int(digits[2:4], 16),
+                    int(digits[4:6], 16),
+                )
+            except ValueError:
+                return None
+        return None
+    numbers = re.findall(r"[\d.]+", text)
+    if len(numbers) >= 3:
+        try:
+            values = [min(255, max(0, round(float(n)))) for n in numbers[:3]]
+        except ValueError:
+            return None
+        return (values[0], values[1], values[2])
+    return None
+
+
+def _is_theme_neutral(candidate: str) -> bool:
+    """这个颜色是不是「黑/白/灰」这类**该由主题决定**的中性色。
+
+    照搬原文的正文色，必然在某一种主题下瞎掉：微信文章同时用
+    `rgba(0,0,0,0.9)`（普通正文）和 `rgb(255,255,255)`（深色区块里的字）——
+    黑字在暗色主题看不见，白字在亮色主题看不见，**只要照搬，两种主题必坏一种**
+    （2026-08-07 实测一篇字节 Seed 的文章：128 处黑字 + 80 处白字）。
+
+    所以中性色一律丢弃、交给主题的前景色接管；真正的强调色（品牌蓝、警示红…）
+    保留，那才是作者想表达的信息。判据是饱和度：三分量差得少 = 灰阶。
+    """
+    rgb = _rgb_components(candidate)
+    if rgb is None:
+        return candidate.strip().lower() in {"black", "white", "gray", "grey", "silver"}
+    return (max(rgb) - min(rgb)) <= _NEUTRAL_SATURATION_TOLERANCE
+
+
+def _block_alignment(node: Tag) -> dict[str, str]:
+    """取块级元素的对齐方式，给不出就返回空 dict（调用处用 ** 展开，不写字段）。
+
+    要往下找一层子元素：微信的居中经常写在内层 `<span>` 上而不是 `<h3>` 本身
+    （实测一篇文章 40 处 `text-align:center`，`<h3>` 与其内层 `<span>` 各占一半）。
+    只认 center / right——left 是默认值，写进去只是噪音；justify 前端本来就
+    刻意不支持（两端对齐会把中文拉出难看的空隙）。
+    """
+    candidates = [node, *node.find_all(["span", "p", "section", "div"], recursive=False)]
+    for element in candidates:
+        if not isinstance(element, Tag):
+            continue
+        match = _STYLE_ALIGN_RE.search(str(element.get("style") or ""))
+        value = (match.group(1) if match else str(element.get("align") or "")).lower()
+        if value in {"center", "right"}:
+            return {"align": value}
+    return {}
+
+
 def _safe_color(value: str | None) -> str | None:
     candidate = (value or "").strip().strip(";").strip()
     if _HEX_COLOR_RE.fullmatch(candidate):
-        return candidate.lower()
-    if _RGB_COLOR_RE.fullmatch(candidate):
-        return candidate
-    return candidate.lower() if candidate.lower() in _NAMED_COLORS else None
+        resolved = candidate.lower()
+    elif _RGB_COLOR_RE.fullmatch(candidate):
+        resolved = candidate
+    elif candidate.lower() in _NAMED_COLORS:
+        resolved = candidate.lower()
+    else:
+        return None
+    # 中性色交给主题，理由见 _is_theme_neutral
+    return None if _is_theme_neutral(resolved) else resolved
 
 
 def _inline_parts(node: Tag | NavigableString, *, base_url: str | None) -> tuple[str, str, bool]:
@@ -528,7 +600,8 @@ class DOMBlockExtractor:
             return
         tag = node.name.lower()
         if tag == "iframe":
-            self.add_youtube_video(node)
+            if not self.add_youtube_video(node):
+                self.add_wechat_video(node)
             return
         if tag in SKIP_TAGS:
             return
@@ -561,10 +634,11 @@ class DOMBlockExtractor:
                 return
             if self.title and _normalize_for_comparison(inline["text"]) == _normalize_for_comparison(self.title):
                 return
+            align = _block_alignment(node)
             if tag.startswith("h"):
-                self.add({"type": "heading", "level": int(tag[1]), **inline})
+                self.add({"type": "heading", "level": int(tag[1]), **inline, **align})
             else:
-                self.add({"type": "paragraph", **inline})
+                self.add({"type": "paragraph", **inline, **align})
             for image in node.find_all("img"):
                 self.add_image(image)
             return
@@ -588,7 +662,7 @@ class DOMBlockExtractor:
             if child_blocks is None:
                 inline = _inline_content(node, base_url=self.base_url)
                 if inline:
-                    self.add({"type": "paragraph", **inline})
+                    self.add({"type": "paragraph", **inline, **_block_alignment(node)})
                 for image in node.find_all("img"):
                     self.add_image(image)
                 return
@@ -682,6 +756,46 @@ class DOMBlockExtractor:
         self.seen_images.add(url)
         self.images.append(image)
         self.add({"type": "image", **image})
+
+    def add_wechat_video(self, node: Tag, *, caption: str = "") -> bool:
+        """微信内嵌视频：`<iframe class="video_iframe" data-mpvid="wxv_…">`。
+
+        **只存封面图 + 跳原文的链接，不存视频直链。** 页面里确实能扒到
+        `mpvideo.qpic.cn/….mp4`，但那串带 `dis_t` 时间戳与 `auth_key` 签名，
+        是**限时地址**，而且是明文 http（我们的站点是 https，混合内容会被浏览器
+        拦掉）。存进库过几天就变成播不了的死链——这跟当初否掉搜狗的理由是同一条：
+        静默失效的内容比没有内容更糟。
+
+        封面在 `data-cover`（URL 编码过），宽高比在 `data-ratio`。
+        """
+        mpvid = clean_text(str(node.get("data-mpvid") or ""))
+        if not mpvid:
+            return False
+        cover = _safe_url(unquote(str(node.get("data-cover") or "")), self.base_url)
+        # 原文页就是唯一稳定的播放入口
+        target = self.base_url or _safe_url(str(node.get("data-src") or ""), self.base_url)
+        if not target or mpvid in self.seen_videos:
+            return False
+        block: dict[str, Any] = {
+            "type": "video",
+            "provider": "link",
+            "url": target,
+        }
+        if cover:
+            block["poster_url"] = cover
+        try:
+            ratio = float(str(node.get("data-ratio") or ""))
+        except ValueError:
+            ratio = 0.0
+        width = _int_attr(node.get("data-w"))
+        if width and ratio > 0:
+            block["width"] = width
+            block["height"] = round(width / ratio)
+        if caption:
+            block["caption"] = caption
+        self.seen_videos.add(mpvid)
+        self.add(block)
+        return True
 
     def add_youtube_video(self, node: Tag, *, caption: str = "") -> bool:
         url = _youtube_embed_url(str(node.get("src") or ""), self.base_url)

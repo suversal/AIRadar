@@ -51,7 +51,9 @@ export type OriginalBlock =
     }
   | {
       type: "video";
-      provider: "youtube" | "file";
+      // "link" = 只有封面可展示、播放要跳原文（微信内嵌视频的直链带签名会过期，
+      // 存下来必然变死链，所以不存）
+      provider: "youtube" | "file" | "link";
       url: string;
       title?: string;
       caption?: string;

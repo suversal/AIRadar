@@ -711,6 +711,82 @@ via AI HOT · https://aihot.virxact.com/items/abc123]]></description>
         self.assertIn('<span style="color: blue">蓝色文字</span>', second["html"])
         self.assertIn("红色文字", first["text"])
 
+    def test_extract_article_content_drops_theme_neutral_colors(self):
+        """原文的黑/白/灰正文色必须丢掉，交给主题决定。
+
+        微信文章同时用 rgba(0,0,0,0.9)（普通正文）和 rgb(255,255,255)（深色
+        区块里的字）——照搬的话黑字在暗色主题看不见、白字在亮色主题看不见，
+        **两种主题必坏一种**。2026-08-07 实测一篇字节 Seed 的文章 128 处黑字
+        + 80 处白字，深色模式下整篇正文都是黑的。
+        """
+        html = (
+            "<article>"
+            '<p>黑字 <span style="color: rgba(0, 0, 0, 0.9)">正文</span> 结尾。</p>'
+            '<p>白字 <span style="color: rgb(255, 255, 255)">反白</span> 结尾。</p>'
+            '<p>深灰 <span style="color: #333333">近似灰</span> 结尾。</p>'
+            '<p>品牌色 <span style="color: rgb(33, 148, 234)">蓝字</span> 结尾。</p>'
+            "</article>"
+        )
+
+        blocks = extract_article_content(html, base_url="https://example.com/x")[
+            "original_blocks"
+        ]
+
+        for block in blocks[:3]:
+            self.assertNotIn("color", block.get("html", ""))
+        # 真正的强调色要留住——那是作者想表达的信息，不是主题该管的事
+        self.assertIn("color: rgb(33, 148, 234)", blocks[3]["html"])
+
+    def test_extract_article_content_keeps_center_alignment(self):
+        """居中要带出来。微信把 text-align 写在内层 span 上的情况很常见，
+        所以要往下找一层，不能只看块级元素自己。"""
+        html = (
+            "<article>"
+            '<h3 style="text-align: center">自己带居中的标题</h3>'
+            '<h3><span style="text-align: center">样式在内层 span 上</span></h3>'
+            '<p style="text-align: right">右对齐段落</p>'
+            "<p>默认左对齐不写字段</p>"
+            '<p style="text-align: justify">两端对齐也不写</p>'
+            "</article>"
+        )
+
+        blocks = extract_article_content(html, base_url="https://example.com/x")[
+            "original_blocks"
+        ]
+
+        self.assertEqual(blocks[0].get("align"), "center")
+        self.assertEqual(blocks[1].get("align"), "center")
+        self.assertEqual(blocks[2].get("align"), "right")
+        self.assertNotIn("align", blocks[3])
+        self.assertNotIn("align", blocks[4])
+
+    def test_extract_article_content_keeps_wechat_video_as_link(self):
+        """微信内嵌视频只存封面 + 跳原文，**不存视频直链**。
+
+        页面里能扒到 mpvideo.qpic.cn 的 mp4，但那串带 auth_key 与 dis_t
+        时间戳，是限时地址，而且是明文 http（站点是 https，混合内容会被拦）。
+        存下来过几天就变成播不了的死链——静默失效比没有内容更糟。
+        """
+        html = (
+            "<article><p>正文</p>"
+            '<iframe class="video_iframe" data-mpvid="wxv_123"'
+            ' data-src="https://mp.weixin.qq.com/mp/readtemplate?vid=wxv_123"'
+            ' data-cover="http%3A%2F%2Fmmbiz.qpic.cn%2Fcover.jpg"'
+            ' data-ratio="1.7777777777777777" data-w="1920"></iframe>'
+            "</article>"
+        )
+
+        blocks = extract_article_content(
+            html, base_url="https://mp.weixin.qq.com/s/abc"
+        )["original_blocks"]
+
+        video = next(b for b in blocks if b["type"] == "video")
+        self.assertEqual(video["provider"], "link")
+        self.assertEqual(video["url"], "https://mp.weixin.qq.com/s/abc")
+        self.assertEqual(video["poster_url"], "http://mmbiz.qpic.cn/cover.jpg")
+        self.assertEqual((video["width"], video["height"]), (1920, 1080))
+        self.assertNotIn("mime_type", video)
+
     def test_extract_article_content_rejects_unsafe_inline_style_values(self):
         html = (
             "<article>"

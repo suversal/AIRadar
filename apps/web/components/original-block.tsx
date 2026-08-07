@@ -121,6 +121,44 @@ export function renderOriginalBlock(block: OriginalBlock, index: number) {
   }
   if (block.type === "video") {
     const caption = block.caption ?? block.title;
+    if (block.provider === "link") {
+      // 只有封面，播放要回原文。微信内嵌视频的直链带 auth_key/时间戳会过期，
+      // 而且是明文 http（站点是 https，混合内容会被拦），存下来必然变成死链。
+      return (
+        <figure key={`${block.url}-${index}`} className="my-8">
+          <a
+            className="group relative block overflow-hidden rounded-xl border border-line bg-black shadow-sm"
+            href={block.url}
+            rel="noreferrer noopener"
+            style={
+              block.width && block.height
+                ? { aspectRatio: `${block.width} / ${block.height}` }
+                : undefined
+            }
+            target="_blank"
+          >
+            {block.poster_url ? (
+              <img
+                alt={caption ?? "视频封面"}
+                className="h-full w-full object-cover transition-opacity group-hover:opacity-80"
+                loading="lazy"
+                src={proxiedImageUrl(block.poster_url)}
+              />
+            ) : null}
+            <span className="absolute inset-0 flex items-center justify-center">
+              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-black/55 backdrop-blur-sm transition-transform group-hover:scale-110">
+                <svg aria-hidden className="ml-1 h-6 w-6 fill-white" viewBox="0 0 24 24">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </span>
+            </span>
+          </a>
+          <figcaption className="mt-2 text-center text-sm text-ink-mid">
+            {caption ? `${caption} · ` : ""}视频需在原文中播放
+          </figcaption>
+        </figure>
+      );
+    }
     if (block.provider === "youtube") {
       return (
         <figure key={`${block.url}-${index}`} className="my-8">
