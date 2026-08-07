@@ -99,6 +99,40 @@ class CrawlerTests(unittest.TestCase):
         self.assertEqual(articles[0].metadata["feed_category"], "AI 产品")
         self.assertEqual(articles[0].metadata["feed_position"], 1)
 
+    def test_parse_rss_repairs_dangling_ampersand_in_ifanr_image_url(self):
+        source = Source(
+            id="ifanr",
+            name="爱范儿",
+            source_role="context",
+            tier="T3",
+            type="rss",
+            category="media",
+            url="https://www.ifanr.com/feed",
+            homepage="https://www.ifanr.com",
+            allowed_domains=["ifanr.com"],
+            language="zh",
+            can_be_main_source=True,
+        )
+        xml = """<?xml version="1.0"?>
+        <rss version="2.0"><channel><item>
+          <title>Wan 3.0 有了自己的镜头美学</title>
+          <link>https://www.ifanr.com/1674218?utm_source=rss&amp;position=7</link>
+          <pubDate>Thu, 06 Aug 2026 14:34:09 +0000</pubDate>
+          <image>https://ifanr.feishu.cn/space/api/box/stream/download/asynccode/?code=token&amp;part=1&</image>
+          <description><![CDATA[真正好的工具不替你做决定，研发团队继续研究 AT&T 与 AI。]]></description>
+        </item></channel></rss>
+        """
+
+        articles = parse_rss(xml, source)
+
+        self.assertEqual(len(articles), 1)
+        self.assertEqual(articles[0].title, "Wan 3.0 有了自己的镜头美学")
+        self.assertIn("AT&T", articles[0].content)
+        self.assertEqual(
+            articles[0].source_url,
+            "https://www.ifanr.com/1674218?position=7",
+        )
+
     def test_aihot_rss_uses_original_url_from_description_as_source_url(self):
         source = Source(
             id="aihot_feed",

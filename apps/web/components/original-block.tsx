@@ -239,22 +239,7 @@ export function renderOriginalBlock(block: OriginalBlock, index: number) {
     );
   }
   if (block.type === "byline") {
-    const authorName = block.author.name;
-    const authorContent = <span className="font-semibold text-ink">{authorName}</span>;
-    return (
-      <section key={`byline-${index}`} className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 border-y border-line py-4 text-sm text-ink-mid">
-        <AuthorAvatar name={authorName} src={block.author.avatar_url} />
-        <div className="min-w-0 flex-1">
-          <div>{block.author.url ? <a href={block.author.url} target="_blank" rel="noopener noreferrer" className="hover:text-signal">{authorContent}</a> : authorContent}</div>
-          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-dim">
-            {block.published_at ? <time>{block.published_at}</time> : null}
-            {block.source ? (
-              <span>来源：{block.source.url ? <a className="text-signal hover:text-signal-bright" href={block.source.url} target="_blank" rel="noopener noreferrer">{block.source.name}</a> : block.source.name}</span>
-            ) : null}
-          </div>
-        </div>
-      </section>
-    );
+    return null;
   }
   if (block.type === "callout") {
     return (

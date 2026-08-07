@@ -188,10 +188,25 @@ def _aihot_summary_from_description(description: str) -> str:
 # whose posts embed raw code snippets) leak them in raw and trip
 # ElementTree's strict parser with "not well-formed (invalid token)".
 _INVALID_XML_CHARS_RE = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f]")
+# Some WordPress-derived feeds occasionally append a dangling query separator
+# to a plain-text image URL (observed in iFanr as ``<image>...token&</image>``).
+# A bare ampersand makes the entire RSS document invalid XML. Restrict recovery
+# to leaf <image> text immediately before its closing tag: this leaves CDATA,
+# valid entities, normal query parameters, and nested channel image metadata
+# untouched.
+_TRAILING_IMAGE_AMPERSAND_RE = re.compile(
+    r"(<image(?:\s[^>]*)?>[^<]*?)&(?=\s*</image>)",
+    flags=re.IGNORECASE,
+)
+
+
+def _repair_known_malformed_feed_xml(xml_text: str) -> str:
+    without_invalid_controls = _INVALID_XML_CHARS_RE.sub("", xml_text)
+    return _TRAILING_IMAGE_AMPERSAND_RE.sub(r"\1", without_invalid_controls)
 
 
 def parse_rss(xml_text: str, source: Source, limit: int | None = None) -> list[RawArticle]:
-    root = ET.fromstring(_INVALID_XML_CHARS_RE.sub("", xml_text))
+    root = ET.fromstring(_repair_known_malformed_feed_xml(xml_text))
     entries = root.findall(".//item")
     if not entries:
         entries = [node for node in root.iter() if node.tag.split("}")[-1] == "entry"]

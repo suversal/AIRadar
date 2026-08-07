@@ -683,6 +683,8 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("tr({ node: _node, ...props })", reading_toggle)
         self.assertIn("cleanTableElementProps(props)", reading_toggle)
         self.assertIn("img.shields.io", original_block)
+        self.assertIn('if (block.type === "byline") {', original_block)
+        self.assertNotIn('key={`byline-${index}`}', original_block)
         self.assertIn("inline-block h-auto w-auto max-w-full", original_block)
         self.assertIn("block h-auto w-auto max-w-full", original_block)
         self.assertIn("use client", reading_toggle)
