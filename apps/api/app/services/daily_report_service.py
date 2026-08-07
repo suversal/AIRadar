@@ -148,6 +148,17 @@ def _strip_legacy_telegram_signature(value: str) -> str:
     return _LEGACY_TELEGRAM_SIGNATURE_RE.sub("", value).rstrip(" ·|｜•")
 
 
+def _clean_alignment(block: dict[str, Any]) -> dict[str, str]:
+    """透传对齐方式。这层是白名单式净化器——**逐字段重建块，没抄的字段就丢了**，
+    所以提取器新增字段时这里必须同步，否则数据在库里是对的、接口出来却没有
+    （2026-08-07 踩过：加了 align 与微信视频，库里 50 块，接口只出 43 块）。
+
+    只放行 center / right：left 是默认值，justify 前端刻意不支持。
+    """
+    align = str(block.get("align") or "").strip().lower()
+    return {"align": align} if align in {"center", "right"} else {}
+
+
 def _clean_original_blocks(
     blocks: Any,
     *,
@@ -173,6 +184,7 @@ def _clean_original_blocks(
                 html = str(block.get("html") or "").strip()
                 if html and text == original_text:
                     cleaned_block["html"] = html
+                cleaned_block.update(_clean_alignment(block))
                 cleaned.append(cleaned_block)
         elif block_type == "heading":
             text = str(block.get("text") or "").strip()
@@ -183,6 +195,7 @@ def _clean_original_blocks(
                 html = str(block.get("html") or "").strip()
                 if html:
                     cleaned_heading["html"] = html
+                cleaned_heading.update(_clean_alignment(block))
                 cleaned.append(cleaned_heading)
         elif block_type == "image":
             url = str(block.get("url") or "").strip()
@@ -239,6 +252,16 @@ def _clean_original_blocks(
                 for key in ("autoplay", "loop", "muted"):
                     if block.get(key) is True:
                         cleaned_video[key] = True
+            elif provider == "link":
+                # 只有封面可展示、播放要跳原文（微信内嵌视频的直链带签名会过期，
+                # 所以不存直链）。这里不放行 mime_type/autoplay 之类——它压根
+                # 不是一个能内联播放的源。
+                if not _safe_content_url(url):
+                    continue
+                cleaned_video = {"type": "video", "provider": "link", "url": url}
+                poster_url = str(block.get("poster_url") or "").strip()
+                if _safe_content_url(poster_url):
+                    cleaned_video["poster_url"] = poster_url
             else:
                 continue
             for key in ("title", "caption"):

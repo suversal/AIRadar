@@ -188,6 +188,46 @@ class TelegramDescriptionParserTests(unittest.TestCase):
         self.assertTrue(cleaned[1]["autoplay"])
         self.assertTrue(cleaned[1]["muted"])
 
+    def test_clean_original_blocks_keeps_alignment_and_link_video(self):
+        """净化层是**白名单式的——逐字段重建块，没抄的字段就丢了**。
+
+        2026-08-07 踩过：提取器加了 align 与微信 iframe 视频，库里存着 50 个块，
+        接口出来只有 43 个、align 全没了，查了半天才发现卡在这一层。提取器新增
+        字段时这里必须同步。
+        """
+        blocks = [
+            {"type": "heading", "level": 3, "text": "居中小标题", "align": "center"},
+            {"type": "paragraph", "text": "右对齐段落", "align": "right"},
+            {"type": "paragraph", "text": "左对齐不写字段", "align": "left"},
+            {"type": "paragraph", "text": "两端对齐也不写", "align": "justify"},
+            {
+                "type": "video",
+                "provider": "link",
+                "url": "https://mp.weixin.qq.com/s/abc",
+                "poster_url": "http://mmbiz.qpic.cn/cover.jpg",
+            },
+        ]
+
+        cleaned = _clean_original_blocks(blocks)
+
+        self.assertEqual(cleaned[0]["align"], "center")
+        self.assertEqual(cleaned[1]["align"], "right")
+        self.assertNotIn("align", cleaned[2])
+        self.assertNotIn("align", cleaned[3])
+        video = cleaned[4]
+        self.assertEqual(video["provider"], "link")
+        self.assertEqual(video["poster_url"], "http://mmbiz.qpic.cn/cover.jpg")
+        # link 类不是能内联播放的源，不该被塞进播放相关字段
+        self.assertNotIn("mime_type", video)
+
+    def test_clean_original_blocks_rejects_link_video_without_safe_url(self):
+        blocks = [
+            {"type": "video", "provider": "link", "url": "javascript:alert(1)"},
+            {"type": "video", "provider": "unknown", "url": "https://example.com/x"},
+        ]
+
+        self.assertEqual(_clean_original_blocks(blocks), [])
+
     def test_x_embed_sanitization_keeps_safe_card_and_rejects_other_hosts(self):
         safe = {
             "type": "social_embed",

@@ -200,6 +200,12 @@ def content_extraction_version_for_url(base_url: str | None) -> int:
         host in {"anthropic.com", "www.anthropic.com"}
         and parsed.path.startswith("/news/")
     )
+    if host == "mp.weixin.qq.com":
+        # v3 起：保留 text-align（微信常把居中写在内层 span 上）、丢弃黑白灰
+        # 这类该由主题决定的中性色（照搬会让深浅主题必坏一种）、把
+        # <iframe data-mpvid> 的内嵌视频识别成封面 + 跳原文的 link 块。
+        # 只让公众号失效，其余源的缓存不受影响。
+        return 3
     return 3 if source_specific_v3 else CONTENT_EXTRACTION_VERSION
 
 

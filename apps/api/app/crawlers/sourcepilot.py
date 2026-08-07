@@ -25,10 +25,14 @@ SP_ARTICLE_CACHE_DIR = Path("data") / "sourcepilot" / "article_cache"
 _PAGE_SIZE = 100  # /wechat/feed 的 limit 上限(契约 §4)
 _MAX_PAGES = 6  # 硬顶,防翻页失控
 _DEFAULT_ARTICLE_LIMIT = 20
-#: 正文缓存格式版本。v1 存的是 SourcePilot 返回的 markdown 字符串，
-#: v2 起改存 AIRADAR 自己提取出的完整结果（含 original_blocks）。
-#: 形状不兼容，读到旧版直接当未命中重取。
-_CACHE_VERSION = 2
+#: 正文缓存格式版本。**改了提取逻辑就要升它**——缓存存的是整个提取结果，
+#: 不升的话新代码根本不会执行，重抓拿到的还是旧块（2026-08-07 踩过：修完
+#: 颜色/居中/视频，重抓出来一模一样，查了半天发现是命中旧缓存）。
+#:
+#:   v1  SourcePilot /article 返回的 markdown 字符串
+#:   v2  改用 AIRADAR 自己的提取器，存完整结果（含 original_blocks）
+#:   v3  提取器补了 text-align、丢弃主题中性色、识别微信 iframe 视频
+_CACHE_VERSION = 3
 
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
 
