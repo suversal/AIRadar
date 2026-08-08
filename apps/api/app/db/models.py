@@ -449,6 +449,46 @@ class RefreshScheduleModel(Base):
     )
 
 
+class XTweetModel(Base):
+    """SourcePilot `/api/v1/x/tweets` 的本地镜像（Phase 4）。
+
+    推文不进 LLM 管线（接入方案决策 4），独立于 raw_articles 存一份、随整库
+    同步上云。`payload` 存 SP 返回的整条推文原样——渲染所需字段（display_text、
+    互动数、external_urls、引用/转发链）全在里面，SP 契约 minor 升级加字段时
+    这边零迁移；单列拎出来的只有过滤与排序要用的几个。
+
+    内容边界必须在同步侧守住：SP 的 x_tweets 表刻意不分 collected/searched
+    （契约 §5.4），别人现查捞回的无关推文也在里面——同步时只按订阅 handle
+    拉取，见 services/x_tweets_sync.py。
+    """
+
+    __tablename__ = "x_tweets"
+
+    tweet_id: Mapped[str] = mapped_column(String, primary_key=True)
+    author_handle: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    conversation_id: Mapped[Optional[str]] = mapped_column(String, index=True)
+    tweet_type: Mapped[str] = mapped_column(String, nullable=False, default="original")
+    content_kind: Mapped[str] = mapped_column(String, nullable=False, default="brief", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    # 命中的订阅话题，包裹逗号格式（",gpt-5.6,claude-fable-5,"，空 = ""）。
+    # 不用 JSON 列做过滤是为了方言中立：LIKE '%,x,%' 在 SQLite（测试）与
+    # Postgres（生产）行为一致。原始数组仍在 payload.topics 里。
+    topics: Mapped[str] = mapped_column(String, nullable=False, default="", server_default="")
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    # AR 侧的中文翻译（方案 B：SP 不做翻译，中文化是 AIRADAR 的职责）。
+    # 独立列而不塞 payload——payload 每轮同步整体覆盖，译文不能跟着被冲掉。
+    # 形状：{display_text_zh, quoted_text_zh?, source_hash, model, translated_at}
+    # 或 {skipped: "zh", source_hash}（原文已是中文）。source_hash 对齐原文，
+    # 长文正文后补导致 display_text 变了会触发重翻。
+    translation: Mapped[Optional[dict]] = mapped_column(JSON)
+    first_synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class FeedbackSubmissionModel(Base):
     """A visitor-submitted note from /feedback. The DB row is the durable
     record; a best-effort Telegram push (see telegram_notifier.py) is just a

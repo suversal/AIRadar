@@ -311,6 +311,111 @@ AIRADAR 的语义阅读 / 正文抓取（`article_content.py`）可逐步改调
 
 ---
 
+## 8.5 Phase 4 实施记录（2026-08-08 落地，先于 Phase 2/3）
+
+X 推文展示面已上线，数据链与 §4 计划一致：SP `GET /api/v1/x/tweets` →
+本地 `x_tweets` 镜像表（alembic `a2f6c8d1e394`）→ 随整库同步上云 → 新页面 `/x`。
+Phase 2/3 未动——推文这条线与它们完全正交，先做是因为 SP 侧 X 后端已稳定供数。
+
+落地文件：`app/services/x_tweets_sync.py`（同步）、`scripts/sync_x_tweets.py`
+（入 refresh 定时，允许失败不拦日报）、`RadarRepository.upsert_x_tweets/query_x_tweets`、
+`/api/public/tweets` 端点、`components/tweet-card.tsx` + `app/x/page.tsx`（前端）。
+测试 `tests/test_x_tweets_sync.py` 14 例。
+
+### 与 §4 计划的两处补充（重要）
+
+**1. 必须逐订阅 handle 拉取，不能全量同步 `/x/tweets`。** 实施时发现 SP 的
+x_tweets 表刻意不分 collected/searched（SP 契约 §5.4：那张表记「推文长什么样」，
+谁触发抓取不改变事实），所以任何人现查 `search_x` 捞回的无关推文也在里面
+（实测 164 条里只有 81 条属于订阅账号，混着 Vodafone 宽带砍价这种路人回复）。
+同步按 `?handle=` 逐个拉就是 AR 侧的内容边界——与 SP「信息流边界由订阅配置
+决定」（契约 §5.3）同一原则，只是这次边界在消费方。订阅列表镜像自 SP
+`config/sources/x.yaml` 的 accounts（当前 OpenAI / AnthropicAI / thsottiaux），
+写在 `x_tweets_sync.DEFAULT_X_HANDLES`，可用环境变量 `SOURCEPILOT_X_HANDLES`
+覆盖；SP 没有暴露订阅清单的端点，两边不一致的后果只是漏账号或空拉，不损坏数据。
+
+**2. 水位往回退 3 天，不是只追最新。** `since` 按发推时间过滤，而两类更新是
+后到的：互动数随 SP 重抓刷新、长文正文（article_markdown）每篇单独补取
+（单轮有上限）。只追最新会把这些永远漏掉。since = 库内该 handle 最新
+created_at − 3 天，重叠部分靠 tweet_id upsert 整体覆盖旧 payload——幂等。
+水位从库里算而非存文件：Phase 1 那个「fetch 时推进水位、落库失败永久漏文章」
+的坑（we-mp-rss #440）在这里结构上不存在。
+
+### 表结构取舍
+
+单列拎出来的只有过滤/排序用的 `author_handle` / `content_kind` / `tweet_type` /
+`conversation_id` / `created_at`，其余整条推文原样存 `payload` JSON。SP 契约
+minor 升级加字段时这边零迁移，前端直接吃 payload。渲染红线照 §3 执行：
+display_text 已织入配图，不再渲染 media 数组；外链用 external_urls。
+
+### 端到端验证（2026-08-08）
+
+- 首轮同步 81 条入库（3 handle，SP 库 164 条中订阅账号的部分）；第二轮 0 插入、
+  19 覆盖——只有落进 3 天水位窗口的重叠部分被重拉刷新，幂等与水位都按设计工作。
+  形态分布：longform 26 / link 22 / brief 21 / quote 7 / repost 5。
+- `/x` 页各形态实测：转发卡「@OpenAI 转发了 @jxnlco」归属正确、正文取原推；
+  配图在正文位置内嵌渲染（image-proxy 全 200）；互动数与「查看原推」正常。
+  长文（article）暂无数据属正常——订阅的 3 个号近期没发 X Articles，空态正确。
+
+### 中文化（2026-08-08 追加，方案 B）
+
+推文默认展示中文，卡片右上「原/译」按钮切换。要点：
+
+- **翻译在 AR 侧做，SP 零参与**。X 的接口响应不带翻译（客户端的「翻译帖子」
+  是点击时另调的内部接口），SP 侧模拟调它要耗账号池配额、扩大封号面积；
+  而中文化本来就是 AIRADAR 的职责。与「推文不进 LLM 管线」不冲突——那条
+  禁的是打分/聚类/成报，翻译是独立轻量批处理（`x_tweets_translate.py`，
+  挂在每轮同步之后，每轮上限 30 条，复用 `provider_from_env()` 的 AI 供应商）。
+- **译文存独立列 `x_tweets.translation`**（alembic `b7e3d9f0c521`），不塞
+  payload——payload 每轮同步整体覆盖，译文不能跟着被冲掉。带 `source_hash`
+  失效重翻：长文正文后补会改写 display_text，hash 变了自动重翻。
+- **Markdown 保护**：图片/视频缩略图等纯标记段不送模型（会改坏 URL），按段落
+  位置原样织回；模型把多段并成一段时（实测 3→1 发生过）退回逐段单发重试。
+- 原文已是中文的（CJK 占比 > 0.3）记 `skipped` 不翻；没配 AI Key 时整步跳过，
+  不写 FakeAIProvider 的「译文：xxx」假翻译进库。
+- 首次全量：83 条翻译 / 5 条中文跳过 / 0 失败，约 2 分钟一轮 30 条。
+
+### 中文化（2026-08-08 追加，方案 B）
+
+推文默认展示 AR 侧生成的中文翻译，卡片「原/译」按钮切换。翻译批处理挂在
+每轮同步之后（每轮 ≤30 条，只翻新增或原文变更的——source_hash 比对，长文
+正文后补会触发重翻）；译文存 `x_tweets.translation` 独立列（payload 会被
+同步覆盖，译文不能跟着丢）；纯标记段落（配图/视频缩略图）不送模型，按位置
+原样织回。X 侧拿不到现成翻译（客户端的「翻译帖子」是点击时另调的内部接口），
+SP 侧模拟调它会耗账号配额，且中文化本来就是 AIRADAR 的职责——所以在这边做。
+
+### 话题订阅（2026-08-08 追加，SP 契约 1.9.0 §5.5）
+
+只按订阅账号拉太片面（盖不住「某个事件下大家在说什么」）。SP 侧把「话题」
+升级成与账号平级的订阅配置（`x.yaml` 的 `topics` 节，定时跑 X 搜索，结果
+`origin=topic` 进信息流）；AR 同步加了第二条腿：逐话题
+`GET /x/tweets?topic=`，`topics` 列（包裹逗号格式，方言中立 LIKE 过滤），
+per-topic 水位同样回退 3 天。前端 `/x` 页话题 chips 筛选 + 卡片话题标签。
+话题清单镜像自 SP `x.yaml`，环境变量 `SOURCEPILOT_X_TOPICS` 覆盖——
+**改 SP topics 时记得同步**（与 handle 清单同一条约定，handle 清单现为 7 个）。
+
+关键调优（同日）：话题搜索从 Latest 切到 **X 的 Top 热门排序**——Latest 模式
+抓回的是「过了赞数门槛的最新流水账」，Top 才是事件下真正的热帖（实测 U卡
+话题一轮就是 OKX 开卡 645 赞、众安银行 600 赞这类）。当前话题：`u-card`、
+`esim`；首批试点的 AI 话题（gpt-5.6 / claude-fable-5）已移除并两边清数据——
+AI 事件靠账号订阅已覆盖，话题位留给账号盖不住的领域。
+
+展示细节（同日迭代）：配图参照 X 收纳为底部媒体栅格（单图保原比例限宽、
+多图双列裁切、点击弹层放大、视频缩略图跳原推），长文保持图文混排；页面
+骨架与 /latest、/all 对齐（移动端横滑筛选、card-hover、药丸徽标）；导航
+入口在「精选」之下，图标 MessageSquareMore。
+
+### 遗留观察项
+
+- **云端图片**：推文配图与头像都指向 pbs.twimg.com，走 `/api/image-proxy` 代理，
+  而生产的 web 服务器在腾讯云、出不去 X 的 CDN——**云端部署后推文图片会加载
+  失败**（ArticleImage 已有优雅降级：失败显示占位并引导「查看原推」）。真要解决
+  得在本地同步时把图片抓下来随库/静态资源上云，留待有需求时做。
+- 线程聚合（`conversation_id` 相同的合并展示）与按 handle 的前端筛选 UI 未做，
+  数据都在表里，纯前端增量。
+
+---
+
 ## 9. Phase 1 后续：公众号上游能力被微信关闭（2026-08-06）
 
 **23 个 `sp_wechat_*` 源已全部 `is_active=false`**（已入库的 27 篇文章保留，不删数据）。

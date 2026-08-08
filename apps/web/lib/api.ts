@@ -526,3 +526,143 @@ export async function getDailyReport(reportDate: string): Promise<DailyReport> {
   }
   return response.json();
 }
+
+// ── X 推文（SourcePilot Phase 4）────────────────────────────────
+// 数据是本地 x_tweets 镜像表（不进 LLM 管线），字段形状即 SP 契约 §5.4
+// 的推文全貌。渲染约定（契约红线）：display_text 是 Markdown 且已织入配图，
+// 渲染它时**不要**再渲染 media 数组；外链用 external_urls（已展开，别去
+// 解析 t.co）。
+
+export type TweetMedia = {
+  type: "image" | "video" | "gif" | "audio";
+  url: string;
+  width?: number | null;
+  height?: number | null;
+};
+
+export type XTweet = {
+  tweet_id: string;
+  conversation_id?: string | null;
+  author_handle: string;
+  author_name?: string | null;
+  author_avatar?: string | null;
+  author_verified?: boolean;
+  author_followers?: number | null;
+  text: string;
+  lang?: string | null;
+  created_at: string;
+  likes: number;
+  retweets: number;
+  replies: number;
+  quotes?: number;
+  bookmarks?: number;
+  views?: number | null;
+  is_reply?: boolean;
+  reply_to_handle?: string | null;
+  is_quote?: boolean;
+  quoted_handle?: string | null;
+  quoted_text?: string | null;
+  is_retweet?: boolean;
+  retweeted_handle?: string | null;
+  retweeted_text?: string | null;
+  media?: TweetMedia[];
+  external_urls?: string[];
+  url: string;
+  has_article?: boolean;
+  article_title?: string | null;
+  article_markdown?: string | null;
+  article_summary?: string | null;
+  article_ai_summary?: string | null;
+  article_cover?: string | null;
+  tweet_type: "original" | "reply" | "quote" | "repost";
+  content_kind: "repost" | "article" | "longform" | "link" | "quote" | "brief";
+  display_title?: string | null;
+  display_text: string;
+  // 命中的订阅话题标识（SP 契约 §5.5 事件追踪），订阅账号时间线来的为空数组
+  topics?: string[];
+  // AR 侧生成的中文翻译（方案 B），无译文或原文本就是中文时为 null
+  translation?: XTweetTranslation | null;
+};
+
+export type TweetsPayload = {
+  updated_at: string | null;
+  total: number;
+  limit: number;
+  offset: number;
+  item_count: number;
+  // 库里出现过的话题标识（筛选 chips 的数据源）
+  topics: string[];
+  items: XTweet[];
+  error: string | null;
+};
+
+function emptyTweets(error: string): TweetsPayload {
+  return {
+    updated_at: null,
+    total: 0,
+    limit: 0,
+    offset: 0,
+    item_count: 0,
+    topics: [],
+    items: [],
+    error,
+  };
+}
+
+export async function getTweets(
+  params: {
+    kind?: string;
+    handle?: string;
+    topic?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<TweetsPayload> {
+  const search = new URLSearchParams();
+  search.set("limit", String(params.limit ?? 50));
+  if (typeof params.offset === "number") {
+    search.set("offset", String(params.offset));
+  }
+  if (params.kind) {
+    search.set("kind", params.kind);
+  }
+  if (params.handle) {
+    search.set("handle", params.handle);
+  }
+  if (params.topic) {
+    search.set("topic", params.topic);
+  }
+  try {
+    const response = await fetch(`${getApiBaseUrl()}/api/public/tweets?${search}`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return emptyTweets(`API 服务暂时不可用：tweets 接口返回 ${response.status}。`);
+    }
+    const payload = (await response.json()) as Omit<TweetsPayload, "error">;
+    return { ...payload, error: null };
+  } catch (error) {
+    return emptyTweets(latestLoadErrorMessage(error));
+  }
+}
+
+export async function getTweet(tweetId: string): Promise<XTweet | null> {
+  try {
+    const response = await fetch(
+      `${getApiBaseUrl()}/api/public/tweets/${encodeURIComponent(tweetId)}`,
+      { cache: "no-store" },
+    );
+    if (!response.ok) {
+      return null;
+    }
+    const payload = (await response.json()) as { item: XTweet };
+    return payload.item;
+  } catch {
+    return null;
+  }
+}
+
+export type XTweetTranslation = {
+  display_text_zh: string;
+  quoted_text_zh?: string | null;
+};

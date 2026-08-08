@@ -398,6 +398,50 @@ def create_app(
 
         return build_topics_payload(load_event_items(days))
 
+    _TWEET_KINDS = {"repost", "article", "longform", "link", "quote", "brief"}
+
+    @app.get("/api/public/tweets")
+    def public_tweets(
+        kind: Optional[str] = None,
+        handle: Optional[str] = None,
+        topic: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict:
+        """X 推文流（SourcePilot Phase 4）。数据来自本地 x_tweets 镜像表，
+        云端照常只读——同步在本地 refresh 时完成，这里不出网。"""
+        if limit < 1 or limit > 200:
+            raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
+        if offset < 0:
+            raise HTTPException(status_code=400, detail="offset must be non-negative")
+        if kind and kind not in _TWEET_KINDS:
+            raise HTTPException(
+                status_code=400,
+                detail="kind must be one of " + ", ".join(sorted(_TWEET_KINDS)),
+            )
+        with report_repository_context() as repository:
+            items, total, updated_at = repository.query_x_tweets(
+                kind=kind, handle=handle, topic=topic, limit=limit, offset=offset
+            )
+            available_topics = repository.list_x_tweet_topics()
+        return {
+            "updated_at": updated_at,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "item_count": len(items),
+            "topics": available_topics,
+            "items": items,
+        }
+
+    @app.get("/api/public/tweets/{tweet_id}")
+    def public_tweet_detail(tweet_id: str) -> dict:
+        with report_repository_context() as repository:
+            tweet = repository.get_x_tweet(tweet_id)
+        if tweet is None:
+            raise HTTPException(status_code=404, detail="tweet not found")
+        return {"item": tweet}
+
     @app.get("/api/public/events/{event_id}")
     def event_detail(event_id: str) -> dict:
         with report_repository_context() as repository:

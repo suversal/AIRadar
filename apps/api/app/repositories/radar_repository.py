@@ -29,6 +29,7 @@ from app.db.models import (
     RawArticleModel,
     RefreshScheduleModel,
     SourceModel,
+    XTweetModel,
 )
 from app.models.domain import DailyReport, EventCluster, ProcessedArticle, RawArticle, Source
 from app.services.clustering_service import (
@@ -100,6 +101,18 @@ def _crawl_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in metadata.items() if key not in TRANSLATION_METADATA_KEYS}
 
 
+def _parse_tweet_time(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
 class RadarRepository:
     def __init__(self, session: Session):
         self.session = session
@@ -116,6 +129,152 @@ class RadarRepository:
                 _apply_source(model, source)
                 updated += 1
         return WriteResult(inserted=inserted, updated=updated)
+
+    # ── X 推文（SourcePilot Phase 4，不进 LLM 管线，独立于 raw_articles） ──
+
+    def upsert_x_tweets(self, tweets: list[dict[str, Any]]) -> WriteResult:
+        """按 tweet_id 幂等入库。已有行整体覆盖 payload——SP 侧互动数会随重抓
+        刷新、长文正文（article_markdown）是后补的，冻结首轮快照就拿不到这些
+        更新。select-then-update 与 upsert_raw_articles 同款，方言中立
+        （测试 SQLite / 生产 Postgres）。"""
+        inserted = 0
+        updated = 0
+        skipped = 0
+        now = datetime.now(timezone.utc)
+        for tweet in tweets:
+            tweet_id = str(tweet.get("tweet_id") or "").strip()
+            handle = (tweet.get("author_handle") or "").strip()
+            created_at = _parse_tweet_time(tweet.get("created_at"))
+            if not tweet_id or not handle or created_at is None:
+                skipped += 1
+                continue
+            topic_list = [str(t) for t in (tweet.get("topics") or []) if str(t).strip()]
+            columns: dict[str, Any] = {
+                "author_handle": handle,
+                "conversation_id": tweet.get("conversation_id"),
+                "tweet_type": tweet.get("tweet_type") or "original",
+                "content_kind": tweet.get("content_kind") or "brief",
+                "created_at": created_at,
+                # 包裹逗号格式（见 XTweetModel.topics 列注释），空数组 = 空串
+                "topics": f",{','.join(topic_list)}," if topic_list else "",
+                "payload": tweet,
+            }
+            existing = self.session.get(XTweetModel, tweet_id)
+            if existing is None:
+                self.session.add(XTweetModel(tweet_id=tweet_id, **columns))
+                inserted += 1
+            else:
+                for key, value in columns.items():
+                    setattr(existing, key, value)
+                existing.synced_at = now
+                updated += 1
+        return WriteResult(inserted=inserted, updated=updated, skipped=skipped)
+
+    def latest_x_tweet_created_at(
+        self, handle: Optional[str] = None, *, topic: Optional[str] = None
+    ) -> Optional[datetime]:
+        """已入库的最新推文时间——同步水位的基准。按 handle 或按话题取。"""
+        conditions = []
+        if handle:
+            conditions.append(XTweetModel.author_handle == handle)
+        if topic:
+            conditions.append(XTweetModel.topics.like(f"%,{topic},%"))
+        value = self.session.scalar(
+            select(func.max(XTweetModel.created_at)).where(*conditions)
+        )
+        # SQLite 的 max() 会把 timestamptz 拍成 naive 字符串再解析回来
+        if isinstance(value, datetime) and value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value
+
+    def list_x_tweet_topics(self) -> list[str]:
+        """库里实际出现过的话题标识（前端筛选 chips 的数据源）。"""
+        rows = self.session.scalars(
+            select(XTweetModel.topics).where(XTweetModel.topics != "").distinct()
+        ).all()
+        topics: set[str] = set()
+        for value in rows:
+            topics.update(t for t in value.split(",") if t)
+        return sorted(topics)
+
+    @staticmethod
+    def _tweet_with_translation(row: XTweetModel) -> dict[str, Any]:
+        """出参 = payload + translation。skipped 形状（原文已是中文）不透出，
+        消费方只需要「有没有可用译文」这一个判断。"""
+        item = dict(row.payload)
+        translation = row.translation
+        if translation and translation.get("display_text_zh"):
+            item["translation"] = {
+                "display_text_zh": translation["display_text_zh"],
+                "quoted_text_zh": translation.get("quoted_text_zh"),
+            }
+        else:
+            item["translation"] = None
+        return item
+
+    def get_x_tweet(self, tweet_id: str) -> Optional[dict[str, Any]]:
+        """详情页用：按 id 取单条 payload（含译文）。"""
+        row = self.session.get(XTweetModel, tweet_id)
+        return self._tweet_with_translation(row) if row is not None else None
+
+    def x_tweets_for_translation(self, limit: int = 300) -> list[XTweetModel]:
+        """最近的推文行（含 ORM 对象，翻译服务要读 translation 原始形状并回写）。
+        新旧判断（无译文/原文变了）在服务层做——hash 对比没法下推 SQL，量小无所谓。"""
+        return list(
+            self.session.scalars(
+                select(XTweetModel)
+                .order_by(XTweetModel.created_at.desc())
+                .limit(limit)
+            ).all()
+        )
+
+    def save_x_tweet_translation(self, tweet_id: str, translation: dict[str, Any]) -> None:
+        row = self.session.get(XTweetModel, tweet_id)
+        if row is not None:
+            row.translation = translation
+
+    def query_x_tweets(
+        self,
+        *,
+        kind: Optional[str] = None,
+        handle: Optional[str] = None,
+        topic: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int, Optional[str]]:
+        """公开端点用：按发推时间倒序出 payload。返回 (items, total, updated_at)。"""
+        conditions = []
+        if kind:
+            conditions.append(XTweetModel.content_kind == kind)
+        if handle:
+            conditions.append(func.lower(XTweetModel.author_handle) == handle.lower())
+        if topic:
+            conditions.append(XTweetModel.topics.like(f"%,{topic},%"))
+        total = (
+            self.session.scalar(
+                select(func.count()).select_from(XTweetModel).where(*conditions)
+            )
+            or 0
+        )
+        rows = self.session.scalars(
+            select(XTweetModel)
+            .where(*conditions)
+            .order_by(XTweetModel.created_at.desc(), XTweetModel.tweet_id.desc())
+            .limit(limit)
+            .offset(offset)
+        ).all()
+        latest = self.session.scalar(
+            select(func.max(XTweetModel.synced_at)).where(*conditions)
+        )
+        updated_at = None
+        if latest is not None:
+            if isinstance(latest, datetime):
+                if latest.tzinfo is None:
+                    latest = latest.replace(tzinfo=timezone.utc)
+                updated_at = latest.isoformat()
+            else:
+                updated_at = str(latest)
+        return [self._tweet_with_translation(row) for row in rows], int(total), updated_at
 
     def upsert_raw_articles(
         self, articles: list[RawArticle], *, pipeline_run_id: Optional[int] = None

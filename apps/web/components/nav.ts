@@ -6,6 +6,7 @@ import {
   History,
   Info,
   MessageSquare,
+  MessageSquareMore,
   Newspaper,
   Search,
   Sparkles,
@@ -22,6 +23,7 @@ export type NavItem = {
 
 export const navItems: NavItem[] = [
   { id: "latest", label: "精选", group: "内容", href: "/latest", icon: Sparkles },
+  { id: "x", label: "X 推文", group: "内容", href: "/x", icon: MessageSquareMore },
   { id: "all", label: "全部 AI 动态", group: "内容", href: "/all", icon: Podcast },
   { id: "daily", label: "AI 日报", group: "内容", href: "/daily", icon: Newspaper },
   { id: "topics", label: "主题", group: "内容", href: "/topics", icon: Hash },

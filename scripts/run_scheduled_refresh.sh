@@ -24,6 +24,8 @@ fi
 {
   echo "==== refresh started $(date -u +%FT%TZ) ===="
   "$PYTHON" "$ROOT/scripts/run_crawl_once.py" --report data/crawl_report.json
+  # X 推文走独立同步表不进 LLM 管线；SourcePilot 不在线不该拦住日报生成
+  "$PYTHON" "$ROOT/scripts/sync_x_tweets.py" || echo "WARN x tweets sync failed"
   "$PYTHON" "$ROOT/scripts/run_pipeline_once.py" --persist-db
   echo "==== refresh finished $(date -u +%FT%TZ) ===="
 } >> "$LOG_DIR/refresh.log" 2>&1
