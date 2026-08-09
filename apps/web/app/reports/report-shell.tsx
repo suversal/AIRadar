@@ -47,6 +47,7 @@ export function ReportShell({
   return (
     <main className="min-h-screen bg-canvas text-ink">
       <div className="grid min-h-screen grid-cols-1 content-start lg:grid-cols-[224px_200px_1fr]">
+        {/* 周报/月报没有独立侧栏入口，统一从「AI 日报」进入并保持其高亮 */}
         <Sidebar activeNavId="daily" />
         <MobileNav activeNavId="daily" />
 

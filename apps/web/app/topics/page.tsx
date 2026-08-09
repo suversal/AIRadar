@@ -3,7 +3,8 @@ import { MobileNav } from "@/components/mobile-nav";
 import { Sidebar } from "@/components/sidebar";
 
 export const metadata = {
-  title: "主题 · AI·RADAR",
+  title: "主题",
+  description: "按模型、产品工具、技术方向和公司行业浏览近 30 天的 AI 动态。",
 };
 
 function topicHref(topicId: string) {
@@ -62,7 +63,7 @@ export default async function TopicsPage() {
             ))}
             {payload.groups.length === 0 && !payload.error ? (
               <div className="rounded-md border border-line bg-panel p-8 text-sm text-ink-mid">
-                暂无主题数据，先运行一轮抓取和处理后再来。
+                主题数据正在积累中，稍后再来看看。
               </div>
             ) : null}
           </div>

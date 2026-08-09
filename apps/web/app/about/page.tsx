@@ -1,7 +1,8 @@
 import { StaticPage } from "@/components/static-page";
 
 export const metadata = {
-  title: "关于 · AI·RADAR",
+  title: "关于",
+  description: "AI·RADAR 是为创作者和开发者准备的 AI 情报雷达：监听数十个高信噪比信源，AI 评分聚类去重，每天一期精选日报。",
 };
 
 export default function AboutPage() {
@@ -12,16 +13,15 @@ export default function AboutPage() {
       subtitle="为创作者和开发者准备的 AI 情报雷达"
     >
       <section className="rounded-md border border-signal/25 bg-gradient-to-br from-signal/10 via-panel to-panel p-6 text-center">
-        <p className="text-xs uppercase tracking-[0.3em] text-signal-dim">关于 AI·RADAR</p>
+        <p className="text-xs uppercase tracking-[0.3em] text-signal-dim">WHY AI·RADAR</p>
         <h2 className="mt-4 text-xl font-semibold leading-relaxed text-ink md:text-2xl">
           AI 圈子每天都在发生什么，
           <br />
           不该靠反复刷十几个信源才知道。
         </h2>
         <p className="mx-auto mt-5 max-w-xl text-sm leading-6 text-ink-mid">
-          AI·RADAR 持续监听 27 个高信噪比信源——各大实验室官方博客、arXiv、GitHub
-          Trending、Hacker News、Reddit 社区与中英文科技媒体，用 AI 做相关性预筛、
-          六维评分和事件聚类，把同一件事在多个信源里的重复报道折叠成一条，
+          AI·RADAR 持续监听多个高信噪比信源——各大实验室官方博客、热门社区、X账号、微信公众号与中英文科技媒体。用 AI
+          做相关性筛选、六维评分和同事件聚类，把同一件事在多个信源里的重复报道折叠成一条，
           每天沉淀为一期精选日报。
         </p>
       </section>
@@ -33,7 +33,6 @@ export default function AboutPage() {
           并叠加信源权威度与时效衰减。只有跨过分类阈值的事件才会进入精选；其余动态全部保留在
           「全部 AI 动态」中可查，不会因为没入选就彻底消失。
         </p>
-        <p className="mt-4">英文精选文章附 AI 中文翻译，GitHub 项目附 README 原文。</p>
       </section>
 
       <section className="rounded-md border border-line bg-panel p-5">
@@ -41,8 +40,8 @@ export default function AboutPage() {
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           {[
             { label: "抓取频率", value: "每 2 小时一轮" },
-            { label: "精选规模", value: "每日 12 个事件聚类" },
-            { label: "全量视野", value: "AI 预筛通过即可见" },
+            { label: "精选标准", value: "评分过线即入选" },
+            { label: "全量视野", value: "相关即收录，可查可搜" },
             { label: "主题体系", value: "公司模型 / 技术方向 / 内容形态" },
           ].map((stat) => (
             <div key={stat.label} className="rounded-md border border-line bg-canvas p-3 text-center">

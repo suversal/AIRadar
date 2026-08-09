@@ -11,7 +11,8 @@ import { TweetCard } from "@/components/tweet-card";
 // 桌面 chips 过滤行。
 
 export const metadata = {
-  title: "X 推文 · Suversal AI Radar",
+  title: "X 推文",
+  description: "AI·RADAR 跟踪的 X 账号与话题，推文原样呈现，不经 AI 筛选。",
 };
 
 type XSearchParams = Promise<{
@@ -34,6 +35,13 @@ const kindOptions = [
 ] as const;
 
 const VALID_KINDS = new Set<string>(kindOptions.map(([kind]) => kind).filter(Boolean));
+
+// 「长文 / 长推」字面上分不出区别，桌面端悬停给出解释
+const kindHints: Record<string, string> = {
+  article: "X 平台的 Article 长文，列表只展示标题与摘要",
+  longform: "超出常规长度的长推文",
+  brief: "常规长度的短推文",
+};
 
 function firstQueryValue(value?: string | string[]) {
   return Array.isArray(value) ? value[0] : value;
@@ -110,7 +118,7 @@ export default async function TweetsPage({ searchParams }: { searchParams: XSear
     { href: xHref({ kind: selectedKind, handle: selectedHandle }), label: "全部话题", selected: !selectedTopic },
     ...payload.topics.map((topic) => ({
       href: xHref({ kind: selectedKind, handle: selectedHandle, topic }),
-      label: `#${topic}`,
+      label: topic,
       selected: selectedTopic === topic,
     })),
   ];
@@ -133,7 +141,7 @@ export default async function TweetsPage({ searchParams }: { searchParams: XSear
               <div>
                 <h1 className="text-2xl font-semibold text-ink">X 推文</h1>
                 <p className="mt-1.5 text-sm text-ink-mid">
-                  订阅账号 + 订阅话题的推文原貌，不经 AI 筛选
+                  AI·RADAR 跟踪的 X 账号与话题，推文原样呈现，不经 AI 筛选
                 </p>
               </div>
               <div className="hidden text-sm text-ink-mid md:block">
@@ -164,6 +172,7 @@ export default async function TweetsPage({ searchParams }: { searchParams: XSear
                     }`}
                     href={xHref({ kind, handle: selectedHandle, topic: selectedTopic })}
                     key={kind || "all"}
+                    title={kindHints[kind]}
                   >
                     {label}
                   </a>

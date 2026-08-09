@@ -1,7 +1,7 @@
 import { PeriodReportPage } from "../../reports/period-report-page";
 
 export const metadata = {
-  title: "AI·RADAR 周报",
+  title: "AI 周报",
 };
 
 export default async function ArchivedWeeklyPage({

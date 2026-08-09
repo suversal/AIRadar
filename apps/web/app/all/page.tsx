@@ -7,6 +7,12 @@ import { MobileSourceFilter } from "@/components/mobile-source-filter";
 import { RadarStatus } from "@/components/radar-status";
 import { Sidebar } from "@/components/sidebar";
 
+export const metadata = {
+  title: "全部 AI 动态",
+  description:
+    "近 30 天的全部 AI 资讯，支持按分类、来源与主题筛选——没进精选的动态也都在这里。",
+};
+
 type AllSearchParams = Promise<{
   source?: string | string[];
   focus?: string | string[];
@@ -120,7 +126,9 @@ export default async function AllEventsPage({
             />
             <div className="mt-3 md:mt-4 md:border-b md:border-line md:pb-4">
               <h1 className="text-2xl font-semibold text-ink">全部 AI 动态</h1>
-              <p className="mt-1.5 text-sm text-ink-mid">AI 相关资讯全量信息流</p>
+              <p className="mt-1.5 text-sm text-ink-mid">
+                近 {DAYS} 天的全部 AI 资讯——没进精选的动态也都在这里
+              </p>
             </div>
 
             <MobileSearchForm

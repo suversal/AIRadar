@@ -57,9 +57,9 @@ export function buildDailyDigest(report: DailyReport) {
     sections,
     highlights,
     stats: [
-      { label: "精选事件", value: report.article_count.toString() },
+      { label: "今日精选", value: report.article_count.toString() },
       { label: "重点栏目", value: sections.length.toString() },
-      { label: "标签信号", value: uniqueTags.size.toString() },
+      { label: "涉及标签", value: uniqueTags.size.toString() },
       { label: "阅读时间", value: `≈${Math.max(3, Math.ceil(report.items.length * 0.7))} min` },
     ],
   };
@@ -106,13 +106,13 @@ function mainlineFor(
   if (!top) {
     return {
       title: `${prefix} AI 动态等待生成`,
-      body: "当前还没有足够事件形成主线。刷新日报后，本期 AI 综述将自动生成。",
+      body: "本期收录的动态还不够多，完整的 AI 综述会在内容积累后自动生成。",
       ai: false,
     };
   }
   return {
     title: `${top.label}成为${prefix}主线`,
-    body: `${prefix} AI 动态围绕“${top.label}”集中展开，代表事件包括“${top.title}”。本期 AI 综述将在下次日报刷新后生成。`,
+    body: `${prefix} AI 动态围绕“${top.label}”集中展开，代表内容包括“${top.title}”。完整的 AI 综述稍后自动生成。`,
     ai: false,
   };
 }
@@ -140,10 +140,10 @@ export function buildPeriodDigest(period: PeriodReport, mode: PeriodMode) {
     highlights,
     sections: highlights,
     stats: [
-      { label: "独立事件", value: items.length.toString() },
-      { label: "条精选", value: selectedCount.toString() },
-      { label: "期日报浓缩", value: coveredDays.toString() },
-      { label: "阅读本页", value: `≈${mode === "weekly" ? 5 : 4} min` },
+      { label: "收录动态", value: items.length.toString() },
+      { label: "入选精选", value: selectedCount.toString() },
+      { label: "覆盖天数", value: coveredDays.toString() },
+      { label: "阅读时间", value: `≈${mode === "weekly" ? 5 : 4} min` },
     ],
   };
 }

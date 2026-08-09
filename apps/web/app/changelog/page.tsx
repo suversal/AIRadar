@@ -1,7 +1,8 @@
 import { StaticPage } from "@/components/static-page";
 
 export const metadata = {
-  title: "更新日志 · AI·RADAR",
+  title: "更新日志",
+  description: "AI·RADAR 一路加了什么、改了什么，都记录在这里。",
 };
 
 type ChangeKind = "新增" | "优化" | "修复";
@@ -18,6 +19,28 @@ type Change = { kind: ChangeKind; text: string };
 type ChangelogEntry = { date: string; title: string; changes: Change[] };
 
 const entries: ChangelogEntry[] = [
+  {
+    date: "2026-08-09",
+    title: "全站文案与分享体验优化",
+    changes: [
+      {
+        kind: "新增",
+        text: "文章详情页、日报及各栏目页补齐独立的页面标题与描述，分享到微信、X 等平台时能正确显示文章标题和摘要",
+      },
+      {
+        kind: "优化",
+        text: "统一站点对外名称为 AI·RADAR，站点描述改为中文价值主张",
+      },
+      {
+        kind: "优化",
+        text: "重写各页副标题与提示语：精选、全部动态、搜索、收藏等页面说清各自的范围与更新节奏，清理面向用户的内部术语",
+      },
+      {
+        kind: "修复",
+        text: "「关于」页信源数量等口径与实际不符的描述已更正",
+      },
+    ],
+  },
   {
     date: "2026-08-08",
     title: "X 推文上线：订阅账号与话题追踪",
@@ -289,7 +312,7 @@ export default function ChangelogPage() {
     <StaticPage
       activeNavId="changelog"
       title="更新日志"
-      subtitle="产品能力的演进记录"
+      subtitle="AI·RADAR 一路加了什么、改了什么，都记录在这里"
     >
       {entries.map((entry) => {
         const grouped = KIND_ORDER.map((kind) => ({

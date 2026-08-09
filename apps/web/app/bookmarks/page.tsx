@@ -75,7 +75,7 @@ export default function BookmarksPage() {
             <header className="rounded-md border border-line bg-panel p-5">
               <h1 className="text-2xl font-semibold text-ink">收藏</h1>
               <p className="mt-1.5 text-sm text-ink-mid">
-                保存在这台设备的浏览器里，换设备或清除浏览器数据后需要重新收藏。
+                收藏过的内容都在这里。收藏保存在本设备的浏览器里，换设备或清除浏览器数据后需要重新收藏。
               </p>
             </header>
 

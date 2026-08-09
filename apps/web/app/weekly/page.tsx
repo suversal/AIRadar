@@ -1,5 +1,10 @@
 import { PeriodReportPage } from "../reports/period-report-page";
 
+export const metadata = {
+  title: "AI 周报",
+  description: "本周日报的汇总提炼：AI 梳理出一条主线综述，附各主题看点与代表内容。",
+};
+
 export default function WeeklyPage() {
   return (
     <PeriodReportPage

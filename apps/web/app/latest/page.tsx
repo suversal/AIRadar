@@ -8,6 +8,12 @@ import { MobileNav } from "@/components/mobile-nav";
 import { RadarStatus } from "@/components/radar-status";
 import { Sidebar } from "@/components/sidebar";
 
+export const metadata = {
+  title: "精选",
+  description:
+    "AI 每天从数十个信源里筛出的高价值动态，同一件事的多方报道折叠为一条。",
+};
+
 type LatestSearchParams = Promise<{
   focus?: string | string[];
   category?: string | string[];
@@ -29,7 +35,7 @@ function firstQueryValue(value?: string | string[]) {
 
 function formatDateTime(value?: string | null) {
   if (!value) {
-    return "暂无日报";
+    return "暂无数据";
   }
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
@@ -107,7 +113,9 @@ export default async function LatestPage({
             <div className="mt-3 md:mt-4 md:flex md:items-end md:justify-between">
               <div>
                 <h1 className="text-2xl font-semibold text-ink">精选</h1>
-                <p className="mt-1.5 text-sm text-ink-mid">AI 自动挑选的高价值内容</p>
+                <p className="mt-1.5 text-sm text-ink-mid">
+                    AI 自动挑选的高价值动态
+                </p>
               </div>
               <div className="hidden text-sm text-ink-mid md:block">
                 更新时间：{formatDateTime(report.updated_at)}
@@ -196,7 +204,7 @@ export default async function LatestPage({
                   <span aria-hidden>🔥</span>
                   当前热点
                 </h2>
-                <span className="text-xs text-ink-dim">近48小时 · 按热度与评分</span>
+                <span className="text-xs text-ink-dim">近 48 小时最受关注</span>
               </div>
               <div className="mt-2 grid gap-0.5 md:mt-3 md:gap-1">
                 {topEvents.map((item, index) => (

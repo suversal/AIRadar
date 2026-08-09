@@ -1,7 +1,8 @@
 import { StaticPage } from "@/components/static-page";
 
 export const metadata = {
-  title: "Agent 接入 · AI·RADAR",
+  title: "Agent 接入",
+  description: "AI·RADAR 的全部公开数据都可通过 HTTP API 读取，无需鉴权，供 Agent 或应用直接消费。",
 };
 
 const endpoints = [
@@ -69,17 +70,18 @@ export default function AgentPage() {
       <section className="rounded-md border border-line bg-panel p-5">
         <h2 className="text-lg font-semibold text-ink">快速开始</h2>
         <p className="mt-3 text-sm leading-6 text-ink-mid">
-          所有端点返回 JSON，无需鉴权。以本地部署为例：
+          所有端点返回 JSON，无需鉴权。把 <code className="readout text-xs">{"{host}"}</code>{" "}
+          替换为你访问本站时使用的域名即可：
         </p>
         <pre className="readout mt-4 overflow-x-auto rounded-md border border-line bg-canvas p-4 text-sm leading-6 text-ink">
 {`# 今日精选
-curl http://127.0.0.1:8000/api/public/latest
+curl https://{host}/api/public/latest
 
-# 近 7 天 Anthropic 相关事件
-curl "http://127.0.0.1:8000/api/public/events?days=7&topic=anthropic"
+# 近 7 天 Anthropic 相关动态
+curl "https://{host}/api/public/events?days=7&topic=anthropic"
 
 # 主题清单与计数
-curl http://127.0.0.1:8000/api/public/topics`}
+curl https://{host}/api/public/topics`}
         </pre>
         <p className="mt-4 text-sm leading-6 text-ink-mid">
           事件对象的关键字段：<code className="readout text-xs">title</code>（中文标题）、

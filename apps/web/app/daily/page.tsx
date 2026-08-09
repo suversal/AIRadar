@@ -5,6 +5,19 @@ import { ReportShell } from "../reports/report-shell";
 
 type DailySearchParams = Promise<{ date?: string | string[] }>;
 
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams: DailySearchParams;
+}) {
+  const resolved = await searchParams;
+  const date = Array.isArray(resolved.date) ? resolved.date[0] : resolved.date;
+  return {
+    title: date ? `AI 日报 ${date}` : "AI 日报",
+    description: "每天早上 8 点更新的 AI 精选日报：当日高价值动态、重点栏目与标签一页读完。",
+  };
+}
+
 type LoadedReport =
   | { kind: "report"; report: DailyReport }
   // "today" (explicit or implicit) hasn't had its pipeline run persist a
@@ -92,7 +105,7 @@ export default async function DailyPage({
         <div className="mt-6">
           <div className="text-sm font-semibold text-ink-mid">往期 AI 日报</div>
           {monthGroups.length === 0 ? (
-            <p className="mt-3 text-xs leading-5 text-ink-dim">日报归档随每日生成自动积累</p>
+            <p className="mt-3 text-xs leading-5 text-ink-dim">第一期日报生成后会出现在这里</p>
           ) : (
             <div className="mt-3 divide-y divide-line">
               {monthGroups.map(([month, dates], index) => {
@@ -147,7 +160,7 @@ export default async function DailyPage({
           <div className="mt-6 grid items-center gap-4 text-sm text-ink-mid md:grid-cols-[auto_1fr_auto]">
             <span>{formatChineseDate(activeDate)}</span>
             <span className="hidden h-px bg-panel-soft md:block" />
-            <span>DAILY · 每日八时</span>
+            <span>DAILY · 每天早上 8 点更新</span>
           </div>
           {(() => {
             const index = archiveDates.indexOf(activeDate);
@@ -172,7 +185,7 @@ export default async function DailyPage({
           })()}
           {loaded.kind === "pending" ? (
             <div className="mt-5 rounded-md border border-signal/40 bg-signal/10 px-4 py-3 text-sm text-signal-bright">
-              今日日报生成中，尚未有当日的正式版本——当前展示近期滚动精选内容作为过渡，稍后刷新可查看正式日报。
+              今日日报还在生成中，先展示近期精选内容，稍后刷新即可查看正式版本。
             </div>
           ) : null}
         </header>
@@ -181,7 +194,7 @@ export default async function DailyPage({
           <section className="rounded-md border border-line bg-panel p-8 text-center">
             <p className="text-base font-semibold text-ink">{formatChineseDate(activeDate)} 暂无日报</p>
             <p className="mt-2 text-sm leading-6 text-ink-dim">
-              这一天没有生成过正式日报，可能是项目上线前的日期，或当日流水线未运行。可从左侧归档选择其他日期。
+              这一天没有生成过日报，可能早于本站上线，或当日未更新。可从归档里选择其他日期。
             </p>
           </section>
         ) : (

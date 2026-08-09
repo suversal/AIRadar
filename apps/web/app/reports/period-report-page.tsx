@@ -39,7 +39,7 @@ export async function PeriodReportPage({
           <div className="mt-3 space-y-1">
             {archive.length === 0 ? (
               <p className="text-xs leading-5 text-ink-dim">
-                归档随日报刷新自动积累，首期生成后出现在这里
+                第一期{labelFor(mode)}生成后会出现在这里
               </p>
             ) : (
               archive.map((entry) => (
@@ -84,7 +84,9 @@ export async function PeriodReportPage({
           <div className="mt-6 grid items-center gap-4 text-sm text-ink-mid md:grid-cols-[auto_1fr_auto]">
             <span>{digest.range}</span>
             <span className="hidden h-px bg-panel-soft md:block" />
-            <span>{digest.label} · 编辑系统自动融合</span>
+            <span>
+              {digest.label} · {mode === "weekly" ? "本周日报的汇总，AI 提炼主线" : "当月日报的汇总，AI 提炼主线"}
+            </span>
           </div>
         </header>
 

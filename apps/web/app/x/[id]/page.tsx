@@ -8,7 +8,7 @@ import { TweetCard } from "@/components/tweet-card";
 // 单条推文详情：列表对长内容只出标题与摘要，全文在这里看。
 
 export const metadata = {
-  title: "推文详情 · Suversal AI Radar",
+  title: "推文详情",
 };
 
 export default async function TweetDetailPage({

@@ -19,6 +19,17 @@ type EventSearchParams = Promise<{
   admin_preview?: string;
 }>;
 
+// 详情页是站外分享与搜索收录的落地页，metadata 必须带上文章自己的标题与摘要
+export async function generateMetadata({ params }: { params: EventParams }) {
+  const { id } = await params;
+  const event = await getEventDetail(id);
+  if (!event) {
+    return { title: "内容详情" };
+  }
+  const description = (event.summary ?? event.one_line_summary ?? "").slice(0, 120) || undefined;
+  return { title: event.title, description };
+}
+
 function formatScore(score?: number) {
   if (typeof score !== "number") {
     return "未评分";
@@ -26,9 +37,9 @@ function formatScore(score?: number) {
   return Math.round(score).toString();
 }
 
-function formatDateTime(value?: string, contentOrigin?: string, timeBasis?: string) {
+function formatDateTime(value?: string, _contentOrigin?: string, timeBasis?: string) {
   if (!value) {
-    return contentOrigin === "telegram_rss_description" ? "RSS 未提供发布时间" : "暂无时间";
+    return "发布时间未知";
   }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {

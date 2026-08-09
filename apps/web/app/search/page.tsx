@@ -3,6 +3,11 @@ import { eventHref, searchEvents } from "@/lib/events";
 import { MobileNav } from "@/components/mobile-nav";
 import { Sidebar } from "@/components/sidebar";
 
+export const metadata = {
+  title: "搜索",
+  description: "在近 7 天精选内容里按标题、标签、来源或摘要检索。",
+};
+
 type SearchParams = Promise<{
   q?: string | string[];
 }>;
@@ -36,7 +41,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Searc
         <section className="px-5 py-6 md:px-9">
           <header className="rounded-md border border-line bg-panel p-5">
             <h1 className="text-2xl font-semibold text-ink">搜索</h1>
-            <p className="mt-1.5 text-sm text-ink-mid">按标题、标签、来源或摘要检索全部事件</p>
+            <p className="mt-1.5 text-sm text-ink-mid">在近 7 天精选内容里检索，更早的内容可去「全部 AI 动态」查找</p>
 
             <form className="mt-4 grid gap-3 md:grid-cols-[1fr_120px]" action="/search">
               <input
@@ -65,7 +70,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Searc
             <div>
               <h2 className="text-lg font-semibold text-ink">搜索结果</h2>
               <p className="mt-2 text-sm text-ink-mid">
-                {query.trim() ? `关键词：${query.trim()}` : "未输入关键词时展示全部当前事件。"}
+                {query.trim() ? `关键词：${query.trim()}` : "未输入关键词时，展示近 7 天全部精选内容。"}
               </p>
             </div>
             <div className="text-sm text-ink-mid">{results.length} 条</div>
@@ -94,7 +99,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Searc
                 </article>
               ))
             ) : (
-              <p className="py-8 text-sm text-ink-mid">没有匹配的事件。</p>
+              <p className="py-8 text-sm text-ink-mid">没有找到匹配的内容。</p>
             )}
           </div>
         </section>
