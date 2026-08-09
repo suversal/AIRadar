@@ -24,8 +24,9 @@ fi
 {
   echo "==== refresh started $(date -u +%FT%TZ) ===="
   "$PYTHON" "$ROOT/scripts/run_crawl_once.py" --report data/crawl_report.json
-  # X 推文走独立同步表不进 LLM 管线；SourcePilot 不在线不该拦住日报生成
-  "$PYTHON" "$ROOT/scripts/sync_x_tweets.py" || echo "WARN x tweets sync failed"
+  # 注意：X 推文同步已挂进应用内 refresh（refresh_service._run_refresh），
+  # 那才是活跃入口；此脚本是备用/手动入口，不在这里重复同步，避免两条链
+  # 都跑时重复拉取。手动只跑 X 同步用 scripts/sync_x_tweets.py。
   "$PYTHON" "$ROOT/scripts/run_pipeline_once.py" --persist-db
   echo "==== refresh finished $(date -u +%FT%TZ) ===="
 } >> "$LOG_DIR/refresh.log" 2>&1

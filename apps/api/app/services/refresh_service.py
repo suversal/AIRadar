@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -22,6 +23,8 @@ from app.storage.json_store import (
     save_sources,
     write_json,
 )
+
+logger = logging.getLogger(__name__)
 
 
 AUTO_SEEDED_SOURCE_IDS = {
@@ -347,6 +350,25 @@ def _run_refresh(
     sources = _load_sources(database_url, sources_path)
 
     raw_articles, crawl_report = crawl_sources(sources)
+
+    # X 推文镜像同步（SourcePilot Phase 4）。挂在应用内定时 refresh 里，而不是
+    # run_scheduled_refresh.sh——后者早已不是活跃入口（实测停在 2026-08-06），
+    # 真正在跑的是这条 refresh_latest_report 链路。推文走独立同步表、不进 LLM
+    # 管线，所以放在 crawl 之后、pipeline 之前，与 raw_articles 互不相干。
+    # best-effort：SP 不在线不该拦住 AR 出日报。
+    if database_url:
+        try:
+            from app.db.session import build_session_factory, session_scope
+            from app.repositories.radar_repository import RadarRepository
+            from app.services.x_tweets_sync import sync_x_tweets
+
+            session_factory = build_session_factory(database_url)
+            with session_scope(session_factory) as session:
+                x_report = sync_x_tweets(RadarRepository(session))
+            logger.info("X tweets sync in refresh: %s", x_report)
+        except Exception:
+            logger.warning("X tweets sync failed during refresh", exc_info=True)
+
     # 只处理最近 N 天发布(上海时区,2026-07-12 深夜决策,2026-07-15 从固定
     # "仅当天"改为按信源 config.recent_days 配置):feed 的陈年存量在
     # intake 之前出局,不入库、不进任何统计;标记 ingest_all_dates 的源
