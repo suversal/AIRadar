@@ -139,7 +139,7 @@ export default async function TweetsPage({ searchParams }: { searchParams: XSear
             />
             <div className="mt-3 md:mt-4 md:flex md:items-end md:justify-between md:border-b md:border-line md:pb-4">
               <div>
-                <h1 className="text-2xl font-semibold text-ink">X 推文</h1>
+                <h1 className="text-2xl font-semibold text-ink">推文</h1>
                 <p className="mt-1.5 text-sm text-ink-mid">
                   AI·RADAR 跟踪的 X 账号与话题，推文原样呈现，不经 AI 筛选
                 </p>

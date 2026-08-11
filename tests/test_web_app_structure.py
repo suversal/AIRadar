@@ -26,6 +26,8 @@ class WebAppStructureTests(unittest.TestCase):
             "middleware.ts",
             "app/api/refresh-latest/route.ts",
             "app/all/page.tsx",
+            "app/telegram/page.tsx",
+            "app/api/telegram-events/route.ts",
             "app/search/page.tsx",
             "app/daily/page.tsx",
             "app/reports/report-shell.tsx",
@@ -226,9 +228,23 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("Sidebar", latest_page)
         self.assertIn("RadarStatus", latest_page)
         self.assertIn("AI·RADAR", sidebar)
-        for label in ["精选", "全部 AI 动态", "AI 日报", "主题", "收藏", "Agent 接入", "关于", "更新日志", "反馈"]:
+        for label in ["精选", "推文", "电报", "全部 AI 动态", "AI 日报", "主题", "收藏", "Agent 接入", "关于", "更新日志", "反馈"]:
             self.assertIn(label, nav)
         self.assertIn('href: "/all"', nav)
+
+    def test_telegram_page_uses_rsshub_channel_api_and_sits_below_x_nav(self):
+        api_source = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
+        telegram_page = (WEB / "app" / "telegram" / "page.tsx").read_text(
+            encoding="utf-8"
+        )
+        nav = (WEB / "components" / "nav.ts").read_text(encoding="utf-8")
+
+        self.assertIn("/api/public/telegram", api_source)
+        self.assertIn("getTelegramEvents", telegram_page)
+        self.assertIn('activeNavId="telegram"', telegram_page)
+        self.assertIn("payload.channels.map", telegram_page)
+        self.assertLess(nav.index('label: "推文"'), nav.index('label: "电报"'))
+        self.assertLess(nav.index('label: "电报"'), nav.index('label: "全部 AI 动态"'))
 
     def test_admin_dashboard_exposes_refresh_report_button(self):
         button_source = (WEB / "app" / "admin" / "refresh-report-button.tsx").read_text(encoding="utf-8")
@@ -598,9 +614,9 @@ class WebAppStructureTests(unittest.TestCase):
             self.assertIn("本期主题", source)
 
         data_source = (WEB / "app" / "reports" / "report-data.ts").read_text(encoding="utf-8")
-        self.assertIn("独立事件", data_source)
-        self.assertIn("条精选", data_source)
-        self.assertIn("阅读本页", data_source)
+        self.assertIn("收录动态", data_source)
+        self.assertIn("入选精选", data_source)
+        self.assertIn("阅读时间", data_source)
 
     def test_event_detail_page_links_from_latest_and_daily_views(self):
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
@@ -707,7 +723,7 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("AllEventsFeed", all_page)
         self.assertIn("eventHref", event_card)
         self.assertIn("全部 AI 动态", all_page)
-        self.assertIn("AI 相关资讯全量信息流", all_page)
+        self.assertIn("没进精选的动态也都在这里", all_page)
         self.assertIn("Sidebar", all_page)
         self.assertIn("精选", event_card)
         self.assertIn("sourceOptions", all_page)

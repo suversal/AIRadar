@@ -359,6 +359,68 @@ def create_app(
             offset=offset,
         )
 
+    @app.get("/api/public/telegram")
+    def telegram_events(
+        days: int = 30,
+        channel: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict:
+        """Processed articles from active RSSHub Telegram channel sources.
+
+        Telegram posts use the normal article pipeline and stay as independent
+        rows in the all-events repository. Filtering by the raw article's
+        source id keeps a Telegram post visible even when its event cluster's
+        representative article comes from a different source.
+        """
+        if days < 1 or days > 90:
+            raise HTTPException(status_code=400, detail="days must be between 1 and 90")
+        if limit < 1 or limit > 200:
+            raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
+        if offset < 0:
+            raise HTTPException(status_code=400, detail="offset must be non-negative")
+
+        end_date = date.today()
+        start_date = end_date - timedelta(days=days - 1)
+        with report_repository_context() as repository:
+            telegram_sources = sorted(
+                (
+                    source
+                    for source in repository.get_all_sources()
+                    if source.type == "telegram_rss" and source.is_active
+                ),
+                key=lambda source: source.name,
+            )
+            available_ids = {source.id for source in telegram_sources}
+            if channel and channel not in available_ids:
+                raise HTTPException(status_code=400, detail="unknown Telegram channel")
+            source_ids = [channel] if channel else [source.id for source in telegram_sources]
+            items, total, updated_at = repository.count_and_get_all_event_items_between(
+                start_date,
+                end_date,
+                source_ids=source_ids,
+                limit=limit,
+                offset=offset,
+            )
+
+        return {
+            "updated_at": updated_at,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "article_count": len(items),
+            "channels": [
+                {
+                    "id": source.id,
+                    "name": source.name,
+                    "username": str(source.config.get("channel") or ""),
+                    "homepage": source.homepage,
+                }
+                for source in telegram_sources
+            ],
+            "items": items,
+        }
+
     @app.get("/api/public/hotspots")
     def hotspots(
         hours: int = 48,

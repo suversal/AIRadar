@@ -2190,6 +2190,7 @@ class RadarRepository:
         *,
         category: str | None = None,
         source: str | None = None,
+        source_ids: list[str] | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[dict[str, Any]], int, str | None]:
@@ -2206,6 +2207,10 @@ class RadarRepository:
         into SQL would mean keeping two copies of that logic in sync - not
         worth the risk for filters used far less often than the default view."""
         query = self._all_events_query(start_date, end_date)
+        if source_ids is not None:
+            if not source_ids:
+                return [], 0, None
+            query = query.where(RawArticleModel.source_id.in_(source_ids))
         if category:
             legacy_categories = scoring_categories_for_focus(category)
             query = query.where(

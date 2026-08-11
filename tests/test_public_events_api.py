@@ -4,6 +4,7 @@ import sys
 import unittest
 from datetime import date, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
@@ -94,13 +95,13 @@ class PublicEventRouteTests(unittest.TestCase):
         app = module.create_app(report_repository_factory=lambda: repository)
         return TestClient(app), repository
 
+    def _current_payloads(self, items):
+        today = date.today()
+        return {today: make_daily_payload(today.isoformat(), items)}
+
     def test_events_route_reads_processed_article_items_from_repository(self):
         client, repository = self._client(
-            {
-                date(2026, 7, 8): make_daily_payload(
-                    "2026-07-08", [make_item("evt-1"), make_item("evt-2")]
-                )
-            }
+            self._current_payloads([make_item("evt-1"), make_item("evt-2")])
         )
 
         response = client.get("/api/public/events")
@@ -169,15 +170,12 @@ class PublicEventRouteTests(unittest.TestCase):
 
     def test_topics_route_returns_grouped_counts(self):
         client, _ = self._client(
-            {
-                date(2026, 7, 8): make_daily_payload(
-                    "2026-07-08",
-                    [
-                        make_item("evt-1", title="OpenAI releases agent model"),
-                        make_item("evt-2", title="Claude 5 launches"),
-                    ],
-                )
-            }
+            self._current_payloads(
+                [
+                    make_item("evt-1", title="OpenAI releases agent model"),
+                    make_item("evt-2", title="Claude 5 launches"),
+                ]
+            )
         )
 
         response = client.get("/api/public/topics")
@@ -194,15 +192,12 @@ class PublicEventRouteTests(unittest.TestCase):
 
     def test_events_route_accepts_topic_param(self):
         client, _ = self._client(
-            {
-                date(2026, 7, 8): make_daily_payload(
-                    "2026-07-08",
-                    [
-                        make_item("evt-1", title="OpenAI releases agent model"),
-                        make_item("evt-2", title="Claude 5 launches"),
-                    ],
-                )
-            }
+            self._current_payloads(
+                [
+                    make_item("evt-1", title="OpenAI releases agent model"),
+                    make_item("evt-2", title="Claude 5 launches"),
+                ]
+            )
         )
 
         response = client.get("/api/public/events?topic=anthropic")
@@ -214,25 +209,22 @@ class PublicEventRouteTests(unittest.TestCase):
 
     def test_events_route_filters_by_focus_before_pagination(self):
         client, _ = self._client(
-            {
-                date(2026, 7, 8): make_daily_payload(
-                    "2026-07-08",
-                    [
-                        make_item(
-                            "evt-1",
-                            category="product",
-                            scoring_category="open_source",
-                            focus_category="model",
-                        ),
-                        make_item(
-                            "evt-2",
-                            category="product",
-                            scoring_category="open_source",
-                            focus_category="product",
-                        ),
-                    ],
-                )
-            }
+            self._current_payloads(
+                [
+                    make_item(
+                        "evt-1",
+                        category="product",
+                        scoring_category="open_source",
+                        focus_category="model",
+                    ),
+                    make_item(
+                        "evt-2",
+                        category="product",
+                        scoring_category="open_source",
+                        focus_category="product",
+                    ),
+                ]
+            )
         )
 
         response = client.get("/api/public/events?focus=model&limit=1")
@@ -244,31 +236,28 @@ class PublicEventRouteTests(unittest.TestCase):
 
     def test_events_route_filters_by_source_before_pagination(self):
         client, _ = self._client(
-            {
-                date(2026, 7, 8): make_daily_payload(
-                    "2026-07-08",
-                    [
-                        make_item(
-                            "evt-official",
-                            main_source={
-                                "name": "OpenAI Blog",
-                                "url": "https://openai.com/news",
-                                "tier": "T1",
-                                "category": "official",
-                            },
-                        ),
-                        make_item(
-                            "evt-media",
-                            main_source={
-                                "name": "TechCrunch",
-                                "url": "https://techcrunch.com/ai",
-                                "tier": "T2",
-                                "category": "media",
-                            },
-                        ),
-                    ],
-                )
-            }
+            self._current_payloads(
+                [
+                    make_item(
+                        "evt-official",
+                        main_source={
+                            "name": "OpenAI Blog",
+                            "url": "https://openai.com/news",
+                            "tier": "T1",
+                            "category": "official",
+                        },
+                    ),
+                    make_item(
+                        "evt-media",
+                        main_source={
+                            "name": "TechCrunch",
+                            "url": "https://techcrunch.com/ai",
+                            "tier": "T2",
+                            "category": "media",
+                        },
+                    ),
+                ]
+            )
         )
 
         response = client.get("/api/public/events?source=first_party&limit=1")
@@ -280,23 +269,20 @@ class PublicEventRouteTests(unittest.TestCase):
 
     def test_events_route_filters_exact_tag_before_pagination(self):
         client, _ = self._client(
-            {
-                date(2026, 7, 8): make_daily_payload(
-                    "2026-07-08",
-                    [
-                        make_item(
-                            "evt-tagged",
-                            title="Frontier model release",
-                            tags=["OpenAI", "模型"],
-                        ),
-                        make_item(
-                            "evt-mentioned",
-                            title="Microsoft replaces OpenAI technology",
-                            tags=["Microsoft", "产品"],
-                        ),
-                    ],
-                )
-            }
+            self._current_payloads(
+                [
+                    make_item(
+                        "evt-tagged",
+                        title="Frontier model release",
+                        tags=["OpenAI", "模型"],
+                    ),
+                    make_item(
+                        "evt-mentioned",
+                        title="Microsoft replaces OpenAI technology",
+                        tags=["Microsoft", "产品"],
+                    ),
+                ]
+            )
         )
 
         response = client.get("/api/public/events?tag=openai&limit=1")
@@ -305,6 +291,108 @@ class PublicEventRouteTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["total"], 1)
         self.assertEqual(body["items"][0]["event_id"], "evt-tagged")
+
+    def test_telegram_route_lists_active_rsshub_channels_and_filters_articles(self):
+        today = date.today()
+        client, repository = self._client(
+            {
+                today: make_daily_payload(
+                    today.isoformat(),
+                    [
+                        make_item(
+                            "evt-zaihua",
+                            main_source={
+                                "id": "telegram_zaihuapd",
+                                "name": "在花频道",
+                                "url": "https://t.me/zaihuapd/1",
+                                "tier": "T3",
+                                "category": "community",
+                            },
+                        ),
+                        make_item(
+                            "evt-loopdns",
+                            main_source={
+                                "id": "telegram_dnspodt",
+                                "name": "LoopDNS 资讯播报",
+                                "url": "https://t.me/DNSPODT/2",
+                                "tier": "T3",
+                                "category": "community",
+                            },
+                        ),
+                        make_item(
+                            "evt-official",
+                            main_source={
+                                "id": "openai_blog",
+                                "name": "OpenAI Blog",
+                                "url": "https://openai.com/news",
+                                "tier": "T1",
+                                "category": "official",
+                            },
+                        ),
+                    ],
+                )
+            }
+        )
+        repository.sources = [
+            SimpleNamespace(
+                id="telegram_zaihuapd",
+                name="在花频道",
+                type="telegram_rss",
+                is_active=True,
+                homepage="https://t.me/zaihuapd",
+                config={"channel": "zaihuapd"},
+            ),
+            SimpleNamespace(
+                id="telegram_dnspodt",
+                name="LoopDNS 资讯播报",
+                type="telegram_rss",
+                is_active=True,
+                homepage="https://t.me/DNSPODT",
+                config={"channel": "DNSPODT"},
+            ),
+            SimpleNamespace(
+                id="telegram_disabled",
+                name="停用频道",
+                type="telegram_rss",
+                is_active=False,
+                homepage="https://t.me/disabled",
+                config={"channel": "disabled"},
+            ),
+            SimpleNamespace(
+                id="openai_blog",
+                name="OpenAI Blog",
+                type="rss",
+                is_active=True,
+                homepage="https://openai.com",
+                config={},
+            ),
+        ]
+
+        all_response = client.get("/api/public/telegram")
+        response = client.get("/api/public/telegram?channel=telegram_zaihuapd")
+
+        self.assertEqual(all_response.status_code, 200)
+        self.assertEqual(all_response.json()["total"], 2)
+        self.assertEqual(
+            {item["event_id"] for item in all_response.json()["items"]},
+            {"evt-zaihua", "evt-loopdns"},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["total"], 1)
+        self.assertEqual(body["items"][0]["event_id"], "evt-zaihua")
+        self.assertEqual(
+            {channel["id"] for channel in body["channels"]},
+            {"telegram_zaihuapd", "telegram_dnspodt"},
+        )
+
+    def test_telegram_route_rejects_unknown_channel(self):
+        client, repository = self._client({})
+        repository.sources = []
+
+        response = client.get("/api/public/telegram?channel=not-configured")
+
+        self.assertEqual(response.status_code, 400)
 
     def test_weekly_route_serves_persisted_report_by_key_and_date(self):
         client, repository = self._client(
@@ -459,6 +547,7 @@ class FakeRepository:
         self.period_archive = {}
         self.daily_dates = []
         self.event_items_by_id = {}
+        self.sources = []
 
     def get_latest_daily_report_payload(self):
         self.calls.append("latest")
@@ -494,6 +583,7 @@ class FakeRepository:
         *,
         category=None,
         source=None,
+        source_ids=None,
         limit=50,
         offset=0,
     ):
@@ -516,10 +606,19 @@ class FakeRepository:
                 if source_filter_bucket((item.get("main_source") or {}).get("category"))
                 == source
             ]
+        if source_ids is not None:
+            items = [
+                item
+                for item in items
+                if (item.get("main_source") or {}).get("id") in source_ids
+            ]
         items = sorted(items, key=lambda item: str(item.get("published_at") or ""), reverse=True)
         total = len(items)
         updated_at = items[0]["published_at"] if items else None
         return items[offset : offset + limit], total, updated_at
+
+    def get_all_sources(self):
+        return list(self.sources)
 
     def get_event_item(self, event_id):
         self.calls.append(f"event:{event_id}")

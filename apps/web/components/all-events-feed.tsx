@@ -116,6 +116,10 @@ export function AllEventsFeed({
   selectedSource,
   selectedCategory,
   query,
+  paginationPath = "/api/all-events",
+  paginationParams = {},
+  emptyMessage = "当前筛选条件下没有 AI 动态。",
+  completeLabel = `近 ${DAYS} 天全部`,
 }: {
   initialItems: LatestEvent[];
   initialTotal: number;
@@ -124,6 +128,10 @@ export function AllEventsFeed({
   selectedSource: string;
   selectedCategory: string;
   query: string;
+  paginationPath?: string;
+  paginationParams?: Record<string, string>;
+  emptyMessage?: string;
+  completeLabel?: string;
 }) {
   const [items, setItems] = useState(initialItems);
   const [total, setTotal] = useState(initialTotal);
@@ -156,6 +164,7 @@ export function AllEventsFeed({
   // items change, which would otherwise re-trigger the observer effect
   const itemsRef = useRef(items);
   itemsRef.current = items;
+  const paginationQuery = new URLSearchParams(paginationParams).toString();
 
   const loadMore = useCallback(async () => {
     if (loadingRef.current) return;
@@ -183,7 +192,8 @@ export function AllEventsFeed({
       if (query) {
         params.set("q", query);
       }
-      const response = await fetch(`/api/all-events?${params}`, { cache: "no-store" });
+      new URLSearchParams(paginationQuery).forEach((value, key) => params.set(key, value));
+      const response = await fetch(`${paginationPath}?${params}`, { cache: "no-store" });
       if (!response.ok) {
         throw new Error(`请求失败（${response.status}）`);
       }
@@ -196,7 +206,7 @@ export function AllEventsFeed({
       loadingRef.current = false;
       setLoading(false);
     }
-  }, [query, selectedCategory, selectedSource, tag, topic]);
+  }, [paginationPath, paginationQuery, query, selectedCategory, selectedSource, tag, topic]);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
@@ -243,7 +253,7 @@ export function AllEventsFeed({
         ))
       ) : (
         <div className="rounded-md border border-line bg-panel p-8 text-sm text-ink-mid">
-          当前筛选条件下没有 AI 动态。
+          {emptyMessage}
         </div>
       )}
 
@@ -268,7 +278,7 @@ export function AllEventsFeed({
         </div>
       ) : items.length > 0 ? (
         <p className="mt-6 text-center text-xs text-ink-dim">
-          已显示近 {DAYS} 天全部 {total} 条动态
+          已显示{completeLabel} {total} 条动态
         </p>
       ) : null}
     </section>

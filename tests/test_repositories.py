@@ -1135,6 +1135,68 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(news_total, 0)
         self.assertEqual(news_items, [])
 
+    def test_count_and_get_all_event_items_between_filters_exact_source_ids(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        telegram_source = Source(
+            id="telegram_zaihuapd",
+            name="在花频道",
+            source_role="aggregator",
+            tier="T3",
+            type="telegram_rss",
+            category="community",
+            url="https://rsshub.app/telegram/channel/zaihuapd",
+            homepage="https://t.me/zaihuapd",
+            allowed_domains=["t.me", "telegram.me"],
+            can_be_main_source=False,
+            config={"channel": "zaihuapd"},
+        )
+        telegram_article = RawArticle(
+            id="telegram-a1",
+            source_id=telegram_source.id,
+            source_name=telegram_source.name,
+            source_role=telegram_source.source_role,
+            source_tier=telegram_source.tier,
+            source_url="https://t.me/zaihuapd/1",
+            title="电报动态",
+            content="一条 AI 电报动态",
+            author=None,
+            published_at=datetime(2026, 7, 1, 10, tzinfo=timezone.utc),
+            language="zh",
+            raw_score={"score": 1},
+            metadata={"source_type": "telegram_rss"},
+            title_hash="title-telegram-a1",
+            url_hash="url-telegram-a1",
+        )
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source(), telegram_source])
+            repository.upsert_raw_articles(
+                [
+                    self._article(
+                        article_id="official-a1",
+                        title="官方动态",
+                        url_hash="url-official-a1",
+                    ),
+                    telegram_article,
+                ]
+            )
+            repository.upsert_processed_articles(
+                [self._processed("official-a1"), self._processed("telegram-a1")]
+            )
+            session.commit()
+
+            items, total, _ = repository.count_and_get_all_event_items_between(
+                date(2026, 7, 1),
+                date(2026, 7, 1),
+                source_ids=[telegram_source.id],
+                limit=10,
+            )
+
+        self.assertEqual(total, 1)
+        self.assertEqual(items[0]["main_source"]["id"], telegram_source.id)
+
     def test_event_item_includes_coverage_from_every_clustered_source(self):
         # 事件详情页"同一事件·N家报道"板块的数据来源：event_cluster_articles
         # 里的每个成员都要出现，隐藏的成员要被排除，且不是 dedup 用途。

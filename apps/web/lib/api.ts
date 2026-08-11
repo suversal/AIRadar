@@ -308,6 +308,24 @@ export type AllEventsPayload = {
   error?: string | null;
 };
 
+export type TelegramChannel = {
+  id: string;
+  name: string;
+  username: string;
+  homepage: string;
+};
+
+export type TelegramEventsPayload = {
+  updated_at: string | null;
+  total: number;
+  limit: number;
+  offset: number;
+  article_count: number;
+  channels: TelegramChannel[];
+  items: LatestEvent[];
+  error?: string | null;
+};
+
 export type PeriodReport = {
   mode: "weekly" | "monthly";
   period_key?: string;
@@ -341,6 +359,19 @@ function emptyAllEvents(error: string): AllEventsPayload {
     limit: 0,
     offset: 0,
     article_count: 0,
+    items: [],
+    error,
+  };
+}
+
+function emptyTelegramEvents(error: string): TelegramEventsPayload {
+  return {
+    updated_at: null,
+    total: 0,
+    limit: 0,
+    offset: 0,
+    article_count: 0,
+    channels: [],
     items: [],
     error,
   };
@@ -394,6 +425,39 @@ export async function getAllEvents(
     return { ...payload, error: null };
   } catch (error) {
     return emptyAllEvents(latestLoadErrorMessage(error));
+  }
+}
+
+export async function getTelegramEvents(
+  params: {
+    days?: number;
+    channel?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<TelegramEventsPayload> {
+  const search = new URLSearchParams();
+  search.set("days", String(params.days ?? 30));
+  search.set("limit", String(params.limit ?? 50));
+  if (params.channel) {
+    search.set("channel", params.channel);
+  }
+  if (typeof params.offset === "number") {
+    search.set("offset", String(params.offset));
+  }
+  try {
+    const response = await fetch(`${getApiBaseUrl()}/api/public/telegram?${search}`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return emptyTelegramEvents(
+        `API 服务暂时不可用：telegram 接口返回 ${response.status}。`,
+      );
+    }
+    const payload = (await response.json()) as TelegramEventsPayload;
+    return { ...payload, error: null };
+  } catch (error) {
+    return emptyTelegramEvents(latestLoadErrorMessage(error));
   }
 }
 

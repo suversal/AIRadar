@@ -14,7 +14,7 @@ export async function generateMetadata({
   const date = Array.isArray(resolved.date) ? resolved.date[0] : resolved.date;
   return {
     title: date ? `AI 日报 ${date}` : "AI 日报",
-    description: "每天早上 8 点更新的 AI 精选日报：当日高价值动态、重点栏目与标签一页读完。",
+    description: "全天滚动更新的 AI 精选日报：当日高价值动态、重点栏目与标签一页读完，次日定稿。",
   };
 }
 
@@ -160,7 +160,7 @@ export default async function DailyPage({
           <div className="mt-6 grid items-center gap-4 text-sm text-ink-mid md:grid-cols-[auto_1fr_auto]">
             <span>{formatChineseDate(activeDate)}</span>
             <span className="hidden h-px bg-panel-soft md:block" />
-            <span>DAILY · 每天早上 8 点更新</span>
+            <span>DAILY · 全天滚动更新，次日定稿</span>
           </div>
           {(() => {
             const index = archiveDates.indexOf(activeDate);
