@@ -33,3 +33,10 @@ node_modules/
 # 真实内容只在本机；docs/2026-08-13-hardening-plan.md 里引用它的地方
 # 对外是死链，那是有意的。
 /docs/greenvps-deployment.md
+
+# iCloud 同步冲突副本。这个仓库在 ~/Documents 下、被 iCloud Drive 同步，
+# 文件被频繁改写时会生成 "xxx 2.md" / "xxx 3.json" 这种副本。
+# 2026-08-13 一天之内出现两次（route 2.ts、2026-08-13-hardening-plan 2.md），
+# 都是旧快照，误提交进来只会污染仓库。
+# 真要提交名字里带空格加数字的文件，用 git add -f。
+* [0-9].*
