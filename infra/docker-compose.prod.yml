@@ -23,10 +23,16 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
       POSTGRES_DB: radar
       TZ: Asia/Shanghai
-    # POSTGRES_BIND 控制监听地址：不设时维持历史行为（全网可达），
-    # greenvps 等公网裸奔的机器在 .env 里设成 127.0.0.1，只走 ssh 推数据。
+    # POSTGRES_BIND 控制监听地址，默认只听本机。数据同步走 ssh
+    # （scripts/sync_db_to_server.sh），线上不需要把 5432 开到公网。
+    #
+    # 2026-08-13 之前这里默认 0.0.0.0，理由是"不静默改变腾讯云那台在跑的生产机"。
+    # 那台机器当晚已停机，理由不复存在，而这个默认值本身是危险的：新机器只要忘了
+    # 在 .env 里配 POSTGRES_BIND，整个库就直接敞在公网上、只剩数据库密码在挡
+    # （腾讯云那台就这么敞了很久，直到 2026-08-13 才实测发现）。
+    # 真需要公网直连时在 .env 里显式写 POSTGRES_BIND=0.0.0.0 覆盖。
     ports:
-      - "${POSTGRES_BIND:-0.0.0.0}:5432:5432"
+      - "${POSTGRES_BIND:-127.0.0.1}:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro

@@ -18,21 +18,24 @@ node_modules/
 /output/
 .worktrees/
 
-# Local-only Tencent Cloud deployment, sync, and backup automation.
-/infra/launchd/com.suversal.ai-radar.autosync.plist
-/infra/launchd/com.suversal.ai-radar.backup.plist
-/scripts/auto_sync_watcher.sh
-/scripts/backup_local_db.sh
-/scripts/deploy_to_server.sh
-/scripts/deploy_targets.sh
-/scripts/sync_db_to_server.sh
-/scripts/rebuild_mobile_web.sh
+# 部署自动化里真正私密的只有"推到哪台机器"——地址、用户名、部署路径。这些收在
+# deploy_targets.local.sh，只有它不进仓库；脚本本体和 launchd 配置 2026-08-13 起
+# 已纳入版本管理。
+#
+# 在那之前六个脚本和两个 plist 全被 ignore，只存在于 Sue 这台 Mac 上、没有任何备份，
+# Mac 一坏就同时失去发布和同步能力（同目录的 refresh.plist 却是 tracked 的，
+# 长期不一致也没人注意到）。新机器照 deploy_targets.local.sh.example 复制一份填好即可。
+/scripts/deploy_targets.local.sh
 
 # 运维手册：含服务器公网 IP、SSH 端口与账号、部署路径。
 # 与上面那几个部署脚本同一理由——这是公开仓库，内部资料不进来。
 # 真实内容只在本机；docs/2026-08-13-hardening-plan.md 里引用它的地方
 # 对外是死链，那是有意的。
 /docs/greenvps-deployment.md
+# 腾讯云那份 2026-08-13 才补上：它一直是 tracked 状态（gitignore 对已跟踪文件无效），
+# 所以两份运维手册的处理方式长期不一致，直到当晚才发现。已 git rm --cached 移出。
+# 注意历史提交里仍留有它的内容——机器已停机、IP 作废，没做历史重写。
+/docs/tencent-cloud-deployment-ops.md
 
 # iCloud 同步冲突副本。这个仓库在 ~/Documents 下、被 iCloud Drive 同步，
 # 文件被频繁改写时会生成 "xxx 2.md" / "xxx 3.json" 这种副本。

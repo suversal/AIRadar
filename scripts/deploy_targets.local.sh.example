@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# 模板：复制成 deploy_targets.local.sh 再填自己的机器。
+#
+#   cp scripts/deploy_targets.local.sh.example scripts/deploy_targets.local.sh
+#
+# 真实文件不进 git（.gitignore 里有），因为含公网地址、用户名和部署路径。
+# 骨架（ssh/scp/rsync 重试、parse_targets）在 deploy_targets.sh 里，那个进仓库。
+
+# 不设 TARGET 时推哪台。
+#
+# ⚠️ 多目标是串行的，前面的目标失败会让整轮退出、后面的轮不到。所以**下线一台
+# 机器时先改这里再停机**，否则自动同步会全卡在那台死机器上，而且失败得很安静。
+DEFAULT_TARGET="prod"
+
+# 把目标名翻译成一组变量。每个分支必须设全下面六个（SERVER_FALLBACK 可选）：
+#
+#   TARGET_NAME     日志里显示的名字
+#   SERVER          ssh 目标。建议用 ~/.ssh/config 里的别名，这样端口和密钥
+#                   都收在 ssh config 里，脚本里不出现端口号
+#   SERVER_FALLBACK 备用通道，比如 IPv6 那条；不需要就留空
+#   REMOTE_DIR      远端部署目录
+#   BASE_URL        健康检查打哪个地址。站在 CDN 后面就填域名，不要填源站 IP,
+#                   否则直连会被源站的白名单挡掉、健康检查假报错
+#   DOCKER          远端跑 docker 的方式。用户在 docker 组就是 docker，
+#                   否则是 sudo docker——这个填错会让整次发布在最后一步挂掉
+#   COMPOSE_FILES   要叠加的 compose 文件
+resolve_target() {
+  # 每次解析都先清空，避免上一个目标的 fallback 泄漏到下一个
+  SERVER_FALLBACK=""
+  case "$1" in
+    prod)
+      TARGET_NAME="生产"
+      SERVER="myhost"                  # ~/.ssh/config 里的别名
+      SERVER_FALLBACK=""               # 例如 myhost-v6
+      REMOTE_DIR="/home/youruser/hotai"
+      BASE_URL="https://example.com"
+      DOCKER="docker"                  # 或 "sudo docker"
+      COMPOSE_FILES="-f infra/docker-compose.prod.yml"
+      ;;
+    # 站在 Cloudflare 后面、需要 443 的目标要多叠一层 https override：
+    # COMPOSE_FILES="-f infra/docker-compose.prod.yml -f infra/docker-compose.https.yml"
+    *)
+      echo "未知部署目标：$1" >&2
+      return 1
+      ;;
+  esac
+}
