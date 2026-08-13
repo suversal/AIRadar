@@ -228,7 +228,7 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("Sidebar", latest_page)
         self.assertIn("RadarStatus", latest_page)
         self.assertIn("AI·RADAR", sidebar)
-        for label in ["精选", "推文", "电报", "全部 AI 动态", "AI 日报", "主题", "收藏", "Agent 接入", "关于", "更新日志", "反馈"]:
+        for label in ["精选", "推文", "电报", "全部", "日报", "主题", "收藏", "Agent 接入", "关于", "更新日志", "反馈"]:
             self.assertIn(label, nav)
         self.assertIn('href: "/all"', nav)
 
@@ -244,7 +244,7 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn('activeNavId="telegram"', telegram_page)
         self.assertIn("payload.channels.map", telegram_page)
         self.assertLess(nav.index('label: "推文"'), nav.index('label: "电报"'))
-        self.assertLess(nav.index('label: "电报"'), nav.index('label: "全部 AI 动态"'))
+        self.assertLess(nav.index('label: "电报"'), nav.index('label: "全部"'))
 
     def test_admin_dashboard_exposes_refresh_report_button(self):
         button_source = (WEB / "app" / "admin" / "refresh-report-button.tsx").read_text(encoding="utf-8")
@@ -805,6 +805,20 @@ class WebAppStructureTests(unittest.TestCase):
         layer_opens = list(re.finditer(r"@layer\s+(\w+)\s*\{", preceding))
         self.assertTrue(layer_opens, "the <a> reset must be wrapped in @layer base")
         self.assertEqual(layer_opens[-1].group(1), "base")
+
+    def test_tweet_lightbox_is_portalled_out_of_the_card(self):
+        """推文大图弹层必须 portal 到 <body>：卡片 hover 时 .card-hover 给自己
+        上了 transform，带 transform 的祖先会接管后代 position:fixed 的包含块，
+        弹层于是变成「以卡片居中」，位置随卡片飘。"""
+        tweet_card = (WEB / "components" / "tweet-card.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("createPortal", tweet_card)
+        self.assertIn("document.body", tweet_card)
+        # 弹层本身仍靠 fixed inset-0 占满视口
+        self.assertIn("fixed inset-0 z-50 flex items-center justify-center", tweet_card)
+        # 这条约束的前提：卡片 hover 确实带 transform
+        globals_css = (WEB / "app" / "globals.css").read_text(encoding="utf-8")
+        self.assertIn("transform: translateY(-2px)", globals_css)
 
 
 if __name__ == "__main__":

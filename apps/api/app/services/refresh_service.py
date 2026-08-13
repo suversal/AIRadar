@@ -415,6 +415,31 @@ def _run_refresh(
         except Exception:
             logger.warning("X tweets sync failed during refresh", exc_info=True)
 
+        # 中文化必须跟着同步一起跑。历史坑（2026-08-14 修）：翻译当初只挂在
+        # scripts/sync_x_tweets.py 上，后来同步搬进这条 refresh 链路时没把翻译
+        # 一起搬，而那个脚本早已不是活跃入口——结果线上英文推文长期零译文，
+        # 且没有任何报错（同步照常成功）。两者要留在同一个入口里。
+        # 独立 try：翻译挂了不该回滚已入库的推文。
+        try:
+            from app.db.session import build_session_factory, session_scope
+            from app.repositories.radar_repository import RadarRepository
+            from app.services.ai_service import FakeAIProvider
+            from app.services.x_tweets_translate import translate_x_tweets
+
+            translate_provider = provider_from_env()
+            if isinstance(translate_provider, FakeAIProvider):
+                # 没配 AI Key 时跳过，而不是把「译文：xxx」的假翻译写进库
+                logger.info("X tweets translation skipped: no ai provider configured")
+            else:
+                session_factory = build_session_factory(database_url)
+                with session_scope(session_factory) as session:
+                    translation_report = translate_x_tweets(
+                        RadarRepository(session), translate_provider
+                    )
+                logger.info("X tweets translation in refresh: %s", translation_report)
+        except Exception:
+            logger.warning("X tweets translation failed during refresh", exc_info=True)
+
     # 只处理最近 N 天发布(上海时区,2026-07-12 深夜决策,2026-07-15 从固定
     # "仅当天"改为按信源 config.recent_days 配置):feed 的陈年存量在
     # intake 之前出局,不入库、不进任何统计;标记 ingest_all_dates 的源

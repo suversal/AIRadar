@@ -355,5 +355,33 @@ class PersistAIUsageTests(unittest.TestCase):
             refresh_service._persist_ai_usage("postgresql://ignored", 1, provider)
 
 
+class XTweetsTranslationEntrypointTests(unittest.TestCase):
+    """回归（2026-08-14）：推文中文化当初只挂在 scripts/sync_x_tweets.py 上，
+    后来同步搬进 refresh_service._run_refresh 这条活跃链路时，翻译没跟着搬。
+    同步照常成功、没有任何报错，线上英文推文却长期零译文（388 条全无）。
+    同步和翻译必须留在同一个入口里。"""
+
+    def _refresh_source(self) -> str:
+        path = (
+            Path(__file__).resolve().parents[1]
+            / "apps"
+            / "api"
+            / "app"
+            / "services"
+            / "refresh_service.py"
+        )
+        return path.read_text(encoding="utf-8")
+
+    def test_refresh_translates_right_after_syncing(self):
+        source = self._refresh_source()
+        self.assertIn("sync_x_tweets(", source)
+        self.assertIn("translate_x_tweets(", source)
+
+    def test_refresh_skips_translation_without_a_real_provider(self):
+        """没配 AI Key 时 provider 是 FakeAIProvider，写进库的会是「译文：xxx」
+        这种假翻译——必须跳过，与 scripts/sync_x_tweets.py 的处理一致。"""
+        self.assertIn("FakeAIProvider", self._refresh_source())
+
+
 if __name__ == "__main__":
     unittest.main()

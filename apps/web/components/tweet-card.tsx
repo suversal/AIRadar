@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
@@ -139,6 +140,14 @@ function splitMediaFromMarkdown(markdown: string): { text: string; media: Extrac
 function MediaGrid({ media, alt }: { media: ExtractedMedia[]; alt: string }) {
   // 点击放大的弹层状态：null = 关闭，数字 = 当前看第几张
   const [lightbox, setLightbox] = useState<number | null>(null);
+  // 弹层必须 portal 到 <body>：卡片 hover 时 .card-hover 会给自己上
+  // transform，而带 transform 的祖先会接管后代 position:fixed 的包含块——
+  // 弹层于是变成"以卡片居中"，位置随卡片在页面里的位置飘。挂到 body 之后
+  // 才是真正的视口居中。SSR 阶段没有 document，先等挂载完成。
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   if (media.length === 0) {
     return null;
   }
@@ -197,50 +206,53 @@ function MediaGrid({ media, alt }: { media: ExtractedMedia[]; alt: string }) {
         ))}
       </div>
 
-      {lightbox !== null ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
-          onClick={() => setLightbox(null)}
-          role="presentation"
-        >
-          {media.length > 1 ? (
-            <button
-              className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-black/60 px-3 py-2 text-xl text-white"
-              onClick={(event) => {
-                event.stopPropagation();
-                setLightbox((lightbox - 1 + media.length) % media.length);
-              }}
-              type="button"
+      {lightbox !== null && mounted
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+              onClick={() => setLightbox(null)}
+              role="presentation"
             >
-              ‹
-            </button>
-          ) : null}
-          <img
-            alt={alt}
-            className="max-h-[90vh] max-w-[92vw] rounded-md object-contain"
-            src={proxiedImageUrl(media[lightbox].url)}
-          />
-          {media.length > 1 ? (
-            <button
-              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-black/60 px-3 py-2 text-xl text-white"
-              onClick={(event) => {
-                event.stopPropagation();
-                setLightbox((lightbox + 1) % media.length);
-              }}
-              type="button"
-            >
-              ›
-            </button>
-          ) : null}
-          <button
-            className="absolute right-3 top-3 rounded-full bg-black/60 px-3 py-1.5 text-sm text-white"
-            onClick={() => setLightbox(null)}
-            type="button"
-          >
-            关闭 ✕
-          </button>
-        </div>
-      ) : null}
+              {media.length > 1 ? (
+                <button
+                  className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-black/60 px-3 py-2 text-xl text-white"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setLightbox((lightbox - 1 + media.length) % media.length);
+                  }}
+                  type="button"
+                >
+                  ‹
+                </button>
+              ) : null}
+              <img
+                alt={alt}
+                className="max-h-[90vh] max-w-[92vw] rounded-md object-contain"
+                src={proxiedImageUrl(media[lightbox].url)}
+              />
+              {media.length > 1 ? (
+                <button
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-black/60 px-3 py-2 text-xl text-white"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setLightbox((lightbox + 1) % media.length);
+                  }}
+                  type="button"
+                >
+                  ›
+                </button>
+              ) : null}
+              <button
+                className="absolute right-3 top-3 rounded-full bg-black/60 px-3 py-1.5 text-sm text-white"
+                onClick={() => setLightbox(null)}
+                type="button"
+              >
+                关闭 ✕
+              </button>
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   );
 }

@@ -21,6 +21,24 @@ type ChangelogEntry = { date: string; title: string; changes: Change[] };
 
 const entries: ChangelogEntry[] = [
   {
+    date: "2026-08-14",
+    title: "推文翻译恢复与来源显示优化",
+    changes: [
+      {
+        kind: "修复",
+        text: "修复外文推文长期不出中文译文的问题：中文化环节此前没跟着推文同步一起运行，现已恢复，存量推文会逐轮补齐译文",
+      },
+      {
+        kind: "修复",
+        text: "推文大图点开后不再偏到卡片位置，改为始终在浏览器窗口正中显示",
+      },
+      {
+        kind: "优化",
+        text: "侧边栏「全部 AI 动态」简化为「全部」，「AI 日报」简化为「日报」",
+      },
+    ],
+  },
+  {
     date: "2026-08-11",
     title: "电报频道上线与内容入口调整",
     changes: [
