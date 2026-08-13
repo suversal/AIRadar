@@ -11,6 +11,7 @@ export const metadata = {
   title: "全部 AI 动态",
   description:
     "近 30 天的全部 AI 资讯，支持按分类、来源与主题筛选——没进精选的动态也都在这里。",
+  alternates: { canonical: "/all" },
 };
 
 type AllSearchParams = Promise<{

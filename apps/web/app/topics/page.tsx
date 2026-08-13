@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/sidebar";
 export const metadata = {
   title: "主题",
   description: "按模型、产品工具、技术方向和公司行业浏览近 30 天的 AI 动态。",
+  alternates: { canonical: "/topics" },
 };
 
 function topicHref(topicId: string) {

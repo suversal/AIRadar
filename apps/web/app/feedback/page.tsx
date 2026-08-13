@@ -4,6 +4,7 @@ import { StaticPage } from "@/components/static-page";
 export const metadata = {
   title: "反馈",
   description: "打分不准、页面出错、想要的功能——写下来就好，每一条都会看到。",
+  alternates: { canonical: "/feedback" },
 };
 
 export default function FeedbackPage() {

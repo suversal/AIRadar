@@ -15,6 +15,8 @@ export async function generateMetadata({
   return {
     title: date ? `AI 日报 ${date}` : "AI 日报",
     description: "全天滚动更新的 AI 精选日报：当日高价值动态、重点栏目与标签一页读完，次日定稿。",
+    // 每一期日报是独立内容，带上 date 参数才不会被判成同一页的重复副本
+    alternates: { canonical: date ? `/daily?date=${date}` : "/daily" },
   };
 }
 

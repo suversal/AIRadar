@@ -12,6 +12,7 @@ export const metadata = {
   title: "精选",
   description:
     "AI 每天从数十个信源里筛出的高价值动态，同一件事的多方报道折叠为一条。",
+  alternates: { canonical: "/latest" },
 };
 
 type LatestSearchParams = Promise<{

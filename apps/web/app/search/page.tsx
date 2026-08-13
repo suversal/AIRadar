@@ -6,6 +6,7 @@ import { Sidebar } from "@/components/sidebar";
 export const metadata = {
   title: "搜索",
   description: "在近 7 天精选内容里按标题、标签、来源或摘要检索。",
+  alternates: { canonical: "/search" },
 };
 
 type SearchParams = Promise<{

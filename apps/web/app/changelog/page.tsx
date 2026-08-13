@@ -3,6 +3,7 @@ import { StaticPage } from "@/components/static-page";
 export const metadata = {
   title: "更新日志",
   description: "AI·RADAR 一路加了什么、改了什么，都记录在这里。",
+  alternates: { canonical: "/changelog" },
 };
 
 type ChangeKind = "新增" | "优化" | "修复";

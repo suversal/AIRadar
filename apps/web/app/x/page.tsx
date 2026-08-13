@@ -13,6 +13,7 @@ import { TweetCard } from "@/components/tweet-card";
 export const metadata = {
   title: "X 推文",
   description: "AI·RADAR 跟踪的 X 账号与话题，推文原样呈现，不经 AI 筛选。",
+  alternates: { canonical: "/x" },
 };
 
 type XSearchParams = Promise<{

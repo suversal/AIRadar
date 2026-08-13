@@ -3,14 +3,34 @@ import "./globals.css";
 import { ScrollToTopButton } from "@/components/scroll-to-top-button";
 import { ThemeInitScript } from "@/components/theme-init-script";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { siteDescription, siteTitle, siteUrl } from "@/lib/site";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: {
-    default: "AI·RADAR — 为创作者和开发者准备的 AI 情报雷达",
+    default: siteTitle,
     template: "%s · AI·RADAR",
   },
-  description:
-    "持续监听数十个高信噪比 AI 信源，用 AI 评分、聚类、去重，每天沉淀一期精选日报。为创作者和开发者准备的 AI 情报雷达。",
+  description: siteDescription,
+  applicationName: "AI·RADAR",
+  // og:image 由同目录的 opengraph-image.tsx 自动注入，这里不用手写
+  openGraph: {
+    type: "website",
+    siteName: "AI·RADAR",
+    locale: "zh_CN",
+    url: "/",
+    title: siteTitle,
+    description: siteDescription,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: siteTitle,
+    description: siteDescription,
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export const viewport: Viewport = {

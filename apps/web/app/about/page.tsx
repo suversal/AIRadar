@@ -3,6 +3,7 @@ import { StaticPage } from "@/components/static-page";
 export const metadata = {
   title: "关于",
   description: "AI·RADAR 是为创作者和开发者准备的 AI 情报雷达：监听数十个高信噪比信源，AI 评分聚类去重，每天一期精选日报。",
+  alternates: { canonical: "/about" },
 };
 
 export default function AboutPage() {

@@ -8,6 +8,7 @@ import { getTelegramEvents } from "@/lib/api";
 export const metadata = {
   title: "电报",
   description: "AI·RADAR 信源中的 RSSHub 电报频道动态。",
+  alternates: { canonical: "/telegram" },
 };
 
 type TelegramSearchParams = Promise<{

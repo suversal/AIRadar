@@ -3,6 +3,7 @@ import { StaticPage } from "@/components/static-page";
 export const metadata = {
   title: "Agent 接入",
   description: "AI·RADAR 的全部公开数据都可通过 HTTP API 读取，无需鉴权，供 Agent 或应用直接消费。",
+  alternates: { canonical: "/agent" },
 };
 
 const endpoints = [
