@@ -1,0 +1,15 @@
+# HTTPS + Cloudflare override，叠加在 docker-compose.prod.yml 之上：
+#   docker compose -f infra/docker-compose.prod.yml -f infra/docker-compose.https.yml ...
+# 只有站在 CF 后面、需要 443 的目标才带上（见 scripts/deploy_targets.sh 的 COMPOSE_FILES）。
+# 腾讯云不加载本文件，它的 nginx 依旧只监听 80、用 radar.conf、不需要证书。
+services:
+  nginx:
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # 用 CF 专用配置替换掉 prod.yml 里挂的 radar.conf
+      - ./nginx/radar-cf.conf:/etc/nginx/conf.d/default.conf:ro
+      # http 级配置：real_ip 还原 + $from_cloudflare 白名单变量，会被 conf.d/*.conf 自动 include
+      - ./nginx/cloudflare-ips.conf:/etc/nginx/conf.d/cloudflare-ips.conf:ro
+      - ../data/certs:/etc/nginx/certs:ro
