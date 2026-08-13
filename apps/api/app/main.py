@@ -944,7 +944,11 @@ def create_app(
     @app.post("/api/admin/uploads/images", dependencies=[admin_guard])
     async def admin_upload_manual_image(request: StarletteRequest) -> dict:
         _require_manual_feature("ADMIN_MANUAL_IMAGE_UPLOAD_ENABLED")
-        from app.services.manual_image_upload import ImageUploadError, upload_image_to_host
+        from app.services.manual_image_upload import (
+            ImageUploadError,
+            max_upload_bytes,
+            upload_image_to_host,
+        )
         from starlette.concurrency import run_in_threadpool
 
         try:
@@ -952,8 +956,8 @@ def create_app(
             upload = form.get("file")
             if upload is None or not hasattr(upload, "read"):
                 raise ImageUploadError("unsupported_image_type", "file is required", 415)
-            max_bytes = int(os.getenv("IMAGE_UPLOAD_MAX_BYTES", str(10 * 1024 * 1024)))
-            data = await upload.read(max_bytes + 1)
+            # 多读 1 字节，好让 upload_image_to_host 能判出「超限」而不是恰好读满
+            data = await upload.read(max_upload_bytes() + 1)
             src = await run_in_threadpool(
                 upload_image_to_host,
                 filename=str(getattr(upload, "filename", None) or "image"),
