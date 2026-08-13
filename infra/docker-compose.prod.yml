@@ -65,6 +65,11 @@ services:
       context: ..
       dockerfile: infra/Dockerfile.api
       args:
+        # ⚠️ 默认值是国内（腾讯）PyPI 镜像，那台机器 2026-08-13 已停机。
+        # 现在唯一的线上机器 greenvps 在美国，走这个默认值会明显变慢——
+        # 它在自己的 .env 里显式设了官方源覆盖掉，所以目前没暴露问题。
+        # 换句话说：这个默认值现在只对"忘了配 .env 的新机器"生效，而那多半是台海外机器。
+        # 没有直接改成官方源，是因为改默认值会影响未来可能的国内部署；留给部署方在 .env 里定。
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.cloud.tencent.com/pypi/simple}
     restart: unless-stopped
     logging:

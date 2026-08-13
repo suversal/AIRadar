@@ -2,6 +2,8 @@
 #   docker compose -f infra/docker-compose.prod.yml -f infra/docker-compose.https.yml ...
 # 只有站在 CF 后面、需要 443 的目标才带上（见 scripts/deploy_targets.sh 的 COMPOSE_FILES）。
 # 腾讯云不加载本文件，它的 nginx 依旧只监听 80、用 radar.conf、不需要证书。
+# （腾讯云 2026-08-13 已停机，这句现在只用于解释 radar.conf 为什么还留着；
+#  唯一在跑的 greenvps 始终加载本文件。）
 services:
   nginx:
     ports:

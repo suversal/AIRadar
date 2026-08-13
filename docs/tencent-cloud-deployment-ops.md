@@ -1,5 +1,20 @@
 # HotAI 腾讯云部署与运维手册
 
+> # 🔴 这台机器已于 2026-08-13 晚停机，本文档整篇是历史资料
+>
+> 线上服务全部由美国机器 greenvps 承载，见 [greenvps-deployment.md](greenvps-deployment.md)。
+>
+> **本文里的命令不要照着执行**：
+> - 无参数的 `deploy_to_server.sh` / `sync_db_to_server.sh` **默认目标已改成 `greenvps`**，
+>   不再指向本机（改动原因见 greenvps 文档第二节的事故记录）。要作用于本机得显式写 `TARGET=tencent`，
+>   而机器已关机，只会失败。
+> - `ssh ubuntu@175.24.182.233` 全部失效。停机后的表现是 **22 端口 TCP 能连通、但握手前被关**
+>   （`kex_exchange_identification: Connection closed`）——腾讯云边缘会替停机实例完成 TCP 握手，
+>   很容易误判成 sshd 挂了或防火墙拦了。这和 §3.4 记的"未放行端口也会完成握手"是同一个边缘行为。
+>
+> 保留本文的理由：里面的踩坑记录（边缘握手怪癖、hairpin 回环、rsync 排除规则）大多与云厂商无关，
+> 仍然适用；`infra/` 里那些 `radar.conf`、国内镜像源等分支也要靠它才能读懂。
+
 > 整理日期：2026-07-24
 > 服务器：腾讯云轻量应用服务器（Lighthouse）2C2G，Ubuntu 24.04，公网 IP `175.24.182.233`
 > 登录方式：`ssh ubuntu@175.24.182.233`（密钥登录）
@@ -146,7 +161,11 @@ bash scripts/deploy_to_server.sh
 bash scripts/sync_db_to_server.sh
 ```
 
-脚本内部流程：本地 `pg_dump -Fc` → scp → 服务器 `DROP/CREATE DATABASE` + `pg_restore` → 关闭线上调度器（`UPDATE refresh_schedule SET enabled=false`，防止恢复进来的本地调度配置让服务器自己跑爬取）→ 重启 api → 行数与 HTTP 验证。本地 `DATABASE_URL` 保持指向本地库 `localhost:5432`，与线上无直接连接。
+脚本内部流程：本地 `pg_dump -Fc` → scp → 服务器 `CREATE DATABASE radar_new` + `pg_restore` → 关闭线上调度器（`UPDATE refresh_schedule SET enabled=false`，防止恢复进来的本地调度配置让服务器自己跑爬取）→ **改名交换** `radar`↔`radar_new` → 重启 api → 删掉旧库 → 行数与 HTTP 验证。本地 `DATABASE_URL` 保持指向本地库 `localhost:5432`，与线上无直接连接。
+
+> **2026-08-13 改动**：原来是先 `DROP DATABASE radar` 再恢复，从 DROP 到 `pg_restore` 结束的**几十秒**里线上根本没有库，页面会渲染成"API 服务暂时不可用"。现在改成先把数据恢复进 `radar_new`（这期间线上仍在用旧库，零影响），最后才改名交换，停机收敛到"改名 + 重启 api"的 **2~3 秒**。
+>
+> 改名要求目标库没有活连接，所以交换前会先 `ALTER DATABASE radar WITH ALLOW_CONNECTIONS false` 再 `pg_terminate_backend`——只 terminate 不够，api 的连接池会在 terminate 和 rename 之间抢着重连。脚本里有 `trap`，中途失败会把库名和连接开关都还原。
 
 看门狗管理命令：
 
@@ -204,7 +223,21 @@ ssh ubuntu@175.24.182.233 "grep -E 'ADMIN_TOKEN|POSTGRES_PASSWORD' ~/hotai/.env"
 
 ### 3.8 安全注意事项
 
-- **5432 不对公网开放**：compose 里绑定 `127.0.0.1:5432:5432`，控制台防火墙也应删掉 5432 放行规则。数据同步只走 ssh（`scripts/sync_db_to_server.sh`）。若临时需要远程直连排查，用 SSH 隧道：`ssh -L 15432:localhost:5432 ubuntu@175.24.182.233`。
+- **🔴 5432 目前是对公网开放的（2026-08-13 实测，与本文档原先的描述不符）**。本节原来写的是"compose 里绑定 `127.0.0.1:5432:5432`"，但实际情况是：
+
+  ```
+  docker ps  →  0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp
+  .env       →  未设 POSTGRES_BIND
+  从境外另一台机器 TCP 探测 175.24.182.233:5432  →  可连通
+  ```
+
+  也就是说这个库现在**只靠数据库密码在挡**，安全组里的 5432 放行规则也没删。这是文档与现实脱节，不是本次改动引入的（`infra/docker-compose.prod.yml` 历史上就写的 `"5432:5432"`）。
+
+  修复办法（两步都要做，缺一不可）：
+  1. 服务器 `.env` 加一行 `POSTGRES_BIND=127.0.0.1`，然后 `sudo docker compose --env-file .env -f infra/docker-compose.prod.yml up -d postgres` 重建容器（约 10 秒不可用）；
+  2. 腾讯云控制台防火墙删掉 5432 的放行规则。
+
+  数据同步只走 ssh（`scripts/sync_db_to_server.sh`），不需要公网 5432。若临时需要远程直连排查，用 SSH 隧道：`ssh -L 15432:localhost:5432 ubuntu@175.24.182.233`。
 - `.env` 不进 git、不参与 rsync，只存在于服务器上；改动前先备份。
 - 暂无 HTTPS。后续绑定域名后，建议在 nginx 容器加 certbot 或换 caddy 自动签发证书，并在控制台放行 443。
 
