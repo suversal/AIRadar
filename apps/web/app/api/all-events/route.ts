@@ -1,4 +1,5 @@
 import { getAllEvents } from "@/lib/api";
+import { clampInt, DAYS_BOUNDS, LIMIT_BOUNDS, OFFSET_BOUNDS } from "@/lib/query-params";
 
 /** Thin proxy so the client-side "load more" feed on /all can page through
  * the day-scoped event window without talking to the backend's
@@ -6,9 +7,9 @@ import { getAllEvents } from "@/lib/api";
  * pattern). */
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const days = Number(url.searchParams.get("days") ?? "30") || 30;
-  const limit = Number(url.searchParams.get("limit") ?? "50") || 50;
-  const offset = Number(url.searchParams.get("offset") ?? "0") || 0;
+  const days = clampInt(url.searchParams.get("days"), DAYS_BOUNDS);
+  const limit = clampInt(url.searchParams.get("limit"), LIMIT_BOUNDS);
+  const offset = clampInt(url.searchParams.get("offset"), OFFSET_BOUNDS);
   const category = url.searchParams.get("category") ?? undefined;
   const focus = url.searchParams.get("focus") ?? undefined;
   const source = url.searchParams.get("source") ?? undefined;

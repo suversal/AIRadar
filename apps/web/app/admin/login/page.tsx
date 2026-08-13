@@ -21,6 +21,9 @@ async function login(formData: FormData) {
   const store = await cookies();
   store.set(ADMIN_COOKIE, token, {
     httpOnly: true,
+    // 线上全程走 HTTPS（CF → nginx → web），加 secure 让这个 cookie 永远不会
+    // 被明文发出去。本地开发是 http://localhost，加了就登不进去，所以按环境区分。
+    secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
     maxAge: 60 * 60 * 24 * 30,

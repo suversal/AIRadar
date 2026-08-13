@@ -252,6 +252,43 @@ def build_period_payload(
     }
 
 
+#: 周报/月报的对外负载里要剥掉的字段。
+#:
+#: 这些是文章正文本身。周月报页面一个都不用——它只渲染标题、推荐理由、
+#: 标签、来源数，而且每个板块只展示前 3 条（见 apps/web/app/reports/
+#: period-report-page.tsx）。但接口一直在把范围内**每一篇**文章的完整正文
+#: 都发出去：实测一份月报 476 条、16.4 MB，其中这几个字段占 96%。
+#:
+#: 是 2026-08-13 加缓存时被 Next 的构建日志暴露出来的——
+#: "items over 2MB can not be cached"，才发现这个负载有多大。
+#: 剥掉之后 items 从 11.6 MB 降到约 0.5 MB。
+#:
+#: 用"剥掉哪些"而不是"保留哪些"，是为了不误伤：将来给事件加了新字段，
+#: 页面能直接用上，不会因为忘了加进白名单而神秘地读不到值。
+PERIOD_ITEM_HEAVY_FIELDS = (
+    "original_blocks",
+    "original_content",
+    "original_images",
+    "original_markdown",
+    "original_paragraphs",
+    "translated_blocks",
+    "translated_content",
+    "translated_paragraphs",
+)
+
+
+def slim_period_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """把周月报条目里的文章正文剥掉，只留列表展示需要的部分。
+
+    只用在**对外读取**这条路径上。生成周月报 AI 摘要的那条路径
+    （refresh_service._regenerate_period_reports）拿的是 build_period_payload
+    的原始结果，不受影响——那边确实需要正文。"""
+    return [
+        {key: value for key, value in item.items() if key not in PERIOD_ITEM_HEAVY_FIELDS}
+        for item in items
+    ]
+
+
 def build_empty_daily_payload(report_date: date | None = None) -> dict[str, Any]:
     return {
         "report_date": report_date.isoformat() if report_date else None,

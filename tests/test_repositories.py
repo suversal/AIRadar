@@ -2374,6 +2374,39 @@ class RepositoryTests(unittest.TestCase):
         # last success timestamp survives the failure
         self.assertIsNotNone(failed_row.last_success_at)
 
+    def test_persistently_failing_sources_are_reported_for_alerting(self):
+        """信源静默失效是 AR 的一类真实风险：像 aihot_content 这种 best-effort
+        抓取器抓不到就降级、不抛异常，而每轮同步都会推一份 65 个信源的完整报告，
+        里面一两行变红根本不会被注意到。所以连续失败要能被单独捞出来告警。
+        见 docs/2026-08-13-hardening-plan.md 第 3.3 节。"""
+        from app.repositories.radar_repository import RadarRepository
+
+        failure = {"status": "skipped", "article_count": 0, "duration_ms": 10.0, "error": "HTTP 403"}
+        success = {"status": "ok", "article_count": 3, "duration_ms": 10.0, "error": None}
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            session.commit()
+
+            # 连续失败 2 次：还没到阈值，不该告警（对方偶发抽风很常见）
+            for _ in range(2):
+                repository.update_source_health({"openai_blog": failure})
+            session.commit()
+            self.assertEqual(repository.list_persistently_failing_sources(3), [])
+
+            # 第 3 次：达到阈值
+            repository.update_source_health({"openai_blog": failure})
+            session.commit()
+            flagged = repository.list_persistently_failing_sources(3)
+            self.assertEqual([entry["id"] for entry in flagged], ["openai_blog"])
+            self.assertEqual(flagged[0]["error_count"], 3)
+
+            # 恢复一次就应该从名单里消失，否则告警会一直响
+            repository.update_source_health({"openai_blog": success})
+            session.commit()
+            self.assertEqual(repository.list_persistently_failing_sources(3), [])
+
     def test_get_all_sources_returns_domain_objects(self):
         from app.repositories.radar_repository import RadarRepository
 

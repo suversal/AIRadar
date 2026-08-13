@@ -191,6 +191,27 @@ export function getApiBaseUrl() {
   return process.env.AI_RADAR_API_BASE_URL ?? DEFAULT_API_BASE_URL;
 }
 
+/** 取数的缓存档位。
+ *
+ *  这里原先一律是 `cache: "no-store"`，代价是每个访客请求都要打一次 API 再查一次库，
+ *  而且会把页面钉成动态渲染、让 Next 发出 `no-store` 响应头，
+ *  连 CDN 都不敢缓存 —— 等于把整站做成了一个人肉压测靶子。
+ *  背景与实测数据见 docs/2026-08-13-hardening-plan.md。
+ *
+ *  开发环境保持不缓存：本地调数据时"改完立刻能看到"比省那点开销重要得多，
+ *  当初写死 no-store 就是为了这个。线上要临时排查也可以用
+ *  AI_RADAR_DISABLE_DATA_CACHE=1 一键退回旧行为。
+ *
+ *  注意这只是 Next 的数据层缓存。页面 HTML 那一层由 nginx 缓存
+ *  （infra/nginx/radar-cf.conf），两层的 TTL 会叠加，改之前先看那边。 */
+const DATA_CACHE_DISABLED =
+  process.env.NODE_ENV !== "production" ||
+  process.env.AI_RADAR_DISABLE_DATA_CACHE === "1";
+
+function cacheFor(seconds: number): RequestInit {
+  return DATA_CACHE_DISABLED ? { cache: "no-store" } : { next: { revalidate: seconds } };
+}
+
 function emptyLatestReport(error: string): LatestReport {
   return {
     report_date: null,
@@ -238,9 +259,7 @@ export async function getLatestReport(
   const query = search.toString();
   const path = query ? `/api/public/latest?${query}` : "/api/public/latest";
   try {
-    const response = await fetch(`${getApiBaseUrl()}${path}`, {
-      cache: "no-store",
-    });
+    const response = await fetch(`${getApiBaseUrl()}${path}`, cacheFor(60));
     if (!response.ok) {
       return emptyLatestReport(`API 服务暂时不可用：latest 接口返回 ${response.status}。`);
     }
@@ -285,9 +304,7 @@ export async function getHotspots(
   const query = search.toString();
   const path = query ? `/api/public/hotspots?${query}` : "/api/public/hotspots";
   try {
-    const response = await fetch(`${getApiBaseUrl()}${path}`, {
-      cache: "no-store",
-    });
+    const response = await fetch(`${getApiBaseUrl()}${path}`, cacheFor(60));
     if (!response.ok) {
       return { window_hours: 48, item_count: 0, items: [] };
     }
@@ -415,9 +432,7 @@ export async function getAllEvents(
     search.set("q", params.q);
   }
   try {
-    const response = await fetch(`${getApiBaseUrl()}/api/public/events?${search}`, {
-      cache: "no-store",
-    });
+    const response = await fetch(`${getApiBaseUrl()}/api/public/events?${search}`, cacheFor(60));
     if (!response.ok) {
       return emptyAllEvents(`API 服务暂时不可用：events 接口返回 ${response.status}。`);
     }
@@ -446,9 +461,7 @@ export async function getTelegramEvents(
     search.set("offset", String(params.offset));
   }
   try {
-    const response = await fetch(`${getApiBaseUrl()}/api/public/telegram?${search}`, {
-      cache: "no-store",
-    });
+    const response = await fetch(`${getApiBaseUrl()}/api/public/telegram?${search}`, cacheFor(60));
     if (!response.ok) {
       return emptyTelegramEvents(
         `API 服务暂时不可用：telegram 接口返回 ${response.status}。`,
@@ -482,9 +495,7 @@ export async function getPeriodReport(
     ? `/api/public/reports/${mode}/${encodeURIComponent(periodKey)}`
     : `/api/public/reports/${mode}`;
   try {
-    const response = await fetch(`${getApiBaseUrl()}${path}`, {
-      cache: "no-store",
-    });
+    const response = await fetch(`${getApiBaseUrl()}${path}`, cacheFor(300));
     if (!response.ok) {
       return emptyPeriodReport(mode, `API 服务暂时不可用：${mode} 接口返回 ${response.status}。`);
     }
@@ -516,9 +527,7 @@ export type TopicsPayload = {
 
 export async function getTopics(): Promise<TopicsPayload> {
   try {
-    const response = await fetch(`${getApiBaseUrl()}/api/public/topics`, {
-      cache: "no-store",
-    });
+    const response = await fetch(`${getApiBaseUrl()}/api/public/topics`, cacheFor(600));
     if (!response.ok) {
       return {
         groups: [],
@@ -537,9 +546,7 @@ export async function getPeriodArchive(
   mode: "weekly" | "monthly",
 ): Promise<PeriodArchiveEntry[]> {
   try {
-    const response = await fetch(`${getApiBaseUrl()}/api/public/reports/${mode}/archive`, {
-      cache: "no-store",
-    });
+    const response = await fetch(`${getApiBaseUrl()}/api/public/reports/${mode}/archive`, cacheFor(600));
     if (!response.ok) {
       return [];
     }
@@ -551,9 +558,7 @@ export async function getPeriodArchive(
 
 export async function getDailyArchive(): Promise<string[]> {
   try {
-    const response = await fetch(`${getApiBaseUrl()}/api/public/reports/daily/archive`, {
-      cache: "no-store",
-    });
+    const response = await fetch(`${getApiBaseUrl()}/api/public/reports/daily/archive`, cacheFor(600));
     if (!response.ok) {
       return [];
     }
@@ -567,7 +572,7 @@ export async function getEventDetail(eventId: string): Promise<LatestEvent | nul
   try {
     const response = await fetch(
       `${getApiBaseUrl()}/api/public/events/${encodeURIComponent(eventId)}`,
-      { cache: "no-store" },
+      cacheFor(300),
     );
     if (!response.ok) {
       return null;
@@ -581,9 +586,7 @@ export async function getEventDetail(eventId: string): Promise<LatestEvent | nul
 export async function getDailyReport(reportDate: string): Promise<DailyReport> {
   const response = await fetch(
     `${getApiBaseUrl()}/api/public/daily/${encodeURIComponent(reportDate)}`,
-    {
-      cache: "no-store",
-    },
+    cacheFor(300),
   );
   if (!response.ok) {
     throw new Error(`Failed to load daily report: ${response.status}`);
@@ -697,9 +700,7 @@ export async function getTweets(
     search.set("topic", params.topic);
   }
   try {
-    const response = await fetch(`${getApiBaseUrl()}/api/public/tweets?${search}`, {
-      cache: "no-store",
-    });
+    const response = await fetch(`${getApiBaseUrl()}/api/public/tweets?${search}`, cacheFor(60));
     if (!response.ok) {
       return emptyTweets(`API 服务暂时不可用：tweets 接口返回 ${response.status}。`);
     }
@@ -714,7 +715,7 @@ export async function getTweet(tweetId: string): Promise<XTweet | null> {
   try {
     const response = await fetch(
       `${getApiBaseUrl()}/api/public/tweets/${encodeURIComponent(tweetId)}`,
-      { cache: "no-store" },
+      cacheFor(300),
     );
     if (!response.ok) {
       return null;

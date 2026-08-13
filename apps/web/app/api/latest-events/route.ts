@@ -1,4 +1,5 @@
 import { getLatestReport } from "@/lib/api";
+import { clampInt, LIMIT_BOUNDS, OFFSET_BOUNDS } from "@/lib/query-params";
 
 /** Thin proxy so the client-side "load more" feed on /latest can page
  * through the 7-day selected window without talking to the backend's
@@ -6,8 +7,8 @@ import { getLatestReport } from "@/lib/api";
  * pattern). */
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const limit = Number(url.searchParams.get("limit") ?? "50") || 50;
-  const offset = Number(url.searchParams.get("offset") ?? "0") || 0;
+  const limit = clampInt(url.searchParams.get("limit"), LIMIT_BOUNDS);
+  const offset = clampInt(url.searchParams.get("offset"), OFFSET_BOUNDS);
   const category = url.searchParams.get("category") ?? undefined;
   const focus = url.searchParams.get("focus") ?? undefined;
   const tag = url.searchParams.get("tag") ?? undefined;

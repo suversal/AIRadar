@@ -245,6 +245,52 @@ def _persist_source_health(database_url: str | None, per_source: dict[str, Any])
         session.close()
 
 
+#: 连续失败多少次才告警。1 次多半是对方抽风，3 次就是真出事了。
+SOURCE_FAILURE_ALERT_THRESHOLD = 3
+
+
+def _alert_persistently_failing_sources(database_url: str | None) -> None:
+    """把连续失败的信源单独推一条 Telegram，不要淹在同步报告里。
+
+    每次同步都会推一份包含全部信源的报告，65 行里有一两行变红是看不出来的。
+    而信源静默失效的代价很实在：AR 的内容会悄悄变少，等发现时可能已经断了好几天。
+
+    这条尤其针对 aihot_feed / aihot_all —— AIHOT 那边刚上了自动封禁策略
+    （见 docs/2026-08-13-hardening-plan.md 第 3.3 节），我们一旦被划进去，
+    抓取器会 best-effort 地降级而不是报错，没有告警就完全无感。
+
+    整个函数是尽力而为的：告警失败绝不能影响同步流程本身。"""
+    if not database_url:
+        return
+    try:
+        from app.db.session import build_session_factory
+        from app.repositories.radar_repository import RadarRepository
+        from app.services.telegram_notifier import send_telegram_message
+
+        session = build_session_factory(database_url)()
+        try:
+            failing = RadarRepository(session).list_persistently_failing_sources(
+                SOURCE_FAILURE_ALERT_THRESHOLD
+            )
+        finally:
+            session.close()
+
+        if not failing:
+            return
+
+        lines = [f"⚠️ 信源连续失败（≥{SOURCE_FAILURE_ALERT_THRESHOLD} 次）", ""]
+        for entry in sorted(failing, key=lambda item: -item["error_count"]):
+            last = entry["last_success_at"]
+            last_text = last.strftime("%Y-%m-%d %H:%M") if last else "从未成功"
+            lines.append(
+                f"· {entry['name']}（{entry['id']}）连续 {entry['error_count']} 次，"
+                f"最后成功：{last_text}"
+            )
+        send_telegram_message("\n".join(lines))
+    except Exception:  # pragma: no cover - 告警链路不允许影响同步
+        logger.warning("failed to send source failure alert", exc_info=True)
+
+
 def _env_int(name: str, default: int) -> int:
     try:
         return int(os.getenv(name, str(default)))
@@ -384,6 +430,8 @@ def _run_refresh(
         recent_days_by_source={source.id: source_recent_days(source) for source in sources},
     )
     _persist_source_health(database_url, crawl_report.get("per_source", {}))
+    # 紧跟在健康写入之后：此时 error_count 已经是本轮更新后的值
+    _alert_persistently_failing_sources(database_url)
     # 缓存快照必须在 intake 之前拍:它代表"本轮开始前库里已有什么",
     # 是信源明细区分 已存在/新入选 的依据——intake 先跑会把本轮新文章
     # 全部误判成已存在(39 号运行的"入选全 0"事故)

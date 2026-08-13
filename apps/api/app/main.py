@@ -23,6 +23,7 @@ from app.api.public import (
     build_hotspots_payload,
     build_latest_selected_payload_from_repository,
     build_period_payload,
+    slim_period_items,
 )
 from app.core.config import load_env_file
 from app.services.taxonomy import SOURCE_FILTER_KEYS
@@ -561,6 +562,10 @@ def create_app(
                     "stats": persisted.get("stats") or {},
                 }
             )
+        # 剥掉文章正文再发出去。页面只渲染标题/理由/标签/来源数，
+        # 而带上正文会让一份月报涨到 16 MB（实测 476 条，正文占 96%）。
+        # 只作用在对外读取这条路径；生成 AI 摘要那条路径拿的是完整数据。
+        payload["items"] = slim_period_items(payload["items"])
         return payload
 
     def _resolve_period_key(kind: str, raw_key: str) -> str:
@@ -644,8 +649,21 @@ def create_app(
     def monthly(report_key: str) -> dict:
         return _serve_period("monthly", report_key)
 
+    # 反馈接口的防灌水参数。背景：AIHOT 被攻击时，攻击者以每秒 5.5 次的频率
+    # 往反馈接口灌了 3 万多条垃圾，把作者的通知群直接刷爆
+    # （docs/2026-08-13-hardening-plan.md 第 1.3 节）。
+    #
+    # 单 IP 频率由 nginx 挡（infra/nginx 的 strict 档）。这里挡的是 nginx 挡不住的
+    # 两种情况：内容重复，以及多 IP 协同——每个 IP 都压在限流线下、合起来仍是洪水。
+    FEEDBACK_DEDUP_WINDOW = timedelta(minutes=10)
+    FEEDBACK_GLOBAL_WINDOW = timedelta(minutes=10)
+    FEEDBACK_GLOBAL_MAX = 30
+    # Telegram Bot API 自己有速率限制，被灌爆会把整条通知通道打死，
+    # 而这条通道还兼着别的告警。超预算就只入库不推送。
+    FEEDBACK_TELEGRAM_HOURLY_BUDGET = 20
+
     @app.post("/api/public/feedback")
-    def submit_feedback(payload: dict) -> dict:
+    def submit_feedback(payload: dict, request: StarletteRequest = None) -> dict:
         message = str((payload or {}).get("message") or "").strip()
         email = (payload or {}).get("email")
         email = str(email).strip() if email else None
@@ -656,15 +674,55 @@ def create_app(
         if email and len(email) > 320:
             raise HTTPException(status_code=422, detail="email is too long")
 
+        # 真实访客 IP 由 nginx 经 web 层透传过来，只写日志不入库：
+        # 出事时要能从日志复盘，但没必要给每条反馈都留一份 IP。
+        client_ip = "-"
+        if request is not None:
+            forwarded = request.headers.get("x-forwarded-for") or ""
+            client_ip = forwarded.split(",")[0].strip() or (
+                request.client.host if request.client else "-"
+            )
+
+        now = datetime.now(timezone.utc)
         with report_repository_context() as repository:
+            recent_total = repository.count_feedback_since(now - FEEDBACK_GLOBAL_WINDOW)
+            if recent_total >= FEEDBACK_GLOBAL_MAX:
+                # 故意返回成功：429 等于告诉攻击者阈值在哪，他能据此二分出限流线
+                # 再精准压在线下——这正是 AIHOT 第二波攻击的前提。静默丢弃让对方
+                # 无法校准。真实用户碰不到这个量级。
+                logger.warning(
+                    "feedback dropped: global rate cap hit (%s in %s min) ip=%s",
+                    recent_total,
+                    int(FEEDBACK_GLOBAL_WINDOW.total_seconds() // 60),
+                    client_ip,
+                )
+                return {"ok": True}
+
+            if repository.has_identical_feedback_since(
+                message=message, since=now - FEEDBACK_DEDUP_WINDOW
+            ):
+                logger.info("feedback dropped: duplicate message ip=%s", client_ip)
+                return {"ok": True}
+
             repository.create_feedback_submission(message=message, email=email)
+            hourly_count = repository.count_feedback_since(now - timedelta(hours=1))
             repository.session.commit()
+
+        logger.info("feedback accepted ip=%s len=%s", client_ip, len(message))
+
+        if hourly_count > FEEDBACK_TELEGRAM_HOURLY_BUDGET:
+            logger.warning(
+                "feedback telegram push skipped: hourly budget exceeded (%s)", hourly_count
+            )
+            return {"ok": True}
 
         from app.services.telegram_notifier import send_telegram_message
 
         lines = ["📮 收到新反馈", "", message]
         if email:
             lines.extend(["", f"联系邮箱：{email}"])
+        if hourly_count == FEEDBACK_TELEGRAM_HOURLY_BUDGET:
+            lines.extend(["", f"⚠️ 本小时已收到 {hourly_count} 条，后续将只入库不再推送。"])
         send_telegram_message("\n".join(lines))
 
         return {"ok": True}

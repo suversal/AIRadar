@@ -1794,6 +1794,59 @@ class RadarRepository:
         )
         if article_count:
             raise SourceHasArticlesError(source_id, article_count)
+    def count_feedback_since(self, since: datetime) -> int:
+        """反馈接口的限流与 Telegram 预算都靠它。
+
+        用"数最近的行数"而不是引入 Redis / 内存计数器，是因为这张表本来就在，
+        而且计数天然跨进程、跨重启——攻击者不会因为我们重启了一次 api 就获得
+        一个干净的窗口。"""
+        return (
+            self.session.query(func.count(FeedbackSubmissionModel.id))
+            .filter(FeedbackSubmissionModel.created_at >= since)
+            .scalar()
+            or 0
+        )
+
+    def has_identical_feedback_since(self, *, message: str, since: datetime) -> bool:
+        """同一条内容在窗口内是否已经进过库。
+
+        灌水脚本往往反复提交同一段内容，去重能把绝大多数垃圾挡在库外，
+        而真实用户几乎不会在 10 分钟里一字不差地重复提交。"""
+        return (
+            self.session.query(FeedbackSubmissionModel.id)
+            .filter(
+                FeedbackSubmissionModel.created_at >= since,
+                FeedbackSubmissionModel.message == message,
+            )
+            .first()
+            is not None
+        )
+
+    def list_persistently_failing_sources(self, min_errors: int) -> list[dict[str, Any]]:
+        """连续失败达到阈值的信源。
+
+        存在的理由是"静默失效"：像 aihot_content 这类 best-effort 的抓取器
+        不抛异常，抓不到就降级返回更少的内容，同步报告里那一行看着仍然是绿的。
+        每次同步都会推一份 65 个信源的完整报告，一两行变红根本不会被注意到，
+        所以连续失败必须单独拎出来告警。见 docs/2026-08-13-hardening-plan.md 第 3.3 节。"""
+        models = (
+            self.session.query(SourceModel)
+            .filter(
+                SourceModel.is_active.is_(True),
+                SourceModel.error_count >= min_errors,
+            )
+            .all()
+        )
+        return [
+            {
+                "id": model.id,
+                "name": model.name,
+                "error_count": int(model.error_count or 0),
+                "last_success_at": model.last_success_at,
+            }
+            for model in models
+        ]
+
         self.session.delete(model)
         return True
 

@@ -1,3 +1,9 @@
+# 每个服务都带 logging.max-size/max-file：docker 默认的 json-file 驱动**不轮转**，
+# 日志会一直涨到撑爆磁盘；而没有留存策略又意味着出事后无从取证。
+# 50m × 20 ≈ 每个服务 1GB，nginx 那份足够回溯很久。
+# 这条是抄 AIHOT 被攻击的教训：他能复盘出完整攻击链全靠访问日志，
+# 事后把留存拉到了一年。见 docs/2026-08-13-hardening-plan.md 第 3.1 节。
+#
 # Production compose for the 2C2G Tencent Lighthouse box.
 # Only nginx (80) is public. Postgres is bound to 127.0.0.1: the local
 # pipeline runs against the local Mac database, and data reaches this box
@@ -7,6 +13,11 @@ services:
   postgres:
     image: pgvector/pgvector:pg16
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "20"
     environment:
       POSTGRES_USER: radar
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
@@ -33,6 +44,11 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "20"
     command: redis-server --maxmemory 96mb --maxmemory-policy allkeys-lru
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -51,6 +67,11 @@ services:
       args:
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.cloud.tencent.com/pypi/simple}
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "20"
     environment:
       TZ: Asia/Shanghai
     env_file:
@@ -75,6 +96,11 @@ services:
       args:
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "20"
     environment:
       AI_RADAR_API_BASE_URL: http://api:8000
       TZ: Asia/Shanghai
@@ -88,6 +114,11 @@ services:
   nginx:
     image: nginx:alpine
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "20"
     ports:
       - "80:80"
     volumes:

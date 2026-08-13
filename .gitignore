@@ -27,3 +27,9 @@ node_modules/
 /scripts/deploy_targets.sh
 /scripts/sync_db_to_server.sh
 /scripts/rebuild_mobile_web.sh
+
+# 运维手册：含服务器公网 IP、SSH 端口与账号、部署路径。
+# 与上面那几个部署脚本同一理由——这是公开仓库，内部资料不进来。
+# 真实内容只在本机；docs/2026-08-13-hardening-plan.md 里引用它的地方
+# 对外是死链，那是有意的。
+/docs/greenvps-deployment.md

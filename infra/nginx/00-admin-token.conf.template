@@ -1,0 +1,41 @@
+# 管理员判据：比对 cookie 里的 token 与真实的 ADMIN_TOKEN。
+#
+# 由 nginx 官方镜像的模板机制在容器启动时渲染成 conf.d/00-admin-token.conf
+# （`/docker-entrypoint.d/20-envsubst-on-templates.sh`），所以这个文件本身
+# **不要**挂进 conf.d，要挂进 /etc/nginx/templates/。
+#
+# ⚠ 为什么必须比对值，而不是只看 cookie 存不存在
+#
+#   最早这条判据写的是「cookie 非空就当管理员」。它同时被用来决定
+#   proxy_cache_bypass 和发给 CF 的 Cache-Control，于是任何人只要发一个
+#   `Cookie: admin_token=随便编的`，就能让每个请求**同时绕过 CF 和 nginx 两层缓存**，
+#   强制源站现场渲染。实测：缓存命中 0.000s，绕过后 0.119~0.163s——
+#   一个 IP 在 pages 档配额下就能吃掉约 13% 单核，十几二十个 IP 足以打满这台 2 核机器。
+#   等于我们整套缓存防线加一个 HTTP 头就能被绕过。2026-08-13 发现并修正。
+#
+#   注意这从来不是数据泄露问题：真正的鉴权在后端
+#   （app/main.py 的 require_admin 用 secrets.compare_digest），伪造 cookie
+#   拿不到任何后台数据。这里修的是「攻击者可控的缓存开关」。
+#
+# ⚠ 文件名的 00- 前缀不能改：它必须排在 00-hardening.conf 之前，
+#   因为那边的 $public_cache_control 引用了这里定义的 $skip_cache_admin，
+#   而 nginx 的 map 变量必须先定义后引用。
+#
+# ⚠ ADMIN_TOKEN 为空会怎样：这里显式写了 "" → 0 一行，所以万一 token 为空，
+#   nginx 会因为 map 键重复而**启动失败**（响亮地坏掉），而不是把空 cookie
+#   判成管理员、静默地让全站缓存失效。compose 那边还有一道
+#   `${ADMIN_TOKEN:?}` 的部署期检查，正常走不到这里。
+# ⚠ 必须调大 map 的哈希桶：nginx 默认 map_hash_bucket_size 是 64 字节，
+#   而 map 的**键**（这里是整个 ADMIN_TOKEN）必须放得进一个桶。
+#   token 一旦超过 64 字符，nginx 启动即
+#   `[emerg] could not build map_hash, you should increase map_hash_bucket_size`。
+#   2026-08-13 发布时踩过：本地测试用的短 token 没问题，线上真 token 超长，
+#   nginx 直接进入重启循环。256 给足余量。
+#   注意这个指令在 http 上下文只能出现一次，别在别处重复设置。
+map_hash_bucket_size 256;
+
+map $cookie_admin_token $skip_cache_admin {
+    default          0;
+    ""               0;
+    "${ADMIN_TOKEN}" 1;
+}

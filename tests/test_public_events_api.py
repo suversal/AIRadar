@@ -61,6 +61,89 @@ class RangeHelperTests(unittest.TestCase):
         self.assertEqual(end, date(2026, 7, 31))
 
 
+class SlimPeriodItemsTests(unittest.TestCase):
+    """周月报对外负载剥掉文章正文。
+
+    实测一份月报 476 条、16.6 MB，其中正文字段占 96%，而页面一个都不用
+    （只渲染标题/理由/标签/来源数，且每个板块只展示前 3 条）。
+    剥掉后降到 1.1 MB，也就重新落回 Next 数据缓存 2MB 上限之内。
+    见 docs/2026-08-13-hardening-plan.md 附录。"""
+
+    def _item(self):
+        return {
+            "event_id": "evt-1",
+            "title": "标题",
+            "summary": "摘要",
+            "reason": "推荐理由",
+            "tags": ["ai"],
+            "source_count": 3,
+            "main_source": {"name": "来源", "url": "https://example.com", "tier": "t1"},
+            "focus_category": "tutorial",
+            "scoring_category": "tutorial",
+            "selected": True,
+            "one_line_summary": "一句话",
+            "original_content": "正文" * 5000,
+            "original_blocks": [{"type": "paragraph", "text": "段落"}],
+            "original_paragraphs": ["段落"],
+            "original_images": [{"url": "https://example.com/a.png"}],
+            "original_markdown": "# 标题",
+            "translated_content": "译文" * 5000,
+            "translated_blocks": [{"type": "paragraph", "text": "译文段"}],
+            "translated_paragraphs": ["译文段"],
+        }
+
+    def test_strips_article_bodies_but_keeps_everything_the_page_renders(self):
+        from app.api.public import slim_period_items
+
+        slimmed = slim_period_items([self._item()])[0]
+
+        for dropped in (
+            "original_content",
+            "original_blocks",
+            "original_paragraphs",
+            "original_images",
+            "original_markdown",
+            "translated_content",
+            "translated_blocks",
+            "translated_paragraphs",
+        ):
+            self.assertNotIn(dropped, slimmed, f"{dropped} 应该被剥掉")
+
+        # 周月报页面与 buildPeriodDigest 实际用到的字段，一个都不能少
+        for kept in (
+            "event_id",
+            "title",
+            "summary",
+            "reason",
+            "tags",
+            "source_count",
+            "main_source",
+            "focus_category",
+            "scoring_category",
+            "selected",
+            "one_line_summary",
+        ):
+            self.assertIn(kept, slimmed, f"{kept} 是页面要渲染的，不能剥")
+
+    def test_is_a_denylist_so_new_fields_survive(self):
+        """用"剥掉哪些"而不是"保留哪些"：将来给事件加了新字段，
+        页面能直接用上，不会因为忘了加白名单而神秘地读不到值。"""
+        from app.api.public import slim_period_items
+
+        item = self._item()
+        item["some_future_field"] = "新加的"
+
+        self.assertEqual(slim_period_items([item])[0]["some_future_field"], "新加的")
+
+    def test_handles_items_missing_the_heavy_fields(self):
+        from app.api.public import slim_period_items
+
+        self.assertEqual(
+            slim_period_items([{"event_id": "evt-1", "title": "标题"}]),
+            [{"event_id": "evt-1", "title": "标题"}],
+        )
+
+
 class PeriodPayloadTests(unittest.TestCase):
     def test_builds_weekly_payload_with_range_and_scored_items(self):
         payloads = [
