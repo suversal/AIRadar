@@ -297,6 +297,10 @@ curl -o /dev/null -w "%{http_code}\n" "https://radar.suversal.com/api/image-prox
 
 **回滚**：单文件 `git revert`。
 
+> **⚠ 本节有后续修补，见第十一节**：这套守卫在开发机上会把所有推特图片判成内网地址
+> （代理软件的 fake-IP 落在 `198.18/16`），`KNOWN_IMAGE_HOSTS` 漏了自家图床
+> `img.suversal.com`，8MB 的取图上限还和后台上传的 10MB 上限对不齐。三处均已修。
+
 ---
 
 #### 1.3 问题：反馈接口是"3 万条垃圾"的完全翻版，且我们更脆
@@ -791,6 +795,7 @@ ssh greenvps 'ss -s'                      # 并发连接数 vs 2048 上限
 | 2026-08-13 | 配置 Cloudflare 三条 Cache Rule + 限流 + Bot Fight Mode。发现免费版 Edge TTL 最小 2 小时，改为由源站发 `s-maxage`，实测 CF 严格遵守 |
 | 2026-08-13 | 修复管理员判据可被伪造 cookie 绕过的缓存开关（事故三），并解决真 token 超长导致的 `map_hash_bucket_size` 启动失败（事故四） |
 | 2026-08-13 | 补第十节「改动全览」：按流量分层，逐项写清做了什么 / 为什么 / 有什么用 / 优缺点，以及总体代价与耦合点清单 |
+| 2026-08-13 夜 | 加固的三处修补，详见第十一节。① 开发机图片全白：代理软件的 fake-IP（`198.18/16`）撞上 1.2 的基准测试网段判定，加 `IMAGE_PROXY_ALLOW_FAKE_IP` 开发口子；② `suversal.com` 补进 `KNOWN_IMAGE_HOSTS`，否则切强制模式会 403 掉自家上传的图；③ 上传上限 10MB → 夹到取图上限 8MB，消掉"传得进来、取不回来"的坏图区间。全量 654 个测试通过 |
 
 ---
 
@@ -1282,6 +1287,131 @@ ADMIN_TOKEN）必须放得进一个桶。本地测试用的短 token 没事，�
 不是因为它性能收益最大（那是第 1 层），而是因为它同时消灭了两类问题：
 随机参数骗缓存这个标准攻击手法，以及缓存投毒这个隐蔽的正确性问题。
 其余各项要么是它的放大器（CF 边缘、nginx 缓存），要么是它的补充（限流、告警）。
+
+---
+
+## 十一、加固之后的三处修补（2026-08-13 夜）
+
+起因是本地一句"推文图片怎么全不显示了"。查下来是 1.2 的 SSRF 守卫撞上了开发机的
+网络环境；顺着这条线又翻出两处**当时没炸、但迟早要炸**的隐患，一并处理了。
+
+三处的共同点是：**加固本身没写错，错在只验证了"坏路径被挡住"，
+没验证"好路径还通"**。第四节的验收标准里那一行"回归：随手翻 /latest /event/xxx /x，
+图片不能有白块"是对的，只是它在服务器上跑通了就没人在本地再跑一遍。
+
+---
+
+### 11.1 开发机图片全白：fake-IP 撞上基准测试网段
+
+**现象**：本地 `/latest`、`/x` 的推文图片、作者头像全部不显示；线上正常。
+
+**根因**：这台 Mac 的代理软件开着 TUN 模式的 DNS 覆写，把所有走代理的域名
+解析到 `198.18.0.0/16` 的 fake-IP 池：
+
+```
+pbs.twimg.com   -> 198.18.0.93
+video.twimg.com -> 198.18.0.81
+```
+
+而 1.2 的守卫把 `198.18/15`（RFC 2544 基准测试网段）列进了内网黑名单，
+于是每一张推特图片都被判成"内网地址"：
+
+```
+$ curl 'localhost:3000/api/image-proxy?url=https://pbs.twimg.com/...'
+400 private address: pbs.twimg.com -> 198.18.0.93
+```
+
+**讽刺的地方**：这个 fake-IP 现象在加固当天就被记录过了——
+`tests/test_image_proxy_guard.py` 的 docstring 里明写着"本地拿不到真实解析结果，
+25 条用例要去 greenvps 上跑"。但当时只把它理解成**"测不了"**，
+没意识到它同时意味着**"用不了"**。一条已知的环境事实，两个结论只想到了一个。
+
+**修法**：`apps/web/lib/image-proxy-guard.ts` 新增 `allowsFakeIpRange()`，
+只松 `198.18/15` 这一段，默认关闭，靠 `apps/web/.env.local` 里的
+`IMAGE_PROXY_ALLOW_FAKE_IP=1` 显式打开（该文件已 gitignore，不会上线）。
+
+**为什么是"开一个口子"而不是"从黑名单里删掉这一段"**：
+生产环境不存在 fake-IP，`198.18/15` 在那里就该老老实实被挡。
+这是开发机的环境问题，修法就该只作用于开发机。
+
+**验证**
+
+```bash
+# 好路径恢复
+curl -o /dev/null -w "%{http_code} %{content_type}\n" \
+  'http://127.0.0.1:3000/api/image-proxy?url=https://pbs.twimg.com/<真图>'   # 200 image/jpeg
+
+# 坏路径必须一条不漏（本机实测，全部 400）
+http://169.254.169.254/latest/meta-data/   -> private address: 169.254.169.254
+http://127.0.0.1:8000/health               -> private address: 127.0.0.1
+http://localhost:8000/health               -> blocked hostname: localhost
+http://[::ffff:127.0.0.1]/x.png            -> private address: ::ffff:7f00:1
+http://10.0.0.1/x.png                      -> private address: 10.0.0.1
+```
+
+回归测试 `test_fake_ip_escape_hatch_is_opt_in_and_narrow` 锁两件事：开关必须显式打开，
+且**不能泄漏到其它网段**——逐行检查 `allowsFakeIpRange()` 只出现在 `a === 198` 那一条上。
+
+---
+
+### 11.2 自家图床不在自己的白名单里
+
+**隐患**：后台手动上传的图落在 `img.suversal.com`（`IMAGE_HOST_BASE_URL` 的默认值），
+但 1.2 建的 `KNOWN_IMAGE_HOSTS` 里只有 `aihot.virxact.com`，没有 `suversal.com`。
+
+现在不炸，是因为名单默认只记日志不拦截。但 1.2 里白纸黑字写着
+"等日志攒够、确认名单齐了，再用 `IMAGE_PROXY_ENFORCE_HOSTS=1` 切成强制模式"——
+**那一刻切过去，后台自己上传的图会被自己 403 掉**，而且正好是那种
+"改了个环境变量，几天后才发现某类图不见了"的静默故障。
+
+**修法**：名单里加 `suversal.com`。匹配规则是"域名或其子域"，
+所以这一条同时覆盖 `img.suversal.com` 和将来自家域名下的其它图床。
+
+回归测试 `test_own_image_host_is_in_the_known_list` 同时断言名单里有 `suversal.com`、
+且 `.env.example` 的 `IMAGE_HOST_BASE_URL` 仍指向该域——**两者必须一起改**，
+哪天换了图床服务商，测试会把这条约束顶出来。
+
+---
+
+### 11.3 上传上限比取图上限大 2MB：一段"传得进来、取不回来"的坏图区间
+
+**隐患**：`IMAGE_UPLOAD_MAX_BYTES=10485760`（10MB），
+而 1.2 给 image-proxy 定的 `MAX_IMAGE_BYTES` 是 8MB。前台展示任何图片都要过 image-proxy，
+所以 **8~10MB 之间的图上传会成功，展示必然失败**——后台看着传好了，前台一个白块，
+而且报错在另一个服务的日志里。
+
+这是加固的典型副作用：8MB 这个数是为"任意外部 URL 的抗 DoS"定的，
+定的时候没人想起来自家上传链路的上限是另一个数。两个数字分处 Python 和 TS 两个仓内目录，
+谁也看不见谁。
+
+**修法**：以取图上限为准，因为它是**真正的约束**——取不回来的图，传进来也没用。
+
+- `apps/api/app/services/manual_image_upload.py` 新增常量 `IMAGE_PROXY_MAX_BYTES = 8MB`
+  和 `max_upload_bytes()`：配置值可以**调低**（运维想收紧随时收紧），
+  但高过取图上限会被夹回来并记一条 warning，不静默生效。
+- `main.py` 里那处重复的 `os.getenv` 一并收进 `max_upload_bytes()`，
+  避免"改了一处漏了另一处"。
+- `.env` / `.env.example` 改成 `8388608`，并在旁边写清为什么不能调高。
+
+**跨语言的一致性只能靠测试锁**：`test_upload_limit_matches_image_proxy_source`
+直接读 `route.ts`，正则抠出 `MAX_IMAGE_BYTES` 的数值和 Python 常量比对。
+这个仓库里已经有这个套路（web 侧没有 JS 测试框架，1.2 的守卫约束也是这么锁的），
+沿用即可。
+
+**验证**：全量 654 个测试通过（加固完成时是 615，中间还有别的增量）。
+
+---
+
+### 这三条留下的教训
+
+1. **"某个环境测不了 X" 往往等价于 "某个环境用不了 X"**。
+   下次再往文档里写"本地跑不了，得去服务器跑"，要顺手问一句：那本地还能正常用吗？
+2. **验收清单里的"好路径回归"和"坏路径拦截"要在同一个环境里各跑一遍**。
+   这次坏路径在服务器上跑了 25 条，好路径在服务器上也通了，
+   唯独没人在开发机上打开页面看一眼。
+3. **一个安全上限被引入时，要顺着数据流找它的兄弟上限**。
+   image-proxy 的 8MB 一落地，上传的 10MB 就自动变成了 bug，
+   但它是"隔了一个服务、隔了一种语言"的 bug，靠读代码发现不了，只能靠测试钉住。
 
 ---
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 import unittest
 from datetime import datetime, timezone
@@ -630,6 +631,33 @@ class ManualImageUploadTests(unittest.TestCase):
         self.assertEqual(src, "https://img.suversal.com/file/test.png")
         self.assertEqual(client.kwargs["files"]["file"][0], "test.png")
         self.assertEqual(client.kwargs["params"]["returnFormat"], "full")
+
+    def test_upload_limit_is_clamped_to_image_proxy_limit(self):
+        # 上限高过 image-proxy 的取图上限，多出来的那一段就是「传得进来、
+        # 前台展示不了」的坏图区间。配置写高了要被夹回来，不能静默生效。
+        from app.services.manual_image_upload import IMAGE_PROXY_MAX_BYTES, max_upload_bytes
+
+        with patch.dict(os.environ, {"IMAGE_UPLOAD_MAX_BYTES": "10485760"}, clear=False):
+            self.assertEqual(max_upload_bytes(), IMAGE_PROXY_MAX_BYTES)
+        # 调低是允许的：运维想收紧就收紧
+        with patch.dict(os.environ, {"IMAGE_UPLOAD_MAX_BYTES": "1048576"}, clear=False):
+            self.assertEqual(max_upload_bytes(), 1048576)
+        # 没配 / 配了个非法值，都回落到代理上限而不是抛异常
+        for value in ("", "not-a-number"):
+            with patch.dict(os.environ, {"IMAGE_UPLOAD_MAX_BYTES": value}, clear=False):
+                self.assertEqual(max_upload_bytes(), IMAGE_PROXY_MAX_BYTES)
+
+    def test_upload_limit_matches_image_proxy_source(self):
+        # 两个数字分处 Python 和 TS，只能靠测试锁住；改一边就要改另一边
+        from app.services.manual_image_upload import IMAGE_PROXY_MAX_BYTES
+
+        route = (
+            Path(__file__).resolve().parents[1]
+            / "apps" / "web" / "app" / "api" / "image-proxy" / "route.ts"
+        ).read_text(encoding="utf-8")
+        match = re.search(r"MAX_IMAGE_BYTES\s*=\s*(\d+)\s*\*\s*1024\s*\*\s*1024", route)
+        self.assertIsNotNone(match, "route.ts 里没找到 MAX_IMAGE_BYTES 的定义")
+        self.assertEqual(int(match.group(1)) * 1024 * 1024, IMAGE_PROXY_MAX_BYTES)
 
     def test_upload_rejects_mime_spoof(self):
         from app.services.manual_image_upload import ImageUploadError, upload_image_to_host

@@ -24,6 +24,7 @@ const KNOWN_IMAGE_HOSTS = [
   "latent.space",
   "qpic.cn", // 微信图床 mmbiz.qpic.cn
   "sinaimg.cn",
+  "suversal.com", // 自家域名，含后台上传落地的图床 img.suversal.com
   "telesco.pe", // Telegram cdn*.telesco.pe
   "twimg.com",
   "zhimg.com",
@@ -41,6 +42,21 @@ export function shouldEnforceKnownHosts(): boolean {
   return process.env.IMAGE_PROXY_ENFORCE_HOSTS === "1";
 }
 
+/** 开发机的口子：本地代理软件（Clash/Surge 的 TUN 模式）开着 DNS 覆写，
+ *  把所有走代理的域名统统解析成 198.18.0.0/16 的 fake-IP，正好落在下面
+ *  "基准测试网段"这一条里——于是 pbs.twimg.com 这类图床在本地一律被判成
+ *  内网地址，推文图片全白。这个坑在 tests/test_image_proxy_guard.py 的
+ *  docstring 里记过（25 条用例要去服务器上跑就是因为它），但当时只当成
+ *  "测不了"，没意识到它会让本地页面直接不可用。
+ *
+ *  生产环境不存在 fake-IP，所以只在 apps/web/.env.local 里开这一个变量，
+ *  默认关闭。⚠ 别把它写进任何会上线的 env 文件：打开之后 198.18/15 就不再
+ *  拦截了。其余内网段（127/10/172.16/192.168/169.254）不受影响，
+ *  真正的 SSRF 目标——尤其是云元数据服务——照旧挡着。 */
+function allowsFakeIpRange(): boolean {
+  return process.env.IMAGE_PROXY_ALLOW_FAKE_IP === "1";
+}
+
 function ipv4IsPrivate(ip: string): boolean {
   const parts = ip.split(".").map(Number);
   if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
@@ -56,7 +72,7 @@ function ipv4IsPrivate(ip: string): boolean {
     (a === 172 && b >= 16 && b <= 31) || // 172.16/12 私有
     (a === 192 && b === 168) || // 192.168/16 私有
     (a === 192 && b === 0) || // 192.0.0/24 + 192.0.2/24
-    (a === 198 && (b === 18 || b === 19)) || // 基准测试网段
+    (a === 198 && (b === 18 || b === 19) && !allowsFakeIpRange()) || // 基准测试网段
     a >= 224 // 组播与保留
   );
 }

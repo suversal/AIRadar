@@ -60,12 +60,34 @@ class ImageProxyGuardTests(unittest.TestCase):
         # 只看 Content-Length 不够：分块传输可以不带这个头
         self.assertIn("received > MAX_IMAGE_BYTES", self.route)
 
+    def test_fake_ip_escape_hatch_is_opt_in_and_narrow(self):
+        # 开发机的代理软件把域名解析成 198.18.x.x，撞上"基准测试网段"这一条，
+        # 本地推文图片会全白。开发口子必须满足两点：显式打开、且只松这一段。
+        self.assertIn("IMAGE_PROXY_ALLOW_FAKE_IP", self.guard)
+        self.assertIn('=== "1"', self.guard)
+        self.assertIn(
+            "(a === 198 && (b === 18 || b === 19) && !allowsFakeIpRange())",
+            self.guard,
+        )
+        # 其余内网段不受这个开关影响——尤其是云元数据所在的 169.254/16
+        for line in self.guard.splitlines():
+            if "allowsFakeIpRange()" in line and "a === 198" not in line:
+                self.assertNotIn("a === ", line, f"开关泄漏到了其它网段: {line}")
+
     def test_unknown_hosts_are_logged_but_not_blocked_by_default(self):
         # 硬白名单会造成静默的"图片全白"事故，所以默认只记日志，
         # 靠 IMAGE_PROXY_ENFORCE_HOSTS=1 显式切换成强制模式
         self.assertIn("IMAGE_PROXY_ENFORCE_HOSTS", self.guard)
         self.assertIn("[image-proxy] unknown host:", self.route)
         self.assertIn("shouldEnforceKnownHosts() && !isKnownImageHost", self.route)
+
+    def test_own_image_host_is_in_the_known_list(self):
+        # 后台手动上传的图落在 img.suversal.com（IMAGE_HOST_BASE_URL 的默认值）。
+        # 它原先不在名单里，一旦打开 IMAGE_PROXY_ENFORCE_HOSTS=1，
+        # 自己上传的图会被自己 403 掉。
+        self.assertIn('"suversal.com"', self.guard)
+        env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+        self.assertIn("IMAGE_HOST_BASE_URL=https://img.suversal.com/upload", env_example)
 
 
 if __name__ == "__main__":

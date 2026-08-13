@@ -1,10 +1,22 @@
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+
+
+logger = logging.getLogger(__name__)
+
+
+#: image-proxy 取图的体积上限，必须和 apps/web/app/api/image-proxy/route.ts
+#: 里的 MAX_IMAGE_BYTES 保持一致。前台展示任何图片都要经过 image-proxy，
+#: 所以「传得进来、代理取不回来」的图等于上传成功即坏图——这两个数字原先
+#: 一个 10MB 一个 8MB，中间 2MB 是个静默的坏图区间。
+#: 两边的一致性由 tests/test_image_proxy_guard.py 锁住，改一个就要改另一个。
+IMAGE_PROXY_MAX_BYTES = 8 * 1024 * 1024
 
 
 ALLOWED_IMAGE_TYPES = {
@@ -28,6 +40,32 @@ def _bool_env(name: str, default: bool) -> str:
     return "true" if value in {"1", "true", "yes", "on"} else "false"
 
 
+def max_upload_bytes() -> int:
+    """上传体积上限。
+
+    可以用 IMAGE_UPLOAD_MAX_BYTES 调低，但不接受高过 IMAGE_PROXY_MAX_BYTES 的值：
+    上限一旦超过代理取图上限，多出来的那一段传上去也展示不了。配置写高了会
+    被夹到代理上限并记一条 warning，而不是静默生效。
+    """
+    raw = os.getenv("IMAGE_UPLOAD_MAX_BYTES", "").strip()
+    if not raw:
+        return IMAGE_PROXY_MAX_BYTES
+    try:
+        configured = int(raw)
+    except ValueError:
+        logger.warning("IMAGE_UPLOAD_MAX_BYTES 不是整数(%r)，按 %d 处理", raw, IMAGE_PROXY_MAX_BYTES)
+        return IMAGE_PROXY_MAX_BYTES
+    if configured > IMAGE_PROXY_MAX_BYTES:
+        logger.warning(
+            "IMAGE_UPLOAD_MAX_BYTES=%d 超过 image-proxy 取图上限 %d，已夹到上限："
+            "超出部分即使上传成功也无法在前台展示",
+            configured,
+            IMAGE_PROXY_MAX_BYTES,
+        )
+        return IMAGE_PROXY_MAX_BYTES
+    return max(configured, 0)
+
+
 def _validate_image(data: bytes, content_type: str) -> None:
     if not data:
         raise ImageUploadError("unsupported_image_type", "empty image", 415)
@@ -49,8 +87,7 @@ def upload_image_to_host(
     data: bytes,
     client: Any = None,
 ) -> str:
-    max_bytes = int(os.getenv("IMAGE_UPLOAD_MAX_BYTES", str(10 * 1024 * 1024)))
-    if len(data) > max_bytes:
+    if len(data) > max_upload_bytes():
         raise ImageUploadError("image_too_large", "image exceeds configured size limit", 413)
     _validate_image(data, content_type)
     base_url = os.getenv("IMAGE_HOST_BASE_URL", "https://img.suversal.com/upload").strip()
