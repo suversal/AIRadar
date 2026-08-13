@@ -437,6 +437,44 @@ class PipelineRunModel(Base):
     error: Mapped[Optional[str]] = mapped_column(Text)
 
 
+class AIUsageStatModel(Base):
+    """Billed AI tokens, aggregated per (run, model, operation).
+
+    One row per operation per refresh rather than per API call: a run makes
+    hundreds of calls but only needs to answer "which stage spent the money".
+    No money amount is stored - DeepSeek's peak/off-peak pricing (from
+    2026-08-16) makes the same token count cost different amounts depending
+    on when it was spent, so cost is computed by the reader.
+    """
+
+    __tablename__ = "ai_usage_stats"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    # NULL for usage spent outside a refresh (manual articles, ad-hoc scripts)
+    pipeline_run_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("pipeline_runs.id", ondelete="SET NULL")
+    )
+    provider: Mapped[str] = mapped_column(String, nullable=False)
+    model: Mapped[str] = mapped_column(String, nullable=False)
+    # prefilter / score_article / verify_same_event / translate_paragraphs / summarize_period
+    operation: Mapped[str] = mapped_column(String, nullable=False)
+    calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cache_hit_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cache_miss_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # thinking tokens, billed at the output rate; the reason this table exists
+    reasoning_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    __table_args__ = (
+        Index("ix_ai_usage_stats_recorded_at", "recorded_at"),
+        Index("ix_ai_usage_stats_operation", "operation"),
+    )
+
+
 class RefreshScheduleModel(Base):
     __tablename__ = "refresh_schedule"
 

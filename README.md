@@ -186,13 +186,40 @@ Required for real AI processing, choose one provider:
 
 Optional:
 
-- `AI_PROVIDER=openai|kimi|deepseek|fake`
+- `AI_PROVIDER=qwen|openai|kimi|deepseek|fake`
+- `ALI_API_KEY` (or `DASHSCOPE_API_KEY`) selects Alibaba Bailian (qwen) when
+  `AI_PROVIDER` is unset. Bailian speaks the OpenAI-compatible dialect, so it
+  reuses the same provider plumbing as DeepSeek — with two differences that
+  are measured, not assumed, and both encoded in `QwenProvider`:
+  `reasoning_effort` is *silently ignored* by qwen3.7 (only `enable_thinking`
+  and `thinking_budget` work), and caching is not automatic — the scoring
+  prefix carries an explicit `cache_control` marker.
+- `ALI_BASE_URL`, default `https://dashscope.aliyuncs.com/compatible-mode/v1`;
+  a workspace-specific `https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`
+  host is faster and more stable.
+- `QWEN_MODEL`, default `qwen3.7-flash`
+- `QWEN_MAX_TOKENS`, default `4096`
+- `QWEN_THINKING_BUDGET`, default `50`; caps reasoning tokens on scoring calls
+  only. Measured across 0/50/100/200 on 64 stratified articles: category
+  agreement does not improve with budget (73–80%, no trend), but run-to-run
+  stability does (90% → 94%, against DeepSeek's 84%). 50 scored highest on
+  agreement with zero failures. `0` disables scoring thinking entirely for
+  another ~1.5%.
 - `KIMI_MODEL`
 - `KIMI_BASE_URL`, default `https://api.moonshot.cn/v1`
 - `DEEPSEEK_MODEL`, default `deepseek-v4-flash`
 - `DEEPSEEK_BASE_URL`, default `https://api.deepseek.com`
 - `DEEPSEEK_USER_ID`, optional isolation id for DeepSeek requests
 - `DEEPSEEK_MAX_TOKENS`, default `2048`
+- `DEEPSEEK_SCORING_REASONING_EFFORT`, default `low`; one of `off|low|high|max`.
+  DeepSeek defaults to thinking mode at `high` effort and bills every thinking
+  token at the output rate, so prefilter, same-event verification and
+  translation always run with thinking disabled — they return one determinate
+  structured answer, where deliberation buys nothing. Only article scoring
+  thinks, at this effort. Measured against 50 real articles, dropping from the
+  API default to `low` cut spend ~46% with no quality change beyond the model's
+  own run-to-run noise. Raise it if scoring quality regresses; `off` disables
+  thinking there too.
 - `AI_PIPELINE_CONCURRENCY`, default `1`; set higher for providers with high concurrency limits.
 - `GITHUB_TOKEN`, optional but recommended for README enrichment to reduce GitHub API rate-limit failures.
 - `GITHUB_TOKEN`

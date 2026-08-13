@@ -1471,6 +1471,59 @@ def create_app(
                 raise HTTPException(status_code=404, detail="Refresh job not found")
             return dict(job)
 
+    def _current_provider_summary() -> dict:
+        """本进程当前会构造出的 provider，不发起任何 API 请求。"""
+        from app.services.ai_service import provider_from_env
+
+        try:
+            provider = provider_from_env(usage_collector=None)
+        except Exception as exc:  # 缺 key 等配置问题不该让报表 500
+            return {"error": f"{type(exc).__name__}: {exc}"}
+        summary = {
+            "class": type(provider).__name__,
+            "model": getattr(provider, "model", None),
+            "base_url": getattr(provider, "base_url", None),
+            "env_ai_provider": os.getenv("AI_PROVIDER") or "(未设置，按 key 自动选择)",
+        }
+        for name in ("thinking_budget", "scoring_reasoning_effort"):
+            if hasattr(provider, name):
+                summary[name] = getattr(provider, name)
+        return summary
+
+    @app.get("/api/admin/ai-usage", dependencies=[admin_guard])
+    def get_ai_usage(days: int = 7) -> dict:
+        """Token spend per day and per pipeline stage.
+
+        Returns counts only. Cost is left to the reader because DeepSeek
+        bills peak and off-peak hours at different rates, so a stored price
+        would silently go stale.
+        """
+        try:
+            window_days = _resolve_refresh_int(
+                name="days", value=days, default=7, minimum=1, maximum=90
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        since = datetime.now(timezone.utc) - timedelta(days=window_days)
+        with _admin_repository_context() as repository:
+            rows = repository.ai_usage_by_day(since=since)
+        return {
+            "days": window_days,
+            # 当前进程实际会用哪个 provider。环境变量是进程启动时读进
+            # os.environ 的，改完 .env 不重启就不会生效，而账单要过一轮刷新
+            # 才看得出来——这里直接把生效值暴露出来，省得靠猜。
+            "current_provider": _current_provider_summary(),
+            "totals": {
+                "calls": sum(row["calls"] for row in rows),
+                "prompt_tokens": sum(row["prompt_tokens"] for row in rows),
+                "cache_hit_tokens": sum(row["cache_hit_tokens"] for row in rows),
+                "cache_miss_tokens": sum(row["cache_miss_tokens"] for row in rows),
+                "completion_tokens": sum(row["completion_tokens"] for row in rows),
+                "reasoning_tokens": sum(row["reasoning_tokens"] for row in rows),
+            },
+            "rows": rows,
+        }
+
     @app.get("/api/admin/schedule", dependencies=[admin_guard])
     def get_schedule() -> dict:
         with _admin_repository_context() as repository:

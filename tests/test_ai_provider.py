@@ -8,11 +8,16 @@ from unittest.mock import patch
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
 from app.services.ai_service import (
+    AIUsage,
     DeepSeekProvider,
     FakeAIProvider,
     KimiProvider,
     OpenAIProvider,
+    QwenProvider,
+    UsageCollector,
     embedding_input,
+    scoring_system_prompt,
+    usage_from_response,
     parse_event_match_payload,
     parse_chat_json,
     parse_prefilter_payload,
@@ -596,6 +601,384 @@ class EmbeddingInputTests(unittest.TestCase):
 
         self.assertEqual(result, "标题A\n标题A\n正文内容")
         self.assertEqual(result.count("标题A"), 2)
+
+
+SCORING_PAYLOAD = {
+    "ai_focus": "primary",
+    "dimensions": {"impact": 7, "novelty": 8, "substance": 8},
+    "category": "model_release",
+    "tags": ["Agent"],
+    "title_zh": "标题",
+    "one_line_summary": "一句话",
+    "summary_zh": "摘要",
+    "reason_zh": "理由",
+    "action_zh": "动作",
+}
+
+
+def _chat_response(content, usage=None):
+    response = {"choices": [{"finish_reason": "stop", "message": {"content": content}}]}
+    if usage is not None:
+        response["usage"] = usage
+    return response
+
+
+class DeepSeekThinkingModeTests(unittest.TestCase):
+    """DeepSeek bills thinking tokens at the output rate and defaults to
+    thinking=enabled + reasoning_effort=high, so every call must state its
+    intent explicitly rather than inherit the expensive default."""
+
+    def _capture(self, provider):
+        calls = []
+
+        def fake_post_json(_url, payload):
+            calls.append(payload)
+            content = json.dumps(
+                {
+                    **SCORING_PAYLOAD,
+                    "is_ai_related": True,
+                    "confidence": 0.9,
+                    "reason": "reason",
+                    "same_event": False,
+                    "paragraphs_zh": ["译文"],
+                    "mainline_title": "主线",
+                    "mainline_body": "正文",
+                    "theme_notes": [{"label": "模型", "note": "动向"}],
+                },
+                ensure_ascii=False,
+            )
+            return _chat_response(content)
+
+        provider._post_json = fake_post_json
+        return calls
+
+    def test_classification_and_translation_calls_disable_thinking(self):
+        provider = DeepSeekProvider("test-key")
+        calls = self._capture(provider)
+
+        provider.prefilter("标题\n正文")
+        provider.verify_same_event({"id": "a", "title": "t"}, {"id": "b", "title": "t"})
+        provider.translate_paragraphs(["hello"])
+
+        self.assertEqual([call["thinking"] for call in calls], [{"type": "disabled"}] * 3)
+        for call in calls:
+            self.assertNotIn("reasoning_effort", call)
+
+    def test_scoring_thinks_at_the_configured_effort(self):
+        provider = DeepSeekProvider("test-key")
+        calls = self._capture(provider)
+
+        provider.score_article("标题", "正文")
+
+        self.assertEqual(calls[0]["thinking"], {"type": "enabled"})
+        self.assertEqual(calls[0]["reasoning_effort"], "low")
+
+    def test_scoring_effort_off_disables_thinking_entirely(self):
+        provider = DeepSeekProvider("test-key", scoring_reasoning_effort="off")
+        calls = self._capture(provider)
+
+        provider.score_article("标题", "正文")
+
+        self.assertEqual(calls[0]["thinking"], {"type": "disabled"})
+        self.assertNotIn("reasoning_effort", calls[0])
+
+    def test_period_summary_keeps_thinking(self):
+        # runs once per week/month, and is the only call that synthesizes
+        # across dozens of events rather than classifying one
+        provider = DeepSeekProvider("test-key")
+        calls = self._capture(provider)
+
+        provider.summarize_period([{"title": "事件"}], "weekly", "2026-08-10 ~ 2026-08-16")
+
+        self.assertEqual(calls[0]["thinking"], {"type": "enabled"})
+
+    def test_rejects_an_unknown_effort_setting(self):
+        with self.assertRaises(ValueError):
+            DeepSeekProvider("test-key", scoring_reasoning_effort="medium-ish")
+
+
+class UsageAccountingTests(unittest.TestCase):
+    def test_reads_deepseek_cache_split_and_reasoning_tokens(self):
+        usage = usage_from_response(
+            {
+                "usage": {
+                    "prompt_tokens": 3000,
+                    "prompt_cache_hit_tokens": 2400,
+                    "prompt_cache_miss_tokens": 600,
+                    "completion_tokens": 900,
+                    "completion_tokens_details": {"reasoning_tokens": 700},
+                }
+            },
+            operation="score_article",
+            model="deepseek-v4-flash",
+        )
+
+        self.assertEqual(usage.cache_hit_tokens, 2400)
+        self.assertEqual(usage.cache_miss_tokens, 600)
+        self.assertEqual(usage.reasoning_tokens, 700)
+        self.assertEqual(usage.calls, 1)
+
+    def test_reads_the_openai_cached_tokens_spelling(self):
+        usage = usage_from_response(
+            {
+                "usage": {
+                    "prompt_tokens": 1000,
+                    "prompt_tokens_details": {"cached_tokens": 400},
+                    "completion_tokens": 120,
+                }
+            },
+            operation="prefilter",
+            model="gpt-4.1-mini",
+        )
+
+        self.assertEqual(usage.cache_hit_tokens, 400)
+        # derived, because OpenAI reports no explicit miss count
+        self.assertEqual(usage.cache_miss_tokens, 600)
+        self.assertEqual(usage.reasoning_tokens, 0)
+
+    def test_returns_none_when_the_provider_reports_no_usage(self):
+        self.assertIsNone(
+            usage_from_response({"choices": []}, operation="prefilter", model="m")
+        )
+
+    def test_collector_merges_by_model_and_operation(self):
+        collector = UsageCollector()
+        for _ in range(3):
+            collector.record(
+                AIUsage(operation="prefilter", model="m", prompt_tokens=100, completion_tokens=10)
+            )
+        collector.record(
+            AIUsage(operation="score_article", model="m", prompt_tokens=4000, reasoning_tokens=900)
+        )
+
+        totals = {item.operation: item for item in collector.snapshot()}
+
+        self.assertEqual(totals["prefilter"].calls, 3)
+        self.assertEqual(totals["prefilter"].prompt_tokens, 300)
+        self.assertEqual(totals["score_article"].reasoning_tokens, 900)
+
+    def test_drain_resets_so_the_next_run_cannot_double_count(self):
+        collector = UsageCollector()
+        collector.record(AIUsage(operation="prefilter", model="m", prompt_tokens=100))
+
+        self.assertEqual(len(collector.drain()), 1)
+        self.assertEqual(collector.drain(), [])
+
+    def test_provider_records_usage_under_the_calling_operation(self):
+        collector = UsageCollector()
+        provider = DeepSeekProvider("test-key", usage_collector=collector)
+
+        def fake_post_json(_url, _payload):
+            return _chat_response(
+                json.dumps(SCORING_PAYLOAD, ensure_ascii=False),
+                usage={
+                    "prompt_tokens": 5000,
+                    "prompt_cache_hit_tokens": 2560,
+                    "prompt_cache_miss_tokens": 2440,
+                    "completion_tokens": 1200,
+                    "completion_tokens_details": {"reasoning_tokens": 800},
+                },
+            )
+
+        provider._post_json = fake_post_json
+        provider.score_article("标题", "正文")
+
+        recorded = collector.snapshot()
+        self.assertEqual(len(recorded), 1)
+        self.assertEqual(recorded[0].operation, "score_article")
+        self.assertEqual(recorded[0].model, "deepseek-v4-flash")
+        self.assertEqual(recorded[0].reasoning_tokens, 800)
+
+    def test_a_provider_without_a_collector_still_works(self):
+        provider = DeepSeekProvider("test-key")
+        provider._post_json = lambda _url, _payload: _chat_response(
+            json.dumps(SCORING_PAYLOAD, ensure_ascii=False), usage={"prompt_tokens": 10}
+        )
+
+        self.assertEqual(provider.score_article("标题", "正文").title_zh, "标题")
+
+
+class QwenProviderTests(unittest.TestCase):
+    """Bailian's dialect differs from DeepSeek's in two ways that cost real
+    money when got wrong, both established by measurement against the API."""
+
+    def _capture(self, provider):
+        calls = []
+
+        def fake_post_json(_url, payload):
+            calls.append(payload)
+            return _chat_response(
+                json.dumps(
+                    {
+                        **SCORING_PAYLOAD,
+                        "is_ai_related": True,
+                        "confidence": 0.9,
+                        "reason": "reason",
+                        "same_event": False,
+                        "paragraphs_zh": ["译文"],
+                        "mainline_title": "主线",
+                        "mainline_body": "正文",
+                        "theme_notes": [{"label": "模型", "note": "动向"}],
+                    },
+                    ensure_ascii=False,
+                )
+            )
+
+        provider._post_json = fake_post_json
+        return calls
+
+    def test_never_sends_deepseek_thinking_fields(self):
+        # qwen3.7 silently ignores reasoning_effort (it only applies to
+        # glm-5.x / deepseek-v4 / kimi-k3 on Bailian). Sending it leaves the
+        # model at full reasoning strength - measured at 53% MORE expensive
+        # than DeepSeek - while looking like it was configured correctly.
+        provider = QwenProvider("test-key")
+        calls = self._capture(provider)
+
+        provider.prefilter("标题\n正文")
+        provider.score_article("标题", "正文")
+        provider.summarize_period([{"title": "事件"}], "weekly", "范围")
+
+        for call in calls:
+            self.assertNotIn("reasoning_effort", call)
+            self.assertNotIn("thinking", call)
+
+    def test_classification_and_translation_disable_thinking(self):
+        provider = QwenProvider("test-key")
+        calls = self._capture(provider)
+
+        provider.prefilter("标题\n正文")
+        provider.verify_same_event({"id": "a"}, {"id": "b"})
+        provider.translate_paragraphs(["hello"])
+
+        self.assertEqual([call["enable_thinking"] for call in calls], [False, False, False])
+        for call in calls:
+            self.assertNotIn("thinking_budget", call)
+
+    def test_scoring_spends_the_configured_thinking_budget(self):
+        provider = QwenProvider("test-key", thinking_budget=50)
+        calls = self._capture(provider)
+
+        provider.score_article("标题", "正文")
+
+        self.assertIs(calls[0]["enable_thinking"], True)
+        self.assertEqual(calls[0]["thinking_budget"], 50)
+
+    def test_zero_budget_turns_scoring_thinking_off(self):
+        provider = QwenProvider("test-key", thinking_budget=0)
+        calls = self._capture(provider)
+
+        provider.score_article("标题", "正文")
+
+        self.assertIs(calls[0]["enable_thinking"], False)
+        self.assertNotIn("thinking_budget", calls[0])
+
+    def test_period_summary_thinks_without_a_budget_cap(self):
+        provider = QwenProvider("test-key", thinking_budget=50)
+        calls = self._capture(provider)
+
+        provider.summarize_period([{"title": "事件"}], "weekly", "范围")
+
+        self.assertIs(calls[0]["enable_thinking"], True)
+        self.assertNotIn("thinking_budget", calls[0])
+
+    def test_rejects_a_negative_budget(self):
+        with self.assertRaises(ValueError):
+            QwenProvider("test-key", thinking_budget=-1)
+
+    def test_long_system_prompt_carries_an_explicit_cache_marker(self):
+        # Bailian's implicit cache never hit in testing; the explicit marker
+        # measured a 67% input-cache hit rate on the scoring prefix
+        provider = QwenProvider("test-key")
+        calls = self._capture(provider)
+
+        provider.score_article("标题", "正文")
+
+        system = calls[0]["messages"][0]
+        self.assertEqual(system["role"], "system")
+        self.assertIsInstance(system["content"], list)
+        self.assertEqual(system["content"][0]["cache_control"], {"type": "ephemeral"})
+        self.assertEqual(system["content"][0]["text"], scoring_system_prompt())
+        # the per-article half must stay a plain string, or it would be
+        # cached too and the block would never match the next article
+        self.assertIsInstance(calls[0]["messages"][1]["content"], str)
+
+    def test_short_system_prompt_is_left_unmarked(self):
+        # below Bailian's 1024-token minimum the marker cannot create a block,
+        # so prefilter (a ~278-token prompt) must not pay for the attempt
+        provider = QwenProvider("test-key")
+        calls = self._capture(provider)
+
+        provider.prefilter("标题\n正文")
+
+        self.assertIsInstance(calls[0]["messages"][0]["content"], str)
+
+    def test_does_not_send_the_deepseek_user_id_field(self):
+        provider = QwenProvider("test-key")
+        calls = self._capture(provider)
+
+        provider.prefilter("标题\n正文")
+
+        self.assertNotIn("user_id", calls[0])
+
+    def test_records_usage_like_every_other_provider(self):
+        collector = UsageCollector()
+        provider = QwenProvider("test-key", usage_collector=collector)
+        provider._post_json = lambda _u, _p: _chat_response(
+            json.dumps(SCORING_PAYLOAD, ensure_ascii=False),
+            usage={
+                "prompt_tokens": 2820,
+                "prompt_tokens_details": {"cached_tokens": 1894},
+                "completion_tokens": 410,
+            },
+        )
+
+        provider.score_article("标题", "正文")
+
+        recorded = collector.snapshot()[0]
+        self.assertEqual(recorded.operation, "score_article")
+        self.assertEqual(recorded.model, "qwen3.7-flash")
+        self.assertEqual(recorded.cache_hit_tokens, 1894)
+        self.assertEqual(recorded.cache_miss_tokens, 926)
+
+
+class ProviderSelectionTests(unittest.TestCase):
+    def test_ali_key_selects_qwen(self):
+        with patch.dict(
+            os.environ,
+            {"ALI_API_KEY": "sk-ali", "AI_PROVIDER": "", "DEEPSEEK_API_KEY": ""},
+            clear=False,
+        ):
+            provider = provider_from_env()
+
+        self.assertIsInstance(provider, QwenProvider)
+        self.assertEqual(provider.model, "qwen3.7-flash")
+        self.assertEqual(provider.thinking_budget, 50)
+
+    def test_explicit_provider_name_and_overrides(self):
+        with patch.dict(
+            os.environ,
+            {
+                "ALI_API_KEY": "sk-ali",
+                "AI_PROVIDER": "bailian",
+                "QWEN_MODEL": "qwen3.7-plus",
+                "QWEN_THINKING_BUDGET": "0",
+            },
+            clear=False,
+        ):
+            provider = provider_from_env()
+
+        self.assertEqual(provider.model, "qwen3.7-plus")
+        self.assertEqual(provider.thinking_budget, 0)
+
+    def test_qwen_without_a_key_fails_loudly(self):
+        with patch.dict(
+            os.environ,
+            {"AI_PROVIDER": "qwen", "ALI_API_KEY": "", "DASHSCOPE_API_KEY": ""},
+            clear=False,
+        ):
+            with self.assertRaises(ValueError):
+                provider_from_env()
 
 
 if __name__ == "__main__":

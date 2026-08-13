@@ -12,6 +12,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard for lo
     raise RuntimeError("SQLAlchemy is required for database repositories.") from exc
 
 from app.db.models import (
+    AIUsageStatModel,
     ArticleEmbeddingModel,
     ArticleSubmissionModel,
     ArticleTranslationModel,
@@ -1703,11 +1704,148 @@ class RadarRepository:
         model.last_triggered_at = triggered_at
         self.session.flush()
 
+    def record_ai_usage(
+        self,
+        usages: list[Any],
+        *,
+        provider: str,
+        pipeline_run_id: Optional[int] = None,
+    ) -> int:
+        """Append one row per (model, operation) of a drained usage ledger.
+
+        Takes already-aggregated AIUsage records rather than individual calls,
+        so a refresh that made hundreds of API calls writes a handful of rows.
+        """
+        rows = [
+            AIUsageStatModel(
+                pipeline_run_id=pipeline_run_id,
+                provider=provider,
+                model=usage.model,
+                operation=usage.operation,
+                calls=usage.calls,
+                prompt_tokens=usage.prompt_tokens,
+                cache_hit_tokens=usage.cache_hit_tokens,
+                cache_miss_tokens=usage.cache_miss_tokens,
+                completion_tokens=usage.completion_tokens,
+                reasoning_tokens=usage.reasoning_tokens,
+            )
+            for usage in usages
+        ]
+        if not rows:
+            return 0
+        self.session.add_all(rows)
+        self.session.flush()
+        return len(rows)
+
+    def ai_usage_by_day(self, *, since: datetime) -> list[dict[str, Any]]:
+        """Per-day, per-operation token totals for the cost dashboard.
+
+        Grouped in Python rather than SQL: the day bucket has to land in
+        Asia/Shanghai (a UTC-grouped ledger would split one local evening's
+        refreshes across two days), and this table holds a handful of rows
+        per refresh, so pulling the window and folding it here is cheap.
+        """
+        shanghai = ZoneInfo("Asia/Shanghai")
+        rows = self.session.scalars(
+            select(AIUsageStatModel).where(AIUsageStatModel.recorded_at >= since)
+        ).all()
+        totals: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for row in rows:
+            recorded_at = row.recorded_at
+            if recorded_at.tzinfo is None:
+                recorded_at = recorded_at.replace(tzinfo=timezone.utc)
+            day = recorded_at.astimezone(shanghai).date().isoformat()
+            key = (day, row.model, row.operation)
+            bucket = totals.setdefault(
+                key,
+                {
+                    "day": day,
+                    "model": row.model,
+                    "operation": row.operation,
+                    "calls": 0,
+                    "prompt_tokens": 0,
+                    "cache_hit_tokens": 0,
+                    "cache_miss_tokens": 0,
+                    "completion_tokens": 0,
+                    "reasoning_tokens": 0,
+                },
+            )
+            for field_name in (
+                "calls",
+                "prompt_tokens",
+                "cache_hit_tokens",
+                "cache_miss_tokens",
+                "completion_tokens",
+                "reasoning_tokens",
+            ):
+                bucket[field_name] += int(getattr(row, field_name) or 0)
+        return sorted(
+            totals.values(),
+            key=lambda item: (
+                item["day"],
+                item["completion_tokens"] + item["reasoning_tokens"],
+            ),
+            reverse=True,
+        )
+
     def create_feedback_submission(self, *, message: str, email: Optional[str]) -> int:
         model = FeedbackSubmissionModel(message=message, email=email)
         self.session.add(model)
         self.session.flush()
         return model.id
+
+    def count_feedback_since(self, since: datetime) -> int:
+        """反馈接口的限流与 Telegram 预算都靠它。
+
+        用"数最近的行数"而不是引入 Redis / 内存计数器，是因为这张表本来就在，
+        而且计数天然跨进程、跨重启——攻击者不会因为我们重启了一次 api 就获得
+        一个干净的窗口。"""
+        return (
+            self.session.query(func.count(FeedbackSubmissionModel.id))
+            .filter(FeedbackSubmissionModel.created_at >= since)
+            .scalar()
+            or 0
+        )
+
+    def has_identical_feedback_since(self, *, message: str, since: datetime) -> bool:
+        """同一条内容在窗口内是否已经进过库。
+
+        灌水脚本往往反复提交同一段内容，去重能把绝大多数垃圾挡在库外，
+        而真实用户几乎不会在 10 分钟里一字不差地重复提交。"""
+        return (
+            self.session.query(FeedbackSubmissionModel.id)
+            .filter(
+                FeedbackSubmissionModel.created_at >= since,
+                FeedbackSubmissionModel.message == message,
+            )
+            .first()
+            is not None
+        )
+
+    def list_persistently_failing_sources(self, min_errors: int) -> list[dict[str, Any]]:
+        """连续失败达到阈值的信源。
+
+        存在的理由是"静默失效"：像 aihot_content 这类 best-effort 的抓取器
+        不抛异常，抓不到就降级返回更少的内容，同步报告里那一行看着仍然是绿的。
+        每次同步都会推一份 65 个信源的完整报告，一两行变红根本不会被注意到，
+        所以连续失败必须单独拎出来告警。见 docs/2026-08-13-hardening-plan.md 第 3.3 节。"""
+        models = (
+            self.session.query(SourceModel)
+            .filter(
+                SourceModel.is_active.is_(True),
+                SourceModel.error_count >= min_errors,
+            )
+            .all()
+        )
+        return [
+            {
+                "id": model.id,
+                "name": model.name,
+                "error_count": int(model.error_count or 0),
+                "last_success_at": model.last_success_at,
+            }
+            for model in models
+        ]
 
     def update_source_health(self, per_source: dict[str, dict[str, Any]]) -> None:
         now = datetime.now(timezone.utc)
@@ -1794,59 +1932,6 @@ class RadarRepository:
         )
         if article_count:
             raise SourceHasArticlesError(source_id, article_count)
-    def count_feedback_since(self, since: datetime) -> int:
-        """反馈接口的限流与 Telegram 预算都靠它。
-
-        用"数最近的行数"而不是引入 Redis / 内存计数器，是因为这张表本来就在，
-        而且计数天然跨进程、跨重启——攻击者不会因为我们重启了一次 api 就获得
-        一个干净的窗口。"""
-        return (
-            self.session.query(func.count(FeedbackSubmissionModel.id))
-            .filter(FeedbackSubmissionModel.created_at >= since)
-            .scalar()
-            or 0
-        )
-
-    def has_identical_feedback_since(self, *, message: str, since: datetime) -> bool:
-        """同一条内容在窗口内是否已经进过库。
-
-        灌水脚本往往反复提交同一段内容，去重能把绝大多数垃圾挡在库外，
-        而真实用户几乎不会在 10 分钟里一字不差地重复提交。"""
-        return (
-            self.session.query(FeedbackSubmissionModel.id)
-            .filter(
-                FeedbackSubmissionModel.created_at >= since,
-                FeedbackSubmissionModel.message == message,
-            )
-            .first()
-            is not None
-        )
-
-    def list_persistently_failing_sources(self, min_errors: int) -> list[dict[str, Any]]:
-        """连续失败达到阈值的信源。
-
-        存在的理由是"静默失效"：像 aihot_content 这类 best-effort 的抓取器
-        不抛异常，抓不到就降级返回更少的内容，同步报告里那一行看着仍然是绿的。
-        每次同步都会推一份 65 个信源的完整报告，一两行变红根本不会被注意到，
-        所以连续失败必须单独拎出来告警。见 docs/2026-08-13-hardening-plan.md 第 3.3 节。"""
-        models = (
-            self.session.query(SourceModel)
-            .filter(
-                SourceModel.is_active.is_(True),
-                SourceModel.error_count >= min_errors,
-            )
-            .all()
-        )
-        return [
-            {
-                "id": model.id,
-                "name": model.name,
-                "error_count": int(model.error_count or 0),
-                "last_success_at": model.last_success_at,
-            }
-            for model in models
-        ]
-
         self.session.delete(model)
         return True
 

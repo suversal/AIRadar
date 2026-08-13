@@ -20,6 +20,144 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
+class AIUsage:
+    """Billed token counts for one provider call, as the API reported them.
+
+    Only raw counts are stored, never a money amount: DeepSeek moved to
+    peak/off-peak pricing on 2026-08-16, so the same token count costs a
+    different amount depending on when it was spent. Pricing belongs in the
+    reader, not in the ledger.
+    """
+
+    operation: str
+    model: str
+    calls: int = 1
+    prompt_tokens: int = 0
+    cache_hit_tokens: int = 0
+    cache_miss_tokens: int = 0
+    completion_tokens: int = 0
+    # thinking-mode tokens, billed at the (expensive) output rate even though
+    # they never appear in the response content
+    reasoning_tokens: int = 0
+
+    def merged_with(self, other: "AIUsage") -> "AIUsage":
+        return AIUsage(
+            operation=self.operation,
+            model=self.model,
+            calls=self.calls + other.calls,
+            prompt_tokens=self.prompt_tokens + other.prompt_tokens,
+            cache_hit_tokens=self.cache_hit_tokens + other.cache_hit_tokens,
+            cache_miss_tokens=self.cache_miss_tokens + other.cache_miss_tokens,
+            completion_tokens=self.completion_tokens + other.completion_tokens,
+            reasoning_tokens=self.reasoning_tokens + other.reasoning_tokens,
+        )
+
+
+def usage_from_response(
+    response: dict[str, Any], *, operation: str, model: str
+) -> AIUsage | None:
+    """Read the usage block of a chat/embedding response.
+
+    Handles both the DeepSeek/Kimi spelling (``prompt_cache_hit_tokens``) and
+    the OpenAI one (``prompt_tokens_details.cached_tokens``); a provider that
+    reports neither still yields correct totals, just no cache split.
+    """
+    usage = response.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    completion_details = usage.get("completion_tokens_details") or {}
+    prompt_details = usage.get("prompt_tokens_details") or {}
+    prompt_tokens = int(usage.get("prompt_tokens") or 0)
+    cache_hit = usage.get("prompt_cache_hit_tokens")
+    if cache_hit is None:
+        cache_hit = prompt_details.get("cached_tokens")
+    cache_hit_tokens = int(cache_hit or 0)
+    cache_miss = usage.get("prompt_cache_miss_tokens")
+    cache_miss_tokens = (
+        int(cache_miss) if cache_miss is not None else max(0, prompt_tokens - cache_hit_tokens)
+    )
+    return AIUsage(
+        operation=operation,
+        model=model,
+        prompt_tokens=prompt_tokens,
+        cache_hit_tokens=cache_hit_tokens,
+        cache_miss_tokens=cache_miss_tokens,
+        completion_tokens=int(usage.get("completion_tokens") or 0),
+        reasoning_tokens=int(completion_details.get("reasoning_tokens") or 0),
+    )
+
+
+class UsageCollector:
+    """Thread-safe token ledger keyed by (model, operation).
+
+    Providers are called from the pipeline's ThreadPoolExecutor, so every
+    update takes the lock. Whoever owns a run drains the totals and decides
+    where they go, which keeps this module free of any database dependency.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._totals: dict[tuple[str, str], AIUsage] = {}
+
+    def record(self, usage: AIUsage | None) -> None:
+        if usage is None:
+            return
+        key = (usage.model, usage.operation)
+        with self._lock:
+            existing = self._totals.get(key)
+            self._totals[key] = existing.merged_with(usage) if existing else usage
+
+    def snapshot(self) -> list[AIUsage]:
+        with self._lock:
+            return sorted(
+                self._totals.values(),
+                key=lambda item: item.completion_tokens + item.reasoning_tokens,
+                reverse=True,
+            )
+
+    def drain(self) -> list[AIUsage]:
+        """Return the accumulated totals and reset, so a caller that persists
+        one refresh's usage cannot double-count it into the next one."""
+        with self._lock:
+            totals = list(self._totals.values())
+            self._totals.clear()
+        return sorted(
+            totals,
+            key=lambda item: item.completion_tokens + item.reasoning_tokens,
+            reverse=True,
+        )
+
+
+# Process-wide default so ad-hoc scripts and the manual-article path also
+# accumulate; refresh runs drain this between pipeline runs.
+USAGE_COLLECTOR = UsageCollector()
+
+
+class _UsageReportingProvider:
+    """Shared usage bookkeeping for the remote providers."""
+
+    usage_collector: UsageCollector | None = None
+
+    def _record_usage(self, operation: str, response: dict[str, Any], *, model: str) -> None:
+        collector = self.usage_collector
+        if collector is None:
+            return
+        usage = usage_from_response(response, operation=operation, model=model)
+        if usage is None:
+            return
+        collector.record(usage)
+        logger.debug(
+            "ai_usage operation=%s model=%s prompt=%d cache_hit=%d completion=%d reasoning=%d",
+            usage.operation,
+            usage.model,
+            usage.prompt_tokens,
+            usage.cache_hit_tokens,
+            usage.completion_tokens,
+            usage.reasoning_tokens,
+        )
+
+
+@dataclass(frozen=True)
 class EventMatchDecision:
     """Structured second-stage evidence for semantic event aggregation."""
 
@@ -309,6 +447,16 @@ def _ai_focus_rubric() -> str:
         "行业的事件。自检法：把文章里AI相关的字眼全部去掉，剩下的内容是否仍能"
         "独立成立一篇完整、有意义的报道？如果是，判tangential，不要因为出现了"
         "'智能''AI''智驾'这类字面词就顺势判高。"
+        "重要豁免——AI 工具链的使用与排障：当文章讨论的对象本身就是 AI 产品、"
+        "模型或工具（如 Codex、Claude、Cursor、ChatGPT、某模型 API 或 SDK），"
+        "且内容是它的使用方法、配置、故障排查、踩坑复盘或能力实测时，AI 不属于"
+        "'顺带提及'——把 AI 相关字眼去掉后这篇文章根本不存在（'某工具首包卡死的"
+        "排查'离开了它是 AI 编程工具这个前提就没有意义），因此应判 primary 或"
+        "contributing，不得判 tangential。与之相对：如果文章主体是一套通用工程"
+        "实践（如代码审查流程、分支管理、项目管理方法、团队协作规范），AI 只是"
+        "触发该实践的背景原因或素材来源（如'因为 AI 生成的代码变更太大，所以要"
+        "用堆叠式 PR 拆解'），那么去掉 AI 之后这套实践本身仍然完整成立，仍判为"
+        "tangential。判断分界：AI 是这篇文章的讨论对象，还是只是引出话题的背景。"
         "典型误判陷阱——车企/智能座舱类通稿：某车企OTA更新稿列举了多项车辆功能"
         "（智驾领航、城区/园区巡航、车外语音播报、车载K歌、胎压提醒、悬架灯光"
         "等），即使'智驾领航''自动泊车'字面像AI/自动驾驶术语，只要文章主体是"
@@ -367,6 +515,15 @@ def _category_taxonomy_guide() -> str:
         "→funding（具体金额和轮次）；'某分析师撰文预测生成式AI下一步的发展方"
         "向'→opinion（核心是主观判断和预测，不是客观事件）；'某AI公司创始人离"
         "职，另有高管加入'→industry（人事变动类行业新闻，非融资）。"
+        "tutorial 与 product_release 的边界（最常见的误判）：判断依据是文章在"
+        "回答'怎么用'还是'出了什么新东西'。'手把手教你用 X 搭建 Y''X 的配置"
+        "技巧与最佳实践''我们如何用 X 把 Z 做到 N 倍'这类实操指南、操作步骤或"
+        "案例复盘，一律判 tutorial——即使通篇都在讲某个具体产品的功能、即使文"
+        "中大量出现产品名，只要文章的核心价值是教读者照着做，而不是宣布该产品"
+        "有了什么新版本或新能力，就不判 product_release。反过来，'X 发布新版"
+        "本，新增 Y 功能'即使附带了使用说明，主体仍是产品进展，判 "
+        "product_release。同一条原则也适用于 tutorial 与 model_release、"
+        "technology 的边界：形式（教读者怎么做）压过主体（讲的是什么东西）。"
     )
 
 
@@ -670,17 +827,24 @@ class LocalEmbeddingProvider:
         return [float(value) for value in vector]
 
 
-class OpenAIProvider:
+class OpenAIProvider(_UsageReportingProvider):
     def __init__(
         self,
         api_key: str,
         *,
         scoring_model: str = "gpt-4.1-mini",
         embedding_model: str = "text-embedding-3-small",
+        usage_collector: UsageCollector | None = None,
     ):
         self.api_key = api_key
         self.scoring_model = scoring_model
         self.embedding_model = embedding_model
+        self.usage_collector = usage_collector
+
+    def _chat_content(self, payload: dict[str, Any], operation: str) -> str:
+        response = self._post_json("https://api.openai.com/v1/chat/completions", payload)
+        self._record_usage(operation, response, model=self.scoring_model)
+        return response["choices"][0]["message"]["content"]
 
     def _post_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
         request = urllib.request.Request(
@@ -722,8 +886,7 @@ class OpenAIProvider:
                 {"role": "user", "content": text[:2000]},
             ],
         }
-        response = self._post_json("https://api.openai.com/v1/chat/completions", payload)
-        content = response["choices"][0]["message"]["content"]
+        content = self._chat_content(payload, "prefilter")
         return parse_prefilter_payload(parse_chat_json(content))
 
     def verify_same_event(
@@ -738,10 +901,7 @@ class OpenAIProvider:
                 {"role": "user", "content": event_match_user_content(left, right)},
             ],
         }
-        response = self._post_json(
-            "https://api.openai.com/v1/chat/completions", payload
-        )
-        content = response["choices"][0]["message"]["content"]
+        content = self._chat_content(payload, "verify_same_event")
         return parse_event_match_payload(parse_chat_json(content))
 
     def score_article(self, title: str, content: str) -> ScoringResult:
@@ -757,8 +917,7 @@ class OpenAIProvider:
                 {"role": "user", "content": f"Title: {title}\n\nContent: {content[:4000]}"},
             ],
         }
-        response = self._post_json("https://api.openai.com/v1/chat/completions", payload)
-        content = response["choices"][0]["message"]["content"]
+        content = self._chat_content(payload, "score_article")
         return parse_scoring_payload(parse_chat_json(content))
 
     def translate_paragraphs(self, paragraphs: list[str]) -> list[str]:
@@ -781,8 +940,7 @@ class OpenAIProvider:
                 },
             ],
         }
-        response = self._post_json("https://api.openai.com/v1/chat/completions", payload)
-        content = response["choices"][0]["message"]["content"]
+        content = self._chat_content(payload, "translate_paragraphs")
         return parse_translation_payload(parse_chat_json(content))
 
     def summarize_period(
@@ -799,12 +957,11 @@ class OpenAIProvider:
                 },
             ],
         }
-        response = self._post_json("https://api.openai.com/v1/chat/completions", payload)
-        content = response["choices"][0]["message"]["content"]
+        content = self._chat_content(payload, "summarize_period")
         return parse_period_summary_payload(parse_chat_json(content))
 
 
-class KimiProvider:
+class KimiProvider(_UsageReportingProvider):
     """Kimi/Moonshot chat provider with local real (bge-small-zh) embeddings."""
 
     def __init__(
@@ -813,11 +970,18 @@ class KimiProvider:
         *,
         model: str = "kimi-k2.7-code",
         base_url: str = "https://api.moonshot.cn/v1",
+        usage_collector: UsageCollector | None = None,
     ):
         self.api_key = api_key
         self.model = model
         self.base_url = base_url.rstrip("/")
+        self.usage_collector = usage_collector
         self._embedding_provider = LocalEmbeddingProvider()
+
+    def _chat_content(self, payload: dict[str, Any], operation: str) -> str:
+        response = self._post_json(f"{self.base_url}/chat/completions", payload)
+        self._record_usage(operation, response, model=self.model)
+        return response["choices"][0]["message"]["content"]
 
     @property
     def embedding_model(self) -> str:
@@ -858,8 +1022,7 @@ class KimiProvider:
                 {"role": "user", "content": text[:2000]},
             ],
         }
-        response = self._post_json(f"{self.base_url}/chat/completions", payload)
-        content = response["choices"][0]["message"]["content"]
+        content = self._chat_content(payload, "prefilter")
         return parse_prefilter_payload(parse_chat_json(content))
 
     def verify_same_event(
@@ -874,8 +1037,7 @@ class KimiProvider:
                 {"role": "user", "content": event_match_user_content(left, right)},
             ],
         }
-        response = self._post_json(f"{self.base_url}/chat/completions", payload)
-        content = response["choices"][0]["message"]["content"]
+        content = self._chat_content(payload, "verify_same_event")
         return parse_event_match_payload(parse_chat_json(content))
 
     def score_article(self, title: str, content: str) -> ScoringResult:
@@ -891,8 +1053,7 @@ class KimiProvider:
                 {"role": "user", "content": f"Title: {title}\n\nContent: {content[:4000]}"},
             ],
         }
-        response = self._post_json(f"{self.base_url}/chat/completions", payload)
-        content = response["choices"][0]["message"]["content"]
+        content = self._chat_content(payload, "score_article")
         return parse_scoring_payload(parse_chat_json(content))
 
     def translate_paragraphs(self, paragraphs: list[str]) -> list[str]:
@@ -915,8 +1076,7 @@ class KimiProvider:
                 },
             ],
         }
-        response = self._post_json(f"{self.base_url}/chat/completions", payload)
-        content = response["choices"][0]["message"]["content"]
+        content = self._chat_content(payload, "translate_paragraphs")
         return parse_translation_payload(parse_chat_json(content))
 
     def summarize_period(
@@ -933,28 +1093,48 @@ class KimiProvider:
                 },
             ],
         }
-        response = self._post_json(f"{self.base_url}/chat/completions", payload)
-        content = response["choices"][0]["message"]["content"]
+        content = self._chat_content(payload, "summarize_period")
         return parse_period_summary_payload(parse_chat_json(content))
 
 
-class DeepSeekProvider:
-    """DeepSeek OpenAI-compatible chat provider with local real (bge-small-zh) embeddings."""
+SCORING_REASONING_EFFORTS = ("off", "low", "high", "max")
+
+
+# How much deliberation one call is worth. Thinking tokens bill at the output
+# rate on every vendor here, and prefilter/verification/translation each want
+# one determinate structured answer, where deliberation buys nothing but
+# tokens. Only scoring and the period synthesis get to think.
+THINKING_OFF = "off"
+THINKING_SCORING = "scoring"  # subject to the per-provider budget/effort knob
+THINKING_FULL = "full"  # weekly/monthly synthesis, runs once per period
+
+
+class _OpenAICompatibleProvider(_UsageReportingProvider):
+    """Chat plumbing shared by every OpenAI-format endpoint.
+
+    DeepSeek and Alibaba Bailian both speak `/chat/completions` with the same
+    request and response shape, so the pipeline logic lives here once.
+    Subclasses declare only their dialect: how thinking is switched off (the
+    field names differ and are silently ignored across vendors) and whether
+    the system prompt needs an explicit cache marker.
+    """
+
+    vendor = "AI"
 
     def __init__(
         self,
         api_key: str,
         *,
-        model: str = "deepseek-v4-flash",
-        base_url: str = "https://api.deepseek.com",
-        user_id: str | None = None,
+        model: str,
+        base_url: str,
         max_tokens: int = 4096,
+        usage_collector: UsageCollector | None = None,
     ):
         self.api_key = api_key
         self.model = model
         self.base_url = base_url.rstrip("/")
-        self.user_id = user_id
         self.max_tokens = max_tokens
+        self.usage_collector = usage_collector
         self._embedding_provider = LocalEmbeddingProvider()
 
     @property
@@ -978,7 +1158,22 @@ class DeepSeekProvider:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"DeepSeek request failed: {exc.code} {body}") from exc
+            raise RuntimeError(f"{self.vendor} request failed: {exc.code} {body}") from exc
+
+    # --- dialect hooks -------------------------------------------------
+
+    def _apply_thinking(self, payload: dict[str, Any], mode: str) -> None:
+        """Write this vendor's thinking-control fields into the payload."""
+        raise NotImplementedError
+
+    def _prepare_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Hook for vendors whose caching needs the messages reshaped."""
+        return messages
+
+    def _vendor_payload(self) -> dict[str, Any]:
+        return {}
+
+    # --- shared request building ---------------------------------------
 
     def _chat_payload(
         self,
@@ -986,18 +1181,26 @@ class DeepSeekProvider:
         *,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        thinking: str = THINKING_OFF,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": self.model,
             "response_format": {"type": "json_object"},
-            "messages": messages,
+            "messages": self._prepare_messages(messages),
             "max_tokens": max_tokens or self.max_tokens,
         }
+        self._apply_thinking(payload, thinking)
         if temperature is not None:
             payload["temperature"] = temperature
-        if self.user_id:
-            payload["user_id"] = self.user_id
+        payload.update(self._vendor_payload())
         return payload
+
+    def _chat_content(self, payload: dict[str, Any], operation: str) -> str:
+        response = self._post_json(f"{self.base_url}/chat/completions", payload)
+        self._record_usage(operation, response, model=self.model)
+        return response["choices"][0]["message"]["content"]
+
+    # --- pipeline operations -------------------------------------------
 
     def embed_text(self, text: str, dimensions: int = 64) -> list[float]:
         return self._embedding_provider.embed_text(text, dimensions=dimensions)
@@ -1005,17 +1208,12 @@ class DeepSeekProvider:
     def prefilter(self, text: str) -> PrefilterResult:
         payload = self._chat_payload(
             [
-                {
-                    "role": "system",
-                    "content": prefilter_system_prompt(),
-                },
+                {"role": "system", "content": prefilter_system_prompt()},
                 {"role": "user", "content": text[:2000]},
             ],
             temperature=0.2,
         )
-        response = self._post_json(f"{self.base_url}/chat/completions", payload)
-        content = response["choices"][0]["message"]["content"]
-        return parse_prefilter_payload(parse_chat_json(content))
+        return parse_prefilter_payload(parse_chat_json(self._chat_content(payload, "prefilter")))
 
     def verify_same_event(
         self, left: dict[str, Any], right: dict[str, Any]
@@ -1028,21 +1226,18 @@ class DeepSeekProvider:
             max_tokens=1024,
             temperature=0,
         )
-        response = self._post_json(f"{self.base_url}/chat/completions", payload)
-        content = response["choices"][0]["message"]["content"]
+        content = self._chat_content(payload, "verify_same_event")
         return parse_event_match_payload(parse_chat_json(content))
 
     def score_article(self, title: str, content: str) -> ScoringResult:
         messages = [
-            {
-                "role": "system",
-                "content": scoring_system_prompt(),
-            },
+            {"role": "system", "content": scoring_system_prompt()},
             {"role": "user", "content": f"Title: {title}\n\nContent: {content[:4000]}"},
         ]
-        # Reasoning-capable DeepSeek models count hidden reasoning against
-        # max_tokens. With the old 2048-token default they could start a valid
-        # JSON object and then stop halfway through a tag or summary.
+        # A thinking model counts hidden reasoning against its output budget.
+        # With the old 2048-token default it could start a valid JSON object
+        # and then stop halfway through a tag or summary, so a truncated first
+        # attempt is retried once with a bigger budget and a terser prompt.
         budgets = (max(self.max_tokens, 4096), max(self.max_tokens * 2, 8192))
         last_error: ValueError | None = None
         choice: dict[str, Any] = {}
@@ -1059,8 +1254,14 @@ class DeepSeekProvider:
                     },
                     messages[1],
                 ]
-            payload = self._chat_payload(retry_messages, max_tokens=budget, temperature=0.2)
+            payload = self._chat_payload(
+                retry_messages,
+                max_tokens=budget,
+                temperature=0.2,
+                thinking=THINKING_SCORING,
+            )
             response = self._post_json(f"{self.base_url}/chat/completions", payload)
+            self._record_usage("score_article", response, model=self.model)
             choice = response["choices"][0]
             response_content = choice.get("message", {}).get("content") or ""
             try:
@@ -1092,18 +1293,18 @@ class DeepSeekProvider:
                 },
             ]
         )
-        response = self._post_json(f"{self.base_url}/chat/completions", payload)
-        content = response["choices"][0]["message"]["content"]
+        content = self._chat_content(payload, "translate_paragraphs")
         return parse_translation_payload(parse_chat_json(content))
 
     def summarize_period(
         self, items: list[dict[str, Any]], kind: str, range_label: str
     ) -> dict[str, Any]:
-        # this model spends hidden reasoning_tokens before it emits the
-        # visible JSON answer; the default max_tokens budget is tuned for
-        # single-article scoring calls and is too tight for this longer
-        # narrative task - it can exhaust the budget on reasoning alone and
-        # return empty content with finish_reason=length
+        # the one call that keeps full thinking: it runs once per week/month,
+        # so its share of the bill is noise, while it is the only task here
+        # that genuinely synthesizes across dozens of events rather than
+        # classifying or translating one. Its budget is also raised, because
+        # reasoning alone can exhaust a scoring-sized budget and return empty
+        # content with finish_reason=length.
         payload = self._chat_payload(
             [
                 {"role": "system", "content": period_summary_prompt(kind, range_label)},
@@ -1113,10 +1314,141 @@ class DeepSeekProvider:
                 },
             ],
             max_tokens=max(self.max_tokens, 8192),
+            thinking=THINKING_FULL,
         )
-        response = self._post_json(f"{self.base_url}/chat/completions", payload)
-        content = response["choices"][0]["message"]["content"]
+        content = self._chat_content(payload, "summarize_period")
         return parse_period_summary_payload(parse_chat_json(content))
+
+
+class DeepSeekProvider(_OpenAICompatibleProvider):
+    """DeepSeek OpenAI-compatible chat provider with local real (bge-small-zh) embeddings."""
+
+    vendor = "DeepSeek"
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        model: str = "deepseek-v4-flash",
+        base_url: str = "https://api.deepseek.com",
+        user_id: str | None = None,
+        max_tokens: int = 4096,
+        scoring_reasoning_effort: str = "low",
+        usage_collector: UsageCollector | None = None,
+    ):
+        super().__init__(
+            api_key,
+            model=model,
+            base_url=base_url,
+            max_tokens=max_tokens,
+            usage_collector=usage_collector,
+        )
+        self.user_id = user_id
+        effort = str(scoring_reasoning_effort or "low").strip().lower()
+        if effort not in SCORING_REASONING_EFFORTS:
+            raise ValueError(
+                f"scoring_reasoning_effort must be one of {SCORING_REASONING_EFFORTS}, got {effort!r}"
+            )
+        self.scoring_reasoning_effort = effort
+
+    def _apply_thinking(self, payload: dict[str, Any], mode: str) -> None:
+        # DeepSeek defaults to thinking=enabled + reasoning_effort=high, and
+        # bills every thinking token at the output rate - 2x the cache-miss
+        # input rate and 100x the cache-hit one.
+        if mode == THINKING_FULL:
+            payload["thinking"] = {"type": "enabled"}
+            return
+        if mode == THINKING_SCORING and self.scoring_reasoning_effort != "off":
+            payload["thinking"] = {"type": "enabled"}
+            payload["reasoning_effort"] = self.scoring_reasoning_effort
+            return
+        payload["thinking"] = {"type": "disabled"}
+
+    def _vendor_payload(self) -> dict[str, Any]:
+        return {"user_id": self.user_id} if self.user_id else {}
+
+
+# Bailian only creates an explicit cache block for prefixes of at least 1024
+# tokens. Chinese runs roughly 0.6 tokens per character, so a system prompt
+# needs ~1700 characters to qualify; below that the marker is pointless (only
+# the scoring rubric clears it - prefilter and verification are far shorter).
+QWEN_CACHEABLE_PROMPT_CHARS = 1700
+
+
+class QwenProvider(_OpenAICompatibleProvider):
+    """Alibaba Bailian (qwen) via its OpenAI-compatible endpoint.
+
+    Two vendor differences are load-bearing, both found by measurement:
+
+    - `reasoning_effort` is silently ignored by qwen3.7 (it only applies to
+      glm-5.x / deepseek-v4 / kimi-k3 on Bailian). Sending DeepSeek-shaped
+      thinking fields leaves the model at full reasoning strength, which cost
+      53% *more* than DeepSeek in the first measured run. qwen's own knobs are
+      `enable_thinking` and `thinking_budget`.
+    - Caching is not automatic. The implicit cache never hit in testing, so
+      the long scoring prefix carries an explicit `cache_control` marker,
+      which measured a 67% input-cache hit rate (the theoretical maximum,
+      since the rest of each request is per-article body).
+    """
+
+    vendor = "Bailian"
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        model: str = "qwen3.7-flash",
+        base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        max_tokens: int = 4096,
+        thinking_budget: int = 50,
+        usage_collector: UsageCollector | None = None,
+    ):
+        super().__init__(
+            api_key,
+            model=model,
+            base_url=base_url,
+            max_tokens=max_tokens,
+            usage_collector=usage_collector,
+        )
+        if thinking_budget < 0:
+            raise ValueError(f"thinking_budget must not be negative, got {thinking_budget}")
+        self.thinking_budget = thinking_budget
+
+    def _apply_thinking(self, payload: dict[str, Any], mode: str) -> None:
+        if mode == THINKING_FULL:
+            payload["enable_thinking"] = True
+            return
+        if mode == THINKING_SCORING and self.thinking_budget > 0:
+            payload["enable_thinking"] = True
+            payload["thinking_budget"] = self.thinking_budget
+            return
+        payload["enable_thinking"] = False
+
+    def _prepare_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        prepared: list[dict[str, Any]] = []
+        for index, message in enumerate(messages):
+            content = message.get("content")
+            if (
+                index == 0
+                and message.get("role") == "system"
+                and isinstance(content, str)
+                and len(content) >= QWEN_CACHEABLE_PROMPT_CHARS
+            ):
+                prepared.append(
+                    {
+                        "role": "system",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": content,
+                                "cache_control": {"type": "ephemeral"},
+                            }
+                        ],
+                    }
+                )
+            else:
+                prepared.append(message)
+        return prepared
 
 
 def _env_int(name: str, default: int) -> int:
@@ -1126,16 +1458,23 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-def provider_from_env(*, fake_ai: bool = False):
+def provider_from_env(
+    *,
+    fake_ai: bool = False,
+    usage_collector: UsageCollector | None = USAGE_COLLECTOR,
+):
     if fake_ai:
         return FakeAIProvider()
 
+    ali_api_key = os.getenv("ALI_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
     deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
     kimi_api_key = os.getenv("KIMI_API_KEY") or os.getenv("MOONSHOT_API_KEY")
     openai_api_key = os.getenv("OPENAI_API_KEY")
     provider_name = os.getenv("AI_PROVIDER", "").strip().lower()
     if not provider_name:
-        if deepseek_api_key:
+        if ali_api_key:
+            provider_name = "qwen"
+        elif deepseek_api_key:
             provider_name = "deepseek"
         elif kimi_api_key:
             provider_name = "kimi"
@@ -1146,6 +1485,19 @@ def provider_from_env(*, fake_ai: bool = False):
 
     if provider_name in {"fake", "local"}:
         return FakeAIProvider()
+    if provider_name in {"qwen", "bailian", "dashscope", "ali", "aliyun"}:
+        if not ali_api_key:
+            raise ValueError("ALI_API_KEY or DASHSCOPE_API_KEY is required when AI_PROVIDER=qwen")
+        return QwenProvider(
+            ali_api_key,
+            model=os.getenv("QWEN_MODEL", "qwen3.7-flash"),
+            base_url=os.getenv(
+                "ALI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            ),
+            max_tokens=_env_int("QWEN_MAX_TOKENS", 4096),
+            thinking_budget=_env_int("QWEN_THINKING_BUDGET", 50),
+            usage_collector=usage_collector,
+        )
     if provider_name in {"kimi", "moonshot"}:
         if not kimi_api_key:
             raise ValueError("KIMI_API_KEY or MOONSHOT_API_KEY is required when AI_PROVIDER=kimi")
@@ -1153,6 +1505,7 @@ def provider_from_env(*, fake_ai: bool = False):
             kimi_api_key,
             model=os.getenv("KIMI_MODEL", "kimi-k2.7-code"),
             base_url=os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1"),
+            usage_collector=usage_collector,
         )
     if provider_name in {"deepseek", "deekseek"}:
         if not deepseek_api_key:
@@ -1163,6 +1516,8 @@ def provider_from_env(*, fake_ai: bool = False):
             base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
             user_id=os.getenv("DEEPSEEK_USER_ID") or None,
             max_tokens=_env_int("DEEPSEEK_MAX_TOKENS", 4096),
+            scoring_reasoning_effort=os.getenv("DEEPSEEK_SCORING_REASONING_EFFORT", "low"),
+            usage_collector=usage_collector,
         )
     if provider_name == "openai":
         if not openai_api_key:
@@ -1171,5 +1526,6 @@ def provider_from_env(*, fake_ai: bool = False):
             openai_api_key,
             scoring_model=os.getenv("DEFAULT_SCORING_MODEL", "gpt-4.1-mini"),
             embedding_model=os.getenv("DEFAULT_EMBEDDING_MODEL", "text-embedding-3-small"),
+            usage_collector=usage_collector,
         )
     raise ValueError(f"unsupported AI_PROVIDER: {provider_name}")

@@ -2452,6 +2452,52 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(counts["raw_articles"], 1)
         self.assertEqual(counts["sources"], 1)
 
+    def test_delete_source_actually_removes_an_empty_source(self):
+        # regression: delete_source used to end at the has-articles guard, so
+        # a source with no articles fell off the end returning None. The admin
+        # endpoint reads that as falsy and answered 404 "Source not found"
+        # about a source that was still sitting in the list.
+        from app.db.models import SourceModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            session.commit()
+
+            deleted = repository.delete_source("openai_blog")
+            session.commit()
+
+            self.assertIs(deleted, True)
+            self.assertIsNone(session.get(SourceModel, "openai_blog"))
+
+    def test_delete_source_reports_a_missing_source(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            self.assertIs(RadarRepository(session).delete_source("nope"), False)
+
+    def test_delete_source_refuses_to_orphan_articles(self):
+        from app.db.models import SourceModel
+        from app.repositories.radar_repository import (
+            RadarRepository,
+            SourceHasArticlesError,
+        )
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles(
+                [self._article(article_id="a1", title="t", url_hash="h1")]
+            )
+            session.commit()
+
+            with self.assertRaises(SourceHasArticlesError):
+                repository.delete_source("openai_blog")
+            session.rollback()
+
+            self.assertIsNotNone(session.get(SourceModel, "openai_blog"))
+
     def test_update_source_fields_whitelists_keys(self):
         from app.db.models import SourceModel
         from app.repositories.radar_repository import RadarRepository
@@ -3083,6 +3129,105 @@ class RepositoryTests(unittest.TestCase):
             config = repository.get_schedule_config()
 
         self.assertEqual(config["last_triggered_at"], triggered_at.isoformat())
+
+    def test_ai_usage_rolls_up_per_day_and_operation(self):
+        from app.db.models import AIUsageStatModel
+        from app.repositories.radar_repository import RadarRepository
+        from app.services.ai_service import AIUsage
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            written = repository.record_ai_usage(
+                [
+                    AIUsage(
+                        operation="score_article",
+                        model="deepseek-v4-flash",
+                        calls=12,
+                        prompt_tokens=48000,
+                        cache_hit_tokens=30000,
+                        cache_miss_tokens=18000,
+                        completion_tokens=6000,
+                        reasoning_tokens=4200,
+                    ),
+                    AIUsage(
+                        operation="prefilter",
+                        model="deepseek-v4-flash",
+                        calls=40,
+                        prompt_tokens=24000,
+                        cache_miss_tokens=24000,
+                        completion_tokens=2400,
+                    ),
+                ],
+                provider="DeepSeekProvider",
+                pipeline_run_id=None,
+            )
+            # a second refresh's slice of the same day must fold into one row
+            repository.record_ai_usage(
+                [
+                    AIUsage(
+                        operation="prefilter",
+                        model="deepseek-v4-flash",
+                        calls=8,
+                        prompt_tokens=4800,
+                        cache_miss_tokens=4800,
+                        completion_tokens=480,
+                    )
+                ],
+                provider="DeepSeekProvider",
+            )
+            session.commit()
+
+            rows = repository.ai_usage_by_day(
+                since=datetime.now(timezone.utc) - timedelta(days=1)
+            )
+
+        self.assertEqual(written, 2)
+        by_operation = {row["operation"]: row for row in rows}
+        self.assertEqual(by_operation["prefilter"]["calls"], 48)
+        self.assertEqual(by_operation["prefilter"]["prompt_tokens"], 28800)
+        self.assertEqual(by_operation["score_article"]["reasoning_tokens"], 4200)
+        self.assertEqual(by_operation["score_article"]["cache_hit_tokens"], 30000)
+        # heaviest output first, so the dashboard leads with the real cost
+        self.assertEqual(rows[0]["operation"], "score_article")
+
+        with self.Session() as session:
+            self.assertEqual(
+                session.query(AIUsageStatModel).count(),
+                3,
+                "each drained slice keeps its own row; folding happens on read",
+            )
+
+    def test_ai_usage_ignores_rows_outside_the_window(self):
+        from app.db.models import AIUsageStatModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            session.add(
+                AIUsageStatModel(
+                    recorded_at=datetime.now(timezone.utc) - timedelta(days=30),
+                    provider="DeepSeekProvider",
+                    model="deepseek-v4-flash",
+                    operation="prefilter",
+                    calls=5,
+                    prompt_tokens=1000,
+                )
+            )
+            session.commit()
+
+            rows = RadarRepository(session).ai_usage_by_day(
+                since=datetime.now(timezone.utc) - timedelta(days=7)
+            )
+
+        self.assertEqual(rows, [])
+
+    def test_recording_an_empty_usage_ledger_writes_nothing(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            written = RadarRepository(session).record_ai_usage([], provider="DeepSeekProvider")
+            session.commit()
+
+        self.assertEqual(written, 0)
 
     def test_create_feedback_submission_persists_message_and_email(self):
         from app.db.models import FeedbackSubmissionModel

@@ -247,5 +247,113 @@ class BuildAutoCrawlResultsTests(unittest.TestCase):
         self.assertEqual(entry["accepted_count"], 0)
 
 
+class PersistAIUsageTests(unittest.TestCase):
+    """The drain-to-ledger wiring: a refresh's token counts must land in
+    ai_usage_stats, and a bookkeeping failure must never fail the refresh."""
+
+    def setUp(self):
+        try:
+            from sqlalchemy import create_engine
+            from sqlalchemy.orm import sessionmaker
+        except ModuleNotFoundError:  # pragma: no cover - lightweight env
+            self.skipTest("SQLAlchemy is not installed in this environment")
+        from app.db.models import Base
+
+        self.engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+        Base.metadata.create_all(self.engine)
+        self.Session = sessionmaker(self.engine, future=True)
+
+    def _provider_with_usage(self, usages):
+        from app.services.ai_service import UsageCollector
+
+        collector = UsageCollector()
+        for usage in usages:
+            collector.record(usage)
+
+        class _Provider:
+            pass
+
+        provider = _Provider()
+        provider.usage_collector = collector
+        return provider, collector
+
+    def _patched_persist(self, provider, *, database_url="postgresql://ignored"):
+        from unittest.mock import patch
+
+        from app.services import refresh_service
+
+        with patch("app.db.session.build_session_factory", return_value=self.Session):
+            refresh_service._persist_ai_usage(database_url, 42, provider)
+
+    def test_drained_usage_lands_in_the_ledger(self):
+        from app.db.models import AIUsageStatModel
+        from app.services.ai_service import AIUsage
+
+        provider, collector = self._provider_with_usage(
+            [
+                AIUsage(
+                    operation="score_article",
+                    model="deepseek-v4-flash",
+                    calls=5,
+                    prompt_tokens=20000,
+                    cache_hit_tokens=19000,
+                    cache_miss_tokens=1000,
+                    completion_tokens=3000,
+                    reasoning_tokens=2000,
+                )
+            ]
+        )
+
+        self._patched_persist(provider)
+
+        with self.Session() as session:
+            rows = session.query(AIUsageStatModel).all()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].operation, "score_article")
+            self.assertEqual(rows[0].reasoning_tokens, 2000)
+            self.assertEqual(rows[0].pipeline_run_id, 42)
+        # drained, so the next refresh cannot count these tokens again
+        self.assertEqual(collector.drain(), [])
+
+    def test_a_file_only_run_keeps_its_counts_instead_of_discarding_them(self):
+        from app.services.ai_service import AIUsage
+
+        provider, collector = self._provider_with_usage(
+            [AIUsage(operation="prefilter", model="m", calls=3, prompt_tokens=900)]
+        )
+
+        from app.services import refresh_service
+
+        refresh_service._persist_ai_usage(None, None, provider)
+
+        self.assertEqual(len(collector.snapshot()), 1, "counts must survive for the next run")
+
+    def test_a_provider_without_a_collector_is_a_no_op(self):
+        from app.services import refresh_service
+
+        class _Bare:
+            pass
+
+        refresh_service._persist_ai_usage("postgresql://ignored", 1, _Bare())
+
+    def test_an_unreachable_database_does_not_fail_the_refresh(self):
+        # the run has already produced a report by this point; losing the
+        # token counts is acceptable, losing the run is not
+        from unittest.mock import patch
+
+        from app.services import refresh_service
+        from app.services.ai_service import AIUsage
+
+        provider, _ = self._provider_with_usage(
+            [AIUsage(operation="prefilter", model="m", calls=1)]
+        )
+
+        def _explode(*_args, **_kwargs):
+            raise RuntimeError("database is down")
+
+        with patch("app.db.session.build_session_factory", _explode):
+            refresh_service._persist_ai_usage("postgresql://ignored", 1, provider)
+
+
 if __name__ == "__main__":
     unittest.main()

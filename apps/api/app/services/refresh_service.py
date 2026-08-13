@@ -563,6 +563,10 @@ def _run_refresh(
         _report_progress(database_url, pipeline_run_id, phase="reports")
         _regenerate_period_reports(database_url, resolved_date, ai_provider)
 
+    # after the last AI call of the run (the period summaries), so the ledger
+    # covers scoring, translation and reports alike
+    _persist_ai_usage(database_url, pipeline_run_id, ai_provider)
+
     # 每次同步完成后推送完整结果到 Telegram(2026-07-12 深夜决策)。
     # 指标读自 persistence_summary(唯一事实源),不重新计算——防止和
     # 台账口径出现两处不一致
@@ -628,6 +632,50 @@ def _report_progress(
         raw_count=raw_count,
         source_report=source_report,
     )
+
+
+def _persist_ai_usage(
+    database_url: str | None, pipeline_run_id: int | None, ai_provider: Any
+) -> None:
+    """Drain this run's token ledger into ai_usage_stats.
+
+    The collector is only drained once there is somewhere to put the counts,
+    so a file-only run does not silently discard them. A run that crashes
+    before reaching here leaves its counts in the collector and the next run
+    persists them: daily totals stay correct, only the run attribution of
+    that slice shifts forward.
+    """
+    if not database_url:
+        return
+    collector = getattr(ai_provider, "usage_collector", None)
+    if collector is None:
+        return
+    usages = collector.drain()
+    if not usages:
+        return
+
+    from app.db.session import build_session_factory
+    from app.repositories.radar_repository import RadarRepository
+
+    # cost bookkeeping must never fail a refresh that already produced a
+    # report, so opening the session is inside the guard too - a database
+    # that is down loses this slice of counts, not the run's actual output
+    session = None
+    try:
+        session = build_session_factory(database_url)()
+        RadarRepository(session).record_ai_usage(
+            usages,
+            provider=ai_provider.__class__.__name__,
+            pipeline_run_id=pipeline_run_id,
+        )
+        session.commit()
+    except Exception:
+        if session is not None:
+            session.rollback()
+        logger.exception("failed to persist AI usage for run %s", pipeline_run_id)
+    finally:
+        if session is not None:
+            session.close()
 
 
 def _regenerate_period_reports(database_url: str, anchor_date: date, ai_provider: Any) -> None:
