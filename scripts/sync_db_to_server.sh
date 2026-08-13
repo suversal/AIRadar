@@ -61,6 +61,36 @@ $DOCKER restart infra-api-1 > /dev/null
 psql_postgres -c "DROP DATABASE IF EXISTS radar_old WITH (FORCE);" > /dev/null
 REMOTE
 
+# 服务器端的健康自检。**在源站本机跑**，不从这台 Mac 打域名：
+# 跨太平洋那条链路经常抖（curl 返回 000 但站点其实好好的），拿它判成败会频繁误报，
+# 告警一旦变成狼来了就没人看了。这里直接问 api 容器，一次同时验证应用层和数据层——
+# 能返回 article_count > 0，说明 api 活着、连得上库、库里有数据。
+#
+# 这一步失败会让整个脚本以非零退出，看门狗据此计为失败并告警。
+# 2026-08-13 之前这里是一句只打印不判断的 curl：返回 000 或 500 也照样输出
+# "同步完成"、退出码 0，等于"数据推上去了但线上挂了"永远不会被发现。
+read -r -d '' HEALTH_SCRIPT <<'REMOTE' || true
+set -euo pipefail
+# api 刚被重启过，给它几秒就绪时间再判定
+out=""
+for i in 1 2 3 4 5 6; do
+  if out=$($DOCKER exec infra-api-1 python -c "
+import json, urllib.request
+d = json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/public/latest?limit=1', timeout=10))
+n = d.get('article_count', 0)
+assert n > 0, 'article_count = 0'
+print(n, d.get('updated_at'))
+" 2>&1); then
+    echo "  api 自检通过（article_count / updated_at）：$out"
+    exit 0
+  fi
+  sleep 3
+done
+echo "  🔴 健康检查失败：api 在 6 次尝试内没有返回可用数据" >&2
+echo "  最后一次输出：$out" >&2
+exit 1
+REMOTE
+
 echo "[1/4] 导出本地数据库..."
 docker exec "$LOCAL_CONTAINER" pg_dump -U radar -Fc radar > "$DUMP"
 echo "      $(du -h "$DUMP" | cut -f1) 已导出"
@@ -83,7 +113,19 @@ for target in "${TARGETS[@]}"; do
        union all select '"'"'event_clusters: '"'"' || count(*) from event_clusters
        union all select '"'"'pipeline_runs: '"'"' || count(*) from pipeline_runs;"
   ' "DOCKER='${DOCKER}' bash -s"
-  curl -s -o /dev/null -m 20 -w "${TARGET_NAME} /latest: HTTP %{http_code}\n" "${BASE_URL}/latest"
+
+  # 源站本机自检：失败就整轮失败（set -e），看门狗会告警
+  ssh_retry_stdin "$HEALTH_SCRIPT" "DOCKER='${DOCKER}' bash -s"
+
+  # 外部这条只作提示，不参与成败判定——从这台 Mac 打 CDN 抖动太频繁。
+  # 它和上面那条自检的分歧本身有信息量：自检过了但这条不通，多半是本地网络或 CF，
+  # 不是线上服务。
+  ext=$(curl -s -o /dev/null -m 20 -w "%{http_code}" "${BASE_URL}/latest" || echo "000")
+  if [ "$ext" = "200" ]; then
+    echo "  外部访问 ${BASE_URL}/latest：HTTP 200"
+  else
+    echo "  ⚠️ 外部访问 ${BASE_URL}/latest：HTTP ${ext}（仅提示；源站自检已通过则通常是本地链路或 CF 的问题）"
+  fi
 done
 
 echo
