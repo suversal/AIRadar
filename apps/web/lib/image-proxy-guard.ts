@@ -22,17 +22,39 @@ const KNOWN_IMAGE_HOSTS = [
   "infoq.com",
   "ithome.com",
   "latent.space",
+  "nvidia.com", // blogs.nvidia.com / developer-blogs.nvidia.com
+  "qbitai.com", // 量子位 i.qbitai.com
   "qpic.cn", // 微信图床 mmbiz.qpic.cn
   "sinaimg.cn",
+  "substackcdn.com",
   "suversal.com", // 自家域名，含后台上传落地的图床 img.suversal.com
   "telesco.pe", // Telegram cdn*.telesco.pe
   "twimg.com",
   "zhimg.com",
   "36kr.com",
+  "36krcdn.com", // 36kr 的图床是独立域名 img.36krcdn.com，36kr.com 覆盖不到
+];
+
+/** 公共 CDN 上的图床：只能精确到完整主机名，**绝不能按域名加**。
+ *
+ *  `d2908q01vomqb2.cloudfront.net` 这类子域是 AWS 给每个分发随机分配的，
+ *  任何人花几分钟就能开一个。名单里写 `cloudfront.net` 等于放行全世界的
+ *  CloudFront 分发——白名单当场作废，这比不加名单更糟，因为它会让人
+ *  误以为自己受保护。上面 KNOWN_IMAGE_HOSTS 的匹配规则含子域，
+ *  所以这类主机必须走这里的精确匹配。
+ *
+ *  代价是随机子域会变：分发一换，这里就得跟着改，而且是静默失效。
+ *  这也是 IMAGE_PROXY_ENFORCE_HOSTS 至今不能打开的直接原因，见
+ *  docs/2026-08-13-hardening-plan.md 第 11.4 节。 */
+const KNOWN_IMAGE_HOST_EXACT = [
+  "d2908q01vomqb2.cloudfront.net", // AWS 官方博客的图床
 ];
 
 export function isKnownImageHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/\.$/, "");
+  if (KNOWN_IMAGE_HOST_EXACT.includes(host)) {
+    return true;
+  }
   return KNOWN_IMAGE_HOSTS.some(
     (known) => host === known || host.endsWith(`.${known}`),
   );

@@ -89,6 +89,20 @@ class ImageProxyGuardTests(unittest.TestCase):
         env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
         self.assertIn("IMAGE_HOST_BASE_URL=https://img.suversal.com/upload", env_example)
 
+    def test_shared_cdn_domains_are_never_matched_by_suffix(self):
+        # cloudfront.net / s3.amazonaws.com 这类公共 CDN 的子域是随机分配的，
+        # 任何人都能开一个。按域名加进 KNOWN_IMAGE_HOSTS（含子域匹配）
+        # 等于放行全世界的分发，白名单当场作废。只能走完整主机名精确匹配。
+        suffix_list = self.guard.split("const KNOWN_IMAGE_HOSTS")[1].split("]")[0]
+        for shared in ("cloudfront.net", "amazonaws.com", "akamaized.net", "cdn.jsdelivr.net"):
+            self.assertNotIn(
+                f'"{shared}"',
+                suffix_list,
+                f"{shared} 是公共 CDN，不能进含子域匹配的名单",
+            )
+        # 精确名单必须真的走 === 而不是 endsWith
+        self.assertIn("KNOWN_IMAGE_HOST_EXACT.includes(host)", self.guard)
+
 
 if __name__ == "__main__":
     unittest.main()
