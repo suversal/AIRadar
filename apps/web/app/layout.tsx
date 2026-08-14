@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { AnalyticsScript } from "@/components/analytics-script";
 import { ScrollToTopButton } from "@/components/scroll-to-top-button";
 import { ThemeInitScript } from "@/components/theme-init-script";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -50,6 +51,9 @@ export default function RootLayout({
         {children}
         <ScrollToTopButton />
         <ThemeToggle />
+        {/* 埋点放在最后：它不影响首屏，注入的 tracker 也是 defer 的。
+            自己会跳过 /admin，未配置 website id 时整体不渲染。 */}
+        <AnalyticsScript />
       </body>
     </html>
   );

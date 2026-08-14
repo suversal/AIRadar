@@ -101,6 +101,46 @@ To stop it: `launchctl unload ~/Library/LaunchAgents/com.suversal.ai-radar.refre
 Database persistence requires the Docker Postgres to be running; if it is
 down, reports still land under `data/reports/` and only the DB write fails.
 
+## Web Analytics
+
+Self-hosted [Umami](https://umami.is) runs as the `umami` service in
+`infra/docker-compose.prod.yml` (production only — the local compose file has no
+analytics). Selection rationale and the retention caveats below are recorded in
+`docs/notes/2026-08-14-analytics-selection.md`.
+
+- Tracker script: `https://radar.suversal.com/s.js`
+- Collect endpoint: `POST https://radar.suversal.com/api/collect`
+- Dashboard: `https://stats.suversal.com` (default login `admin` / `umami` —
+  change it immediately)
+
+Both tracker paths are deliberately non-default and must stay in sync across
+three places, or tracking silently 404s: `TRACKER_SCRIPT_NAME` /
+`COLLECT_API_ENDPOINT` in the compose file, the two exact-match `location`
+blocks in `infra/nginx/radar-cf.conf`, and `SCRIPT_SRC` in
+`apps/web/components/analytics-script.tsx`.
+
+First-time setup (the database must be created by hand — `infra/postgres/init.sql`
+only runs when the volume is first initialized, and the existing volume is long
+past that):
+
+```bash
+docker exec infra-postgres-1 psql -U radar -d postgres \
+  -c "CREATE DATABASE umami OWNER radar;"
+```
+
+Then set `UMAMI_APP_SECRET` (`openssl rand -hex 32`) in the server's `.env`,
+deploy, create a website in the dashboard, put its UUID in `UMAMI_WEBSITE_ID`,
+and deploy again. Note that `UMAMI_WEBSITE_ID` is a **build arg**: it is inlined
+by `next build`, so changing it requires rebuilding the web image, not just a
+container restart.
+
+**Retention has a hard limit worth knowing.** Umami's retention report is
+`group by session_id`, and `session_id` is derived from a salt that rotates
+monthly, so the dashboard's cohort numbers are only valid *within* a calendar
+month — a visitor returning across a month boundary is counted as brand new.
+For true cross-month retention, query `session.distinct_id` directly; the SQL is
+in the note linked above.
+
 ## Docker Runtime
 
 Install Docker Desktop first, then:
@@ -223,6 +263,15 @@ Optional:
 - `AI_PIPELINE_CONCURRENCY`, default `1`; set higher for providers with high concurrency limits.
 - `GITHUB_TOKEN`, optional but recommended for README enrichment to reduce GitHub API rate-limit failures.
 - `GITHUB_TOKEN`
+
+Web analytics (production only, see the Web Analytics section above):
+
+- `UMAMI_APP_SECRET`, required by the `umami` service; `openssl rand -hex 32`
+- `UMAMI_DB_NAME`, default `umami`
+- `UMAMI_WEBSITE_ID`, the dashboard's website UUID. Passed as a **build arg** to
+  `next build` and inlined into the output, so changing it needs an image
+  rebuild. Empty means the tracking component renders nothing at all, which is
+  why local dev never sends analytics.
 
 The scripts and refresh endpoint automatically use `FakeAIProvider` when no AI
 key is present or when `--fake-ai` is passed. Kimi and DeepSeek use

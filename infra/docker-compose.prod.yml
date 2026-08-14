@@ -106,6 +106,14 @@ services:
       dockerfile: infra/Dockerfile.web
       args:
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+        # 埋点站点 ID（umami 面板里建好站点后拿到的 UUID）。
+        # 走 build arg 而不是 environment，是因为 NEXT_PUBLIC_* 是 `next build`
+        # **构建时**内联进产物的。用运行时环境变量会踩一个静默的坑：
+        # 被静态预渲染的页面在构建阶段就把当时的空值烘死了，那些页面永远不埋点，
+        # 而面板上只是数字偏低、不会报错——正是最难发现的失败模式。
+        # 代价是改 ID 要重建前端镜像，但这个 ID 基本只填一次。
+        # 留空则埋点组件整体不渲染（本地 dev 与未配置的机器天然不埋点）。
+        NEXT_PUBLIC_UMAMI_WEBSITE_ID: ${UMAMI_WEBSITE_ID:-}
     restart: unless-stopped
     logging:
       driver: json-file
@@ -117,6 +125,55 @@ services:
       TZ: Asia/Shanghai
     depends_on:
       - api
+    deploy:
+      resources:
+        limits:
+          memory: 384m
+
+  # 访问统计。数据落在**同一个 postgres 实例里的独立 umami 库**，不是 radar 库——
+  # sync_db_to_server.sh 是整库替换（建 radar_new → rename 顶掉 radar → DROP radar_old），
+  # 任何写进 radar 的埋点数据都会在下一次同步时被连根丢掉。它只动 radar* 这三个名字，
+  # 所以同实例内另开一个库是安全的，也省下再跑一份 postgres 的内存。
+  #
+  # ⚠️ umami 库要**手动建**：infra/postgres/init.sql 只在数据卷首次初始化时执行，
+  #    现有卷早已初始化过，改那个文件不会有任何效果。一次性执行：
+  #      docker exec infra-postgres-1 psql -U radar -d postgres \
+  #        -c "CREATE DATABASE umami OWNER radar;"
+  #    表结构由 umami 自带的 Prisma migration 在首次启动时自动建，不进 Alembic——
+  #    「Alembic 独占 schema」那条不变式约束的是 radar 库，两者互不干涉。
+  umami:
+    image: ghcr.io/umami-software/umami:postgresql-latest
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "20"
+    environment:
+      # 复用 postgres 服务的 radar 用户（它就是 umami 库的 owner），不另起账号。
+      # 插值取自仓库根的 .env：部署时是 `cd <repo> && docker compose --env-file .env ...`。
+      DATABASE_URL: postgresql://radar:${POSTGRES_PASSWORD:?set in .env}@postgres:5432/${UMAMI_DB_NAME:-umami}
+      APP_SECRET: ${UMAMI_APP_SECRET:?set in .env}
+      # 自定义脚本名与上报路径——自托管的核心收益就在这两行。默认的 /script.js 与
+      # /api/send 已被 EasyPrivacy 一类的名单按路径收录，改个名就免疫了。
+      # 改这两个值必须同步改 nginx/radar-cf.conf 里对应的两个 location，否则 404。
+      TRACKER_SCRIPT_NAME: s.js
+      COLLECT_API_ENDPOINT: /api/collect
+      # 站在 CF + nginx 两层后面，必须显式指定真实客户端 IP 从哪个头取。
+      # 不配这个，所有访客会被算成同一个人（都是 nginx 的容器 IP），
+      # 留存数字直接失真——而且失真得很安静，面板照样出图。
+      CLIENT_IP_HEADER: CF-Connecting-IP
+      # 显式写出默认值，因为这个值直接决定留存报表能看多远，而且直觉是反的：
+      # session_id = uuid(websiteId, ip, userAgent, salt)，salt 按这个周期轮换
+      # （src/app/api/send/route.ts）。而留存报表是 group by session_id 算的，
+      # 所以 salt 一轮换，同一个人就变成新访客、cohort 当场断掉。
+      # 源码里只有 day / week / month 三档（其它值一律 fallback 到 month），
+      # month 已经是最长的一档 —— 不要为了"更隐私"改成 day，那等于把留存报表清零。
+      SALT_ROTATION: month
+      TZ: Asia/Shanghai
+    depends_on:
+      postgres:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -134,8 +191,13 @@ services:
       - "80:80"
     volumes:
       - ./nginx/radar.conf:/etc/nginx/conf.d/default.conf:ro
+    # ⚠️ umami 必须列在这里：radar-cf.conf 里是 `proxy_pass http://umami:3000`
+    #    这种不带变量的写法，nginx **在启动时**就要解析主机名，解析不到就是
+    #    [emerg] host not found → 容器进入 Restarting 循环 → CF 那边表现为 521。
+    #    与 web 同样的道理，漏一个就是整站中断。
     depends_on:
       - web
+      - umami
     deploy:
       resources:
         limits:
