@@ -115,6 +115,17 @@ rename 顶掉 `radar` → `DROP radar_old`。任何写进 `radar` 的埋点数�
 这不违反「Alembic 独占 schema」——那条不变式约束的是 `radar` 库；`umami` 的表由 Umami
 自带的 Prisma migration 在首次启动时建，两者互不干涉。
 
+## 面板本身的两个坑（3.3.0 实测）
+
+- **`TWO_FACTOR_ENCRYPTION_KEY` 是必填**，不是"开了 2FA 才需要"。不配的话用户管理接口
+  直接抛 `TWO_FACTOR_ENCRYPTION_KEY is missing or invalid`。64 字符 hex，`openssl rand -hex 32`。
+- **建站入口是 `/websites`，不是 `/admin/websites`。** 后者是超管的全局视图、**没有创建按钮**，
+  很容易以为是权限问题。另外 `/admin/users` 里的「编辑」点了没反应——实测无 JS 报错、
+  无网络请求、DOM 无变化，是 3.3.0 自身的前端 bug（官方 issue 里没有对应记录）。
+  改密码走 `/settings/profile`，不受这个 bug 影响。
+- Website ID 在列表页看不到，要点进站点的设置页；或者直接查库：
+  `docker exec infra-postgres-1 psql -U radar -d umami -tAc "SELECT website_id, name FROM website;"`
+
 ## 运维要点
 
 - **`umami` 库要手动建一次**：`infra/postgres/init.sql` 只在数据卷首次初始化时执行，

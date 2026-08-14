@@ -154,6 +154,11 @@ services:
       # 插值取自仓库根的 .env：部署时是 `cd <repo> && docker compose --env-file .env ...`。
       DATABASE_URL: postgresql://radar:${POSTGRES_PASSWORD:?set in .env}@postgres:5432/${UMAMI_DB_NAME:-umami}
       APP_SECRET: ${UMAMI_APP_SECRET:?set in .env}
+      # 两步验证密钥的加密密钥（64 字符 hex）。**不配会让用户管理接口直接抛异常**：
+      # 后台"编辑用户"点了没反应、日志里是 `TWO_FACTOR_ENCRYPTION_KEY is missing or
+      # invalid`。名字看着像"只有开了 2FA 才需要"，实际上用户相关接口一律先校验它，
+      # 所以它是必填而不是可选。2026-08-15 实测踩到。
+      TWO_FACTOR_ENCRYPTION_KEY: ${UMAMI_TWO_FACTOR_KEY:?set in .env}
       # 自定义脚本名与上报路径——自托管的核心收益就在这两行。默认的 /script.js 与
       # /api/send 已被 EasyPrivacy 一类的名单按路径收录，改个名就免疫了。
       # 改这两个值必须同步改 nginx/radar-cf.conf 里对应的两个 location，否则 404。
