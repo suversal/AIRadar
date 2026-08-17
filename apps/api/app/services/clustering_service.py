@@ -150,6 +150,68 @@ def cosine_similarity(left: list[float], right: list[float]) -> float:
     return dot / (left_norm * right_norm)
 
 
+def centroid(vectors: list[list[float]]) -> list[float]:
+    """Component-wise mean of a bucket's member vectors."""
+    if not vectors:
+        return []
+    width = len(vectors[0])
+    usable = [vector for vector in vectors if len(vector) == width]
+    if not usable:
+        return []
+    return [sum(values) / len(usable) for values in zip(*usable)]
+
+
+#: Floor of the recall band: below this an article is not even a candidate for
+#: a bucket, above it the same-event verifier decides.
+#:
+#: Cosine similarity cannot separate "same event" from "same kind of text" in
+#: this corpus, so the band exists instead of a better threshold. Measured
+#: 2026-08-03 on the live embeddings:
+#:
+#:   7 unrelated arXiv papers (AURORA-LM, UEmbed, a power-systems education
+#:   paper, ...)             pairwise 0.860-0.928, mean 0.899
+#:   8 reports of one event (阿里发布 Qwen3.8-Max)
+#:                           pairwise 0.463-0.878, mean 0.703
+#:
+#: Unrelated papers score *higher* than genuine same-event coverage - arXiv
+#: titles are near-identical in register, so the vector captures genre and
+#: field rather than event identity. No threshold can satisfy both sets, which
+#: is why vectors only ever recall candidates here and the verifier judges
+#: them. 0.80 keeps recall affordable: on 2026-08-12, 97% of all candidate
+#: pairs fell below it.
+GRAY_ZONE_FLOOR = 0.80
+
+#: How many recall-band buckets one article may be checked against. The
+#: verifier costs an API call per bucket, so only the closest are asked.
+GRAY_ZONE_CANDIDATE_LIMIT = 2
+
+
+def bucket_affinity(vector: list[float], member_vectors: list[list[float]]) -> float | None:
+    """Recall score of ``vector`` against a bucket, measured on its centroid.
+
+    Only used to rank and shortlist recall-band candidates for the verifier,
+    never to merge on its own. The centroid is the right shortlisting signal
+    because complete-linkage (the merge gate below) gets progressively harsher
+    as a bucket grows: every extra member adds another link that can fall below
+    the bar, so the more coverage a real event accumulates the less likely its
+    next report is to reach the gate. That is how 阿里发布 Qwen3.8-Max ended up
+    as 8 separate events on 2026-08-03.
+    """
+    if not member_vectors:
+        return None
+    center = centroid(member_vectors)
+    if not center:
+        return None
+    return cosine_similarity(vector, center)
+
+
+def weakest_link(vector: list[float], member_vectors: list[list[float]]) -> float:
+    """Complete-linkage score: similarity to the least similar bucket member."""
+    if not member_vectors:
+        return 0.0
+    return min(cosine_similarity(vector, member) for member in member_vectors)
+
+
 def choose_main_article(
     articles: list[RawArticle],
     *,
@@ -188,12 +250,12 @@ def cluster_articles(
     sources = sources or {}
     final_scores = final_scores or {}
     buckets: list[list[RawArticle]] = []
-    # every member's vector, not just the founding one - a candidate must
-    # clear the threshold against ALL of them (complete-linkage), not just
-    # whichever vector happened to create the bucket. Single-linkage (one
-    # fixed reference vector, first bucket that clears it) lets unrelated
-    # articles chain in transitively: A~B and B~C can each clear the bar
-    # while A and C are not actually related.
+    # every member's vector, not just the founding one: membership is judged
+    # against the bucket's centroid with a floor under the weakest individual
+    # link (see bucket_affinity). Single-linkage against one fixed reference
+    # vector would let unrelated articles chain in transitively (A~B and B~C
+    # each clear the bar while A and C are unrelated); plain complete-linkage
+    # blocks that but also caps how large a correct bucket can grow.
     bucket_vectors: list[list[list[float]]] = []
     bucket_similarities: list[dict[str, float]] = []
     bucket_reference_keys: list[set[str]] = []
@@ -234,14 +296,13 @@ def cluster_articles(
         matched_score = 0.0
         if matched_index is not None:
             member_vectors = bucket_vectors[matched_index]
-            matched_score = (
-                min(cosine_similarity(vector, member) for member in member_vectors)
-                if member_vectors
-                else 1.0
-            )
+            # an exact cited-source match already proves the event, so this is
+            # only the similarity worth recording, never a gate
+            center = centroid(member_vectors)
+            matched_score = cosine_similarity(vector, center) if center else 1.0
         else:
-            best_index = None
-            best_score = threshold
+            direct_matches: list[tuple[float, int]] = []
+            gray_matches: list[tuple[float, int]] = []
             for index, member_vectors in enumerate(bucket_vectors):
                 if not member_vectors:
                     continue
@@ -251,28 +312,57 @@ def cluster_articles(
                     max_event_span_hours=max_event_span_hours,
                 ):
                     continue
-                # the weakest link to any existing member, not just the
-                # founder - a bucket only qualifies if the new article is
-                # close to everyone already in it
-                score = min(cosine_similarity(vector, member) for member in member_vectors)
-                if (
-                    score >= best_score
-                    and same_event_verifier is not None
-                    and not all(
-                        same_event_verifier(
-                            event_match_document(existing),
-                            event_match_document(article),
-                        )
-                        for existing in buckets[index]
+                # complete-linkage stays the gate for merging without asking the
+                # verifier. Loosening it to the centroid was measured on
+                # 2026-08-03 and merged 7 unrelated arXiv papers into one event:
+                # in this corpus a loose vector rule buys mis-merges, not recall.
+                gate = weakest_link(vector, member_vectors)
+                if gate >= threshold:
+                    direct_matches.append((gate, index))
+                    continue
+                if same_event_verifier is None:
+                    continue
+                recall = bucket_affinity(vector, member_vectors)
+                if recall is not None and recall >= GRAY_ZONE_FLOOR:
+                    gray_matches.append((recall, index))
+
+            for score, index in sorted(direct_matches, reverse=True):
+                if same_event_verifier is not None and not all(
+                    same_event_verifier(
+                        event_match_document(existing),
+                        event_match_document(article),
                     )
+                    for existing in buckets[index]
                 ):
                     continue
-                if score >= best_score:
-                    best_index = index
-                    best_score = score
-            if best_index is not None:
-                matched_index = best_index
-                matched_score = best_score
+                matched_index = index
+                matched_score = score
+                break
+
+            if matched_index is None:
+                # Below threshold the verifier is the entire judgement, so ask
+                # it about the member most likely to be confirmed: if even the
+                # closest report in the bucket is a different event, no other
+                # member will be the same one. Without a verifier the band is
+                # skipped outright - vector similarity already said it cannot
+                # decide, and guessing here is what fragments real events.
+                for score, index in sorted(gray_matches, reverse=True)[
+                    :GRAY_ZONE_CANDIDATE_LIMIT
+                ]:
+                    closest = max(
+                        buckets[index],
+                        key=lambda member: cosine_similarity(
+                            vector, embeddings.get(member.id) or []
+                        ),
+                    )
+                    if not same_event_verifier(
+                        event_match_document(closest),
+                        event_match_document(article),
+                    ):
+                        continue
+                    matched_index = index
+                    matched_score = score
+                    break
         if matched_index is None:
             buckets.append([article])
             bucket_vectors.append([vector])

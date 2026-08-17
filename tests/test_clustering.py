@@ -7,7 +7,9 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
 from app.models.domain import RawArticle, Source
 from app.services.clustering_service import (
+    GRAY_ZONE_FLOOR,
     canonical_reference_key,
+    centroid,
     choose_main_article,
     cluster_articles,
     cosine_similarity,
@@ -300,6 +302,127 @@ class ClusteringTests(unittest.TestCase):
         )
 
         self.assertEqual(main.id, "a1")
+
+
+class GrayZoneClusteringTests(unittest.TestCase):
+    """2026-08-03 regression: 阿里发布 Qwen3.8-Max was one event reported by 8+
+    outlets, and the live 0.90 threshold filed it as 8 separate events. Measured
+    on the real embeddings, reports of that single event sat at 0.75-0.88
+    against each other - never reaching 0.90 - while 「Qwen3.8-Max 发布」and
+    「千问办公公测」, two genuinely different events, sat at 0.837. No threshold
+    separates those two cases, so the band below the threshold is decided by the
+    same-event verifier instead of by moving the number."""
+
+    #: a1 at 0°, a2 at 10° (their centroid points at 5°), candidate at -25°:
+    #: 0.866 against the centroid - inside the band, below the 0.90 threshold -
+    #: while its weakest individual link (0.819 against a2) is exactly what
+    #: complete-linkage rejected in production.
+    BUCKET = {"a1": [1.0, 0.0], "a2": [0.985, 0.174]}
+    CANDIDATE = [0.906, -0.423]
+
+    def _articles(self):
+        return [
+            raw_article("a1", "openai_blog", "authority", "T1", "Alibaba ships Qwen3.8-Max", 8),
+            raw_article("a2", "ithome", "signal", "T2", "Qwen3.8-Max is now live", 9),
+            raw_article("a3", "infoq", "signal", "T2", "Alibaba releases Qwen3.8 flagship", 10),
+        ]
+
+    def _embeddings(self):
+        return {**self.BUCKET, "a3": self.CANDIDATE}
+
+    def test_fixture_sits_in_the_gray_band_and_fails_complete_linkage(self):
+        # guard the fixture itself: if these numbers drift the two tests below
+        # stop testing the band and silently start testing the direct path
+        centre = centroid([self.BUCKET["a1"], self.BUCKET["a2"]])
+        centre_score = cosine_similarity(self.CANDIDATE, centre)
+        self.assertGreaterEqual(centre_score, GRAY_ZONE_FLOOR)
+        self.assertLess(centre_score, 0.90)
+        weakest = min(
+            cosine_similarity(self.CANDIDATE, self.BUCKET["a1"]),
+            cosine_similarity(self.CANDIDATE, self.BUCKET["a2"]),
+        )
+        self.assertLess(weakest, 0.90)
+
+    def test_gray_zone_match_merges_when_the_verifier_confirms(self):
+        clusters = cluster_articles(
+            self._articles(),
+            self._embeddings(),
+            threshold=0.90,
+            same_event_verifier=lambda _left, _right: True,
+        )
+
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(clusters[0].source_count, 3)
+
+    def test_gray_zone_match_stays_split_when_the_verifier_rejects(self):
+        # 「Qwen3.8-Max 发布」vs「千问办公公测」at 0.837: inside the band, but a
+        # different event. The verifier is the only thing that can tell these
+        # apart from the merge case above - the vectors cannot. a1/a2 are 0.985
+        # apart and merge through the direct path either way, so rejecting only
+        # the band comparison isolates what the band itself decides.
+        clusters = cluster_articles(
+            self._articles(),
+            self._embeddings(),
+            threshold=0.90,
+            same_event_verifier=lambda left, right: "a3" not in (left["id"], right["id"]),
+        )
+
+        self.assertEqual(len(clusters), 2)
+        by_size = sorted(clusters, key=lambda cluster: len(cluster.article_ids))
+        self.assertEqual(by_size[0].article_ids, ["a3"])
+        self.assertEqual(sorted(by_size[1].article_ids), ["a1", "a2"])
+
+    def test_gray_zone_asks_the_verifier_about_the_closest_member_only(self):
+        # one API call per candidate bucket, not one per member: the closest
+        # report carries the judgement, so a3 is compared against a1 (0.906)
+        # rather than a2 (0.819). ('a1','a2') is the direct-path check that
+        # runs before the band is ever reached.
+        compared: list[tuple[str, str]] = []
+
+        cluster_articles(
+            self._articles(),
+            self._embeddings(),
+            threshold=0.90,
+            same_event_verifier=lambda left, right: (
+                compared.append((left["id"], right["id"])) or True
+            ),
+        )
+
+        self.assertEqual(compared, [("a1", "a2"), ("a1", "a3")])
+
+    def test_gray_zone_is_skipped_without_a_verifier(self):
+        # fail-closed: vector similarity already said it cannot decide, and
+        # merging on a guess is what chains unrelated events together
+        clusters = cluster_articles(
+            self._articles(),
+            self._embeddings(),
+            threshold=0.90,
+        )
+
+        self.assertEqual(len(clusters), 2)
+
+    def test_verified_band_lets_a_correct_bucket_keep_growing(self):
+        # the fragmentation mechanism itself: under complete-linkage every
+        # article added to a bucket contributes another link that a later report
+        # of the same event must clear, so the more coverage an event accumulated
+        # the harder it became to join. The band recalls those reports on the
+        # centroid and lets the verifier admit them, so a fourth report of the
+        # same event still lands in the same bucket.
+        articles = [
+            *self._articles(),
+            raw_article("a4", "qbitai", "signal", "T2", "Qwen3.8-Max hits top tier", 11),
+        ]
+        embeddings = {**self._embeddings(), "a4": [0.94, -0.34]}
+
+        clusters = cluster_articles(
+            articles,
+            embeddings,
+            threshold=0.90,
+            same_event_verifier=lambda _left, _right: True,
+        )
+
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(clusters[0].source_count, 4)
 
 
 if __name__ == "__main__":
