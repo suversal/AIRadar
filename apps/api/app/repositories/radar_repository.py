@@ -34,8 +34,11 @@ from app.db.models import (
 )
 from app.models.domain import DailyReport, EventCluster, ProcessedArticle, RawArticle, Source
 from app.services.clustering_service import (
+    GRAY_ZONE_CANDIDATE_LIMIT,
+    GRAY_ZONE_FLOOR,
     ROLE_PRIORITY,
     TIER_PRIORITY,
+    centroid,
     cosine_similarity,
     reference_keys_for_article,
 )
@@ -876,6 +879,7 @@ class RadarRepository:
         candidate_last_seen_at: datetime | None = None,
         max_event_span_hours: float | None = None,
         candidate_filter: Callable[[str], bool] | None = None,
+        gray_zone_filter: Callable[[str, str], bool] | None = None,
     ) -> Optional[tuple[str, float]]:
         """Cross-day multi-source aggregation: is there an already-published
         event close enough to this vector within the sliding window? Returns
@@ -892,12 +896,21 @@ class RadarRepository:
         as a higher-scoring article took over the main slot (see
         upsert_event_clusters), silently pulling in articles unrelated to the
         event's other members as long as they happened to resemble whichever
-        article was main at that moment."""
+        article was main at that moment.
+
+        Below the threshold, ``gray_zone_filter`` reopens the recall band that
+        clustering_service uses in-batch (see GRAY_ZONE_FLOOR): the same event
+        reported hours apart lands in different pipeline runs, so without a
+        band here complete-linkage keeps those runs' clusters permanently
+        apart. It receives (event_id, closest_member_article_id) and is the
+        entire judgement for the band - vector similarity has already said it
+        cannot decide."""
         rows = self.session.execute(
             select(
                 EventClusterModel.id,
                 EventClusterModel.first_seen_at,
                 EventClusterModel.last_seen_at,
+                EventClusterArticleModel.raw_article_id,
                 ArticleEmbeddingModel.content_vector,
             )
             .join(
@@ -912,14 +925,37 @@ class RadarRepository:
         candidate_min_scores: dict[str, float] = {}
         candidate_first_seen: dict[str, datetime] = {}
         candidate_last_seen: dict[str, datetime] = {}
-        for event_id, first_seen_at, last_seen_at, member_vector in rows:
+        candidate_vectors: dict[str, list[list[float]]] = {}
+        candidate_closest: dict[str, tuple[float, str]] = {}
+        for event_id, first_seen_at, last_seen_at, member_article_id, member_vector in rows:
             if member_vector is None:
                 continue
             candidate_first_seen[event_id] = first_seen_at
             candidate_last_seen[event_id] = last_seen_at
-            score = cosine_similarity(vector, list(member_vector))
+            member = list(member_vector)
+            candidate_vectors.setdefault(event_id, []).append(member)
+            score = cosine_similarity(vector, member)
             if event_id not in candidate_min_scores or score < candidate_min_scores[event_id]:
                 candidate_min_scores[event_id] = score
+            if event_id not in candidate_closest or score > candidate_closest[event_id][0]:
+                candidate_closest[event_id] = (score, member_article_id)
+
+        def within_window(event_id: str) -> bool:
+            if _ensure_utc(candidate_last_seen[event_id]) < _ensure_utc(since):
+                return False
+            return not (
+                max_event_span_hours is not None
+                and candidate_first_seen_at is not None
+                and candidate_last_seen_at is not None
+                and not _event_spans_fit_window(
+                    candidate_first_seen[event_id],
+                    candidate_last_seen[event_id],
+                    candidate_first_seen_at,
+                    candidate_last_seen_at,
+                    max_event_span_hours=max_event_span_hours,
+                )
+            )
+
         # Rank by cheap vector evidence first. The second-stage AI verifier is
         # intentionally called only for candidates that already clear the
         # threshold; running it before this gate turns one persistence pass
@@ -931,24 +967,36 @@ class RadarRepository:
         for event_id, min_score in ranked_candidates:
             if min_score < threshold:
                 break
-            if _ensure_utc(candidate_last_seen[event_id]) < _ensure_utc(since):
-                continue
-            if (
-                max_event_span_hours is not None
-                and candidate_first_seen_at is not None
-                and candidate_last_seen_at is not None
-                and not _event_spans_fit_window(
-                    candidate_first_seen[event_id],
-                    candidate_last_seen[event_id],
-                    candidate_first_seen_at,
-                    candidate_last_seen_at,
-                    max_event_span_hours=max_event_span_hours,
-                )
-            ):
+            if not within_window(event_id):
                 continue
             if candidate_filter is not None and not candidate_filter(event_id):
                 continue
             return event_id, min_score
+
+        if gray_zone_filter is None:
+            return None
+        # Recalled on the event's centroid rather than its weakest member:
+        # complete-linkage gets harsher as an event accumulates coverage, which
+        # is exactly the case this band exists to catch.
+        banded: list[tuple[float, str]] = []
+        for event_id, min_score in candidate_min_scores.items():
+            if min_score >= threshold:
+                continue
+            center = centroid(candidate_vectors.get(event_id) or [])
+            if not center:
+                continue
+            recall = cosine_similarity(vector, center)
+            if recall >= GRAY_ZONE_FLOOR:
+                banded.append((recall, event_id))
+        for recall, event_id in sorted(banded, key=lambda item: (-item[0], item[1]))[
+            :GRAY_ZONE_CANDIDATE_LIMIT
+        ]:
+            if not within_window(event_id):
+                continue
+            _closest_score, closest_article_id = candidate_closest[event_id]
+            if not gray_zone_filter(event_id, closest_article_id):
+                continue
+            return event_id, recall
         return None
 
     def _similarity_between_articles(
@@ -1360,6 +1408,21 @@ class RadarRepository:
                         verification_cache[event_id] = confirmed
                         return confirmed
 
+                    def verified_band_candidate(
+                        event_id: str, closest_article_id: str
+                    ) -> bool:
+                        # One call against the event's closest member, not all
+                        # of them: if even the nearest report is a different
+                        # event, no other member is the same one either. Never
+                        # merges without the verifier - inside the band the
+                        # vector has already said it cannot decide.
+                        if same_event_verifier is None or incoming_document is None:
+                            return False
+                        documents = self._event_match_documents([closest_article_id])
+                        return bool(documents) and same_event_verifier(
+                            incoming_document, documents[0]
+                        )
+
                     match = self.find_similar_recent_event(
                         main_vector,
                         since=since,
@@ -1368,6 +1431,7 @@ class RadarRepository:
                         candidate_last_seen_at=cluster.last_seen_at,
                         max_event_span_hours=cluster_window_hours,
                         candidate_filter=verified_candidate,
+                        gray_zone_filter=verified_band_candidate,
                     )
                     if match is not None:
                         target_id, _matched_score = match

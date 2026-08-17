@@ -966,6 +966,116 @@ class RepositoryTests(unittest.TestCase):
         # clears 0.9 against main1 alone, but not against member1 - must not merge
         self.assertIsNone(match)
 
+    def _banded_event(self, repository):
+        """An existing 2-member event plus an incoming vector that lands in the
+        recall band against it: 0.866 on the centroid, 0.766 against its
+        weakest member. That shape is why one event fragments across pipeline
+        runs - the same event reported hours apart never clears complete
+        linkage, so each run files it as a new event (2026-08-03, 阿里发布
+        Qwen3.8-Max, 8 separate events)."""
+        vec_main = self._vec([1.0, 0.0])  # 0 degrees
+        vec_member = self._vec([0.940, 0.342])  # 20 degrees
+        vec_incoming = self._vec([0.940, -0.342])  # -20 degrees
+        repository.upsert_sources([self._source()])
+        repository.upsert_raw_articles(
+            [
+                self._article(article_id="main1", title="阿里发布Qwen3.8-Max", url_hash="u-main"),
+                self._article(article_id="member1", title="千问Qwen3.8-Max上线", url_hash="u-member"),
+            ]
+        )
+        repository.upsert_article_embedding(
+            "main1", embedding_model="m", vector=vec_main, source_hash="h-main"
+        )
+        repository.upsert_article_embedding(
+            "member1", embedding_model="m", vector=vec_member, source_hash="h-member"
+        )
+        cluster = self._cluster("e-existing", main_article_id="main1")
+        cluster.article_ids = ["main1", "member1"]
+        cluster.article_similarities = {"main1": 1.0, "member1": 0.94}
+        repository.upsert_event_clusters([cluster])
+        return cluster, vec_incoming
+
+    def test_find_similar_recent_event_recalls_the_band_when_confirmed(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            cluster, vec_incoming = self._banded_event(repository)
+            session.commit()
+
+            match = repository.find_similar_recent_event(
+                vec_incoming,
+                since=cluster.last_seen_at - timedelta(hours=1),
+                threshold=0.9,
+                gray_zone_filter=lambda _event_id, _article_id: True,
+            )
+
+        self.assertIsNotNone(match)
+        event_id, score = match
+        self.assertEqual(event_id, "e-existing")
+        # the score reported back is the centroid recall, not the weakest link
+        self.assertAlmostEqual(score, 0.866, places=2)
+
+    def test_find_similar_recent_event_band_needs_a_verifier(self):
+        # fail-closed: no gray_zone_filter means no band. Vector similarity
+        # already said it cannot decide, and in this corpus unrelated arXiv
+        # papers score higher (0.86-0.93) than genuine same-event coverage
+        # (0.46-0.88), so merging on the vector alone buys mis-merges.
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            cluster, vec_incoming = self._banded_event(repository)
+            session.commit()
+
+            match = repository.find_similar_recent_event(
+                vec_incoming,
+                since=cluster.last_seen_at - timedelta(hours=1),
+                threshold=0.9,
+            )
+
+        self.assertIsNone(match)
+
+    def test_find_similar_recent_event_band_asks_about_the_closest_member(self):
+        # one verifier call per candidate event, against its nearest member
+        # (main1 at 0.940, not member1 at 0.766)
+        from app.repositories.radar_repository import RadarRepository
+
+        asked: list[tuple[str, str]] = []
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            cluster, vec_incoming = self._banded_event(repository)
+            session.commit()
+
+            repository.find_similar_recent_event(
+                vec_incoming,
+                since=cluster.last_seen_at - timedelta(hours=1),
+                threshold=0.9,
+                gray_zone_filter=lambda event_id, article_id: (
+                    asked.append((event_id, article_id)) or True
+                ),
+            )
+
+        self.assertEqual(asked, [("e-existing", "main1")])
+
+    def test_find_similar_recent_event_band_respects_a_rejection(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            cluster, vec_incoming = self._banded_event(repository)
+            session.commit()
+
+            match = repository.find_similar_recent_event(
+                vec_incoming,
+                since=cluster.last_seen_at - timedelta(hours=1),
+                threshold=0.9,
+                gray_zone_filter=lambda _event_id, _article_id: False,
+            )
+
+        self.assertIsNone(match)
+
     def test_upsert_event_clusters_persists_member_similarity(self):
         # 聚类证据落库：成员行的 similarity_score 来自聚类时的真实计算值
         from app.db.models import EventClusterArticleModel
