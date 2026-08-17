@@ -108,6 +108,16 @@ class ProcessedArticle:
     selection_origin: str = "score"
     selection_reason: str | None = None
     focus_category: str | None = None
+    # Which model produced final_score. Left None when the score was reused
+    # from cache rather than computed in this run - the column must never
+    # claim a model that did not actually score the article.
+    #
+    # Scores are only comparable within one model: the 2026-08-13 DeepSeek ->
+    # Qwen switch moved the ceiling from 100 to 89.1, so from 08-15 no day's
+    # top story cleared 90 while the monthly report's top-20 cut-off was 90.2 -
+    # every later story was excluded on the model change alone. Nothing recorded
+    # which model scored what, so that went unnoticed for days.
+    model_used: str | None = None
 
 
 @dataclass

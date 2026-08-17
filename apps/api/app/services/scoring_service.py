@@ -71,6 +71,7 @@ def select_processed_article(
     tags: list[str],
     generated_fields: dict[str, Any],
     focus_category: str | None = None,
+    model_used: str | None = None,
 ) -> ProcessedArticle:
     final_score = compute_final_score(dimensions, source.tier)
 
@@ -118,4 +119,5 @@ def select_processed_article(
                 ]
             ),
         ),
+        model_used=model_used,
     )

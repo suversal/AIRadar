@@ -97,9 +97,24 @@ function mainlineFor(
   mode: PeriodMode,
 ) {
   // the AI-written interval summary is the whole point of a period report;
-  // fall back to a template only when it has not been generated yet
-  if (period.generated && period.mainline_title && period.mainline_body) {
+  // fall back to a template only when it has not been generated yet.
+  //
+  // `generated` only means a snapshot row exists (see main.py period_report) -
+  // it is true even when the AI call failed and the row holds the deterministic
+  // fallback text. Without the status check the 2026-08 monthly report rendered
+  // 「本期 AI 综述生成失败」under an "AI 综述" badge.
+  if (
+    period.generated &&
+    period.summary_status !== "fallback" &&
+    period.mainline_title &&
+    period.mainline_body
+  ) {
     return { title: period.mainline_title, body: period.mainline_body, ai: true };
+  }
+  if (period.mainline_title && period.mainline_body) {
+    // a fallback row still carries the better copy of the two (it names the
+    // period's top event); show it, just never as AI-written
+    return { title: period.mainline_title, body: period.mainline_body, ai: false };
   }
   const prefix = mode === "weekly" ? "本周" : "本月";
   const top = highlights[0];

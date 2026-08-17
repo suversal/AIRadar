@@ -1714,6 +1714,19 @@ class RadarRepository:
         model.entries = list(report.get("entries") or [])
         model.stats = dict(report.get("stats") or {})
         model.status = report.get("status") or "generated"
+        # generated_at only has a server_default, which fires on INSERT alone -
+        # and period reports are re-generated on every refresh inside the live
+        # period. Without this the timestamp froze at first insert: 2026-08's
+        # monthly report still read 2026-08-01 20:44 while its article_count
+        # had climbed to 616, so the value could not be used as evidence of
+        # when the report was last written.
+        generated_at = report.get("generated_at")
+        if generated_at:
+            model.generated_at = (
+                datetime.fromisoformat(generated_at)
+                if isinstance(generated_at, str)
+                else generated_at
+            )
         return WriteResult(inserted=inserted, updated=updated)
 
     def get_period_report(self, kind: str, period_key: str) -> Optional[dict[str, Any]]:
@@ -3298,6 +3311,11 @@ def _apply_processed_article(model: ProcessedArticleModel, processed: ProcessedA
     model.rejection_reason = processed.rejection_reason
     model.selection_origin = processed.selection_origin
     model.selection_reason = processed.selection_reason
+    # Only overwrite when this run actually scored the article: a cache-reused
+    # score carries model_used=None, and blanking the stored name would lose the
+    # lineage that makes cross-model score comparisons detectable.
+    if processed.model_used:
+        model.model_used = processed.model_used
 
 
 def _apply_event_cluster(model: EventClusterModel, cluster: EventCluster) -> None:

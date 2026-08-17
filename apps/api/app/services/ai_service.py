@@ -5,7 +5,9 @@ import json
 import logging
 import os
 import re
+import socket
 import threading
+import time
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
@@ -17,6 +19,77 @@ from app.services.period_summary_service import parse_period_summary_payload
 from app.services.taxonomy import resolve_focus_category
 
 logger = logging.getLogger(__name__)
+
+#: Per-request wall clock for ordinary short-output calls (scoring, prefilter,
+#: same-event verification).
+DEFAULT_TIMEOUT_SECONDS = 60
+
+#: For calls that must produce several hundred characters of prose in one shot.
+#: 60s was enough while period summaries were short, but the monthly prompt asks
+#: for 360-440 characters over a 40-event input, and 2026-W33/2026-08 both timed
+#: out into the deterministic fallback (「本期 AI 综述生成失败」).
+LONG_FORM_TIMEOUT_SECONDS = 180
+
+#: Extra attempts after the first, for transport-level failures only.
+NETWORK_RETRY_ATTEMPTS = 2
+
+RETRY_BACKOFF_SECONDS = 2.0
+
+
+def provider_model_name(provider: Any) -> str | None:
+    """The chat model a provider scores with, for lineage stamping.
+
+    OpenAIProvider separates its scoring model from its embedding model, the
+    rest carry a single ``model``; both spellings are read so a provider swap
+    cannot silently start recording nothing.
+    """
+    for attribute in ("scoring_model", "model"):
+        name = getattr(provider, attribute, None)
+        if isinstance(name, str) and name:
+            return name
+    return None
+
+
+def _is_retryable_transport_error(error: Exception) -> bool:
+    """Only retry failures where the very same request could still succeed.
+
+    A 4xx means the request itself is wrong - retrying burns tokens and wall
+    clock for the same answer. Malformed JSON is deliberately not handled here:
+    that is the model producing something unusable, a prompt problem rather
+    than a transport one, and asking again tends to fail the same way.
+    """
+    if isinstance(error, urllib.error.HTTPError):
+        return error.code >= 500 or error.code == 429
+    return isinstance(error, (urllib.error.URLError, socket.timeout, TimeoutError))
+
+
+def urlopen_json_with_retry(
+    request: urllib.request.Request,
+    *,
+    timeout: float,
+    label: str,
+) -> dict[str, Any]:
+    """POST and decode JSON, retrying transport failures.
+
+    Re-raises the final error once attempts are exhausted, so a caller that
+    degrades to a deterministic fallback still surfaces the real reason.
+    """
+    for attempt in range(NETWORK_RETRY_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except Exception as exc:  # noqa: BLE001 - re-raised on the last attempt
+            if not _is_retryable_transport_error(exc) or attempt == NETWORK_RETRY_ATTEMPTS:
+                raise
+            logger.warning(
+                "%s failed (attempt %d/%d): %s; retrying",
+                label,
+                attempt + 1,
+                NETWORK_RETRY_ATTEMPTS + 1,
+                exc,
+            )
+            time.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
+    raise RuntimeError(f"{label} exhausted retries")  # pragma: no cover - loop always returns/raises
 
 
 @dataclass(frozen=True)
@@ -841,12 +914,26 @@ class OpenAIProvider(_UsageReportingProvider):
         self.embedding_model = embedding_model
         self.usage_collector = usage_collector
 
-    def _chat_content(self, payload: dict[str, Any], operation: str) -> str:
-        response = self._post_json("https://api.openai.com/v1/chat/completions", payload)
+    def _chat_content(
+        self,
+        payload: dict[str, Any],
+        operation: str,
+        *,
+        timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    ) -> str:
+        response = self._post_json(
+            "https://api.openai.com/v1/chat/completions", payload, timeout=timeout
+        )
         self._record_usage(operation, response, model=self.scoring_model)
         return response["choices"][0]["message"]["content"]
 
-    def _post_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def _post_json(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        *,
+        timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    ) -> dict[str, Any]:
         request = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
@@ -857,8 +944,7 @@ class OpenAIProvider(_UsageReportingProvider):
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                return json.loads(response.read().decode("utf-8"))
+            return urlopen_json_with_retry(request, timeout=timeout, label="OpenAI request")
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"OpenAI request failed: {exc.code} {body}") from exc
@@ -957,7 +1043,9 @@ class OpenAIProvider(_UsageReportingProvider):
                 },
             ],
         }
-        content = self._chat_content(payload, "summarize_period")
+        content = self._chat_content(
+            payload, "summarize_period", timeout=LONG_FORM_TIMEOUT_SECONDS
+        )
         return parse_period_summary_payload(parse_chat_json(content))
 
 
@@ -978,8 +1066,16 @@ class KimiProvider(_UsageReportingProvider):
         self.usage_collector = usage_collector
         self._embedding_provider = LocalEmbeddingProvider()
 
-    def _chat_content(self, payload: dict[str, Any], operation: str) -> str:
-        response = self._post_json(f"{self.base_url}/chat/completions", payload)
+    def _chat_content(
+        self,
+        payload: dict[str, Any],
+        operation: str,
+        *,
+        timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    ) -> str:
+        response = self._post_json(
+            f"{self.base_url}/chat/completions", payload, timeout=timeout
+        )
         self._record_usage(operation, response, model=self.model)
         return response["choices"][0]["message"]["content"]
 
@@ -989,7 +1085,13 @@ class KimiProvider(_UsageReportingProvider):
         # persisted embedding_model label must name the vector model
         return self._embedding_provider.model_name
 
-    def _post_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def _post_json(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        *,
+        timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    ) -> dict[str, Any]:
         request = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
@@ -1000,8 +1102,7 @@ class KimiProvider(_UsageReportingProvider):
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                return json.loads(response.read().decode("utf-8"))
+            return urlopen_json_with_retry(request, timeout=timeout, label="Kimi request")
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"Kimi request failed: {exc.code} {body}") from exc
@@ -1093,7 +1194,9 @@ class KimiProvider(_UsageReportingProvider):
                 },
             ],
         }
-        content = self._chat_content(payload, "summarize_period")
+        content = self._chat_content(
+            payload, "summarize_period", timeout=LONG_FORM_TIMEOUT_SECONDS
+        )
         return parse_period_summary_payload(parse_chat_json(content))
 
 
@@ -1143,7 +1246,13 @@ class _OpenAICompatibleProvider(_UsageReportingProvider):
         # persisted embedding_model label must name the vector model
         return self._embedding_provider.model_name
 
-    def _post_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def _post_json(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        *,
+        timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    ) -> dict[str, Any]:
         request = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
@@ -1154,8 +1263,9 @@ class _OpenAICompatibleProvider(_UsageReportingProvider):
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                return json.loads(response.read().decode("utf-8"))
+            return urlopen_json_with_retry(
+                request, timeout=timeout, label=f"{self.vendor} request"
+            )
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"{self.vendor} request failed: {exc.code} {body}") from exc
@@ -1195,8 +1305,16 @@ class _OpenAICompatibleProvider(_UsageReportingProvider):
         payload.update(self._vendor_payload())
         return payload
 
-    def _chat_content(self, payload: dict[str, Any], operation: str) -> str:
-        response = self._post_json(f"{self.base_url}/chat/completions", payload)
+    def _chat_content(
+        self,
+        payload: dict[str, Any],
+        operation: str,
+        *,
+        timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    ) -> str:
+        response = self._post_json(
+            f"{self.base_url}/chat/completions", payload, timeout=timeout
+        )
         self._record_usage(operation, response, model=self.model)
         return response["choices"][0]["message"]["content"]
 
@@ -1316,7 +1434,9 @@ class _OpenAICompatibleProvider(_UsageReportingProvider):
             max_tokens=max(self.max_tokens, 8192),
             thinking=THINKING_FULL,
         )
-        content = self._chat_content(payload, "summarize_period")
+        content = self._chat_content(
+            payload, "summarize_period", timeout=LONG_FORM_TIMEOUT_SECONDS
+        )
         return parse_period_summary_payload(parse_chat_json(content))
 
 

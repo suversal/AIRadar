@@ -24,6 +24,7 @@ from app.services.ai_service import (
     FakeAIProvider,
     build_same_event_verifier,
     embedding_input,
+    provider_model_name,
 )
 from app.services.clustering_service import cluster_articles
 from app.services.daily_report_service import build_daily_json, render_daily_markdown
@@ -383,6 +384,7 @@ def _build_processed_article(
     article: RawArticle,
     source: Source,
     scoring: ScoringResult,
+    model_used: str | None = None,
 ) -> ProcessedArticle:
     # 所有信源都走同一套三层判断(分类→价值分→可信度)决定是否精选 - 不再有
     # 任何信源能绕开评分直接强制入选/强制排除(2026-07-28 移除force_selection)
@@ -401,6 +403,7 @@ def _build_processed_article(
             "action_zh": scoring.action_zh,
         },
         focus_category=scoring.focus_category,
+        model_used=model_used,
     )
     aihot_summary_zh = article.metadata.get("aihot_summary_zh")
     if aihot_summary_zh:
@@ -558,6 +561,9 @@ def _process_candidate_article(
         article=article,
         source=source,
         scoring=scoring,
+        # only stamp the model when this run actually scored the article; a
+        # score reused from cache came from whatever model ran back then
+        model_used=None if scoring_was_cached else provider_model_name(ai_provider),
     )
     # 缓存文章直接复用库里的向量:重算既浪费 CPU,又会在内容有差异时
     # 用劣质向量覆盖全文向量

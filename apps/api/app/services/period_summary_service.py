@@ -9,13 +9,32 @@ fallback instead of blocking report generation.
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date, datetime, timezone
 from typing import Any
 
 from app.api.public import month_range
 
+logger = logging.getLogger(__name__)
+
 SUMMARY_ITEM_LIMIT = 40
+
+#: Minimum body length before a draft is retried once.
+#:
+#: The prompt asks for 360-440 characters; measured output across every
+#: generated period report was 139-188. The prompt could only ask, and nothing
+#: checked, so each thin draft was published as written.
+#:
+#: This floor sits deliberately *below* what the prompt asks. Its job is to
+#: catch a draft too thin to be a summary at all - not to enforce the target.
+#: A short but real summary still beats the deterministic fallback
+#: (「本期 AI 综述生成失败」), so rejecting on length alone would make the page
+#: worse rather than better; see build_period_report, which publishes the second
+#: attempt whatever its length.
+MAINLINE_BODY_MIN_CHARS = 200
+
+SUMMARY_ATTEMPTS = 2
 
 _WEEK_KEY_RE = re.compile(r"^(\d{4})-W(\d{2})$")
 _MONTH_KEY_RE = re.compile(r"^(\d{4})-(\d{2})$")
@@ -148,10 +167,36 @@ def build_period_report(
     range_label = f"{range_start.isoformat()} ~ {range_end.isoformat()}"
 
     status = "generated"
-    try:
-        summary = ai_provider.summarize_period(_summary_input(items), kind, range_label)
-        summary = parse_period_summary_payload(summary)
-    except Exception:
+    summary: dict[str, Any] | None = None
+    for attempt in range(1, SUMMARY_ATTEMPTS + 1):
+        try:
+            drafted = ai_provider.summarize_period(_summary_input(items), kind, range_label)
+            drafted = parse_period_summary_payload(drafted)
+        except Exception:
+            logger.warning(
+                "period summary attempt %d/%d failed for %s %s",
+                attempt,
+                SUMMARY_ATTEMPTS,
+                kind,
+                key,
+                exc_info=True,
+            )
+            continue
+        # keep the newest draft either way: a short summary is still worth
+        # publishing, so length only decides whether to spend another attempt
+        summary = drafted
+        if len(drafted["mainline_body"]) >= MAINLINE_BODY_MIN_CHARS:
+            break
+        logger.warning(
+            "period summary for %s %s is %d chars (min %d) on attempt %d/%d",
+            kind,
+            key,
+            len(drafted["mainline_body"]),
+            MAINLINE_BODY_MIN_CHARS,
+            attempt,
+            SUMMARY_ATTEMPTS,
+        )
+    if summary is None:
         summary = _fallback_summary(kind, items)
         status = "fallback"
 

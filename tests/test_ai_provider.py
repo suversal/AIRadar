@@ -159,7 +159,7 @@ class ScoringPromptTests(unittest.TestCase):
         provider = DeepSeekProvider(api_key="test-key")
         captured: dict = {}
 
-        def fake_post(url, payload):
+        def fake_post(url, payload, **_kwargs):
             captured["payload"] = payload
             return {
                 "choices": [
@@ -221,7 +221,7 @@ class PrefilterPromptTests(unittest.TestCase):
         ):
             captured: dict = {}
 
-            def fake_post(_url, payload, _captured=captured):
+            def fake_post(_url, payload, _captured=captured, **_kwargs):
                 _captured["payload"] = payload
                 return {
                     "choices": [
@@ -365,7 +365,7 @@ class AIProviderTests(unittest.TestCase):
         provider = KimiProvider("test-key")
         calls = []
 
-        def fake_post_json(url, payload):
+        def fake_post_json(url, payload, **_kwargs):
             calls.append((url, payload))
             return {
                 "choices": [
@@ -416,7 +416,7 @@ class AIProviderTests(unittest.TestCase):
         provider = DeepSeekProvider("test-key", user_id="ai-radar-test", max_tokens=1234)
         calls = []
 
-        def fake_post_json(url, payload):
+        def fake_post_json(url, payload, **_kwargs):
             calls.append((url, payload))
             return {
                 "choices": [
@@ -476,7 +476,7 @@ class AIProviderTests(unittest.TestCase):
             "action_zh": "下一步动作",
         }
 
-        def fake_post_json(_url, payload):
+        def fake_post_json(_url, payload, **_kwargs):
             calls.append(payload)
             if len(calls) == 1:
                 return {
@@ -631,7 +631,7 @@ class DeepSeekThinkingModeTests(unittest.TestCase):
     def _capture(self, provider):
         calls = []
 
-        def fake_post_json(_url, payload):
+        def fake_post_json(_url, payload, **_kwargs):
             calls.append(payload)
             content = json.dumps(
                 {
@@ -768,7 +768,7 @@ class UsageAccountingTests(unittest.TestCase):
         collector = UsageCollector()
         provider = DeepSeekProvider("test-key", usage_collector=collector)
 
-        def fake_post_json(_url, _payload):
+        def fake_post_json(_url, _payload, **_kwargs):
             return _chat_response(
                 json.dumps(SCORING_PAYLOAD, ensure_ascii=False),
                 usage={
@@ -805,7 +805,7 @@ class QwenProviderTests(unittest.TestCase):
     def _capture(self, provider):
         calls = []
 
-        def fake_post_json(_url, payload):
+        def fake_post_json(_url, payload, **_kwargs):
             calls.append(payload)
             return _chat_response(
                 json.dumps(
@@ -979,6 +979,148 @@ class ProviderSelectionTests(unittest.TestCase):
         ):
             with self.assertRaises(ValueError):
                 provider_from_env()
+
+
+class RequestTimeoutAndRetryTests(unittest.TestCase):
+    """2026-W33 and 2026-08 both degraded to 「本期 AI 综述生成失败」because the
+    period summary - the one call that has to emit 360-440 characters of prose
+    in a single shot - shared the 60s timeout with short scoring calls and had
+    no retry at all."""
+
+    def _summary_response(self):
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "mainline_title": "主线标题",
+                                "mainline_body": "正文",
+                                "theme_notes": [],
+                            },
+                            ensure_ascii=False,
+                        )
+                    }
+                }
+            ]
+        }
+
+    def test_period_summary_gets_the_long_form_timeout(self):
+        from app.services.ai_service import LONG_FORM_TIMEOUT_SECONDS
+
+        provider = QwenProvider(api_key="k")
+        seen: dict = {}
+
+        def fake_post(_url, _payload, *, timeout=None):
+            seen["timeout"] = timeout
+            return self._summary_response()
+
+        with patch.object(provider, "_post_json", side_effect=fake_post):
+            provider.summarize_period([{"title": "t"}], "monthly", "2026-08-01 ~ 2026-08-31")
+
+        self.assertEqual(seen["timeout"], LONG_FORM_TIMEOUT_SECONDS)
+        self.assertGreater(LONG_FORM_TIMEOUT_SECONDS, 60)
+
+    def test_short_calls_keep_the_default_timeout(self):
+        from app.services.ai_service import DEFAULT_TIMEOUT_SECONDS
+
+        provider = QwenProvider(api_key="k")
+        seen: dict = {}
+
+        def fake_post(_url, _payload, *, timeout=None):
+            seen["timeout"] = timeout
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "same_event": True,
+                                    "confidence": 0.9,
+                                    "reason": "同一发布",
+                                },
+                                ensure_ascii=False,
+                            )
+                        }
+                    }
+                ]
+            }
+
+        with patch.object(provider, "_post_json", side_effect=fake_post):
+            provider.verify_same_event({"id": "a"}, {"id": "b"})
+
+        self.assertEqual(seen["timeout"], DEFAULT_TIMEOUT_SECONDS)
+
+    def test_retry_recovers_from_a_transport_timeout(self):
+        import urllib.error
+
+        from app.services.ai_service import urlopen_json_with_retry
+
+        attempts = {"n": 0}
+
+        def flaky(_request, timeout=None):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise urllib.error.URLError("timed out")
+
+            class _Response:
+                def read(self):
+                    return b'{"ok": true}'
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_args):
+                    return False
+
+            return _Response()
+
+        with patch("urllib.request.urlopen", side_effect=flaky):
+            with patch("time.sleep"):
+                result = urlopen_json_with_retry(object(), timeout=1, label="test")
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(attempts["n"], 2)
+
+    def test_client_errors_are_not_retried(self):
+        import urllib.error
+
+        from app.services.ai_service import urlopen_json_with_retry
+
+        attempts = {"n": 0}
+
+        def bad_request(_request, timeout=None):
+            attempts["n"] += 1
+            raise urllib.error.HTTPError("u", 400, "Bad Request", {}, None)
+
+        with patch("urllib.request.urlopen", side_effect=bad_request):
+            with patch("time.sleep"):
+                with self.assertRaises(urllib.error.HTTPError):
+                    urlopen_json_with_retry(object(), timeout=1, label="test")
+
+        # a malformed request gets the same answer every time - retrying it
+        # only burns tokens and wall clock
+        self.assertEqual(attempts["n"], 1)
+
+    def test_server_errors_are_retried_then_reraised(self):
+        import urllib.error
+
+        from app.services.ai_service import NETWORK_RETRY_ATTEMPTS, urlopen_json_with_retry
+
+        attempts = {"n": 0}
+
+        def server_error(_request, timeout=None):
+            attempts["n"] += 1
+            raise urllib.error.HTTPError("u", 503, "Service Unavailable", {}, None)
+
+        with patch("urllib.request.urlopen", side_effect=server_error):
+            with patch("time.sleep"):
+                with self.assertRaises(urllib.error.HTTPError):
+                    urlopen_json_with_retry(object(), timeout=1, label="test")
+
+        # the final failure must still surface, so callers that fall back to
+        # deterministic copy can log the real reason
+        self.assertEqual(attempts["n"], NETWORK_RETRY_ATTEMPTS + 1)
 
 
 if __name__ == "__main__":

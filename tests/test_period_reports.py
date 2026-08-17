@@ -162,6 +162,98 @@ class PeriodSummaryTests(unittest.TestCase):
         self.assertAlmostEqual(stats["multi_source_ratio"], 1 / 3)
         self.assertEqual(stats["category_distribution"], {"模型动态": 2, "产品工具": 1})
 
+    def test_build_period_report_retries_a_too_short_draft_once(self):
+        # the prompt asks for 360-440 chars but every generated report measured
+        # 139-188: the prompt could ask, nothing checked. One retry is spent on
+        # a thin draft, and whatever comes back is published - a short real
+        # summary beats the "生成失败" fallback.
+        from app.services.period_summary_service import (
+            MAINLINE_BODY_MIN_CHARS,
+            SUMMARY_ATTEMPTS,
+        )
+
+        class ShortProvider(FakeAIProvider):
+            def __init__(self):
+                self.calls = 0
+
+            def summarize_period(self, items, kind, range_label):
+                self.calls += 1
+                return {
+                    "mainline_title": "主线",
+                    "mainline_body": "短" * 50,
+                    "theme_notes": [],
+                }
+
+        provider = ShortProvider()
+        report = build_period_report(
+            kind="monthly",
+            anchor=date(2026, 7, 10),
+            items=[make_item("事件A")],
+            report_dates=["2026-07-10"],
+            ai_provider=provider,
+        )
+
+        self.assertEqual(provider.calls, SUMMARY_ATTEMPTS)
+        self.assertLess(len(report["mainline_body"]), MAINLINE_BODY_MIN_CHARS)
+        # published, not degraded: status must stay generated
+        self.assertEqual(report["status"], "generated")
+        self.assertNotIn("生成失败", report["mainline_body"])
+
+    def test_build_period_report_does_not_retry_a_long_enough_draft(self):
+        from app.services.period_summary_service import MAINLINE_BODY_MIN_CHARS
+
+        class LongProvider(FakeAIProvider):
+            def __init__(self):
+                self.calls = 0
+
+            def summarize_period(self, items, kind, range_label):
+                self.calls += 1
+                return {
+                    "mainline_title": "主线",
+                    "mainline_body": "正" * (MAINLINE_BODY_MIN_CHARS + 10),
+                    "theme_notes": [],
+                }
+
+        provider = LongProvider()
+        report = build_period_report(
+            kind="monthly",
+            anchor=date(2026, 7, 10),
+            items=[make_item("事件A")],
+            report_dates=["2026-07-10"],
+            ai_provider=provider,
+        )
+
+        self.assertEqual(provider.calls, 1)
+        self.assertEqual(report["status"], "generated")
+
+    def test_build_period_report_recovers_when_only_the_first_attempt_fails(self):
+        class FlakyProvider(FakeAIProvider):
+            def __init__(self):
+                self.calls = 0
+
+            def summarize_period(self, items, kind, range_label):
+                self.calls += 1
+                if self.calls == 1:
+                    raise RuntimeError("timed out")
+                return {
+                    "mainline_title": "主线",
+                    "mainline_body": "正" * 220,
+                    "theme_notes": [],
+                }
+
+        provider = FlakyProvider()
+        report = build_period_report(
+            kind="weekly",
+            anchor=date(2026, 7, 10),
+            items=[make_item("事件A")],
+            report_dates=["2026-07-10"],
+            ai_provider=provider,
+        )
+
+        self.assertEqual(provider.calls, 2)
+        self.assertEqual(report["status"], "generated")
+        self.assertNotIn("生成失败", report["mainline_body"])
+
     def test_build_period_report_marks_fallback_on_provider_failure(self):
         class BoomProvider(FakeAIProvider):
             def summarize_period(self, items, kind, range_label):

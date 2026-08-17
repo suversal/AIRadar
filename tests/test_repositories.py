@@ -3141,6 +3141,46 @@ class RepositoryTests(unittest.TestCase):
             [entry["period_key"] for entry in archive], ["2026-W28", "2026-W27"]
         )
 
+    def test_period_report_generated_at_advances_on_every_write(self):
+        # regression: generated_at only had a server_default, which fires on
+        # INSERT alone, while period reports are re-generated on every refresh
+        # inside the live period. 2026-08's monthly report still reported
+        # 2026-08-01 20:44 after its article_count had climbed to 616, so the
+        # timestamp was useless as evidence of when it was last written.
+        from app.repositories.radar_repository import RadarRepository
+
+        base = {
+            "kind": "monthly",
+            "period_key": "2026-08",
+            "range_start": "2026-08-01",
+            "range_end": "2026-08-31",
+            "mainline_title": "主线",
+            "mainline_body": "正文",
+            "theme_notes": [],
+            "article_count": 100,
+            "report_dates": ["2026-08-01"],
+            "entries": [],
+            "stats": {},
+            "generated_at": "2026-08-01T20:44:00+00:00",
+            "status": "generated",
+        }
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_period_report(base)
+            session.commit()
+            first = repository.get_period_report("monthly", "2026-08")["generated_at"]
+
+            repository.upsert_period_report(
+                dict(base, article_count=616, generated_at="2026-08-17T02:00:00+00:00")
+            )
+            session.commit()
+            second = repository.get_period_report("monthly", "2026-08")
+
+        self.assertIn("2026-08-01", str(first))
+        self.assertIn("2026-08-17", str(second["generated_at"]))
+        self.assertEqual(second["article_count"], 616)
+
     def test_regenerate_period_reports_only_includes_published_daily_entries(self):
         """A period report is a rollup of the days' actual daily reports, not
         an independent re-selection - an article that was scored/clustered
@@ -3368,7 +3408,7 @@ class RepositoryTests(unittest.TestCase):
 
         self.assertIsNone(stored.email)
 
-    def _processed(self, raw_article_id, *, final_score=88.0):
+    def _processed(self, raw_article_id, *, final_score=88.0, model_used=None):
         from app.models.domain import ContentValueDimensions, ProcessedArticle
 
         return ProcessedArticle(
@@ -3386,7 +3426,65 @@ class RepositoryTests(unittest.TestCase):
             tags=["Agent"],
             selected=True,
             status="processed",
+            model_used=model_used,
         )
+
+    def test_processed_article_records_the_scoring_model(self):
+        # model_used had no writer anywhere in the codebase, so all 2103 rows
+        # were NULL. That is why the 2026-08-13 DeepSeek -> Qwen switch went
+        # unnoticed: the ceiling dropped from 100 to 89.1, no day after 08-15
+        # cleared 90, and the monthly top-20 cut-off was 90.2 - excluding every
+        # later story on the model change alone, with nothing recording which
+        # model scored what.
+        from app.db.models import ProcessedArticleModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles(
+                [self._article(article_id="m1", title="打分模型留痕", url_hash="u-m1")]
+            )
+            repository.upsert_processed_articles(
+                [self._processed("m1", model_used="qwen3.7-flash")]
+            )
+            session.commit()
+
+            stored = session.scalar(
+                select(ProcessedArticleModel).where(
+                    ProcessedArticleModel.raw_article_id == "m1"
+                )
+            )
+
+        self.assertEqual(stored.model_used, "qwen3.7-flash")
+
+    def test_cache_reused_score_does_not_blank_the_recorded_model(self):
+        # a cache-reused score carries model_used=None because this run did not
+        # score it; overwriting would erase the lineage of whichever model did
+        from app.db.models import ProcessedArticleModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles(
+                [self._article(article_id="m2", title="缓存复用不覆盖", url_hash="u-m2")]
+            )
+            repository.upsert_processed_articles(
+                [self._processed("m2", model_used="deepseek-v4-flash")]
+            )
+            session.commit()
+
+            repository.upsert_processed_articles([self._processed("m2", model_used=None)])
+            session.commit()
+
+            stored = session.scalar(
+                select(ProcessedArticleModel).where(
+                    ProcessedArticleModel.raw_article_id == "m2"
+                )
+            )
+
+        self.assertEqual(stored.model_used, "deepseek-v4-flash")
 
     def _cluster(self, cluster_id, *, main_article_id):
         from app.models.domain import EventCluster
