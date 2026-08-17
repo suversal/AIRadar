@@ -37,10 +37,42 @@ for target in "${TARGETS[@]}"; do
   ssh_retry "cd ${REMOTE_DIR} && ${COMPOSE} exec -T api alembic upgrade head"
 
   echo "[4/4] 健康检查..."
-  ssh_retry "cd ${REMOTE_DIR} && ${COMPOSE} ps --format 'table {{.Service}}\t{{.Status}}'"
+  # 先看容器状态，再看 HTTP —— 顺序不能反，理由见下面两段注释。
+  #
+  # 2026-08-13 的教训：nginx 配置漏挂了一个文件，容器进入 Restarting 循环、
+  # 整站 521，但这一步当时只是 `ssh_retry ... ps` 把表格打印出来、**不做任何校验**，
+  # 下面的 HTTP 检查又被 CF 缓存骗过，脚本一路绿灯报"发布完成"。
+  # 容器状态是唯一不经过 CF、也不经过任何缓存的信号，必须硬校验。
+  ps_table=$(ssh_retry "cd ${REMOTE_DIR} && ${COMPOSE} ps --format 'table {{.Service}}\t{{.Status}}'")
+  echo "${ps_table}"
+  if echo "${ps_table}" | grep -qiE "restarting|exited|unhealthy|created"; then
+    echo "健康检查失败：${TARGET_NAME} 有容器未正常运行（见上表）"
+    exit 1
+  fi
+
+  # 源站活性：从 nginx 容器内部直连 web:3000。
+  # 这是唯一能真正证明"应用在响应"的检查——它既不过 Cloudflare，
+  # 也不受源站那份 CF IP 白名单的限制（从服务器本机 curl 公网域名会被白名单挡成 403）。
+  #
+  # ⚠️ 不要试图用 "?healthcheck=$RANDOM" 这类 cache buster 从公网绕缓存：
+  #    2026-08-17 实测，CF 那边的 Cache Rule 缓存键**忽略查询字符串**，
+  #    带随机参数请求 /latest /all /daily 拿到的仍然是 cf-cache-status: HIT。
+  #    公网这一层没有便宜的办法穿透，别在这上面浪费时间。
+  for path in /latest /all /daily; do
+    if ssh_retry "${DOCKER} exec infra-nginx-1 wget -q -O /dev/null http://web:3000${path}"; then
+      echo "  ${TARGET_NAME} 源站 ${path} -> OK"
+    else
+      echo "健康检查失败：${TARGET_NAME} 源站 ${path} 无法从 nginx 容器内取到"
+      exit 1
+    fi
+  done
+
+  # 公网这一层只用来确认 DNS/CF/证书链没断。它**可能被 CF 缓存骗过**
+  # （源站已死仍返回 200），所以放在最后、也不作为唯一依据——
+  # 真正的判据是上面两步。
   for path in /latest /all /daily; do
     code=$(curl -s -o /dev/null -m 20 -w "%{http_code}" "${BASE_URL}${path}")
-    echo "  ${TARGET_NAME} ${path} -> HTTP ${code}"
+    echo "  ${TARGET_NAME} 公网 ${path} -> HTTP ${code}（可能来自 CF 缓存）"
     [ "${code}" = "200" ] || { echo "健康检查失败：${TARGET_NAME} ${path} 返回 ${code}"; exit 1; }
   done
 
