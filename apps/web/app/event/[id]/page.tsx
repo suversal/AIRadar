@@ -19,15 +19,121 @@ type EventSearchParams = Promise<{
   admin_preview?: string;
 }>;
 
-// 详情页是站外分享与搜索收录的落地页，metadata 必须带上文章自己的标题与摘要
-export async function generateMetadata({ params }: { params: EventParams }) {
+// 摘要里可能混进换行、连续空格和 markdown 残留，直接塞进 meta description
+// 会让搜索结果和分享卡片出现断行与符号。先压平再截断。
+//
+// 截断点选在标点上而不是硬切第 N 个字：中文摘要被从半句腰斩，
+// 在搜索结果里读起来像内容缺失。找不到合适标点时才回退到硬截。
+const DESCRIPTION_MAX = 150;
+
+function cleanDescription(raw?: string): string | undefined {
+  const flat = (raw ?? "").replace(/[#*`>_~]/g, "").replace(/\s+/g, " ").trim();
+  if (!flat) {
+    return undefined;
+  }
+  if (flat.length <= DESCRIPTION_MAX) {
+    return flat;
+  }
+  const head = flat.slice(0, DESCRIPTION_MAX);
+  // 在后半段里找最后一个句读，避免为了断句把描述砍得过短
+  const cut = Math.max(
+    head.lastIndexOf("。"),
+    head.lastIndexOf("；"),
+    head.lastIndexOf("！"),
+    head.lastIndexOf("？"),
+    head.lastIndexOf("."),
+  );
+  return cut > DESCRIPTION_MAX * 0.6 ? head.slice(0, cut + 1) : `${head}…`;
+}
+
+// app/opengraph-image.tsx 那张站点默认分享图的路由。裸路径可直接访问
+// （实测 200 image/png），metadataBase 会把它补成绝对 URL。
+const DEFAULT_SHARE_IMAGE = "/opengraph-image";
+
+// 分享卡片的图必须是**站外抓取器能直接拿到**的绝对 URL，所以这里返回原始外链图，
+// 不套 /api/image-proxy：robots.txt 禁掉了整个 /api，而 image-proxy 又是全站
+// 最贵的端点（SSRF 校验 + 最大 8MB 回源），没有理由为了一张分享图把它对全网抓取器敞开。
+// 原图带防盗链的情况这里能接受：抓取器不带 Referer，多数防盗链对空 Referer 是放行的；
+// 真抓不到时平台自己会回退，卡片退化成无图，不会出错。
+//
+// 拿不到文章图时回退到 DEFAULT_SHARE_IMAGE。这个回退是必须的，别想着"留空
+// 让 Next 自己补默认图"——实测（2026-08-17，Next 16.2.10）：只要页面自己
+// 定义了 openGraph 对象，app/opengraph-image.tsx 生成的默认图就**不再注入**，
+// 哪怕完全没写 images 键。表现是 /latest 有 og:image、/event/xxx 一个都没有，
+// 分享出去是一张没有配图的裸卡片，而且不报任何错。
+function shareImageUrl(event: LatestEvent): string {
+  const fromImages = event.original_images?.find((image) => /^https?:\/\//i.test(image.url));
+  if (fromImages) {
+    return fromImages.url;
+  }
+  // OriginalBlock 是按 type 区分的联合类型，只有 image 分支才有 url，
+  // 所以先 filter 出 image 再取——直接在 find 的谓词里判断不会让 TS 窄化。
+  const imageBlocks = event.original_blocks?.filter(
+    (block): block is Extract<OriginalBlock, { type: "image" }> => block.type === "image",
+  );
+  return (
+    imageBlocks?.find((block) => /^https?:\/\//i.test(block.url))?.url ?? DEFAULT_SHARE_IMAGE
+  );
+}
+
+// 详情页是站外分享与搜索收录的落地页，metadata 必须带上文章自己的标题与摘要。
+//
+// 补齐 canonical / OG / Twitter 之前，这里只有 title + description，后果有两个：
+//   1. 分享到微信、X 时卡片显示的是**站点通用标题和默认图**，每一次分享都白费；
+//   2. 没有自引用 canonical，规范 URL 交给搜索引擎自己猜——而同一事件的
+//      不同信源成员各有自己的 /event/{id}，猜错就是内容重复。
+export async function generateMetadata({
+  params,
+  searchParams,
+}: {
+  params: EventParams;
+  searchParams: EventSearchParams;
+}) {
   const { id } = await params;
+  const { admin_preview: adminPreview } = await searchParams;
   const event = await getEventDetail(id);
   if (!event) {
-    return { title: "内容详情" };
+    // 这个分支下页面会走 notFound()，但 metadata 仍会被渲染。
+    // 标 noindex 是为了兜住"后端临时不可用导致内容取不到"的情况：
+    // 那时页面结构还在，不标就有被当成一个真实薄页面收录的风险。
+    return { title: "内容详情", robots: { index: false, follow: false } };
   }
-  const description = (event.summary ?? event.one_line_summary ?? "").slice(0, 120) || undefined;
-  return { title: event.title, description };
+
+  // 用后端返回的 event_id 而不是 URL 里的 id 做 canonical：
+  // 后端若对旧 id 做过归一，canonical 会自动指向规范页，不用前端再维护一张映射表。
+  const canonicalPath = `/event/${event.event_id}`;
+  const description = cleanDescription(event.summary ?? event.one_line_summary);
+  const image = shareImageUrl(event);
+
+  // 管理员预览会渲染尚未公开（hidden）的内容，绝不能进索引，也不能让爬虫
+  // 顺着它往下爬。同理，后端把文章标成 hidden 时也一律 noindex。
+  const isPrivateView = adminPreview === "1" || event.hidden === true;
+
+  return {
+    title: event.title,
+    description,
+    alternates: { canonical: canonicalPath },
+    ...(isPrivateView ? { robots: { index: false, follow: false } } : {}),
+    openGraph: {
+      type: "article",
+      url: canonicalPath,
+      title: event.title,
+      description,
+      images: [image],
+      // time_basis="discovered" 时 published_at 只是我们的收录时间，不是原文发布时间。
+      // 这是 SourcePilot 的契约红线：页面上写「收录于」，机器可读字段同样不能伪称发布时间，
+      // 否则等于用结构化数据把页面上诚实标注的东西又谎报了一遍。
+      ...(event.published_at && event.time_basis !== "discovered"
+        ? { publishedTime: event.published_at }
+        : {}),
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: event.title,
+      description,
+      images: [image],
+    },
+  };
 }
 
 function formatScore(score?: number) {

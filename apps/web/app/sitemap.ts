@@ -21,11 +21,15 @@ const routes: Array<{
   { path: "/topics", changeFrequency: "daily", priority: 0.7 },
   { path: "/weekly", changeFrequency: "weekly", priority: 0.6 },
   { path: "/monthly", changeFrequency: "monthly", priority: 0.6 },
-  { path: "/search", changeFrequency: "monthly", priority: 0.4 },
   { path: "/about", changeFrequency: "monthly", priority: 0.4 },
   { path: "/agent", changeFrequency: "monthly", priority: 0.4 },
   { path: "/changelog", changeFrequency: "weekly", priority: 0.3 },
-  { path: "/feedback", changeFrequency: "monthly", priority: 0.2 },
+  // 这里刻意**不放** /search 和 /feedback：
+  //   /search  是工具页，已在 app/search/page.tsx 里设 noindex。
+  //            sitemap 的语义是"我希望你收录这些"，把一个 noindex 页面放进来
+  //            是自相矛盾的信号，Search Console 会报"已提交的网址标记为 noindex"。
+  //   /feedback 是表单功能页，没有可被检索的内容，收录了也不会有人从搜索进来。
+  // 两个页面本身照常可访问、照常能从侧栏点到，只是不主动请求收录。
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {

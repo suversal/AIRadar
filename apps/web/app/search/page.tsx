@@ -3,10 +3,20 @@ import { eventHref, searchEvents } from "@/lib/events";
 import { MobileNav } from "@/components/mobile-nav";
 import { Sidebar } from "@/components/sidebar";
 
+// noindex 但 follow：站内搜索页不是内容落地页，是工具页。
+// 它只搜近 7 天，绝大多数 ?q= 组合命中 0 条，收录进去就是一堆空壳薄页面，
+// 而 canonical 又把所有 ?q= 合并到 /search，等于用一个页面去接无数个查询词——
+// 搜索引擎对这种结构的判定通常是低质，会连累整站评价。
+// 保留 follow 是因为有结果时页面上的详情页链接仍然值得被爬虫沿着走。
+//
+// 注意不能改成在 robots.txt 里 Disallow: /search —— 那样爬虫压根抓不到页面，
+// 也就读不到这里的 noindex，反而可能凭外链把 /search 收录成一个无摘要条目。
+// 要让 noindex 生效，页面必须保持可抓取。
 export const metadata = {
   title: "搜索",
   description: "在近 7 天精选内容里按标题、标签、来源或摘要检索。",
   alternates: { canonical: "/search" },
+  robots: { index: false, follow: true },
 };
 
 type SearchParams = Promise<{
