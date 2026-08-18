@@ -594,6 +594,33 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("summarizeCategoryHighlights", data_source)
         self.assertIn("buildPeriodDigest", data_source)
 
+    def test_daily_page_renders_mainline_and_collapsible_categories(self):
+        """日报页三块新结构：AI 主线、分类简述、可折叠的分类列表。
+
+        折叠用原生 details/summary——这一页是服务端组件，为一个开合把整棵
+        树变成客户端组件不划算。
+        """
+        daily_page = (WEB / "app" / "daily" / "page.tsx").read_text(encoding="utf-8")
+        data_source = (WEB / "app" / "reports" / "report-data.ts").read_text(encoding="utf-8")
+
+        self.assertIn("今日主线", daily_page)
+        self.assertIn("<details", daily_page)
+        self.assertIn("digest!.categories", daily_page)
+        self.assertIn("category.note", daily_page)
+        self.assertIn("mainline", data_source)
+        self.assertIn("category_notes", data_source)
+
+    def test_daily_cards_no_longer_render_the_why_it_matters_block(self):
+        """「为什么重要」按 2026-08-18 的改版从日报卡片移除。
+
+        它是日报页唯一读快照（reason_snapshot）的字段，移除后这一页的内容
+        全部现查。周月报卡片仍然用 reason，不受影响。
+        """
+        daily_page = (WEB / "app" / "daily" / "page.tsx").read_text(encoding="utf-8")
+
+        self.assertNotIn("为什么重要", daily_page)
+        self.assertNotIn("item.reason", daily_page)
+
     def test_report_data_does_not_resort_items_by_raw_score(self):
         """接口给的顺序就是名次，前端不能再按 final_score 排一次。
 

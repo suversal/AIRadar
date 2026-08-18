@@ -48,3 +48,17 @@ export function searchEvents(items: LatestEvent[], query: string) {
     return terms.every((term) => text.includes(term));
   });
 }
+
+/** 评分的统一展示口径：四舍五入到整数。
+ *
+ * 分数带一位小数是打分链路的内部精度（tier 系数乘出来的），展示层一律取整
+ * ——同一条内容在精选页显示 77、在日报显示 77.0 会让人以为是两个数。
+ * 注意 components/all-events-feed.tsx 与 latest-events-feed.tsx 里还各有一份
+ * 同样实现的私有拷贝，早于这个函数存在，可以择机指过来。
+ */
+export function formatScore(score?: number | null) {
+  if (typeof score !== "number") {
+    return "--";
+  }
+  return Math.round(score).toString();
+}

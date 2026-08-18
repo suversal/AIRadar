@@ -776,14 +776,53 @@ class RadarRepository:
             if snapshot_reason:
                 item["reason"] = snapshot_reason
 
-        sections: dict[str, list[dict[str, Any]]] = {}
-        for item in items:
-            sections.setdefault(item["focus_category"], []).append(item)
+        # 展示顺序在这里定死，前端不再重排：多信源的一组在前、单信源的一组
+        # 在后，各自组内按分数降序；分区按 FOCUS_CATEGORIES 的固定顺序，当天
+        # 没有条目的分类不会出现（页面按这个列表渲染，空分类就不会留空壳）。
+        from app.services.daily_summary_service import (
+            group_by_focus_category,
+            sort_daily_items,
+        )
+
+        items = sort_daily_items(items)
+        sections = {
+            key: group for key, _label, group in group_by_focus_category(items)
+        }
 
         payload["items"] = items
         payload["sections"] = sections
         payload["article_count"] = len(items)
         return payload
+
+    def upsert_daily_summary(self, report_date: date, summary: dict[str, Any]) -> None:
+        """Store the day's AI mainline and category notes.
+
+        Separate from upsert_daily_report on purpose: the summary is written
+        after the masthead lands (it reads the resolved entries), and a later
+        pipeline run that only re-persists the report must not blank it.
+        """
+        model = self.session.scalar(
+            select(DailyReportModel).where(DailyReportModel.report_date == report_date)
+        )
+        if model is None:
+            return
+        model.mainline_title = str(summary.get("mainline_title") or "")
+        model.mainline_body = str(summary.get("mainline_body") or "")
+        model.category_notes = list(summary.get("category_notes") or [])
+        model.summary_status = str(summary.get("status") or "pending")
+        model.summary_digest = summary.get("digest")
+        generated_at = summary.get("generated_at")
+        model.summary_generated_at = (
+            datetime.fromisoformat(generated_at) if generated_at else None
+        )
+        self.session.flush()
+
+    def get_daily_summary_digest(self, report_date: date) -> Optional[str]:
+        return self.session.scalar(
+            select(DailyReportModel.summary_digest).where(
+                DailyReportModel.report_date == report_date
+            )
+        )
 
     def upsert_processed_articles(
         self,
@@ -3356,6 +3395,13 @@ def _daily_report_payload(model: DailyReportModel) -> dict[str, Any]:
     payload["title"] = model.title
     payload["summary"] = model.summary
     payload["article_count"] = model.article_count
+    payload["mainline_title"] = model.mainline_title or ""
+    payload["mainline_body"] = model.mainline_body or ""
+    payload["category_notes"] = list(model.category_notes or [])
+    payload["summary_status"] = model.summary_status or "pending"
+    payload["summary_generated_at"] = (
+        model.summary_generated_at.isoformat() if model.summary_generated_at else None
+    )
     payload.setdefault("items", [])
     payload.setdefault("sections", {})
     return payload

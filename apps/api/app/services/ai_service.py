@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from app.models.domain import AIFocus, ContentValueDimensions, PrefilterResult, ScoringResult
+from app.services.daily_summary_service import parse_daily_summary_payload
 from app.services.period_summary_service import parse_period_summary_payload
 from app.services.taxonomy import resolve_focus_category
 
@@ -694,6 +695,33 @@ def period_summary_prompt(kind: str, range_label: str) -> str:
     )
 
 
+def daily_summary_prompt(date_label: str) -> str:
+    """One call, two deliberately different scopes.
+
+    mainline_events are the day's multi-source events - what several outlets
+    independently thought worth reporting. categories carry each focus
+    category's whole day. Asking for both in one request is what lets the
+    model keep the notes off the mainline's topics; five separate calls
+    could not see each other and would repeat it five times.
+    """
+    return (
+        f"You are the editor of a Chinese AI daily brief for {date_label}. "
+        "The input has two parts: \"mainline_events\" are the events at least two "
+        "independent sources reported today; \"categories\" lists every focus "
+        "category's full set of today's items (titles only). "
+        "Return strict JSON: "
+        "{\"mainline_title\": \"一句话概括今天的主线（25字内）\", "
+        "\"mainline_body\": \"120-200字，2-3句。只写 mainline_events 里的事，挑最重要的1-2件，"
+        "点出具体公司/项目名与关键数据，并说清为什么重要。不要背景铺垫、不要空泛总结、"
+        "不要罗列所有事件\", "
+        "\"category_notes\": [{\"category\": \"原样回填输入里的 category 值\", "
+        "\"note\": \"50-70字，概括该分类今天的整体动向，点到具体名字。"
+        "不要复述 mainline_body 已经讲过的事——主线负责今天最大的新闻，这里负责这一类的全貌\"}]}. "
+        "categories 里出现的每个 category 都要在 category_notes 里出现且只出现一次。"
+        "Base every claim on the provided items only; no speculation."
+    )
+
+
 _JSON_FENCE_RE = re.compile(r"^```[a-zA-Z]*\s*|\s*```$", re.MULTILINE)
 
 
@@ -807,6 +835,21 @@ class FakeAIProvider:
                 "模型能力迭代与智能体落地并进。（fake 确定性综述）"
             ),
             "theme_notes": [{"label": "模型", "note": "多家模型更新"}],
+        }
+
+    def summarize_daily(self, summary_input: dict[str, Any], date_label: str) -> dict[str, Any]:
+        events = summary_input.get("mainline_events") or []
+        top = events[0]["title"] if events else "AI 动态"
+        return {
+            "mainline_title": f"今日主线：{top[:16]}",
+            "mainline_body": (
+                f"{date_label} 有 {len(events)} 件事被多家信源同时报道，其中「{top}」最受关注。"
+                "（fake 确定性主线）"
+            ),
+            "category_notes": [
+                {"category": group["category"], "note": f"{group['item_count']} 条动态（fake）"}
+                for group in summary_input.get("categories") or []
+            ],
         }
 
     # 512 matches article_embeddings' vector(512), so fake-AI runs can
@@ -1048,6 +1091,23 @@ class OpenAIProvider(_UsageReportingProvider):
         )
         return parse_period_summary_payload(parse_chat_json(content))
 
+    def summarize_daily(self, summary_input: dict[str, Any], date_label: str) -> dict[str, Any]:
+        payload = {
+            "model": self.scoring_model,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": daily_summary_prompt(date_label)},
+                {
+                    "role": "user",
+                    "content": json.dumps(summary_input, ensure_ascii=False)[:8000],
+                },
+            ],
+        }
+        content = self._chat_content(
+            payload, "summarize_daily", timeout=LONG_FORM_TIMEOUT_SECONDS
+        )
+        return parse_daily_summary_payload(parse_chat_json(content))
+
 
 class KimiProvider(_UsageReportingProvider):
     """Kimi/Moonshot chat provider with local real (bge-small-zh) embeddings."""
@@ -1198,6 +1258,23 @@ class KimiProvider(_UsageReportingProvider):
             payload, "summarize_period", timeout=LONG_FORM_TIMEOUT_SECONDS
         )
         return parse_period_summary_payload(parse_chat_json(content))
+
+    def summarize_daily(self, summary_input: dict[str, Any], date_label: str) -> dict[str, Any]:
+        payload = {
+            "model": self.model,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": daily_summary_prompt(date_label)},
+                {
+                    "role": "user",
+                    "content": json.dumps(summary_input, ensure_ascii=False)[:8000],
+                },
+            ],
+        }
+        content = self._chat_content(
+            payload, "summarize_daily", timeout=LONG_FORM_TIMEOUT_SECONDS
+        )
+        return parse_daily_summary_payload(parse_chat_json(content))
 
 
 SCORING_REASONING_EFFORTS = ("off", "low", "high", "max")
@@ -1438,6 +1515,28 @@ class _OpenAICompatibleProvider(_UsageReportingProvider):
             payload, "summarize_period", timeout=LONG_FORM_TIMEOUT_SECONDS
         )
         return parse_period_summary_payload(parse_chat_json(content))
+
+    def summarize_daily(self, summary_input: dict[str, Any], date_label: str) -> dict[str, Any]:
+        # Same full-thinking treatment as summarize_period: this is the other
+        # task that synthesizes across events instead of classifying one. It
+        # would run 12-14 times a day at pipeline cadence, which is why
+        # daily_summary_service fingerprints the material and only calls when
+        # the day's events actually changed.
+        payload = self._chat_payload(
+            [
+                {"role": "system", "content": daily_summary_prompt(date_label)},
+                {
+                    "role": "user",
+                    "content": json.dumps(summary_input, ensure_ascii=False)[:8000],
+                },
+            ],
+            max_tokens=max(self.max_tokens, 4096),
+            thinking=THINKING_FULL,
+        )
+        content = self._chat_content(
+            payload, "summarize_daily", timeout=LONG_FORM_TIMEOUT_SECONDS
+        )
+        return parse_daily_summary_payload(parse_chat_json(content))
 
 
 class DeepSeekProvider(_OpenAICompatibleProvider):

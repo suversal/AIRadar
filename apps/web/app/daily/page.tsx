@@ -1,6 +1,7 @@
 import { DailyReport, getDailyArchive, getDailyReport, getLatestReport } from "@/lib/api";
-import { eventHref } from "@/lib/events";
-import { buildDailyDigest, latestToDailyReport } from "../reports/report-data";
+import { BookmarkButton } from "@/components/bookmark-button";
+import { eventHref, formatScore } from "@/lib/events";
+import { buildDailyDigest, latestToDailyReport, splitParagraphs } from "../reports/report-data";
 import { ReportShell } from "../reports/report-shell";
 
 type DailySearchParams = Promise<{ date?: string | string[] }>;
@@ -201,25 +202,46 @@ export default async function DailyPage({
           </section>
         ) : (
           <>
-            <section className="rounded-md border border-line bg-panel p-4">
+            {digest!.mainline ? (
+              <section className="rounded-md border-l-4 border-signal bg-signal/10 p-4">
+                <div className="flex items-center gap-3 text-sm font-semibold text-signal-bright">
+                  今日主线
+                  <span className="readout rounded border border-signal/40 px-2 py-0.5 text-[10px] uppercase tracking-wider">
+                    AI 综述
+                  </span>
+                </div>
+                <h2 className="mt-2.5 text-2xl font-semibold leading-tight text-ink">
+                  {digest!.mainline.title}
+                </h2>
+                <div className="mt-3 space-y-2.5 text-sm leading-6 text-ink-mid">
+                  {splitParagraphs(digest!.mainline.body).map((paragraph, index) => (
+                    <p key={index}>{paragraph}</p>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            <section className="mt-5 rounded-md border border-line bg-panel p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h2 className="text-base font-semibold text-ink">今日看点</h2>
                 <div className="text-sm text-ink-dim">{loaded.report.article_count} 篇报道</div>
               </div>
               <div className="mt-3 divide-y divide-line">
-                {digest!.highlights.map((highlight, index) => (
+                {digest!.categories.map((category, index) => (
                   <a
-                    key={highlight.label}
-                    className="flex items-start gap-2 rounded-md px-2 py-2.5 text-sm transition hover:bg-panel-soft/60 md:grid md:grid-cols-[36px_1fr_40px] md:items-center md:gap-2"
-                    href={eventHref(highlight.items[0])}
+                    key={category.key}
+                    className="flex items-start gap-2 rounded-md px-2 py-2.5 text-sm transition hover:bg-panel-soft/60 md:grid md:grid-cols-[36px_1fr_40px] md:items-start md:gap-2"
+                    href={`#cat-${category.key}`}
                   >
                     <span className="shrink-0 font-semibold text-signal">{String(index + 1).padStart(2, "0")}</span>
                     <span className="min-w-0 flex-1 md:contents">
                       <span>
-                        <span className="block font-semibold text-ink">{highlight.label}</span>
-                        <span className="mt-0.5 block text-ink-mid">{highlight.title}</span>
+                        <span className="block font-semibold text-ink">{category.label}</span>
+                        <span className="mt-0.5 block leading-6 text-ink-mid">
+                          {category.note ?? `${category.count} 条动态`}
+                        </span>
                       </span>
-                      <span className="mt-0.5 block text-ink-dim md:mt-0 md:text-right">{highlight.count}</span>
+                      <span className="mt-0.5 block text-ink-dim md:mt-0 md:text-right">{category.count}</span>
                     </span>
                   </a>
                 ))}
@@ -235,39 +257,75 @@ export default async function DailyPage({
               ))}
             </div>
 
-            <div className="mt-8 space-y-8">
-              {digest!.sections.map((section, sectionIndex) => (
-                <section key={section.key}>
-                  <div className="flex items-end justify-between gap-4">
+            <div className="mt-8 space-y-6">
+              {/* details/summary 而不是 useState：这一页是服务端组件，折叠用
+                  原生元素就够，不必为了一个开合把整棵树变成客户端组件。
+                  默认展开——折叠是新增能力，不是新的默认隐藏。 */}
+              {digest!.categories.map((category, categoryIndex) => (
+                <details
+                  key={category.key}
+                  id={`cat-${category.key}`}
+                  open
+                  className="group scroll-mt-20"
+                >
+                  {/* list-none 去掉默认三角，Safari 还要单独关掉 webkit 的那个 */}
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 border-b border-line pb-3 transition hover:border-signal/40 [&::-webkit-details-marker]:hidden">
                     <h2 className="text-xl font-semibold text-ink">
                       <span className="mr-3 text-3xl text-signal">
-                        {String(sectionIndex + 1).padStart(2, "0")}
+                        {String(categoryIndex + 1).padStart(2, "0")}
                       </span>
-                      {section.label}
+                      {category.label}
                     </h2>
-                    <span className="text-sm font-semibold text-signal">{section.items.length} 篇</span>
-                  </div>
+                    <span className="flex shrink-0 items-center gap-3 text-sm font-semibold text-signal">
+                      {category.count} 篇
+                      {/* 原来只是一个 ▾ 字符，跟计数挤在一起、又是 dim 色，
+                          看不出可以点。改成有边框有底色的圆形按钮。 */}
+                      <span
+                        className="flex h-7 w-7 items-center justify-center rounded-full border border-line bg-panel-soft text-ink-mid transition group-hover:border-signal/50 group-hover:bg-signal/10 group-hover:text-signal group-open:rotate-180"
+                        aria-hidden
+                      >
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                          <path
+                            d="M2.5 4.5L6 8L9.5 4.5"
+                            stroke="currentColor"
+                            strokeWidth="1.75"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </span>
+                    </span>
+                  </summary>
 
+                  {/* 分类简述只在「今日看点」出一次；这里再放一遍就是同一页
+                      里把同一段话读两遍。看点那行的锚点直接跳到这里。 */}
                   <div className="mt-4 grid gap-3">
-                    {section.items.map((item) => (
+                    {category.items.map((item) => (
                       <article key={item.event_id} className="card-hover rounded-md border border-line bg-panel p-4">
-                        <div className="text-xs text-signal-bright">
-                          {item.main_source?.name ?? "未知来源"} · {item.source_count ?? 1} 个来源
+                        {/* 评分徽章与收藏按钮的样式、位置、compact 档位都照
+                            components/event-card.tsx 来——精选页用的就是它，
+                            同一条内容在两个页面上必须长得一样。 */}
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0 truncate text-xs leading-5 text-signal-bright">
+                            {item.main_source?.name ?? "未知来源"} · {item.source_count ?? 1} 个来源
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <span className="readout inline-flex h-5 items-center justify-center rounded-full border border-signal/40 px-1.5 text-[11px] font-semibold leading-none text-signal">
+                              {formatScore(item.final_score)}
+                            </span>
+                            <BookmarkButton eventId={item.event_id} compact />
+                          </div>
                         </div>
-                        <h3 className="mt-1.5 text-base font-semibold leading-6 text-ink">
+                        <h3 className="mt-3 text-base font-semibold leading-6 text-ink">
                           <a className="hover:text-signal" href={eventHref(item)}>{item.title}</a>
                         </h3>
                         <p className="mt-3 text-sm leading-6 text-ink-mid">
                           {item.summary ?? item.one_line_summary ?? "暂无摘要。"}
                         </p>
-                        <p className="mt-3 rounded-md bg-signal/10 px-3 py-2.5 text-sm leading-6 text-signal-bright">
-                          <span className="font-semibold">为什么重要：</span>
-                          {item.reason ?? "暂无推荐理由。"}
-                        </p>
                       </article>
                     ))}
                   </div>
-                </section>
+                </details>
               ))}
             </div>
           </>

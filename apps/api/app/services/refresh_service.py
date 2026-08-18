@@ -586,6 +586,7 @@ def _run_refresh(
             same_event_verifier=build_same_event_verifier(ai_provider),
         )
         _report_progress(database_url, pipeline_run_id, phase="reports")
+        _regenerate_daily_summary(database_url, resolved_date, ai_provider)
         _regenerate_period_reports(database_url, resolved_date, ai_provider)
 
     # after the last AI call of the run (the period summaries), so the ledger
@@ -701,6 +702,48 @@ def _persist_ai_usage(
     finally:
         if session is not None:
             session.close()
+
+
+def _regenerate_daily_summary(database_url: str, report_date: date, ai_provider: Any) -> None:
+    """Write the day's AI mainline and category notes after the masthead lands.
+
+    Reads the resolved daily payload - the same one the page reads - rather
+    than the in-run result, so the summary is written from exactly the events
+    a reader will see (post redirect-dedup, post moderation).
+
+    Skips the AI call when the day's material fingerprint is unchanged. The
+    pipeline runs 12-14 times a day and most runs add nothing to an already
+    settled day; without this every one of them would re-buy the same text.
+
+    Failures degrade to leaving the previous summary in place and never block
+    the refresh - same contract as the period reports below.
+    """
+    from app.db.session import build_session_factory
+    from app.repositories.radar_repository import RadarRepository
+    from app.services.daily_summary_service import build_daily_summary
+
+    session = build_session_factory(database_url)()
+    try:
+        repository = RadarRepository(session)
+        payload = repository.get_daily_report_payload(report_date)
+        if not payload:
+            return
+        summary = build_daily_summary(
+            report_date=report_date,
+            items=payload.get("items") or [],
+            ai_provider=ai_provider,
+            previous_digest=repository.get_daily_summary_digest(report_date),
+        )
+        # None means "material unchanged" - keep what is already stored
+        if summary is None:
+            return
+        repository.upsert_daily_summary(report_date, summary)
+        session.commit()
+    except Exception:
+        session.rollback()
+        logger.warning("daily summary generation failed for %s", report_date, exc_info=True)
+    finally:
+        session.close()
 
 
 def _regenerate_period_reports(database_url: str, anchor_date: date, ai_provider: Any) -> None:

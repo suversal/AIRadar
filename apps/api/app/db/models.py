@@ -97,6 +97,18 @@ class DailyReportModel(Base):
     sections: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     article_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     markdown: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # AI-written daily mainline over the day's multi-source events, plus one
+    # short note per focus category. Stored rather than recomputed at read
+    # time: the text costs an AI call and must not change on every page view.
+    mainline_title: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    mainline_body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    category_notes: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    # pending: never attempted. generated: AI wrote it. skipped: no material.
+    summary_status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    summary_generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # fingerprint of the events the summary was written from; an unchanged
+    # digest means a re-run can skip the call instead of re-buying the text
+    summary_digest: Mapped[Optional[str]] = mapped_column(Text)
     # lineage: the pipeline run that last (re)generated this report
     pipeline_run_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pipeline_runs.id"))
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

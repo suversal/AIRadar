@@ -173,6 +173,12 @@ export type LatestReport = {
   error?: string | null;
 };
 
+export type DailyCategoryNote = {
+  category: string;
+  label: string;
+  note: string;
+};
+
 export type DailyReport = {
   report_date: string;
   title: string;
@@ -183,6 +189,14 @@ export type DailyReport = {
   sections: Record<string, LatestEvent[]>;
   items: LatestEvent[];
   article_count: number;
+  // AI 主线写自当天的多信源事件；分类简述写自各分类当天的全部条目。
+  // summary_status 为 generated 才是真写出来的——其余取值（pending/
+  // skipped/failed）下 mainline_* 是空串，页面整块不渲染。
+  mainline_title?: string;
+  mainline_body?: string;
+  category_notes?: DailyCategoryNote[];
+  summary_status?: string;
+  summary_generated_at?: string | null;
 };
 
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
