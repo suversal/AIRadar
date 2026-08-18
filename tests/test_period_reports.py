@@ -14,6 +14,7 @@ from app.services.period_summary_service import (
     period_range_for_key,
 )
 from app.services.ai_service import FakeAIProvider
+from app.api.public import build_period_payload, sort_period_items
 
 
 def make_item(
@@ -27,9 +28,11 @@ def make_item(
     category_label=None,
     focus_category=None,
     focus_category_label=None,
+    model_used=None,
 ):
     return {
         "event_id": f"e-{title[:6]}",
+        "model_used": model_used,
         "title": title,
         "category": category,
         "category_label": category_label or category,
@@ -269,6 +272,107 @@ class PeriodSummaryTests(unittest.TestCase):
 
         self.assertEqual(report["status"], "fallback")
         self.assertTrue(report["mainline_title"])  # deterministic fallback text
+
+
+class PeriodItemRankingTests(unittest.TestCase):
+    """周月报排序：分数只在同一个打分模型内部可比。
+
+    2026-08-13 从 DeepSeek 换到 Qwen 后分数上限从 100 掉到 89.1，而 2026-08
+    月报 top20 的门槛就是 89.1 - 换模型之后的内容因此一条都进不去。
+    """
+
+    def test_single_model_ranking_is_plain_score_order(self):
+        """只有一个模型时（换模型之前的全部历史、绝大多数周报）行为不变。"""
+        items = [
+            make_item("低", score=70.0, model_used="deepseek-v4-flash"),
+            make_item("高", score=95.0, model_used="deepseek-v4-flash"),
+            make_item("中", score=82.0, model_used="deepseek-v4-flash"),
+        ]
+
+        self.assertEqual([item["title"] for item in sort_period_items(items)], ["高", "中", "低"])
+
+    def test_missing_model_is_its_own_group_and_still_score_ordered(self):
+        """model_used 全空的历史条目自成一组，排序与改动之前一致。"""
+        items = [
+            make_item("低", score=70.0),
+            make_item("高", score=95.0),
+        ]
+
+        self.assertEqual([item["title"] for item in sort_period_items(items)], ["高", "低"])
+
+    def test_lower_ceiling_model_is_not_shut_out_of_the_top(self):
+        """新模型分数上限更低时，它的头条仍要排在旧模型的中段之前。"""
+        old = [
+            make_item(f"旧{index}", score=100.0 - index, model_used="deepseek-v4-flash")
+            for index in range(10)
+        ]
+        new = [
+            make_item(f"新{index}", score=89.0 - index, model_used="qwen3.7-flash")
+            for index in range(10)
+        ]
+
+        titles = [item["title"] for item in sort_period_items(old + new)]
+
+        # 按原始分排，10 条新模型条目会被 10 条旧模型条目全部压在后面
+        self.assertLess(titles.index("新0"), titles.index("旧5"))
+        self.assertEqual(titles[0], "旧0")
+
+    def test_group_share_follows_group_size(self):
+        """组越大占的名额越多：样本少的一组不能靠「组内第一」霸榜。"""
+        big = [
+            make_item(f"多{index}", score=90.0 - index, model_used="model-big")
+            for index in range(20)
+        ]
+        small = [make_item("少0", score=60.0, model_used="model-small")]
+
+        titles = [item["title"] for item in sort_period_items(big + small)]
+
+        self.assertEqual(titles[0], "多0")
+        # 只有一条的组不构成重要性证据，排在最后而不是并列第一
+        self.assertEqual(titles[-1], "少0")
+
+    def test_build_period_payload_applies_model_grouped_ranking(self):
+        payload = build_period_payload(
+            [
+                {
+                    "report_date": "2026-08-05",
+                    "items": [make_item("旧闻", score=95.0, model_used="deepseek-v4-flash")],
+                },
+                {
+                    "report_date": "2026-08-16",
+                    "items": [make_item("新闻", score=89.0, model_used="qwen3.7-flash")],
+                },
+            ],
+            mode="monthly",
+            range_start=date(2026, 8, 1),
+            range_end=date(2026, 8, 31),
+        )
+
+        # 两组各一条，分位都是 1.0，退回原始分兜底排序，但两条都在
+        self.assertEqual({item["title"] for item in payload["items"]}, {"旧闻", "新闻"})
+
+    def test_entries_snapshot_follows_model_grouped_ranking(self):
+        """快照定的是月报页面的展示顺序，必须和综述输入用同一套排序。"""
+        items = [
+            make_item(f"旧{index}", score=100.0 - index, model_used="deepseek-v4-flash")
+            for index in range(10)
+        ] + [
+            make_item(f"新{index}", score=89.0 - index, model_used="qwen3.7-flash")
+            for index in range(10)
+        ]
+
+        report = build_period_report(
+            kind="monthly",
+            anchor=date(2026, 8, 16),
+            items=items,
+            report_dates=["2026-08-16"],
+            ai_provider=FakeAIProvider(),
+        )
+
+        order = [entry["event_id"] for entry in report["entries"]]
+        self.assertLess(order.index("e-新0"), order.index("e-旧5"))
+        # 快照里存的仍是原始分，不是归一化之后的键
+        self.assertEqual(report["entries"][0]["score_at_selection"], 100.0)
 
 
 if __name__ == "__main__":

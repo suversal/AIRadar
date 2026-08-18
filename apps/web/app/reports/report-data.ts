@@ -24,6 +24,10 @@ export function categoryDisplayName(key: string, item?: LatestEvent) {
   return item?.focus_category_label ?? focusCategoryLabel(key);
 }
 
+// 排名由后端给定，这里只分组，不重排。final_score 只在同一个打分模型内部
+// 可比：2026-08-13 换模型后高分变稀，前端再按原始分排一次，就会把后端按
+// 模型分组归一化的结果原样抵消掉（见 api/public.py 的 sort_period_items）。
+// 日报同理——一天只有一个模型，接口给的就是名次序。
 export function summarizeCategoryHighlights(items: LatestEvent[], limit = 5): ReportHighlight[] {
   const grouped = new Map<string, LatestEvent[]>();
   for (const item of items) {
@@ -32,12 +36,11 @@ export function summarizeCategoryHighlights(items: LatestEvent[], limit = 5): Re
   }
   return Array.from(grouped.entries())
     .map(([key, groupItems]) => {
-      const sorted = [...groupItems].sort((left, right) => (right.final_score ?? 0) - (left.final_score ?? 0));
       return {
-        label: categoryDisplayName(key, sorted[0]),
-        title: sorted[0]?.title ?? "暂无标题",
+        label: categoryDisplayName(key, groupItems[0]),
+        title: groupItems[0]?.title ?? "暂无标题",
         count: groupItems.length,
-        items: sorted,
+        items: groupItems,
       };
     })
     .sort((left, right) => right.count - left.count)
@@ -77,10 +80,6 @@ export function latestToDailyReport(latest: LatestReport): DailyReport {
     items,
     article_count: items.length,
   };
-}
-
-function sortByScore(items: LatestEvent[]) {
-  return [...items].sort((left, right) => (right.final_score ?? 0) - (left.final_score ?? 0));
 }
 
 function resolveRange(period: PeriodReport) {
@@ -133,7 +132,7 @@ function mainlineFor(
 }
 
 export function buildPeriodDigest(period: PeriodReport, mode: PeriodMode) {
-  const items = sortByScore(period.items);
+  const items = period.items;
   const highlights = summarizeCategoryHighlights(items, mode === "monthly" ? 5 : 6);
   const uniqueTags = new Set(items.flatMap((item) => item.tags ?? []));
   const range = resolveRange(period);

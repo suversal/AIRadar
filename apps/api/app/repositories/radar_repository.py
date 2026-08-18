@@ -3195,6 +3195,9 @@ def _event_item(
         "scoring_category_label": scoring_category_label(category),
         "tags": tags,
         "final_score": processed.final_score,
+        # 打出这个分的模型。分数只在同一个模型内部可比,周月报靠它把
+        # 跨模型的条目分组后再排名 - 见 public.py 的 sort_period_items。
+        "model_used": processed.model_used,
         "ai_focus": processed.ai_focus,
         "selected": processed.status == "processed",
         "selection_origin": processed.selection_origin,

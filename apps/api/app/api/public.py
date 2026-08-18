@@ -232,6 +232,49 @@ def build_hotspots_payload(
     }
 
 
+def _final_score(item: dict[str, Any]) -> float:
+    try:
+        return float(item.get("final_score") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def sort_period_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """周月报的排序：先按打分模型分组，组内排名，再按组内分位合并。
+
+    final_score 只在同一个模型内部可比。2026-08-13 从 DeepSeek 换到 Qwen 之后
+    高分明显变稀：Qwen 期 166 条里 89.1 以上只有 2 条，DeepSeek 期 489 条里有
+    20 条。按原始分全期排序的结果是 2026-08 月报 top20 里 08-15 及之后的内容
+    **一条都没有**，「英伟达 5000 亿算力平台」「SpaceX 收购 Cursor」这种当月
+    大事被一个与新闻本身无关的原因排除了。
+
+    注意两个模型的分数区间是重叠的（Qwen 接手当天下午就打出过 96.0 和
+    100.0），差的是分布而不是硬上限——所以卡一条绝对分的线修不好这件事，
+    只能不比绝对分，改比「在自己那一代评分里排第几」：每组内部按分数排名，
+    取分位 rank/len(group) 作为跨组可比的键。两条性质是刻意的：
+
+    - 只有一个模型时（绝大多数周报、以及换模型之前的全部历史），组内名次
+      与分数降序完全一致，行为和改之前一模一样，不会平白扰动已有报表。
+    - 组越大，它的头名分位越靠前（1/489 < 1/166）。一个只有几条的组不会
+      靠「我组内第一」挤到月报榜首——样本太少本来就不构成重要性证据。
+
+    model_used 为空的历史条目自成一组，同样按上面的规则参与排序。
+    """
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        groups.setdefault(str(item.get("model_used") or ""), []).append(item)
+
+    keyed: list[tuple[float, float, str, dict[str, Any]]] = []
+    for group in groups.values():
+        group.sort(key=lambda item: -_final_score(item))
+        size = len(group)
+        for rank, item in enumerate(group, start=1):
+            # 同分位时用原始分兜底只是为了排序稳定，不代表跨模型的分数可比
+            keyed.append((rank / size, -_final_score(item), str(item.get("event_id") or ""), item))
+    keyed.sort(key=lambda entry: entry[:3])
+    return [entry[3] for entry in keyed]
+
+
 def build_period_payload(
     daily_payloads: list[dict[str, Any]],
     *,
@@ -240,7 +283,7 @@ def build_period_payload(
     range_end: date,
 ) -> dict[str, Any]:
     items, report_dates, updated_at = _merge_daily_items(daily_payloads)
-    items.sort(key=lambda item: float(item.get("final_score") or 0.0), reverse=True)
+    items = sort_period_items(items)
     return {
         "mode": mode,
         "range_start": range_start.isoformat(),
@@ -342,6 +385,13 @@ def build_daily_payload(daily_report_json: dict[str, Any]) -> dict[str, Any]:
         "sections": daily_report_json["sections"],
         "items": daily_report_json["items"],
         "article_count": daily_report_json["article_count"],
+        # AI 主线与分类简述。summary_status 不是 generated 时 mainline_* 是
+        # 空串，页面据此整块不渲染——不要只看有没有字段。
+        "mainline_title": daily_report_json.get("mainline_title") or "",
+        "mainline_body": daily_report_json.get("mainline_body") or "",
+        "category_notes": daily_report_json.get("category_notes") or [],
+        "summary_status": daily_report_json.get("summary_status") or "pending",
+        "summary_generated_at": daily_report_json.get("summary_generated_at"),
     }
 
 

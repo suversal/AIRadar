@@ -14,7 +14,7 @@ import re
 from datetime import date, datetime, timezone
 from typing import Any
 
-from app.api.public import month_range
+from app.api.public import month_range, sort_period_items
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ def parse_period_summary_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _summary_input(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    ranked = sorted(items, key=lambda item: float(item.get("final_score") or 0.0), reverse=True)
+    ranked = sort_period_items(items)
     return [
         {
             "title": str(item.get("title") or "")[:80],
@@ -99,7 +99,7 @@ def _summary_input(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _fallback_summary(kind: str, items: list[dict[str, Any]]) -> dict[str, Any]:
     label = "本周" if kind == "weekly" else "本月"
-    top = sorted(items, key=lambda item: float(item.get("final_score") or 0.0), reverse=True)
+    top = sort_period_items(items)
     top_title = str(top[0].get("title")) if top else "AI 动态"
     return {
         "mainline_title": f"{label} AI 动态一览",
@@ -116,7 +116,7 @@ def _entries_snapshot(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     generation time. Content (title/summary/reason/tags/...) is deliberately
     excluded - it is always resolved live from event_id at read time, same
     as daily_report_entries."""
-    ranked = sorted(items, key=lambda item: float(item.get("final_score") or 0.0), reverse=True)
+    ranked = sort_period_items(items)
     return [
         {
             "event_id": item.get("event_id"),

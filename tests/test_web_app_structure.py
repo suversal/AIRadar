@@ -594,6 +594,19 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("summarizeCategoryHighlights", data_source)
         self.assertIn("buildPeriodDigest", data_source)
 
+    def test_report_data_does_not_resort_items_by_raw_score(self):
+        """接口给的顺序就是名次，前端不能再按 final_score 排一次。
+
+        final_score 只在同一个打分模型内部可比，后端已经按模型分组归一化过
+        （api/public.py 的 sort_period_items）。前端只要再按原始分排一次，
+        2026-08-13 换模型之后的条目就会重新被压回榜尾——正是这个修复要
+        消除的现象。
+        """
+        data_source = (WEB / "app" / "reports" / "report-data.ts").read_text(encoding="utf-8")
+
+        self.assertNotIn("final_score ?? 0) - (", data_source)
+        self.assertNotIn("sortByScore", data_source)
+
     def test_weekly_and_monthly_pages_render_aihot_period_reports(self):
         period_page = (WEB / "app" / "reports" / "period-report-page.tsx").read_text(encoding="utf-8")
         weekly_page = (WEB / "app" / "weekly" / "page.tsx").read_text(encoding="utf-8")
