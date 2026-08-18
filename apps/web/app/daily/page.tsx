@@ -241,7 +241,11 @@ export default async function DailyPage({
                           {category.note ?? `${category.count} 条动态`}
                         </span>
                       </span>
-                      <span className="mt-0.5 block text-ink-dim md:mt-0 md:text-right">{category.count}</span>
+                      {/* 移动端隐藏：这一行在窄屏是纵向堆叠的，计数会单独占一行
+                          杵在简述下面。桌面端是三列网格，它有自己的列，不碍事。 */}
+                      <span className="mt-0.5 hidden text-ink-dim md:mt-0 md:block md:text-right">
+                        {category.count}
+                      </span>
                     </span>
                   </a>
                 ))}

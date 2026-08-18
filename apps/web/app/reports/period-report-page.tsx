@@ -149,7 +149,10 @@ export async function PeriodReportPage({
                 <span className="shrink-0 font-semibold text-signal">{String(index + 1).padStart(2, "0")}</span>
                 <span className="min-w-0 flex-1 md:contents">
                   <span className="font-semibold text-ink">{highlight.label}：{highlight.title}</span>
-                  <span className="mt-0.5 block text-ink-dim md:mt-0 md:text-right">{highlight.count}</span>
+                  {/* 移动端隐藏，理由同日报页：窄屏纵向堆叠时计数会单独占一行 */}
+                  <span className="mt-0.5 hidden text-ink-dim md:mt-0 md:block md:text-right">
+                    {highlight.count}
+                  </span>
                 </span>
               </a>
             ))}

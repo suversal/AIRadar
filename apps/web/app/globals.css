@@ -197,12 +197,17 @@ button:disabled,
     transform 0.2s ease;
 }
 
-.card-hover:hover {
-  border-color: color-mix(in srgb, var(--color-signal) 45%, transparent);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--color-signal) 16%, transparent),
-    0 12px 40px rgba(0, 0, 0, 0.35);
-  transform: translateY(-2px);
+/* 只在真正支持悬浮的设备上生效。触屏浏览器会在点击后模拟一次 hover，而且
+   会一直粘着不散——手机上点开一张卡片再返回，那张卡片就一直亮着橙色描边，
+   看着像被选中了。(hover: hover) 把这套样式挡在触屏之外，鼠标设备不受影响。 */
+@media (hover: hover) {
+  .card-hover:hover {
+    border-color: color-mix(in srgb, var(--color-signal) 45%, transparent);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--color-signal) 16%, transparent),
+      0 12px 40px rgba(0, 0, 0, 0.35);
+    transform: translateY(-2px);
+  }
 }
 
 /* loading skeletons: warm shimmer sweep */
