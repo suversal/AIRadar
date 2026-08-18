@@ -140,10 +140,11 @@ function splitMediaFromMarkdown(markdown: string): { text: string; media: Extrac
 function MediaGrid({ media, alt }: { media: ExtractedMedia[]; alt: string }) {
   // 点击放大的弹层状态：null = 关闭，数字 = 当前看第几张
   const [lightbox, setLightbox] = useState<number | null>(null);
-  // 弹层必须 portal 到 <body>：卡片 hover 时 .card-hover 会给自己上
-  // transform，而带 transform 的祖先会接管后代 position:fixed 的包含块——
-  // 弹层于是变成"以卡片居中"，位置随卡片在页面里的位置飘。挂到 body 之后
-  // 才是真正的视口居中。SSR 阶段没有 document，先等挂载完成。
+  // 弹层必须 portal 到 <body>：.card-hover 一旦给卡片上 transform，带
+  // transform 的祖先就会接管后代 position:fixed 的包含块——弹层于是变成
+  // "以卡片居中"，位置随卡片在页面里的位置飘。现在悬浮态只亮边框、没有
+  // transform 了，但这个 portal 得留着：hover 效果是随时会调回来的东西。
+  // 挂到 body 之后才是真正的视口居中。SSR 阶段没有 document，先等挂载完成。
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     setMounted(true);

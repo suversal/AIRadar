@@ -11,7 +11,6 @@ export function EventCard({
   tagHref,
   maxTags = 5,
   clampSummary = false,
-  alwaysSelected = false,
   showReason = true,
   hideImageOnMobile = false,
 }: {
@@ -21,10 +20,6 @@ export function EventCard({
   tagHref: (tag: string) => string;
   maxTags?: number;
   clampSummary?: boolean;
-  // /latest 页面本身就是"精选"信息流,后端不总是逐条回填 selected 字段——
-  // 这里允许调用方明确声明"本页面下的条目都算精选",而不是依赖可能缺失的
-  // item.selected,避免徽章在 /latest 上意外消失
-  alwaysSelected?: boolean;
   // /all 页面混合展示精选与非精选条目,推荐理由是"精选"信息流(/latest)的专属
   // 内容,在混合流里不展示,调用方按页面语境显式控制
   showReason?: boolean;
@@ -45,7 +40,7 @@ export function EventCard({
         </div>
       </div>
       <h2 className="mt-1.5 text-base font-semibold leading-6 text-ink md:mt-2">
-        {alwaysSelected || item.selected ? (
+        {item.selected ? (
           <span className="relative -top-px mr-1.5 inline-flex h-5 items-center justify-center rounded-full border border-signal/60 bg-signal/15 px-1.5 align-middle text-[11px] font-semibold leading-none text-signal-bright">
             精选
           </span>

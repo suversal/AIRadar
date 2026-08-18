@@ -194,7 +194,6 @@ export function LatestEventsFeed({
                   tagHref={tagHref}
                   maxTags={4}
                   clampSummary
-                  alwaysSelected
                 />
               </EventTimelineRow>
             ))}

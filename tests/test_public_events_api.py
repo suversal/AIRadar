@@ -9,6 +9,7 @@ from types import SimpleNamespace
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
 from app.api.public import (
+    build_latest_selected_payload_from_repository,
     build_period_payload,
     month_range,
     week_range,
@@ -731,6 +732,71 @@ class FakeRepository:
 
     def list_daily_report_dates(self, limit=90):
         return list(self.daily_dates)
+
+
+class LatestSelectedFeedTests(unittest.TestCase):
+    """精选流按事件去重：一个事件只出它的代表条。
+
+    2026-08-18：在此之前 selected_only 放行的是"所属簇里有人入选"，同一
+    事件的每个成员都各自成卡——包括自己 0 分被淘汰的那些，再被 /latest 的
+    alwaysSelected 盖上"精选"章，于是页面上出现"0 分的精选"。
+    """
+
+    @staticmethod
+    def _repository(items):
+        def get_all_event_items_between(start_date, end_date, selected_only=False):
+            return list(items)
+
+        return SimpleNamespace(get_all_event_items_between=get_all_event_items_between)
+
+    def test_non_main_cluster_members_stay_out_of_the_selected_feed(self):
+        items = [
+            {
+                "event_id": "c1",
+                "is_main": True,
+                "final_score": 72.0,
+                "source_count": 3,
+                "published_at": "2026-08-18T09:00:00+00:00",
+            },
+            {
+                "event_id": "a0000000000a",
+                "is_main": False,
+                "final_score": 0.0,
+                "source_count": 3,
+                "published_at": "2026-08-18T08:30:00+00:00",
+            },
+            {
+                "event_id": "a0000000000b",
+                "is_main": False,
+                "final_score": 0.0,
+                "source_count": 3,
+                "published_at": "2026-08-18T08:00:00+00:00",
+            },
+        ]
+
+        payload = build_latest_selected_payload_from_repository(
+            self._repository(items), end_date=date(2026, 8, 18)
+        )
+
+        self.assertEqual([item["event_id"] for item in payload["items"]], ["c1"])
+        self.assertEqual(payload["total"], 1)
+
+    def test_standalone_articles_without_a_cluster_still_show_up(self):
+        # 没有聚类的孤条压根没有 is_main 字段，不能被去重误伤
+        items = [
+            {
+                "event_id": "a0000000000c",
+                "final_score": 64.0,
+                "source_count": 1,
+                "published_at": "2026-08-18T07:00:00+00:00",
+            }
+        ]
+
+        payload = build_latest_selected_payload_from_repository(
+            self._repository(items), end_date=date(2026, 8, 18)
+        )
+
+        self.assertEqual([item["event_id"] for item in payload["items"]], ["a0000000000c"])
 
 
 if __name__ == "__main__":

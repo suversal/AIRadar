@@ -2904,19 +2904,23 @@ class RadarRepository:
                     delete(EventClusterModel).where(EventClusterModel.id == cluster_id)
                 )
             elif event_cluster is not None and event_cluster.main_article_id == raw_article_id:
-                earliest_id = self.session.execute(
+                # 主条被删,从剩下的成员里补一个。时间方向跟 choose_main_article
+                # 对齐——那边同等条件下取 published_at 最晚的那篇(最后一轮跟进
+                # 报道通常信息最全),这里曾经取最早的,同一个"谁能当主条"的问题
+                # 两处答案相反。2026-08-18 统一成取最晚。
+                latest_id = self.session.execute(
                     select(EventClusterArticleModel.raw_article_id)
                     .join(
                         RawArticleModel,
                         RawArticleModel.id == EventClusterArticleModel.raw_article_id,
                     )
                     .where(EventClusterArticleModel.event_cluster_id == cluster_id)
-                    .order_by(RawArticleModel.published_at.asc())
+                    .order_by(RawArticleModel.published_at.desc())
                     .limit(1)
                 ).scalar_one()
                 for member in remaining:
-                    member.is_main = member.raw_article_id == earliest_id
-                event_cluster.main_article_id = earliest_id
+                    member.is_main = member.raw_article_id == latest_id
+                event_cluster.main_article_id = latest_id
                 event_cluster.source_count = self._count_distinct_sources(cluster_id)
             elif event_cluster is not None:
                 event_cluster.source_count = self._count_distinct_sources(cluster_id)

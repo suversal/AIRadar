@@ -196,7 +196,7 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("h-5 items-center justify-center rounded-full", event_card)
         self.assertIn("text-xs leading-5 text-ink-mid", event_card)
         self.assertIn("<BookmarkButton eventId={item.event_id} compact />", event_card)
-        self.assertIn("mt-3 text-base font-semibold leading-6 text-ink md:mt-1.5", event_card)
+        self.assertIn("mt-1.5 text-base font-semibold leading-6 text-ink md:mt-2", event_card)
         self.assertIn("relative -top-px mr-1.5 inline-flex h-5 items-center justify-center", event_card)
         self.assertIn("px-1.5 align-middle text-[11px]", event_card)
         self.assertIn('compact ? "h-5 w-5"', (WEB / "components" / "bookmark-button.tsx").read_text(encoding="utf-8"))
@@ -847,18 +847,17 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertEqual(layer_opens[-1].group(1), "base")
 
     def test_tweet_lightbox_is_portalled_out_of_the_card(self):
-        """推文大图弹层必须 portal 到 <body>：卡片 hover 时 .card-hover 给自己
-        上了 transform，带 transform 的祖先会接管后代 position:fixed 的包含块，
-        弹层于是变成「以卡片居中」，位置随卡片飘。"""
+        """推文大图弹层必须 portal 到 <body>。起因是 .card-hover 曾给卡片上
+        transform，而带 transform 的祖先会接管后代 position:fixed 的包含块，
+        弹层于是变成「以卡片居中」，位置随卡片飘。2026-08-18 悬浮态改成只亮
+        边框、transform 已移除，但 portal 必须留着：hover 效果是随时会被调
+        回来的东西，弹层不该跟着一起坏。"""
         tweet_card = (WEB / "components" / "tweet-card.tsx").read_text(encoding="utf-8")
 
         self.assertIn("createPortal", tweet_card)
         self.assertIn("document.body", tweet_card)
         # 弹层本身仍靠 fixed inset-0 占满视口
         self.assertIn("fixed inset-0 z-50 flex items-center justify-center", tweet_card)
-        # 这条约束的前提：卡片 hover 确实带 transform
-        globals_css = (WEB / "app" / "globals.css").read_text(encoding="utf-8")
-        self.assertIn("transform: translateY(-2px)", globals_css)
 
 
 if __name__ == "__main__":

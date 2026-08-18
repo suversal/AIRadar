@@ -309,9 +309,11 @@ export default async function EventDetailPage({
                 </div>
 
                 <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
-                  <span className="inline-flex h-5 items-center justify-center rounded-full border border-signal/60 bg-signal/15 px-1.5 text-[11px] font-semibold leading-none text-signal-bright md:h-6 md:px-2 md:text-xs">
-                    精选
-                  </span>
+                  {event.selected ? (
+                    <span className="inline-flex h-5 items-center justify-center rounded-full border border-signal/60 bg-signal/15 px-1.5 text-[11px] font-semibold leading-none text-signal-bright md:h-6 md:px-2 md:text-xs">
+                      精选
+                    </span>
+                  ) : null}
                   <span className="readout inline-flex h-5 items-center justify-center rounded-full border border-signal/40 px-1.5 text-[11px] font-semibold leading-none text-signal md:h-6 md:px-2 md:text-xs">
                     {formatScore(event.final_score)}
                   </span>

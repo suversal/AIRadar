@@ -419,10 +419,19 @@ def build_latest_selected_payload_from_repository(
         end_date,
         selected_only=True,
     )
+    # 精选流按事件去重：一个事件只出它的代表条(is_main)，同热点榜的口径
+    # (build_hotspots_payload)。2026-07-13 的"每篇文章独立成条"仍然适用于
+    # /all 和后台——那里要的是完整的信源账本；精选流要的是"今天发生了什么"，
+    # 同一件事铺三张卡只会把版面挤满。
+    #
+    # 副作用得认：代表条自己未入选(信源等级压过分数，见 choose_main_article)
+    # 时，这个事件在精选流里就只剩这一条低分卡；代表条若被隐藏，整个事件
+    # 也不再有替补顶上。两者都比"同一事件重复出现"好收拾。
     items = [
         item
         for item in items
-        if _item_matches(item, category=category, focus=focus, tag=tag, q=q)
+        if item.get("is_main", True)
+        and _item_matches(item, category=category, focus=focus, tag=tag, q=q)
     ]
     items = sorted(
         items,

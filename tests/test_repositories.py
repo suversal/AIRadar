@@ -2919,7 +2919,7 @@ class RepositoryTests(unittest.TestCase):
             self.assertTrue(deleted)
             self.assertIsNone(session.get(EventClusterModel, "e-lone"))
 
-    def test_delete_raw_article_reassigns_main_to_earliest_remaining_coverage(self):
+    def test_delete_raw_article_reassigns_main_to_latest_remaining_coverage(self):
         from app.db.models import EventClusterArticleModel, EventClusterModel
         from app.models.domain import RawArticle
         from app.repositories.radar_repository import RadarRepository
@@ -2985,8 +2985,10 @@ class RepositoryTests(unittest.TestCase):
             self.assertTrue(deleted)
             event_cluster = session.get(EventClusterModel, "e-main")
             self.assertIsNotNone(event_cluster)
-            # cov1 (07:00) is earlier than cov2 (13:00) - must become the new main
-            self.assertEqual(event_cluster.main_article_id, "cov1")
+            # cov2 (13:00) is later than cov1 (07:00) - must become the new main.
+            # 时间方向跟 choose_main_article 一致(同等条件下取最晚的跟进报道)，
+            # 2026-08-18 从"取最早"改过来的。
+            self.assertEqual(event_cluster.main_article_id, "cov2")
             self.assertEqual(event_cluster.source_count, 1)  # both remaining members are techcrunch
             memberships = {
                 m.raw_article_id: m.is_main
@@ -2996,7 +2998,7 @@ class RepositoryTests(unittest.TestCase):
                     )
                 ).all()
             }
-            self.assertEqual(memberships, {"cov1": True, "cov2": False})
+            self.assertEqual(memberships, {"cov1": False, "cov2": True})
 
     def test_delete_raw_article_non_main_member_keeps_cluster_and_recounts_sources(self):
         from app.db.models import EventClusterArticleModel, EventClusterModel
