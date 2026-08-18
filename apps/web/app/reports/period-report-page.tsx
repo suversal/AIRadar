@@ -177,7 +177,7 @@ export async function PeriodReportPage({
                   <article key={item.event_id} className="card-hover rounded-md border border-line bg-panel p-4">
                     <div className="flex items-start justify-between gap-3">
                       <h3 className="text-base font-semibold text-ink">
-                        <a className="hover:text-signal" href={eventHref(item)}>{item.title}</a>
+                        <a className="title-link" href={eventHref(item)}>{item.title}</a>
                       </h3>
                       <div className="flex shrink-0 items-center gap-2">
                         {(item.source_count ?? 1) > 1 && (

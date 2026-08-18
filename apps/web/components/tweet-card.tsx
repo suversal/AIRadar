@@ -441,7 +441,7 @@ function CollapsedBody({
     <div className="mt-3 space-y-2">
       {heading ? (
         <h2 className="text-lg font-semibold leading-snug text-ink">
-          <a className="hover:text-signal" href={detailHref}>
+          <a className="title-link" href={detailHref}>
             {heading}
           </a>
         </h2>

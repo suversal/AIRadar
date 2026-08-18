@@ -189,12 +189,11 @@ button:disabled,
   letter-spacing: 0.02em;
 }
 
-/* hoverable content cards: lift + coral edge glow */
+/* hoverable content cards: coral edge glow, no lift */
 .card-hover {
   transition:
     border-color 0.2s ease,
-    box-shadow 0.25s ease,
-    transform 0.2s ease;
+    box-shadow 0.25s ease;
 }
 
 /* 触屏上点击后这个态会粘着不散，看着像卡片被选中了。曾经用
@@ -204,8 +203,26 @@ button:disabled,
   border-color: color-mix(in srgb, var(--color-signal) 45%, transparent);
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--color-signal) 16%, transparent),
-    0 12px 40px rgba(0, 0, 0, 0.35);
-  transform: translateY(-2px);
+    0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* 文章标题链接：移动端没有 hover，从按下到页面跳转之间那一拍如果毫无反馈，
+   就不知道自己到底点中没有。:active 是触屏上唯一按下即生效的态，配合
+   tap-highlight 让整行标题亮一下。 */
+.title-link {
+  transition: color 0.15s ease;
+  -webkit-tap-highlight-color: color-mix(in srgb, var(--color-signal) 18%, transparent);
+}
+
+.title-link:hover {
+  color: var(--color-signal);
+}
+
+.title-link:active {
+  color: var(--color-signal-bright);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--color-signal) 55%, transparent);
+  text-underline-offset: 3px;
 }
 
 /* loading skeletons: warm shimmer sweep */

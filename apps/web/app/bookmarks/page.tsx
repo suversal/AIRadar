@@ -100,7 +100,7 @@ export default function BookmarksPage() {
                       <div className="min-w-0">
                         <div className="text-xs text-ink-mid">{sourceLine(item)}</div>
                         <h3 className="mt-1.5 text-base font-semibold leading-6 text-ink">
-                          <a className="hover:text-signal" href={eventHref(item)}>
+                          <a className="title-link" href={eventHref(item)}>
                             {item.title}
                           </a>
                         </h3>

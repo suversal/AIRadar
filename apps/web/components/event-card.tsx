@@ -44,17 +44,17 @@ export function EventCard({
           <BookmarkButton eventId={item.event_id} compact />
         </div>
       </div>
-      <h2 className="mt-3 text-base font-semibold leading-6 text-ink md:mt-1.5">
+      <h2 className="mt-1.5 text-base font-semibold leading-6 text-ink md:mt-2">
         {alwaysSelected || item.selected ? (
           <span className="relative -top-px mr-1.5 inline-flex h-5 items-center justify-center rounded-full border border-signal/60 bg-signal/15 px-1.5 align-middle text-[11px] font-semibold leading-none text-signal-bright">
             精选
           </span>
         ) : null}
-        <a className="hover:text-signal" href={eventHref(item)}>{item.title}</a>
+        <a className="title-link" href={eventHref(item)}>{item.title}</a>
       </h2>
 
       <p
-        className={`mt-3 text-sm leading-6 text-ink-mid line-clamp-2 ${
+        className={`mt-1 text-sm leading-6 text-ink-mid line-clamp-2 md:mt-2 ${
           clampSummary ? "md:line-clamp-3" : "md:line-clamp-none"
         }`}
       >

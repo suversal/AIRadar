@@ -321,7 +321,7 @@ export default async function DailyPage({
                           </div>
                         </div>
                         <h3 className="mt-3 text-base font-semibold leading-6 text-ink">
-                          <a className="hover:text-signal" href={eventHref(item)}>{item.title}</a>
+                          <a className="title-link" href={eventHref(item)}>{item.title}</a>
                         </h3>
                         <p className="mt-3 text-sm leading-6 text-ink-mid">
                           {item.summary ?? item.one_line_summary ?? "暂无摘要。"}
