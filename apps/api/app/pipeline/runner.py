@@ -28,6 +28,7 @@ from app.services.ai_service import (
 )
 from app.services.clustering_service import cluster_articles
 from app.services.daily_report_service import build_daily_json, render_daily_markdown
+from app.services.digest_filter import is_digest_title
 from app.services.scoring_service import select_processed_article
 from app.services.source_policy import (
     is_trusted_curated_source,
@@ -455,6 +456,13 @@ def _process_candidate_article(
     # 四步流程(2026-07-12 晚):已存在跳过 → feed 元数据预筛 → 通过后才
     # 拉正文 → 无正文拦截 → 评分。非 AI 文章零外站请求。
     source = source_by_id[article.source_id]
+    # 早报/晚报/快讯合集直接丢弃，理由见 digest_filter。放在最前面是因为这个
+    # 判断不需要 AI、也不需要正文——连预筛那次调用一起省掉。
+    if is_digest_title(article.title):
+        article.status = "skipped"
+        article.skipped_reason = "digest"
+        return None, None, "digest"
+
     trusted_curated = is_trusted_curated_source(source)
     cached_version = int(((cached or {}).get("metadata") or {}).get("content_extraction_version") or 0)
     required_extraction_version = content_extraction_version_for_url(article.source_url)
