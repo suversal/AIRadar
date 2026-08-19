@@ -402,7 +402,14 @@ def _build_summary_input(kind: str, selected: list[dict[str, Any]]) -> dict[str,
 def summary_digest(summary_input: list[dict[str, Any]]) -> str:
     """Fingerprint of the material the AI is shown. Equal digest -> the call
     would see the same input, so the stored text is reused instead of paid
-    for again. Same contract as daily_summary_service.summary_digest."""
+    for again. Same contract as daily_summary_service.summary_digest.
+
+    进行中的期次会比日报重买得勤：它的底盘含「今天」那份还在滚动修订的
+    日报，今天多挂一篇文章让某条的 source_count 从 3 变 4，周月两份指纹
+    就一起失效。这是刻意留的——source_count 与名次顺序都是综述的实质
+    输入，把它们排除在指纹外能省几次调用，但会让文字和页面上的数字对不
+    上，那是比多花几毛钱更糟的退化。指纹要挡的是「素材根本没动」的空转
+    趟，不是「变化不大」的趟。"""
     canonical = json.dumps(summary_input, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
