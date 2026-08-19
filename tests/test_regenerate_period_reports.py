@@ -243,7 +243,7 @@ class RegenerateFinalizeTests(unittest.TestCase):
                 return {
                     "mainline_title": "重写后的主线",
                     "mainline_body": "重" * 260,
-                    "category_notes": [],
+                    "category_notes": [{"category": "model", "note": "本周模型动向"}],
                 }
 
         with self.Session() as session:
@@ -274,7 +274,7 @@ class RegenerateFinalizeTests(unittest.TestCase):
                 return {
                     "mainline_title": "主线",
                     "mainline_body": "正" * 260,
-                    "category_notes": [],
+                    "category_notes": [{"category": "model", "note": "本周模型动向"}],
                 }
 
         with self.Session() as session:

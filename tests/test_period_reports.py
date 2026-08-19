@@ -218,12 +218,13 @@ class PeriodSummaryTests(unittest.TestCase):
             def __init__(self):
                 self.calls = 0
 
-            def summarize_period(self, items, kind, range_label):
+            def summarize_period(self, summary_input, kind, range_label):
                 self.calls += 1
                 return {
                     "mainline_title": "主线",
                     "mainline_body": "短" * 50,
-                    "theme_notes": [],
+                    # 正文主体给足，让这个用例只考察长度闸门
+                    "trends": [{"label": "趋势", "note": "论述", "event_ids": []}],
                 }
 
         provider = ShortProvider()
@@ -248,12 +249,12 @@ class PeriodSummaryTests(unittest.TestCase):
             def __init__(self):
                 self.calls = 0
 
-            def summarize_period(self, items, kind, range_label):
+            def summarize_period(self, summary_input, kind, range_label):
                 self.calls += 1
                 return {
                     "mainline_title": "主线",
                     "mainline_body": "正" * (MAINLINE_BODY_MIN_CHARS + 10),
-                    "theme_notes": [],
+                    "trends": [{"label": "趋势", "note": "论述", "event_ids": []}],
                 }
 
         provider = LongProvider()
@@ -273,14 +274,14 @@ class PeriodSummaryTests(unittest.TestCase):
             def __init__(self):
                 self.calls = 0
 
-            def summarize_period(self, items, kind, range_label):
+            def summarize_period(self, summary_input, kind, range_label):
                 self.calls += 1
                 if self.calls == 1:
                     raise RuntimeError("timed out")
                 return {
                     "mainline_title": "主线",
                     "mainline_body": "正" * 220,
-                    "theme_notes": [],
+                    "category_notes": [{"category": "model", "note": "本周模型动向"}],
                 }
 
         provider = FlakyProvider()
@@ -1031,3 +1032,116 @@ class FailureKeepsPublishedTextTests(unittest.TestCase):
         )
 
         self.assertEqual(second["status"], "fallback")
+
+
+class ReportBodyCompletenessTests(unittest.TestCase):
+    """月报的趋势线、周报的分类概述就是正文主体。解析侧对它们静默容忍
+    （AI 把 trends 回成字符串时会被整体丢弃），闸门原来只量主线长度——
+    一份没有正文的报告会以 generated 入库，跨期时还被封版冻成永久形态。"""
+
+    def _provider(self, *, notes_key, notes):
+        class ShapedProvider(FakeAIProvider):
+            def __init__(self):
+                self.calls = 0
+
+            def summarize_period(self, summary_input, kind, range_label):
+                self.calls += 1
+                return {
+                    "mainline_title": "主线",
+                    "mainline_body": "正" * 300,
+                    notes_key: notes,
+                }
+
+        return ShapedProvider()
+
+    def _build(self, kind, provider, *, finalize=False):
+        return build_period_report(
+            kind=kind,
+            anchor=date(2026, 7, 10),
+            items=[make_item(f"事件{i}", score=90.0 - i, source_count=2) for i in range(12)],
+            report_dates=["2026-07-10"],
+            ai_provider=provider,
+            finalize=finalize,
+        )
+
+    def test_monthly_without_trends_is_partial_and_retried(self):
+        # trends 回成字符串是 qwen/kimi 长输出下的常见跑偏，解析后 theme_notes 为空
+        provider = self._provider(notes_key="trends", notes="1. 智能体加速……")
+        report = self._build("monthly", provider)
+
+        from app.services.period_summary_service import SUMMARY_ATTEMPTS
+
+        self.assertEqual(provider.calls, SUMMARY_ATTEMPTS)  # 空正文值得再花一次
+        self.assertEqual(report["status"], "partial")
+        self.assertEqual(report["theme_notes"], [])
+        # 正文可展示，但不算写完：不存指纹，下一轮必然重试
+        self.assertIsNone(report["summary_digest"])
+        self.assertTrue(report["mainline_body"])
+
+    def test_partial_report_is_never_finalized(self):
+        provider = self._provider(notes_key="trends", notes=[])
+        report = self._build("monthly", provider, finalize=True)
+
+        self.assertEqual(report["status"], "partial")
+        self.assertIsNone(report["finalized_at"])
+
+    def test_weekly_without_category_notes_is_partial(self):
+        provider = self._provider(notes_key="category_notes", notes=[])
+        report = self._build("weekly", provider)
+
+        self.assertEqual(report["status"], "partial")
+
+    def test_complete_report_stops_after_one_attempt(self):
+        provider = self._provider(
+            notes_key="trends",
+            notes=[{"label": "趋势", "note": "论述", "event_ids": []}],
+        )
+        report = self._build("monthly", provider)
+
+        self.assertEqual(provider.calls, 1)
+        self.assertEqual(report["status"], "generated")
+        self.assertTrue(report["summary_digest"])
+
+    def test_empty_selection_does_not_demand_a_body(self):
+        """名单为空时本来就没有正文可写，不该判成 partial 而无限重试。"""
+        provider = self._provider(notes_key="trends", notes=[])
+        report = build_period_report(
+            kind="monthly",
+            anchor=date(2026, 7, 10),
+            items=[],
+            report_dates=[],
+            ai_provider=provider,
+        )
+
+        self.assertEqual(report["status"], "generated")
+
+
+class CategoryFloorResolutionTests(unittest.TestCase):
+    """保底数名额的 key 必须和页面分板块用同一把解析，否则同一个板块的
+    条目被当成两个分类，白占一份保底名额。"""
+
+    def test_floor_counts_unresolved_categories_into_their_focus_bucket(self):
+        from app.services.period_summary_service import select_period_items
+
+        # 两条已归入 model 的多信源事件，加上一批 focus 为空、要靠 scoring
+        # category 推断才落到 model 的单信源条目
+        items = [
+            make_item("多信源甲", source_count=2, focus_category="model"),
+            make_item("多信源乙", source_count=2, focus_category="model"),
+        ]
+        for index in range(4):
+            item = make_item(f"待推断{index}", score=50.0 - index)
+            item["focus_category"] = None
+            item["scoring_category"] = "model_release"
+            items.append(item)
+
+        selected = select_period_items("weekly", items)
+        titles = [item["title"] for item in selected]
+
+        # model 已有 2 条多信源占位，保底不该再为「同一个板块」补条目
+        self.assertIn("多信源甲", titles)
+        self.assertIn("多信源乙", titles)
+        # 补进来的只能是全局补足（名额足够时会全进），关键是它们不占保底
+        from app.services.period_summary_service import _item_category
+
+        self.assertEqual(_item_category(items[2]), "model")

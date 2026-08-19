@@ -331,15 +331,31 @@ PERIOD_ITEM_HEAVY_FIELDS = (
 
 
 def slim_period_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """把周月报条目里的文章正文剥掉，只留列表展示需要的部分。
+    """把周月报条目里的文章正文剥掉，只留列表展示需要的部分，并把 focus
+    分类解析成最终值再发出去。
 
-    只用在**对外读取**这条路径上。生成周月报 AI 摘要的那条路径
+    正文：只用在**对外读取**这条路径上。生成周月报 AI 摘要的那条路径
     （refresh_service._regenerate_period_reports）拿的是 build_period_payload
-    的原始结果，不受影响——那边确实需要正文。"""
-    return [
-        {key: value for key, value in item.items() if key not in PERIOD_ITEM_HEAVY_FIELDS}
-        for item in items
-    ]
+    的原始结果，不受影响——那边确实需要正文。
+
+    分类：周月报页面是前端自己按 focus 分板块的（日报的分区由后端给），
+    而前端的 focusCategory 没有后端 infer_focus_category 那套关键词回退，
+    也不拿 category 兜底——同一条目后端记在「产品工具」、前端摆进「未分类」，
+    综述与板块就对不上了。在出口处解析一次写回，前端那一步只会命中「显式
+    focus 有效」这条分支，两边永远同一个答案。"""
+    slimmed = []
+    for item in items:
+        cleaned = {
+            key: value for key, value in item.items() if key not in PERIOD_ITEM_HEAVY_FIELDS
+        }
+        resolved = resolve_focus_category(
+            cleaned.get("focus_category"),
+            cleaned.get("scoring_category") or cleaned.get("category"),
+        )
+        if resolved:
+            cleaned["focus_category"] = resolved
+        slimmed.append(cleaned)
+    return slimmed
 
 
 def build_empty_daily_payload(report_date: date | None = None) -> dict[str, Any]:

@@ -185,7 +185,18 @@ def _days_covered(item: dict[str, Any]) -> int:
 
 
 def _item_category(item: dict[str, Any]) -> str:
-    return str(item.get("focus_category") or item.get("category") or "")
+    """分类保底数名额用的 key，必须和页面分板块、AI 分类输入用同一把解析
+    （_group_selected_by_focus 与 slim_period_items 都走 resolve_focus_category）。
+    原来这里取的是未解析的原始字符串，于是 focus_category 为空、
+    category="模型发布" 的条目被当成一个独立分类，白占一份保底名额，而真正
+    欠保底的分类反而挤不进来。"""
+    return str(
+        resolve_focus_category(
+            item.get("focus_category"),
+            item.get("scoring_category") or item.get("category"),
+        )
+        or ""
+    )
 
 
 def select_period_items(kind: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -390,6 +401,20 @@ def summary_digest(summary_input: list[dict[str, Any]]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _has_report_body(summary: dict[str, Any], selected: list[dict[str, Any]]) -> bool:
+    """正文主体到底写出来没有。
+
+    月报的趋势线、周报的分类概述都存在 theme_notes 里，而它们**就是**报告
+    的正文主体：月报少了趋势只剩一段总述加榜单，周报少了概述会退化成拿
+    头条标题冒充概述。解析侧对这两者是静默容忍的（AI 把 trends 回成一个
+    字符串而不是对象数组时全部被丢弃），所以只量 mainline_body 长度的闸门
+    放得过去——一份没有正文的报告会以 generated 入库，跨期时还会被封版
+    冻成永久状态。名单为空时另说：那本来就没有正文可写。"""
+    if not selected:
+        return True
+    return bool(summary.get("theme_notes"))
+
+
 def _validated_trend_notes(
     theme_notes: list[dict[str, Any]], selected: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -552,19 +577,31 @@ def build_period_report(
                     drafted["theme_notes"], selected
                 )
             # keep the newest draft either way: a short summary is still worth
-            # publishing, so length only decides whether to spend another attempt
+            # publishing, so quality only decides whether to spend another attempt
             summary = drafted
-            if len(drafted["mainline_body"]) >= mainline_min_chars:
+            long_enough = len(drafted["mainline_body"]) >= mainline_min_chars
+            has_body = _has_report_body(drafted, selected)
+            if long_enough and has_body:
                 break
-            logger.warning(
-                "period summary for %s %s is %d chars (min %d) on attempt %d/%d",
-                kind,
-                key,
-                len(drafted["mainline_body"]),
-                mainline_min_chars,
-                attempt,
-                SUMMARY_ATTEMPTS,
-            )
+            if not long_enough:
+                logger.warning(
+                    "period summary for %s %s is %d chars (min %d) on attempt %d/%d",
+                    kind,
+                    key,
+                    len(drafted["mainline_body"]),
+                    mainline_min_chars,
+                    attempt,
+                    SUMMARY_ATTEMPTS,
+                )
+            if not has_body:
+                logger.warning(
+                    "period summary for %s %s came back with no %s on attempt %d/%d",
+                    kind,
+                    key,
+                    "trends" if kind == "monthly" else "category notes",
+                    attempt,
+                    SUMMARY_ATTEMPTS,
+                )
         if summary is None:
             # 失败了。已有一份写成过的正文时保留它，只让快照跟上新素材——
             # 拿「本期 AI 综述生成失败」覆盖一段真写出来的综述，是把一次
@@ -590,6 +627,11 @@ def build_period_report(
             else:
                 summary = _fallback_summary(kind, selected)
                 status = "fallback"
+        elif not _has_report_body(summary, selected):
+            # 总述写出来了但正文主体（月报趋势/周报分类概述）是空的：发布它
+            # 总比空白强，但不能当成写完了——不存指纹、不封版，下一轮重试。
+            # 否则一次跑偏的输出会被冻成这个期次的永久形态。
+            status = "partial"
 
     return {
         "kind": kind,
@@ -607,7 +649,9 @@ def build_period_report(
         "stats": _period_stats(items, selected),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "status": status,
-        # digest only on generated: a fallback must not block the next retry
+        # 指纹与封版都只给 generated。其余三种状态各有各的不完整——fallback
+        # 从没写成过、stale 是留着的旧文、partial 缺正文主体——都必须留着被
+        # 下一轮重试的机会，存指纹会让它们被判重挡住，封版会把它们冻成永久。
         "summary_digest": digest if status == "generated" else None,
         "finalized_at": (
             datetime.now(timezone.utc).isoformat()

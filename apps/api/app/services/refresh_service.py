@@ -780,32 +780,40 @@ def _regenerate_period_reports(database_url: str, anchor_date: date, ai_provider
         repository = RadarRepository(session)
         for kind in ("weekly", "monthly"):
             for key in period_targets_for(kind, anchor_date):
-                stored = repository.get_period_report(kind, key)
-                if stored and stored.get("finalized_at"):
-                    continue
-                range_start, range_end = period_range_for_key(kind, key)
-                daily_payloads = repository.get_daily_report_payloads_between(
-                    range_start, range_end
-                )
-                if not daily_payloads and stored is None:
-                    # nothing was ever published in this period; a report row
-                    # here would be an empty shell with a made-up summary
-                    continue
-                merged = build_period_payload(
-                    daily_payloads, mode=kind, range_start=range_start, range_end=range_end
-                )
-                report = build_period_report(
-                    kind=kind,
-                    anchor=range_start,
-                    items=merged["items"],
-                    report_dates=sorted(merged["report_dates"]),
-                    ai_provider=ai_provider,
-                    previous=stored,
-                    finalize=anchor_date > range_end,
-                )
-                repository.upsert_period_report(report)
-        session.commit()
-    except Exception:
-        session.rollback()
+                # 每个期次自己一个事务：四个目标原先共用一次 commit，任何一个
+                # 环节抛错都会把前面几个已经买到的综述和上一期的封版一起回滚，
+                # 下一轮再花一次钱买同样的东西。而且 except 是裸的、没有日志，
+                # 确定性的脏数据会让周月报静默停更、轮轮重复付费还查不到线索。
+                try:
+                    stored = repository.get_period_report(kind, key)
+                    if stored and stored.get("finalized_at"):
+                        continue
+                    range_start, range_end = period_range_for_key(kind, key)
+                    daily_payloads = repository.get_daily_report_payloads_between(
+                        range_start, range_end
+                    )
+                    if not daily_payloads and stored is None:
+                        # nothing was ever published in this period; a report row
+                        # here would be an empty shell with a made-up summary
+                        continue
+                    merged = build_period_payload(
+                        daily_payloads, mode=kind, range_start=range_start, range_end=range_end
+                    )
+                    report = build_period_report(
+                        kind=kind,
+                        anchor=range_start,
+                        items=merged["items"],
+                        report_dates=sorted(merged["report_dates"]),
+                        ai_provider=ai_provider,
+                        previous=stored,
+                        finalize=anchor_date > range_end,
+                    )
+                    repository.upsert_period_report(report)
+                    session.commit()
+                except Exception:
+                    session.rollback()
+                    logger.warning(
+                        "period report generation failed for %s %s", kind, key, exc_info=True
+                    )
     finally:
         session.close()
