@@ -1,4 +1,4 @@
-import { PeriodReportPage } from "../reports/period-report-page";
+import { MonthlyReportPage } from "../reports/monthly-report-page";
 
 /** 必须动态渲染，不能在构建期预渲染。
  *
@@ -17,17 +17,9 @@ export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "AI 月报",
-  description: "当月日报的汇总提炼：AI 梳理出一条主线综述，附各主题看点与代表内容。",
+  description: "当月趋势提炼：AI 总述定调，2-3 条趋势线以代表事件为证，附完整榜单。",
 };
 
 export default function MonthlyPage() {
-  return (
-    <PeriodReportPage
-      mode="monthly"
-      title="AI·RADAR 月报"
-      mainlineLabel="本期主线"
-      highlightsTitle="本期看点"
-      themeLabel="本期主题"
-    />
-  );
+  return <MonthlyReportPage />;
 }

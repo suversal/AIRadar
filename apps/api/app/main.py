@@ -529,6 +529,18 @@ def create_app(
             if entries:
                 event_ids = [entry["event_id"] for entry in entries if entry.get("event_id")]
                 hydrated_items = repository.get_event_items_by_ids(event_ids)
+                # days_covered 是合并层的产物（进过几天的日报），事件本身
+                # 解析不出来——从 entries 快照里合回去，页面要用它标注
+                # 「连报 N 天」
+                days_by_event = {
+                    entry["event_id"]: entry.get("days_covered")
+                    for entry in entries
+                    if entry.get("event_id")
+                }
+                for item in hydrated_items:
+                    days = days_by_event.get(item.get("event_id"))
+                    if days:
+                        item["days_covered"] = days
 
         if hydrated_items is not None:
             payload = {

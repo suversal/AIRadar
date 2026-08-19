@@ -32,7 +32,9 @@ class WebAppStructureTests(unittest.TestCase):
             "app/daily/page.tsx",
             "app/reports/report-shell.tsx",
             "app/reports/report-data.ts",
-            "app/reports/period-report-page.tsx",
+            "app/reports/period-shared.tsx",
+            "app/reports/weekly-report-page.tsx",
+            "app/reports/monthly-report-page.tsx",
             "app/weekly/page.tsx",
             "app/monthly/page.tsx",
             "app/event/[id]/page.tsx",
@@ -591,8 +593,8 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("href: \"/monthly\"", shell_source)
         self.assertIn("activeNavId", shell_source)
         self.assertIn("buildDailyDigest", data_source)
-        self.assertIn("summarizeCategoryHighlights", data_source)
-        self.assertIn("buildPeriodDigest", data_source)
+        self.assertIn("buildWeeklyDigest", data_source)
+        self.assertIn("buildMonthlyDigest", data_source)
 
     def test_daily_page_renders_mainline_and_collapsible_categories(self):
         """日报页三块新结构：AI 主线、分类简述、可折叠的分类列表。
@@ -635,28 +637,41 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertNotIn("sortByScore", data_source)
 
     def test_weekly_and_monthly_pages_render_aihot_period_reports(self):
-        period_page = (WEB / "app" / "reports" / "period-report-page.tsx").read_text(encoding="utf-8")
+        """周报和月报分家：周报与日报同构（主线+看点+分类列表全露出），
+        月报换趋势结构（总述+趋势线挂证据+完整榜单+数据面）。"""
+        weekly_report = (WEB / "app" / "reports" / "weekly-report-page.tsx").read_text(encoding="utf-8")
+        monthly_report = (WEB / "app" / "reports" / "monthly-report-page.tsx").read_text(encoding="utf-8")
         weekly_page = (WEB / "app" / "weekly" / "page.tsx").read_text(encoding="utf-8")
         monthly_page = (WEB / "app" / "monthly" / "page.tsx").read_text(encoding="utf-8")
 
-        self.assertIn("ReportShell", period_page)
-        self.assertIn("buildPeriodDigest", period_page)
-        self.assertIn("getPeriodReport", period_page)
+        self.assertIn("WeeklyReportPage", weekly_page)
+        self.assertIn("MonthlyReportPage", monthly_page)
 
-        for source, title, mode in [
-            (weekly_page, "AI·RADAR 周报", "weekly"),
-            (monthly_page, "AI·RADAR 月报", "monthly"),
-        ]:
-            self.assertIn(title, source)
-            self.assertIn(f'mode="{mode}"', source)
-            self.assertIn("本期主线", source)
-            self.assertIn("本期看点", source)
-            self.assertIn("本期主题", source)
+        # 周报：日报的放大版
+        self.assertIn("ReportShell", weekly_report)
+        self.assertIn("buildWeeklyDigest", weekly_report)
+        self.assertIn("本周主线", weekly_report)
+        self.assertIn("本周看点", weekly_report)
+        self.assertIn("<details", weekly_report)
+        # 名单全露出：不允许再出现每板块截前几条的写法
+        self.assertNotIn("slice(0, 3)", weekly_report)
+
+        # 月报：趋势结构，不按分类分板块
+        self.assertIn("ReportShell", monthly_report)
+        self.assertIn("buildMonthlyDigest", monthly_report)
+        self.assertIn("本月总述", monthly_report)
+        self.assertIn("本月榜单", monthly_report)
+        self.assertIn("trends", monthly_report)
+        self.assertNotIn("slice(0, 3)", monthly_report)
+
+        # 进行中的期次要明示会变，两页都挂封版横幅
+        self.assertIn("SealBanner", weekly_report)
+        self.assertIn("SealBanner", monthly_report)
 
         data_source = (WEB / "app" / "reports" / "report-data.ts").read_text(encoding="utf-8")
-        self.assertIn("收录动态", data_source)
-        self.assertIn("入选精选", data_source)
-        self.assertIn("阅读时间", data_source)
+        # 诚实口径：入选与期间收录分开说，不再拿名单长度冒充收录数
+        self.assertIn("期间收录", data_source)
+        self.assertIn("coverage_count", data_source)
 
     def test_event_detail_page_links_from_latest_and_daily_views(self):
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")

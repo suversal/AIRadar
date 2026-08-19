@@ -1,13 +1,6 @@
 import type { DailyReport, LatestEvent, LatestReport, PeriodReport } from "@/lib/api";
 import { getDailySections } from "@/lib/markdown";
-import { focusCategory, focusCategoryLabel } from "@/lib/taxonomy";
-
-export type ReportHighlight = {
-  label: string;
-  title: string;
-  count: number;
-  items: LatestEvent[];
-};
+import { FOCUS_CATEGORIES, focusCategory, focusCategoryLabel } from "@/lib/taxonomy";
 
 export type PeriodMode = "weekly" | "monthly";
 
@@ -27,24 +20,26 @@ export function categoryDisplayName(key: string, item?: LatestEvent) {
 // 排名由后端给定，这里只分组，不重排。final_score 只在同一个打分模型内部
 // 可比：2026-08-13 换模型后高分变稀，前端再按原始分排一次，就会把后端按
 // 模型分组归一化的结果原样抵消掉（见 api/public.py 的 sort_period_items）。
-// 日报同理——一天只有一个模型，接口给的就是名次序。
-export function summarizeCategoryHighlights(items: LatestEvent[], limit = 5): ReportHighlight[] {
+// 分组按 FOCUS_CATEGORIES 固定顺序输出，和日报的板块顺序一致。
+function groupItemsByFocus(items: LatestEvent[]) {
   const grouped = new Map<string, LatestEvent[]>();
   for (const item of items) {
     const key = focusCategory(item.focus_category, item.scoring_category);
     grouped.set(key, [...(grouped.get(key) ?? []), item]);
   }
-  return Array.from(grouped.entries())
-    .map(([key, groupItems]) => {
-      return {
-        label: categoryDisplayName(key, groupItems[0]),
-        title: groupItems[0]?.title ?? "暂无标题",
-        count: groupItems.length,
-        items: groupItems,
-      };
-    })
-    .sort((left, right) => right.count - left.count)
-    .slice(0, limit);
+  const ordered: Array<{ key: string; label: string; items: LatestEvent[] }> = [];
+  for (const [key] of FOCUS_CATEGORIES) {
+    const groupItems = grouped.get(key);
+    if (groupItems?.length) {
+      ordered.push({ key, label: categoryDisplayName(key, groupItems[0]), items: groupItems });
+      grouped.delete(key);
+    }
+  }
+  // 不在 FOCUS_CATEGORIES 里的残余分类（历史数据）排在最后，不丢内容
+  for (const [key, groupItems] of grouped) {
+    ordered.push({ key, label: categoryDisplayName(key, groupItems[0]), items: groupItems });
+  }
+  return ordered;
 }
 
 export type DailyCategory = {
@@ -126,11 +121,7 @@ function resolveRange(period: PeriodReport) {
   return `${today} ~ ${today}`;
 }
 
-function mainlineFor(
-  period: PeriodReport,
-  highlights: ReportHighlight[],
-  mode: PeriodMode,
-) {
+function mainlineFor(period: PeriodReport, mode: PeriodMode) {
   // the AI-written interval summary is the whole point of a period report;
   // fall back to a template only when it has not been generated yet.
   //
@@ -152,7 +143,7 @@ function mainlineFor(
     return { title: period.mainline_title, body: period.mainline_body, ai: false };
   }
   const prefix = mode === "weekly" ? "本周" : "本月";
-  const top = highlights[0];
+  const top = period.items[0];
   if (!top) {
     return {
       title: `${prefix} AI 动态等待生成`,
@@ -161,39 +152,128 @@ function mainlineFor(
     };
   }
   return {
-    title: `${top.label}成为${prefix}主线`,
-    body: `${prefix} AI 动态围绕“${top.label}”集中展开，代表内容包括“${top.title}”。完整的 AI 综述稍后自动生成。`,
+    title: `${prefix} AI 动态一览`,
+    body: `${prefix}代表内容包括“${top.title}”等。完整的 AI 综述稍后自动生成。`,
     ai: false,
   };
 }
 
-export function buildPeriodDigest(period: PeriodReport, mode: PeriodMode) {
-  const items = period.items;
-  const highlights = summarizeCategoryHighlights(items, mode === "monthly" ? 5 : 6);
-  const uniqueTags = new Set(items.flatMap((item) => item.tags ?? []));
-  const range = resolveRange(period);
-  const mainline = mainlineFor(period, highlights, mode);
-  const selectedCount = items.filter((item) => item.selected).length;
+/** 封版状态：进行中的期次页面要明示「X 日封版」，读者才知道自己看的
+ *  文字还会变。封版日 = range_end 的次日（跨期后第一批运行收尾）。 */
+function sealStateFor(period: PeriodReport) {
+  const sealed = Boolean(period.finalized_at);
+  let sealDate: string | null = null;
+  if (!sealed && period.range_end) {
+    const end = new Date(`${period.range_end}T00:00:00`);
+    if (!Number.isNaN(end.getTime())) {
+      end.setDate(end.getDate() + 1);
+      sealDate = end.toISOString().slice(0, 10);
+    }
+  }
+  return { sealed, sealDate };
+}
+
+export type WeeklyCategory = {
+  key: string;
+  label: string;
+  /** 该分类本周的 AI 概述；没生成过就是 null，行内退回头条标题 */
+  note: string | null;
+  count: number;
+  /** 后端定序：多信源在前，组内按持续度再分位 */
+  items: LatestEvent[];
+  multiSourceCount: number;
+};
+
+/** 周报 = 日报的放大版：主线 + 分类概述 + 分类列表全露出。 */
+export function buildWeeklyDigest(period: PeriodReport) {
+  const noteByCategory = new Map(
+    (period.theme_notes ?? [])
+      .filter((note) => note.category)
+      .map((note) => [note.category as string, note.note] as const),
+  );
+  const categories: WeeklyCategory[] = groupItemsByFocus(period.items).map((group) => ({
+    key: group.key,
+    label: group.label,
+    // 旧格式期次没有分类概述，退回该类头条标题——和日报的历史期次同一取舍
+    note: noteByCategory.get(group.key) ?? group.items[0]?.title ?? null,
+    count: group.items.length,
+    items: group.items,
+    multiSourceCount: group.items.filter((item) => (item.source_count ?? 1) > 1).length,
+  }));
+
+  const coverageCount = period.stats?.coverage_count ?? period.items.length;
   const coveredDays = Math.max(period.report_dates.length, 1);
+  const sourceCoverage =
+    period.stats?.source_coverage_count ??
+    new Set(period.items.map((item) => item.main_source?.id).filter(Boolean)).size;
 
   return {
-    mode,
-    title: mode === "weekly" ? "AI·RADAR 周报" : "AI·RADAR 月报",
-    label: mode === "weekly" ? "WEEKLY" : "MONTHLY",
-    issueMeta: `VOL.${period.period_key ?? range.slice(0, 7)} · ${items.length} STORIES · AI RADAR ${
-      mode === "weekly" ? "WEEKLY" : "MONTHLY"
-    }`,
+    title: "AI·RADAR 周报",
+    label: "WEEKLY",
+    issueMeta: `VOL.${period.period_key ?? resolveRange(period).slice(0, 7)} · ${period.items.length} STORIES · AI RADAR WEEKLY`,
     periodKey: period.period_key ?? "",
-    themeNotes: period.theme_notes ?? [],
-    range,
-    mainline,
-    highlights,
-    sections: highlights,
+    range: resolveRange(period),
+    mainline: mainlineFor(period, "weekly"),
+    categories,
+    seal: sealStateFor(period),
     stats: [
-      { label: "收录动态", value: items.length.toString() },
-      { label: "入选精选", value: selectedCount.toString() },
+      { label: "本周入选", value: period.items.length.toString() },
+      { label: "期间收录", value: coverageCount.toString() },
       { label: "覆盖天数", value: coveredDays.toString() },
-      { label: "阅读时间", value: `≈${mode === "weekly" ? 5 : 4} min` },
+      { label: "信源覆盖", value: sourceCoverage.toString() },
+    ],
+  };
+}
+
+export type MonthlyTrend = {
+  label: string;
+  note: string;
+  /** 证据事件：event_ids 在后端已按入选名单校验，这里只解析不补位——
+   *  空列表就只显示论述，不拿别的事件冒充证据 */
+  items: LatestEvent[];
+};
+
+/** 月报 = 趋势结构：定调总述 + 2-3 条趋势线（挂证据事件卡）+ 完整榜单。 */
+export function buildMonthlyDigest(period: PeriodReport) {
+  const byEventId = new Map(period.items.map((item) => [item.event_id, item] as const));
+  const trends: MonthlyTrend[] = (period.theme_notes ?? [])
+    .filter((note) => note.label && note.note)
+    .map((note) => ({
+      label: note.label,
+      note: note.note,
+      items: (note.event_ids ?? [])
+        .map((eventId) => byEventId.get(eventId))
+        .filter((item): item is LatestEvent => Boolean(item)),
+    }));
+
+  const coverageCount = period.stats?.coverage_count ?? period.items.length;
+  const coveredDays = Math.max(period.report_dates.length, 1);
+  const multiSourceRatio = period.stats?.multi_source_ratio;
+  const categoryDistribution = Object.entries(period.stats?.category_distribution ?? {}).sort(
+    (left, right) => right[1] - left[1],
+  );
+
+  return {
+    title: "AI·RADAR 月报",
+    label: "MONTHLY",
+    issueMeta: `VOL.${period.period_key ?? resolveRange(period).slice(0, 7)} · ${period.items.length} STORIES · AI RADAR MONTHLY`,
+    periodKey: period.period_key ?? "",
+    range: resolveRange(period),
+    mainline: mainlineFor(period, "monthly"),
+    trends,
+    /** 完整榜单：后端名单序（多信源 → 持续度 → 分位） */
+    ranked: period.items,
+    seal: sealStateFor(period),
+    categoryDistribution,
+    stats: [
+      { label: "本月入选", value: period.items.length.toString() },
+      { label: "期间收录", value: coverageCount.toString() },
+      { label: "覆盖天数", value: coveredDays.toString() },
+      {
+        label: "多信源比例",
+        value:
+          multiSourceRatio !== undefined ? `${Math.round(multiSourceRatio * 100)}%` : "—",
+      },
     ],
   };
 }

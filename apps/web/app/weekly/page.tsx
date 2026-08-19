@@ -1,4 +1,4 @@
-import { PeriodReportPage } from "../reports/period-report-page";
+import { WeeklyReportPage } from "../reports/weekly-report-page";
 
 /** 必须动态渲染，不能在构建期预渲染。
  *
@@ -17,17 +17,9 @@ export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "AI 周报",
-  description: "本周日报的汇总提炼：AI 梳理出一条主线综述，附各主题看点与代表内容。",
+  description: "本周日报的汇总提炼：AI 主线综述与各栏目概述，入选名单全量露出。",
 };
 
 export default function WeeklyPage() {
-  return (
-    <PeriodReportPage
-      mode="weekly"
-      title="AI·RADAR 周报"
-      mainlineLabel="本期主线"
-      highlightsTitle="本期看点"
-      themeLabel="本期主题"
-    />
-  );
+  return <WeeklyReportPage />;
 }

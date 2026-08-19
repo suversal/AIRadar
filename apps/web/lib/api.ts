@@ -135,6 +135,8 @@ export type LatestEvent = {
   selection_reason?: string | null;
   hidden?: boolean;
   source_count?: number;
+  /** 周月报专属：进过几天的日报。合并层的产物，只在周月报条目上出现 */
+  days_covered?: number;
   main_source?: RadarSource;
   coverage?: EventCoverageItem[];
   source_language?: string;
@@ -357,14 +359,37 @@ export type TelegramEventsPayload = {
   error?: string | null;
 };
 
+export type PeriodThemeNote = {
+  label: string;
+  note: string;
+  /** 周报专属：该概述对应的 focus 分类 key */
+  category?: string;
+  /** 月报专属：支撑该趋势的事件（已在后端按入选名单校验过，可能为空——
+   *  空表示 AI 没能回填合法证据，页面只显示论述不挂卡片） */
+  event_ids?: string[];
+};
+
+export type PeriodStats = {
+  source_coverage_count?: number;
+  multi_source_ratio?: number;
+  category_distribution?: Record<string, number>;
+  /** 入选名单条数（= items.length） */
+  selected_count?: number;
+  /** 期间覆盖的全量条数；未入选的仍可在 /all 查到 */
+  coverage_count?: number;
+};
+
 export type PeriodReport = {
   mode: "weekly" | "monthly";
   period_key?: string;
   generated?: boolean;
   mainline_title?: string;
   mainline_body?: string;
-  theme_notes?: { label: string; note: string }[];
+  theme_notes?: PeriodThemeNote[];
   summary_status?: string;
+  /** 非空表示本期已封版定稿；空则期次进行中，文字和名单都可能再变 */
+  finalized_at?: string | null;
+  stats?: PeriodStats;
   range_start: string;
   range_end: string;
   report_dates: string[];
