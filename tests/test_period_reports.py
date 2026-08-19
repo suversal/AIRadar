@@ -352,12 +352,21 @@ class PeriodItemRankingTests(unittest.TestCase):
         self.assertEqual({item["title"] for item in payload["items"]}, {"旧闻", "新闻"})
 
     def test_entries_snapshot_follows_model_grouped_ranking(self):
-        """快照定的是月报页面的展示顺序，必须和综述输入用同一套排序。"""
+        """快照定的是月报页面的展示顺序，必须和综述输入用同一套排序。
+
+        条目造成多信源，让 20 条全部通过月报门槛——这里验证的是排序，
+        门槛本身在 PeriodSelectionTests 里单独验。"""
         items = [
-            make_item(f"旧{index}", score=100.0 - index, model_used="deepseek-v4-flash")
+            make_item(
+                f"旧{index}", score=100.0 - index,
+                model_used="deepseek-v4-flash", source_count=2,
+            )
             for index in range(10)
         ] + [
-            make_item(f"新{index}", score=89.0 - index, model_used="qwen3.7-flash")
+            make_item(
+                f"新{index}", score=89.0 - index,
+                model_used="qwen3.7-flash", source_count=2,
+            )
             for index in range(10)
         ]
 
@@ -526,3 +535,210 @@ class PeriodTargetsTests(unittest.TestCase):
             period_targets_for("weekly", date(2024, 12, 30)),
             ["2024-W52", "2025-W01"],
         )
+
+
+class PeriodSelectionTests(unittest.TestCase):
+    """周月报从「全收录但 96% 不可见」改成定名单：周报宽进、月报严进。"""
+
+    def test_weekly_includes_every_multi_source_item_regardless_of_score(self):
+        from app.services.period_summary_service import select_period_items
+
+        items = [
+            make_item("多信源低分", score=10.0, source_count=3),
+            make_item("单信源高分", score=99.0),
+        ]
+        selected = select_period_items("weekly", items)
+
+        titles = [item["title"] for item in selected]
+        self.assertIn("多信源低分", titles)
+        # 多信源组整体在前：即使分数只有 10 也排在单信源 99 分之前
+        self.assertEqual(titles[0], "多信源低分")
+
+    def test_weekly_category_floor_keeps_small_categories_visible(self):
+        from app.services.period_summary_service import (
+            WEEKLY_ITEM_CAP,
+            select_period_items,
+        )
+
+        # 大分类塞满上限，小分类只有两条低分位条目
+        items = [
+            make_item(f"大类{i}", score=95.0 - i * 0.5, category="model")
+            for i in range(WEEKLY_ITEM_CAP + 5)
+        ] + [
+            make_item("小类甲", score=5.0, category="policy"),
+            make_item("小类乙", score=4.0, category="policy"),
+        ]
+        selected = select_period_items("weekly", items)
+
+        titles = [item["title"] for item in selected]
+        self.assertLessEqual(len(selected), WEEKLY_ITEM_CAP)
+        # 按全局名次小分类一条都进不来；保底名额保证它整块不消失
+        self.assertIn("小类甲", titles)
+        self.assertIn("小类乙", titles)
+
+    def test_weekly_caps_at_limit(self):
+        from app.services.period_summary_service import (
+            WEEKLY_ITEM_CAP,
+            select_period_items,
+        )
+
+        items = [make_item(f"事件{i}", score=90.0 - i * 0.5) for i in range(60)]
+        self.assertEqual(len(select_period_items("weekly", items)), WEEKLY_ITEM_CAP)
+
+    def test_weekly_days_covered_outranks_percentile_within_group(self):
+        from app.services.period_summary_service import select_period_items
+
+        low_but_persistent = make_item("连报三天", score=50.0, source_count=2)
+        low_but_persistent["days_covered"] = 3
+        high_one_day = make_item("昙花一现", score=95.0, source_count=2)
+
+        selected = select_period_items("weekly", [high_one_day, low_but_persistent])
+        self.assertEqual(selected[0]["title"], "连报三天")
+
+    def test_monthly_gate_drops_single_source_single_day_items(self):
+        from app.services.period_summary_service import (
+            MONTHLY_FILL_FLOOR,
+            select_period_items,
+        )
+
+        qualified = [
+            make_item(f"多信源{i}", score=80.0 - i, source_count=2)
+            for i in range(MONTHLY_FILL_FLOOR + 2)
+        ]
+        noise = [make_item(f"噪声{i}", score=99.0 - i) for i in range(5)]
+
+        selected = select_period_items("monthly", qualified + noise)
+        titles = [item["title"] for item in selected]
+        self.assertTrue(all(title.startswith("多信源") for title in titles))
+
+    def test_monthly_days_covered_qualifies_without_multi_source(self):
+        from app.services.period_summary_service import (
+            MONTHLY_FILL_FLOOR,
+            select_period_items,
+        )
+
+        persistent = make_item("单信源但连报两天", score=50.0)
+        persistent["days_covered"] = 2
+        qualified = [
+            make_item(f"多信源{i}", score=80.0 - i, source_count=2)
+            for i in range(MONTHLY_FILL_FLOOR)
+        ]
+        noise = [make_item(f"噪声{i}", score=99.0 - i) for i in range(3)]
+
+        selected = select_period_items("monthly", qualified + [persistent] + noise)
+        titles = [item["title"] for item in selected]
+        self.assertIn("单信源但连报两天", titles)
+        self.assertNotIn("噪声0", titles)
+
+    def test_monthly_backfills_by_rank_when_gate_leaves_too_few(self):
+        """月初头几天几乎没有 days_covered≥2 的事件，门槛筛完月报页面
+        不能是空的——按名次回填到最低条数。"""
+        from app.services.period_summary_service import (
+            MONTHLY_FILL_FLOOR,
+            select_period_items,
+        )
+
+        items = [make_item(f"事件{i}", score=90.0 - i) for i in range(20)]
+        selected = select_period_items("monthly", items)
+        self.assertEqual(len(selected), MONTHLY_FILL_FLOOR)
+        # 回填仍按名次：最高分位的在前
+        self.assertEqual(selected[0]["title"], "事件0")
+
+    def test_monthly_caps_at_limit(self):
+        from app.services.period_summary_service import (
+            MONTHLY_ITEM_CAP,
+            select_period_items,
+        )
+
+        items = [
+            make_item(f"事件{i}", score=90.0 - i, source_count=2) for i in range(40)
+        ]
+        self.assertEqual(len(select_period_items("monthly", items)), MONTHLY_ITEM_CAP)
+
+    def test_report_entries_and_summary_see_the_same_selection(self):
+        """页面（entries 快照）和 AI 综述（summary_input）必须是同一份名单
+        同一个顺序——综述不能点评读者看不见的条目。"""
+
+        class CapturingProvider(FakeAIProvider):
+            def __init__(self):
+                self.seen = None
+
+            def summarize_period(self, items, kind, range_label):
+                self.seen = items
+                drafted = super().summarize_period(items, kind, range_label)
+                drafted["mainline_body"] = drafted["mainline_body"] + "补" * 250
+                return drafted
+
+        provider = CapturingProvider()
+        items = [
+            make_item("多信源", score=50.0, source_count=2),
+            make_item("单信源", score=95.0),
+        ]
+        report = build_period_report(
+            kind="weekly",
+            anchor=date(2026, 7, 10),
+            items=items,
+            report_dates=["2026-07-10"],
+            ai_provider=provider,
+        )
+
+        self.assertEqual(
+            [entry["event_id"] for entry in report["entries"]],
+            ["e-多信源", "e-单信源"],
+        )
+        self.assertEqual(
+            [seen["title"] for seen in provider.seen], ["多信源", "单信源"]
+        )
+        self.assertEqual(provider.seen[0]["source_count"], 2)
+        self.assertEqual(provider.seen[0]["days_covered"], 1)
+
+    def test_stats_carry_honest_dual_counts(self):
+        from app.services.period_summary_service import (
+            MONTHLY_FILL_FLOOR,
+            build_period_report,
+        )
+
+        items = [make_item(f"事件{i}", score=90.0 - i) for i in range(20)]
+        report = build_period_report(
+            kind="monthly",
+            anchor=date(2026, 7, 10),
+            items=items,
+            report_dates=["2026-07-10"],
+            ai_provider=FakeAIProvider(),
+        )
+
+        self.assertEqual(report["article_count"], MONTHLY_FILL_FLOOR)
+        self.assertEqual(report["stats"]["selected_count"], MONTHLY_FILL_FLOOR)
+        self.assertEqual(report["stats"]["coverage_count"], 20)
+        # 覆盖面统计（分类分布等）看全量而不是名单
+        self.assertEqual(
+            sum(report["stats"]["category_distribution"].values()), 20
+        )
+
+
+class MergeDaysCoveredTests(unittest.TestCase):
+    def test_merge_counts_days_covered_and_keeps_newest_copy(self):
+        payload = build_period_payload(
+            [
+                {
+                    "report_date": "2026-08-10",
+                    "items": [make_item("连报的事", score=80.0)],
+                },
+                {
+                    "report_date": "2026-08-11",
+                    "items": [
+                        make_item("连报的事", score=85.0),
+                        make_item("只出现一天", score=70.0),
+                    ],
+                },
+            ],
+            mode="weekly",
+            range_start=date(2026, 8, 10),
+            range_end=date(2026, 8, 16),
+        )
+
+        by_title = {item["title"]: item for item in payload["items"]}
+        self.assertEqual(by_title["连报的事"]["days_covered"], 2)
+        # 新日期的副本胜出：分数是 8-11 的 85 而不是 8-10 的 80
+        self.assertEqual(by_title["连报的事"]["final_score"], 85.0)
+        self.assertEqual(by_title["只出现一天"]["days_covered"], 1)

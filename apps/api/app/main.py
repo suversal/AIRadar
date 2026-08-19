@@ -560,6 +560,9 @@ def create_app(
                     "summary_status": persisted.get("status"),
                     "summary_generated_at": persisted.get("generated_at"),
                     "stats": persisted.get("stats") or {},
+                    # 非空表示本期已封版定稿；空则期次仍在进行中，文字和
+                    # 名单都可能随后续日报刷新变化
+                    "finalized_at": persisted.get("finalized_at"),
                 }
             )
         # 剥掉文章正文再发出去。页面只渲染标题/理由/标签/来源数，

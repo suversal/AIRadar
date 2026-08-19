@@ -28,6 +28,10 @@ def _merge_daily_items(daily_payloads: list[dict[str, Any]]) -> tuple[list[dict[
     report_dates: list[str] = []
     updated_at: str | None = None
     merged: dict[str, dict[str, Any]] = {}
+    # 这件事进过几天的日报。合并去重原本把这个信息直接丢掉了，但它是
+    # 周月报独有的重要性信号：连报三天的事天然是本期主线候选。和
+    # source_count 一样是客观计数，不受换打分模型影响。
+    covered_days: dict[str, set[str]] = {}
     for payload in ordered:
         report_date = payload.get("report_date")
         if report_date:
@@ -41,7 +45,13 @@ def _merge_daily_items(daily_payloads: list[dict[str, Any]]) -> tuple[list[dict[
                 continue
             # later report dates win so corrections in newer dailies replace old copies
             merged[str(event_id)] = item
-    return list(merged.values()), report_dates, updated_at
+            covered_days.setdefault(str(event_id), set()).add(str(report_date or ""))
+    items = [
+        # copy before annotating: the stored daily payload dicts are not ours to mutate
+        {**item, "days_covered": len(covered_days[key])}
+        for key, item in merged.items()
+    ]
+    return items, report_dates, updated_at
 
 
 def _item_matches(
