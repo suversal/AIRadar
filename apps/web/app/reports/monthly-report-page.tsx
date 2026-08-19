@@ -112,18 +112,16 @@ export async function MonthlyReportPage({ periodKey }: { periodKey?: string }) {
           <section className="mt-10">
             <div className="flex flex-wrap items-end justify-between gap-3 border-b border-line pb-3">
               <h2 className="text-xl font-semibold text-ink">本月榜单</h2>
-              <span className="text-sm text-ink-dim">{digest.ranked.length} 条入选 · 全量见 /all</span>
+              <span className="text-sm text-ink-dim">
+                {digest.ranked.length} 条入选 ·{" "}
+                <a className="hover:text-signal" href="/all">
+                  查看全部收录 →
+                </a>
+              </span>
             </div>
             <div className="mt-4 grid gap-3">
               {digest.ranked.map((item, index) => (
-                <div key={item.event_id} className="flex items-start gap-3">
-                  <span className="readout mt-4 w-7 shrink-0 text-right text-sm font-semibold text-signal">
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <PeriodEventCard item={item} />
-                  </div>
-                </div>
+                <PeriodEventCard key={item.event_id} item={item} rank={index + 1} />
               ))}
             </div>
           </section>

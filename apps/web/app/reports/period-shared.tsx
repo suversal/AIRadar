@@ -139,13 +139,20 @@ export function MainlineSection({
 /** 事件卡：样式、评分徽章、收藏按钮全部照日报页的卡片来——同一条内容
  *  在日/周/月三个页面上必须长得一样。周月报多一个「连报 N 天」徽章，
  *  这是它们独有的持续度信号。 */
-export function PeriodEventCard({ item }: { item: LatestEvent }) {
+export function PeriodEventCard({ item, rank }: { item: LatestEvent; rank?: number }) {
   return (
     <article className="card-hover rounded-md border border-line bg-panel p-4">
       <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0 truncate text-xs leading-5 text-signal-bright">
-          {item.main_source?.name ?? "未知来源"} · {item.source_count ?? 1} 个来源
-          {(item.days_covered ?? 1) > 1 ? ` · 连报 ${item.days_covered} 天` : ""}
+        <div className="flex min-w-0 items-center gap-2 truncate text-xs leading-5 text-signal-bright">
+          {rank !== undefined ? (
+            <span className="readout shrink-0 font-semibold text-signal">
+              {String(rank).padStart(2, "0")}
+            </span>
+          ) : null}
+          <span className="min-w-0 truncate">
+            {item.main_source?.name ?? "未知来源"} · {item.source_count ?? 1} 个来源
+            {(item.days_covered ?? 1) > 1 ? ` · 连报 ${item.days_covered} 天` : ""}
+          </span>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <span className="readout inline-flex h-5 items-center justify-center rounded-full border border-signal/40 px-1.5 text-[11px] font-semibold leading-none text-signal">
