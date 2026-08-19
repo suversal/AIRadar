@@ -167,7 +167,10 @@ function sealStateFor(period: PeriodReport) {
     const end = new Date(`${period.range_end}T00:00:00`);
     if (!Number.isNaN(end.getTime())) {
       end.setDate(end.getDate() + 1);
-      sealDate = end.toISOString().slice(0, 10);
+      // 不用 toISOString()：它折回 UTC，在 UTC+8 会把 08-24 打回 08-23
+      const month = String(end.getMonth() + 1).padStart(2, "0");
+      const day = String(end.getDate()).padStart(2, "0");
+      sealDate = `${end.getFullYear()}-${month}-${day}`;
     }
   }
   return { sealed, sealDate };
