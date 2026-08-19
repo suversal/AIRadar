@@ -23,7 +23,16 @@ logger = logging.getLogger(__name__)
 
 _FOCUS_LABELS = dict(FOCUS_CATEGORIES)
 
-SUMMARY_ITEM_LIMIT = 40
+#: 喂给 AI 的条目上限。80 而不是 40：周报名单在多信源多的一周会超过
+#: WEEKLY_ITEM_CAP（多信源全收优先于 cap），40 会把名单尾部挡在综述之外，
+#: 违背「AI 输入 = 入选名单本身」。
+SUMMARY_ITEM_LIMIT = 80
+
+#: 输入 JSON 的字符预算。provider 侧对 user content 做定长截断，而截断一份
+#: JSON 会从字符串中间切断、送出非法 JSON——所以规模控制放在这里按**整条**
+#: 丢弃，保证发出去的永远是合法 JSON，provider 那道只当最后的保险丝。
+#: 实测：月报 25 条 5.2k、周报 40 条 6.1k，预算留到 12k 是给长标题的余量。
+SUMMARY_INPUT_CHAR_BUDGET = 12000
 
 #: Minimum body length before a draft is retried once.
 #:
@@ -146,6 +155,12 @@ def parse_period_summary_payload(payload: dict[str, Any], kind: str = "weekly") 
 
 #: 周报名单上限与分类保底、月报名单上限。2026-08-19 拍板的数字，不是算出来
 #: 的——先按这个跑两期看实际效果再调。
+#:
+#: WEEKLY_ITEM_CAP 是**单信源补足的目标规模**，不是名单硬上限：多信源全收
+#: 与分类保底都优先于它，所以多信源多的一周名单会超过这个数。原先它是硬
+#: 上限，`multi[:40]` 把多信源截断掉——2026-08-10 那周实测 48 条多信源，
+#: 8 条被静默丢弃，而且名额被占满导致保底与补足整体跳过，纯单信源的分类
+#: 整块从周报消失，正是保底要防的那件事。
 WEEKLY_ITEM_CAP = 40
 WEEKLY_CATEGORY_FLOOR = 2
 MONTHLY_ITEM_CAP = 25
@@ -190,12 +205,16 @@ def select_period_items(kind: str, items: list[dict[str, Any]]) -> list[dict[str
 
 
 def _select_weekly_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """周报宽进：多信源全收 + 每分类保底 + 全局分位补足到上限。
+    """周报宽进：多信源全收 + 每分类保底 + 单信源按分位补足到目标规模。
 
     「被多家报道」是是非题，多信源事件全量入选、不占任何名额。分类保底
     让每个当周有内容的分类至少有 WEEKLY_CATEGORY_FLOOR 条露出——周报页面
     按分类分板块渲染，选品口径必须和渲染结构对齐，否则产出量小的分类会
     被产出量大的分类按全局名次挤到整块消失。
+
+    这两件事都排在 WEEKLY_ITEM_CAP 之前：cap 只约束最后那步「按分位补
+    单信源」。多信源多的一周（实测 48 条）名单因此会超过 cap，这是对的
+    ——一周真有 48 件多家同时报道的事，就该 48 件都露出来。
     """
     ranked = sort_period_items(items)
     position = {id(item): index for index, item in enumerate(ranked)}
@@ -207,29 +226,25 @@ def _select_weekly_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     multi = sorted((item for item in ranked if _is_multi_source(item)), key=group_key)
     single = sorted((item for item in ranked if not _is_multi_source(item)), key=group_key)
 
-    selected = multi[:WEEKLY_ITEM_CAP]
+    # 多信源全收，不截断：这是契约里最硬的一条
+    selected = list(multi)
     chosen = {id(item) for item in selected}
 
-    # 分类保底：目标是每个分类在名单里至少 FLOOR 条（多信源占位也算数——
-    # 一个已有 3 条多信源大事的分类不需要再靠保底撑存在感）
-    if len(selected) < WEEKLY_ITEM_CAP:
-        represented: dict[str, int] = {}
-        for item in selected:
-            key = _item_category(item)
-            represented[key] = represented.get(key, 0) + 1
-        floor_picks: list[dict[str, Any]] = []
-        for item in single:
-            key = _item_category(item)
-            if represented.get(key, 0) < WEEKLY_CATEGORY_FLOOR:
-                floor_picks.append(item)
-                represented[key] = represented.get(key, 0) + 1
-        for item in floor_picks:
-            if len(selected) >= WEEKLY_ITEM_CAP:
-                break
+    # 分类保底：每个分类在名单里至少 FLOOR 条（多信源占位也算数——一个已有
+    # 3 条多信源大事的分类不需要再靠保底撑存在感）。同样不受 cap 约束，
+    # 否则多信源占满名额时保底会整体失效，小分类照样消失。
+    represented: dict[str, int] = {}
+    for item in selected:
+        key = _item_category(item)
+        represented[key] = represented.get(key, 0) + 1
+    for item in single:
+        key = _item_category(item)
+        if represented.get(key, 0) < WEEKLY_CATEGORY_FLOOR:
             selected.append(item)
             chosen.add(id(item))
+            represented[key] = represented.get(key, 0) + 1
 
-    # 全局补足：剩余名额按同一把组内键从单信源里取
+    # 补足：只有这一步看 cap，按同一把组内键从剩下的单信源里取
     for item in single:
         if len(selected) >= WEEKLY_ITEM_CAP:
             break
@@ -308,8 +323,27 @@ def _summary_input(kind: str, selected: list[dict[str, Any]]) -> dict[str, Any]:
     multi-source events, one note per category from that category's whole
     selection). Monthly is a flat event list with ids - the AI groups it into
     trends itself and must quote event_ids as evidence.
-    SUMMARY_ITEM_LIMIT stays as a fuse only; both caps sit at or below it."""
+
+    Trimmed to SUMMARY_ITEM_LIMIT items, then whole items are dropped from the
+    tail until the serialized payload fits SUMMARY_INPUT_CHAR_BUDGET - dropping
+    by item keeps the JSON valid, which a character-level cut downstream would
+    not. Both are fuses: a normal week or month sits well inside them."""
     selected = selected[:SUMMARY_ITEM_LIMIT]
+    while True:
+        built = _build_summary_input(kind, selected)
+        if len(selected) <= 1 or len(
+            json.dumps(built, ensure_ascii=False)
+        ) <= SUMMARY_INPUT_CHAR_BUDGET:
+            return built
+        logger.warning(
+            "%s summary input over budget with %d items, dropping the tail one",
+            kind,
+            len(selected),
+        )
+        selected = selected[:-1]
+
+
+def _build_summary_input(kind: str, selected: list[dict[str, Any]]) -> dict[str, Any]:
     if kind == "weekly":
         return {
             "mainline_events": [
@@ -532,8 +566,30 @@ def build_period_report(
                 SUMMARY_ATTEMPTS,
             )
         if summary is None:
-            summary = _fallback_summary(kind, selected)
-            status = "fallback"
+            # 失败了。已有一份写成过的正文时保留它，只让快照跟上新素材——
+            # 拿「本期 AI 综述生成失败」覆盖一段真写出来的综述，是把一次
+            # 临时的 provider 故障变成读者可见的内容退化。存量是 fallback
+            # 或从来没写出过，才用兜底文案占位。
+            if previous and previous.get("status") == "generated" and previous.get(
+                "mainline_body"
+            ):
+                summary = {
+                    "mainline_title": previous.get("mainline_title") or "",
+                    "mainline_body": previous.get("mainline_body") or "",
+                    "theme_notes": list(previous.get("theme_notes") or []),
+                }
+                # 文字是旧的、素材是新的：不存指纹，下一轮必然重试，把这段
+                # 旧文字换成对得上新名单的版本
+                status = "stale"
+                logger.warning(
+                    "period summary for %s %s kept the stored text after %d failed attempts",
+                    kind,
+                    key,
+                    SUMMARY_ATTEMPTS,
+                )
+            else:
+                summary = _fallback_summary(kind, selected)
+                status = "fallback"
 
     return {
         "kind": kind,

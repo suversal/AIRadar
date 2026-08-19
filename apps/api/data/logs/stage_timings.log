@@ -14,3 +14,5 @@
 {"run_id": 430, "generated_at": "2026-08-19T07:58:39.347098+00:00", "raw_count": 238, "processed_count": 163, "ai_candidates": 36.614, "clustering": 160.891, "readme": 0.0, "translation": 0.001, "report": 0.008}
 {"run_id": 431, "generated_at": "2026-08-19T10:04:19.047907+00:00", "raw_count": 243, "processed_count": 158, "ai_candidates": 87.88, "clustering": 157.678, "readme": 0.0, "translation": 0.001, "report": 0.011}
 {"run_id": 432, "generated_at": "2026-08-19T12:04:28.764906+00:00", "raw_count": 246, "processed_count": 159, "ai_candidates": 26.693, "clustering": 93.071, "readme": 0.0, "translation": 0.001, "report": 0.008}
+{"run_id": 433, "generated_at": "2026-08-19T14:05:20.019240+00:00", "raw_count": 264, "processed_count": 175, "ai_candidates": 39.798, "clustering": 172.215, "readme": 0.001, "translation": 12.28, "report": 0.036}
+{"run_id": 434, "generated_at": "2026-08-19T16:05:24.884787+00:00", "raw_count": 132, "processed_count": 119, "ai_candidates": 10.08, "clustering": 61.591, "readme": 0.001, "translation": 27.616, "report": 0.002}

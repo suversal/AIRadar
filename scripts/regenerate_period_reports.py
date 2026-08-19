@@ -103,6 +103,21 @@ def regenerate(
             # 流水线也只会被 finalized_at 跳过，没有第二次机会了
             finalize=range_end < today,
         )
+        # 重写一个已定稿期次没写成功时，什么都不写：upsert 会覆盖正文却
+        # 保不住 finalized_at 的清除（封版是单向的），结果是一行「已定稿的
+        # 失败文字」，之后 refresh 与不带 --force 的脚本都会跳过它，没有任何
+        # 自动重试路径。原样留着旧定稿，让运维看着退出码重跑，才是安全的。
+        if stored and stored.get("finalized_at") and report["status"] != "generated":
+            session.rollback()
+            results.append(
+                {
+                    "kind": kind,
+                    "key": key,
+                    "status": f"kept-finalized({report['status']})",
+                    "items": 0,
+                }
+            )
+            continue
         repository.upsert_period_report(report)
         session.commit()
         results.append(
@@ -156,9 +171,15 @@ def main() -> int:
             seal = " [封版]" if row.get("finalized") else ""
             extra = f" body={row['body_chars']}字 「{row['title'][:28]}」{seal}"
         print(f"{row['kind']:8s} {row['key']:9s} {row['status']:16s} items={row['items']}{extra}")
-    fallbacks = [row for row in results if row["status"] == "fallback"]
-    if fallbacks:
-        print(f"\n{len(fallbacks)} period(s) still degraded to the deterministic fallback")
+    degraded = [
+        row
+        for row in results
+        if row["status"] == "fallback"
+        or row["status"] == "stale"
+        or row["status"].startswith("kept-finalized")
+    ]
+    if degraded:
+        print(f"\n{len(degraded)} period(s) did not get a fresh AI summary — re-run to retry")
         return 1
     if not args.apply:
         print("\ndry run: nothing written. Re-run with --apply.")

@@ -209,3 +209,72 @@ class DailySummaryBuildTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DailyFailureKeepsPublishedMainlineTests(unittest.TestCase):
+    """refresh_service 的契约是「失败时保留已有综述」，但失败分支原来返回的是
+    空的 failed 负载，调用方照写不误——已发布的主线被抹掉，而日报只在当天
+    刷新，抹掉就找不回来了。"""
+
+    def _items(self, extra=0):
+        items = [
+            {
+                "event_id": f"e-{index}",
+                "title": f"事件{index}",
+                "one_line_summary": "摘要",
+                "focus_category": "model",
+                "final_score": 90.0 - index,
+                "source_count": 2,
+            }
+            for index in range(2 + extra)
+        ]
+        return items
+
+    def _boom(self):
+        class BoomProvider:
+            def summarize_daily(self, summary_input, date_label):
+                raise RuntimeError("provider down")
+
+        return BoomProvider()
+
+    def test_failure_keeps_a_published_mainline(self):
+        summary = build_daily_summary(
+            report_date=date(2026, 8, 19),
+            items=self._items(),
+            ai_provider=self._boom(),
+            previous_digest="old-digest",
+            previous_status="generated",
+        )
+
+        # None = 别动库里那一行
+        self.assertIsNone(summary)
+
+    def test_failure_without_a_published_mainline_still_records_failed(self):
+        summary = build_daily_summary(
+            report_date=date(2026, 8, 19),
+            items=self._items(),
+            ai_provider=self._boom(),
+            previous_digest=None,
+            previous_status="pending",
+        )
+
+        self.assertIsNotNone(summary)
+        self.assertEqual(summary["status"], "failed")
+        self.assertEqual(summary["mainline_body"], "")
+
+    def test_unchanged_material_still_short_circuits_before_any_call(self):
+        """指纹判重仍然优先：素材没变时连 provider 都不碰。"""
+        from app.services.daily_summary_service import build_summary_input, summary_digest
+
+        items = self._items()
+        digest = summary_digest(build_summary_input(items))
+
+        summary = build_daily_summary(
+            report_date=date(2026, 8, 19),
+            items=items,
+            ai_provider=self._boom(),
+            previous_digest=digest,
+            previous_status="generated",
+        )
+
+        self.assertIsNone(summary)

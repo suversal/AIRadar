@@ -3333,6 +3333,35 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(after["mainline_body"], frozen["mainline_body"])
         self.assertEqual(after["generated_at"], frozen["generated_at"])
 
+    def test_canonical_event_id_map_follows_merge_redirects(self):
+        """快照冻的是生成当时的 event_id，现场解析回来的是重定向之后的 id。
+        端点用这张映射把两边对上——否则一次聚类合并就会让「连报 N 天」徽章
+        和月报趋势的证据卡静默消失。"""
+        from app.db.models import EventClusterRedirectModel
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles(
+                [self._article(article_id="a1", title="合并后的主文", url_hash="u1")]
+            )
+            repository.upsert_processed_articles([self._processed("a1")])
+            repository.upsert_event_clusters([self._cluster("e-canon", main_article_id="a1")])
+            session.add(
+                EventClusterRedirectModel(source_event_id="e-old", target_event_id="e-canon")
+            )
+            session.commit()
+
+            mapped = repository.canonical_event_id_map(["e-old", "e-canon", "e-unknown"])
+            empty = repository.canonical_event_id_map([])
+
+        self.assertEqual(mapped["e-old"], "e-canon")
+        # 没有重定向的 id 原样返回，未知 id 也不该报错
+        self.assertEqual(mapped["e-canon"], "e-canon")
+        self.assertEqual(mapped["e-unknown"], "e-unknown")
+        self.assertEqual(empty, {})
+
     def test_list_daily_report_dates(self):
         from app.repositories.radar_repository import RadarRepository
 

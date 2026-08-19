@@ -704,6 +704,18 @@ class RadarRepository:
             items.append(item)
         return items
 
+    def canonical_event_id_map(self, event_ids: list[str]) -> dict[str, str]:
+        """{stored id: id it resolves to today}, following merge redirects.
+
+        Snapshots (period_reports.entries, and the event_ids the monthly
+        trends cite) freeze the ids that existed at generation time, while
+        get_event_items_by_ids hands back the post-redirect id. Anything that
+        joins the two by id has to canonicalize first, or a later cluster
+        merge silently breaks the join."""
+        if not event_ids:
+            return {}
+        return self._canonicalize_event_ids(event_ids)
+
     def _canonicalize_event_ids(self, event_ids: list[str]) -> dict[str, str]:
         """Batch version of following EventClusterRedirectModel chains - same
         semantics as _canonical_event_id (bounded, cycle-safe), just
@@ -820,6 +832,15 @@ class RadarRepository:
     def get_daily_summary_digest(self, report_date: date) -> Optional[str]:
         return self.session.scalar(
             select(DailyReportModel.summary_digest).where(
+                DailyReportModel.report_date == report_date
+            )
+        )
+
+    def get_daily_summary_status(self, report_date: date) -> Optional[str]:
+        """"generated" means a mainline is already published for that day -
+        a failed regeneration must keep it rather than write an empty row."""
+        return self.session.scalar(
+            select(DailyReportModel.summary_status).where(
                 DailyReportModel.report_date == report_date
             )
         )

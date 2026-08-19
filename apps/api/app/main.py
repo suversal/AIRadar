@@ -521,6 +521,7 @@ def create_app(
         # progress and hasn't had a pipeline run persist one).
         persisted: Optional[dict[str, Any]] = None
         hydrated_items: Optional[list[dict[str, Any]]] = None
+        canonical_ids: dict[str, str] = {}
         with report_repository_context() as repository:
             persisted = getattr(repository, "get_period_report", lambda *a: None)(
                 mode, period_key
@@ -529,11 +530,25 @@ def create_app(
             if entries:
                 event_ids = [entry["event_id"] for entry in entries if entry.get("event_id")]
                 hydrated_items = repository.get_event_items_by_ids(event_ids)
+                # 快照冻的是生成当时的 event_id，而现场解析回来的条目带的是
+                # 重定向之后的 id：中间只要发生过一次聚类合并，两边就对不上。
+                # 先统一到 canonical，再做下面两处按 id 的关联。
+                cited_ids = [
+                    cited
+                    for note in (persisted.get("theme_notes") or [])
+                    if isinstance(note, dict)
+                    for cited in (note.get("event_ids") or [])
+                ]
+                canonical_ids = getattr(
+                    repository, "canonical_event_id_map", lambda ids: {}
+                )(event_ids + cited_ids)
                 # days_covered 是合并层的产物（进过几天的日报），事件本身
                 # 解析不出来——从 entries 快照里合回去，页面要用它标注
                 # 「连报 N 天」
                 days_by_event = {
-                    entry["event_id"]: entry.get("days_covered")
+                    canonical_ids.get(entry["event_id"], entry["event_id"]): entry.get(
+                        "days_covered"
+                    )
                     for entry in entries
                     if entry.get("event_id")
                 }
@@ -562,12 +577,24 @@ def create_app(
         payload["generated"] = False
         payload["theme_notes"] = []
         if persisted:
+            # 月报趋势线挂的证据 id 同样是快照期的：跟着重定向走一遍，页面才
+            # 能在现场解析出的条目里找到它们，否则证据卡整块消失且无报错
+            theme_notes = []
+            for note in persisted.get("theme_notes") or []:
+                if isinstance(note, dict) and note.get("event_ids"):
+                    note = {
+                        **note,
+                        "event_ids": [
+                            canonical_ids.get(cited, cited) for cited in note["event_ids"]
+                        ],
+                    }
+                theme_notes.append(note)
             payload.update(
                 {
                     "generated": True,
                     "mainline_title": persisted["mainline_title"],
                     "mainline_body": persisted["mainline_body"],
-                    "theme_notes": persisted.get("theme_notes") or [],
+                    "theme_notes": theme_notes,
                     "report_dates": persisted.get("report_dates") or payload["report_dates"],
                     "summary_status": persisted.get("status"),
                     "summary_generated_at": persisted.get("generated_at"),

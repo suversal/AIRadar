@@ -733,8 +733,10 @@ def _regenerate_daily_summary(database_url: str, report_date: date, ai_provider:
             items=payload.get("items") or [],
             ai_provider=ai_provider,
             previous_digest=repository.get_daily_summary_digest(report_date),
+            previous_status=repository.get_daily_summary_status(report_date),
         )
-        # None means "material unchanged" - keep what is already stored
+        # None means "material unchanged" or "the call failed but a published
+        # mainline is already stored" - either way, keep what is stored
         if summary is None:
             return
         repository.upsert_daily_summary(report_date, summary)

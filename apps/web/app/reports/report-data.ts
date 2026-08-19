@@ -129,6 +129,10 @@ function mainlineFor(period: PeriodReport, mode: PeriodMode) {
   // it is true even when the AI call failed and the row holds the deterministic
   // fallback text. Without the status check the 2026-08 monthly report rendered
   // 「本期 AI 综述生成失败」under an "AI 综述" badge.
+  //
+  // 只排除 fallback，不排除 stale：stale 是「素材更新了但这轮 AI 没写成，
+  // 保留上一版真写出来的正文」，那段文字确实出自 AI，徽章该挂。它没存指纹，
+  // 下一轮会自动重写成对得上新名单的版本。
   if (
     period.generated &&
     period.summary_status !== "fallback" &&

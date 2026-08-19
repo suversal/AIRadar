@@ -1,0 +1,2049 @@
+{
+  "report_date": "2026-08-20",
+  "markdown": "# Suversal AI Radar 日报 - 2026-08-20\n\n> 精选 1 条 AI 情报。风格：少而精，只保留值得进一步阅读的事件。\n\n## 教程实践\n\n### 1. NVIDIA教程：后训练Cosmos 3 Edge实现Jetson Thor端侧机器人控制 (75.9)\n\n- 摘要：NVIDIA发布基于Cosmos 3 Edge模型的机器人操作策略后训练与部署教程。\n- 核心总结：NVIDIA发布针对Cosmos 3 Edge模型的后训练与部署教程，旨在解决世界模型在端侧设备上的部署难题。Cosmos 3 Edge为4B Omni模型（含2B Nemotron推理器），专为Jetson Thor等边缘硬件设计。教程指导用户利用包含7.6万条轨迹的nvidia/Cosmos3-DROID数据集对模型进行后训练，使其具备预测机器人动作的能力，并在Jetson AGX Thor T5000上实现实时闭环控制。实测显示，该策略在RoboLab任务中成功率达22.9%，单次推理耗时约1.53秒，支持连续流式动作生成且无需数据中心GPU介入。文章提供了从数据准备、模型服务到仿真评估的完整可复现步骤及开源代码链接。\n- 为什么重要：该教程直接面向开发者，提供将大型世界模型轻量化并部署至边缘机器人的具体实操路径。通过公开数据集和代码，降低了具身智能落地的技术门槛，对探索端侧机器人控制的工程师具有直接参考价值。\n- 下一步：访问HuggingFace下载Cosmos 3 Edge检查点及DROID数据集，克隆cosmos-framework仓库复现端侧机器人控制流程。\n- 来源：[NVIDIA Developer Blog](https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control)，T2，相关来源 1 个\n- 标签：`机器人` `多模态` `推理` `边缘计算`\n",
+  "json_data": {
+    "report_date": "2026-08-20",
+    "title": "Suversal AI Radar 日报 - 2026-08-20",
+    "summary": "精选 1 条 AI 情报。",
+    "updated_at": "2026-08-19T16:05:24.884787+00:00",
+    "generated_at": "2026-08-19T16:05:24.884787+00:00",
+    "latest_published_at": "2026-08-19T16:00:00+00:00",
+    "items": [
+      {
+        "event_id": "e6079369d31ff",
+        "raw_article_id": "a962aa9249e37e6e257aa9e4",
+        "title": "NVIDIA教程：后训练Cosmos 3 Edge实现Jetson Thor端侧机器人控制",
+        "category": "tutorial",
+        "category_label": "技巧",
+        "focus_category": "tutorial",
+        "focus_category_label": "教程实践",
+        "scoring_category": "tutorial",
+        "tags": [
+          "机器人",
+          "多模态",
+          "推理",
+          "边缘计算"
+        ],
+        "final_score": 75.9,
+        "source_count": 1,
+        "main_source": {
+          "id": "nvidia_dev_blog",
+          "name": "NVIDIA Developer Blog",
+          "url": "https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control",
+          "tier": "T2",
+          "category": "official"
+        },
+        "one_line_summary": "NVIDIA发布基于Cosmos 3 Edge模型的机器人操作策略后训练与部署教程。",
+        "summary": "NVIDIA发布针对Cosmos 3 Edge模型的后训练与部署教程，旨在解决世界模型在端侧设备上的部署难题。Cosmos 3 Edge为4B Omni模型（含2B Nemotron推理器），专为Jetson Thor等边缘硬件设计。教程指导用户利用包含7.6万条轨迹的nvidia/Cosmos3-DROID数据集对模型进行后训练，使其具备预测机器人动作的能力，并在Jetson AGX Thor T5000上实现实时闭环控制。实测显示，该策略在RoboLab任务中成功率达22.9%，单次推理耗时约1.53秒，支持连续流式动作生成且无需数据中心GPU介入。文章提供了从数据准备、模型服务到仿真评估的完整可复现步骤及开源代码链接。",
+        "reason": "该教程直接面向开发者，提供将大型世界模型轻量化并部署至边缘机器人的具体实操路径。通过公开数据集和代码，降低了具身智能落地的技术门槛，对探索端侧机器人控制的工程师具有直接参考价值。",
+        "action": "访问HuggingFace下载Cosmos 3 Edge检查点及DROID数据集，克隆cosmos-framework仓库复现端侧机器人控制流程。",
+        "published_at": "2026-08-19T16:00:00+00:00",
+        "source_language": "en",
+        "original_url": "https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control",
+        "original_content": "Robots need policies that can adapt to their sensors, environments, and tasks while running on onboard computing hardware. World models offer a foundation for learning physical interactions, but their size can make on-device deployment difficult. This changes with the new NVIDIA Cosmos 3 Edge.\n\nCosmos 3 Edge is a 4B omni-model (with a 2B NVIDIA Nemotron-based reasoner) in the Cosmos 3 family. It was pretrained on the same physical-world data as NVIDIA Cosmos 3 Nano and NVIDIA Cosmos 3 Super and starts with the same grounding in how objects move and interact. Plus, the model is small enough to run on-device on NVIDIA Jetson Thor.\n\nWhat you’ll build\n\nBy the end of this tutorial, you’ll have a post-trained Cosmos 3 Edge manipulation policy that can run on Jetson Thor and be evaluated in closed-loop simulation.\n\nYou’ll learn how to:\n\nPost-train Cosmos 3 Edge to predict robot actions.\n\nServe the resulting policy on Jetson Thor.\n\nRun inference inside a receding-horizon control loop.\n\nEvaluate policy behavior in closed-loop simulation.\n\nEach step is reproducible from the open cosmos-framework repo, and the released checkpoint is available on HuggingFace.\n\nWhy post-train Cosmos 3 Edge for on-device robot manipulation?\n\nWorld foundation models are pretrained on large multimodal datasets that capture patterns in object motion and physical interaction, such as how objects fall, slide, and respond to contact. Cosmos natively generates actions based on physical understanding and prediction capabilities. This prior knowledge provides a useful starting point for robot-policy training rather than requiring the policy to learn all physical relationships from task-specific demonstrations.\n\nDeploying these models on a physical robot, however, introduces two practical constraints:\n\nDevice memory: The model and its runtime state must fit within the memory available on the robot.\n\nControl latency: The complete inference pipeline must be fast enough to support the robot’s required control frequency.\n\nPost-training Cosmos 3 Edge addresses each of these constraints. The resulting policy model fits within Jetson Thor’s memory, so inference runs directly on the robot rather than being offloaded to a data-center GPU.\n\nThe remaining factor is control latency. The DROID action policy runs in real time, directly on the robot. On an NVIDIA Jetson AGX Thor T5000, it generates each action chunk in about 1.53 seconds (running at 640×540 resolution and 15 Hz), while a single chunk covers roughly 2.13 seconds of robot motion. Because the next chunk is ready before the current one finishes, the arm moves continuously, with no data-center GPU in the loop. The policy supports continuous streaming on-device by generating action chunks and replanning after each inference cycle. It doesn’t replan after every observation.\n\nIn closed-loop RoboLab tasks, the post-trained policy reaches 22.9% success. Together, these results show that a 4B world foundation model can serve as a practical, real-time, on-device policy backbone. This model fits on a Jetson AGX Thor and runs entirely on the robot.\n\nWhat data does the policy train on?\n\nThe release policy in this tutorial trains on the nvidia/Cosmos3-DROID dataset. It contains 76k successful teleoperated trajectories, approximately 350 hours across 86 tasks and 564 scenes, collected with a Franka Panda arm and Robotiq gripper.\n\nThe dataset is packaged in LeRobotDataset v3.0 format at 640 × 360 resolution. Prepare it in three stages:\n\nFilter idle and non-task frames.\n\nSelect successful demonstrations for training.\n\nApply random cropping, rescaling, and color jitter during training.\n\nhf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir Cosmos3-DROID\n\nBring your own robot data\n\nConvert your data to the LeRobot Dataset v3 (per-frame camera video, joint states, gripper state, actions, task instruction).\n\nFor a DROID-like Franka setup, the primary change is the dataset path. A different embodiment needs its own experiment configuration that defines the action space, dimensionality, camera layout, and normalization settings.\n\nCosmos 3 supports several embodiments, including dual-arm Franka, UR, WidowX 250, LeRobot SO101. See the Cosmos 3 Edge model card for the embodiment list.\n\nPrerequisites\n\nBefore starting, confirm that you have:\n\nThe latest Cosmos framework release.\n\nThe validated training hardware: NVIDIA DGX Station with the NVIDIA GB200 Grace Blackwell Superchip or the NVIDIA GB300 Grace Blackwell Ultra Desktop Superchip.\n\nThe supported NVIDIA CUDA and container versions: CUDA 13.0 (cu130), NGC 26.06-py3.\n\nAccess to the Cosmos 3 Edge base checkpoint.\n\nAccess to the Cosmos3-DROID dataset.\n\nA Hugging Face access token.\n\nThis is foundation model post-training, not a single-GPU fine-tune. The validated run uses 64 nodes of 4× GB200 for 60K iterations, roughly 68 hours (~17.4K GB200-hours). Plan compute accordingly.\n\nHow to run post-training\n\nAt a high level, post-training is broken into four steps:\n\nDownload the dataset.\n\nConvert the base checkpoint to distributed-checkpoint (DCP) format.\n\nApply the curation filter.\n\nLaunch\n\n# Download the Cosmos3-DROID dataset (success split)\nhf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir /path/to/Cosmos3-DROID\n\n# Convert the base checkpoint to DCP (one-time; runs on CPU — it repacks weights, no GPU math)\npython -m cosmos_framework.scripts.convert_model_to_dcp \\ -o /path/to/Cosmos3-Edge-dcp --checkpoint-path Cosmos3-Edge\n\n# Launch post-training\nbash examples/launch_sft_action_policy_droid_nano.sh\n\nEdit and launch post-training script\n\nFind this file in the repo:\n\ncosmos_framework/configs/base/experiment/action/posttrain_config/action_policy_droid_nano.py\n\nThis launcher registers the recipe for Cosmos 3 Nano. To train Cosmos 3 Edge, make these three edits before launching:\n\nReplace the NANO_MODEL_CONFIG import with EDGE_MODEL_CONFIG (from configs/base/experiment/sft/models/edge_model_config.py).\n\nSet BASE_CHECKPOINT_PATH to the Cosmos 3 Edge DCP checkpoint from the conversion step.\n\nRename examples/launch_sft_action_policy_droid_nano.sh to examples/launch_sft_action_policy_droid_edge.sh\n\nEverything else, including dataset, action space, curation filter, and training schedule, stays the same.\n\n# Launch post-training\nbash examples/launch_sft_action_policy_droid_edge.sh\n\nFor the latest end-to-end instructions, including checkpoint conversion, environment configuration, and curation-filter setup, see the DROID post-training reproduction guide and model card. These resources are updated alongside the repository.\n\nHow to deploy and run the policy on Jetson Thor\n\nThe policy is served by a WebSocket policy server speaking the OpenPI protocol, the same protocol used across the DROID policy ecosystem. The client sends an observation dictionary; the server returns an action chunk. For Edge, the server runs natively on Jetson Thor. At roughly 9 GB in BF16, the weights fit in Thor’s on-board memory, so both the policy server and the control client run on the robot with no data-center GPU in the loop.\n\nStart the policy server on the robot\n\nexport HF_TOKEN=<your_hf_token>\n# Thor: run eager; stock Triton wheels lack sm_110a kernels\nexport TORCHDYNAMO_DISABLE=1\npython -m cosmos_framework.scripts.action_policy_server_robolab \\\n  --checkpoint_path nvidia/Cosmos3-Edge-Policy-DROID \\\n  --port 8000 \\\n  --format-prompt-as-json True\n# first launch downloads weights and takes a few minutes; then:\ncurl localhost:8000/healthz   # -> OK\n\nBecause the server runs on Thor, host=\"localhost\", the request never leaves the robot. On device, the policy runs in real time. This is the on-device inference that Cosmos Edge enables.\n\nSmoke test (no robot needed)\n\nThe DROID policy is state-conditioned. Meaning that joint_position and gripper_position are real model inputs, not boilerplate. With no arm in the loop, zeros are the honest placeholder; this call just proves the server returns a well-formed action chunk.\n\nimport numpy as np\nfrom PIL import Image\nfrom openpi_client.websocket_client_policy import WebsocketClientPolicy\n\nclient = WebsocketClientPolicy(host=\"localhost\", port=8000)\n\nobservation = {\n    \"prompt\": \"put the marker in the basket\",\n    \"observation/wrist_image_left\": np.asarray(Image.open(\"wrist.jpg\")),\n    \"observation/exterior_image_1_left\": np.asarray(Image.open(\"left.jpg\")),\n    \"observation/exterior_image_2_left\": np.asarray(Image.open(\"right.jpg\")),\n    \"observation/joint_position\": np.zeros(7, dtype=np.float32),   # smoke test only\n    \"observation/gripper_position\": np.float32(0.0),               # smoke test only\n}\nresult = client.infer(observation)\nactions = result[\"action\"]  # [32, 8]: 7 joint positions + gripper, 15 Hz\n\nRunning on the robot\n\nThe same call sits in a replanning loop. Each cycle reads fresh cameras and the arm’s measured joint and gripper positions (replacing the zeros above), executes a prefix of the chunk, then re-asks:\n\ndef get_observation():\n    return {\n        \"prompt\": \"put the marker in the basket\",\n        \"observation/wrist_image_left\": read_camera(\"wrist\"),\n        \"observation/exterior_image_1_left\": read_camera(\"left\"),\n        \"observation/exterior_image_2_left\": read_camera(\"right\"),\n        \"observation/joint_position\": robot.joint_positions(),   # REAL, 7 floats\n        \"observation/gripper_position\": robot.gripper_position(),\n    }\n\nwhile not task_done():\n    result = client.infer(get_observation())\n    execute_actions(result[\"action\"][:16], hz=15)   # first 16 of 32, then replan\n\nExecuting only a prefix and replanning is standard practice: the policy self-corrects every few seconds, and because it is state-conditioned, each replan starts from where the arm actually is rather than where the previous chunk assumed it would be. Starting the server with video decoding enabled returns the policy’s imagined rollout alongside the actions, so you can inspect what the world model predicts for the chunk it emitted.\n\nEvaluate the policy in a closed-loop simulation\n\nYou don’t need a physical robot to validate a policy. In fact, evaluating a policy in simulation is recommended before evaluating directly on a physical robot to avoid unexpected behaviours before they affect developers or robots. RoboLab—the Isaac Lab-Arena benchmark behind the RoboLab leaderboard—is open, and its client connects to the same policy server. It executes each action chunk in physics and streams rendered observations back for a true closed loop across 120 language-conditioned manipulation tasks.\n\n# Clone RoboLab and fetch the scene assets\ngit clone https://github.com/NVlabs/RoboLab.git && cd RoboLab\ngit lfs pull\n\n# Build the sim image and run one task against the policy server\n./docker/build_docker.sh latest\n./docker/run_docker.sh latest\npython policies/cosmos3/run.py --task BananaInBowlTask\n\n# Or run headless across many envs for success-rate statistics\npython policies/cosmos3/run.py --task BananaInBowlTask --num-envs 10 --headless\n\nSwap --task for any of the 120 tasks to build a broader picture of policy behavior. Each run produces viewport and robot-camera videos plus a success log, so you can inspect both the outcome and the trajectory that produced it.\n\nIn closed-loop RoboLab evaluation, the post-trained Edge policy reaches 22.9% success across the task suite. That result is earned at a fraction of the inference compute of larger Cosmos3 variants (Nano reaches 36.8%), which is precisely the trade Edge is designed to make: real-time, fully on-robot autonomy at competitive success rates.\n\nNote: NVIDIA Isaac Sim 5.x requires the NVIDIA RTX Server Driver Release 580 or later. Confirm the supported driver version in the RoboLab and Isaac Sim documentation before building.\n\nPost-training beyond robot control\n\nPost-training techniques that improve robot control also extend to other capabilities, such as synthetic data generation for robot training. Developers can create specialized world models that generate high-quality synthetic data tailored to their environments and tasks for both indoor and outdoor robot training.\n\nAigen, for example, post-trained Cosmos to generate diverse synthetic crop and weed variations, enabling an autonomous weeding system to achieve strong performance using just 1% real-world data for training.\n\nMore broadly, Cosmos’s open weights and framework, with the OpenMDW1.1 license, make post-training a powerful, flexible, and easy way to create specialized, highly performant, and accurate custom models for physical AI.\n\nGet started\n\nDownload Cosmos Edge policy weights and data\n\nJoin the Cosmos Labs livestream on August 20\n\nExplore Cosmos Edge on Jetson\n\nDownload Cosmos 3 checkpoints\n\nGet the code on GitHub\n\nTry Cosmos 3 Nano Reasoner and Cosmos 3 Nano",
+        "original_paragraphs": [
+          "Robots need policies that can adapt to their sensors, environments, and tasks while running on onboard computing hardware. World models offer a foundation for learning physical interactions, but their size can make on-device deployment difficult. This changes with the new NVIDIA Cosmos 3 Edge.",
+          "Cosmos 3 Edge is a 4B omni-model (with a 2B NVIDIA Nemotron-based reasoner) in the Cosmos 3 family. It was pretrained on the same physical-world data as NVIDIA Cosmos 3 Nano and NVIDIA Cosmos 3 Super and starts with the same grounding in how objects move and interact. Plus, the model is small enough to run on-device on NVIDIA Jetson Thor.",
+          "What you’ll build",
+          "By the end of this tutorial, you’ll have a post-trained Cosmos 3 Edge manipulation policy that can run on Jetson Thor and be evaluated in closed-loop simulation.",
+          "You’ll learn how to:",
+          "Post-train Cosmos 3 Edge to predict robot actions.",
+          "Serve the resulting policy on Jetson Thor.",
+          "Run inference inside a receding-horizon control loop.",
+          "Evaluate policy behavior in closed-loop simulation.",
+          "Each step is reproducible from the open cosmos-framework repo, and the released checkpoint is available on HuggingFace.",
+          "Why post-train Cosmos 3 Edge for on-device robot manipulation?",
+          "World foundation models are pretrained on large multimodal datasets that capture patterns in object motion and physical interaction, such as how objects fall, slide, and respond to contact. Cosmos natively generates actions based on physical understanding and prediction capabilities. This prior knowledge provides a useful starting point for robot-policy training rather than requiring the policy to learn all physical relationships from task-specific demonstrations.",
+          "Deploying these models on a physical robot, however, introduces two practical constraints:",
+          "Device memory: The model and its runtime state must fit within the memory available on the robot.",
+          "Control latency: The complete inference pipeline must be fast enough to support the robot’s required control frequency.",
+          "Post-training Cosmos 3 Edge addresses each of these constraints. The resulting policy model fits within Jetson Thor’s memory, so inference runs directly on the robot rather than being offloaded to a data-center GPU.",
+          "The remaining factor is control latency. The DROID action policy runs in real time, directly on the robot. On an NVIDIA Jetson AGX Thor T5000, it generates each action chunk in about 1.53 seconds (running at 640×540 resolution and 15 Hz), while a single chunk covers roughly 2.13 seconds of robot motion. Because the next chunk is ready before the current one finishes, the arm moves continuously, with no data-center GPU in the loop. The policy supports continuous streaming on-device by generating action chunks and replanning after each inference cycle. It doesn’t replan after every observation.",
+          "In closed-loop RoboLab tasks, the post-trained policy reaches 22.9% success. Together, these results show that a 4B world foundation model can serve as a practical, real-time, on-device policy backbone. This model fits on a Jetson AGX Thor and runs entirely on the robot.",
+          "What data does the policy train on?",
+          "The release policy in this tutorial trains on the nvidia/Cosmos3-DROID dataset. It contains 76k successful teleoperated trajectories, approximately 350 hours across 86 tasks and 564 scenes, collected with a Franka Panda arm and Robotiq gripper.",
+          "The dataset is packaged in LeRobotDataset v3.0 format at 640 × 360 resolution. Prepare it in three stages:",
+          "Filter idle and non-task frames.",
+          "Select successful demonstrations for training.",
+          "Apply random cropping, rescaling, and color jitter during training.",
+          "hf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir Cosmos3-DROID",
+          "Bring your own robot data",
+          "Convert your data to the LeRobot Dataset v3 (per-frame camera video, joint states, gripper state, actions, task instruction).",
+          "For a DROID-like Franka setup, the primary change is the dataset path. A different embodiment needs its own experiment configuration that defines the action space, dimensionality, camera layout, and normalization settings.",
+          "Cosmos 3 supports several embodiments, including dual-arm Franka, UR, WidowX 250, LeRobot SO101. See the Cosmos 3 Edge model card for the embodiment list.",
+          "Prerequisites",
+          "Before starting, confirm that you have:",
+          "The latest Cosmos framework release.",
+          "The validated training hardware: NVIDIA DGX Station with the NVIDIA GB200 Grace Blackwell Superchip or the NVIDIA GB300 Grace Blackwell Ultra Desktop Superchip.",
+          "The supported NVIDIA CUDA and container versions: CUDA 13.0 (cu130), NGC 26.06-py3.",
+          "Access to the Cosmos 3 Edge base checkpoint.",
+          "Access to the Cosmos3-DROID dataset.",
+          "A Hugging Face access token.",
+          "This is foundation model post-training, not a single-GPU fine-tune. The validated run uses 64 nodes of 4× GB200 for 60K iterations, roughly 68 hours (~17.4K GB200-hours). Plan compute accordingly.",
+          "How to run post-training",
+          "At a high level, post-training is broken into four steps:",
+          "Download the dataset.",
+          "Convert the base checkpoint to distributed-checkpoint (DCP) format.",
+          "Apply the curation filter.",
+          "Launch",
+          "# Download the Cosmos3-DROID dataset (success split)\nhf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir /path/to/Cosmos3-DROID\n\n# Convert the base checkpoint to DCP (one-time; runs on CPU — it repacks weights, no GPU math)\npython -m cosmos_framework.scripts.convert_model_to_dcp \\ -o /path/to/Cosmos3-Edge-dcp --checkpoint-path Cosmos3-Edge\n\n# Launch post-training\nbash examples/launch_sft_action_policy_droid_nano.sh",
+          "Edit and launch post-training script",
+          "Find this file in the repo:",
+          "cosmos_framework/configs/base/experiment/action/posttrain_config/action_policy_droid_nano.py",
+          "This launcher registers the recipe for Cosmos 3 Nano. To train Cosmos 3 Edge, make these three edits before launching:",
+          "Replace the NANO_MODEL_CONFIG import with EDGE_MODEL_CONFIG (from configs/base/experiment/sft/models/edge_model_config.py).",
+          "Set BASE_CHECKPOINT_PATH to the Cosmos 3 Edge DCP checkpoint from the conversion step.",
+          "Rename examples/launch_sft_action_policy_droid_nano.sh to examples/launch_sft_action_policy_droid_edge.sh",
+          "Everything else, including dataset, action space, curation filter, and training schedule, stays the same.",
+          "# Launch post-training\nbash examples/launch_sft_action_policy_droid_edge.sh",
+          "For the latest end-to-end instructions, including checkpoint conversion, environment configuration, and curation-filter setup, see the DROID post-training reproduction guide and model card. These resources are updated alongside the repository.",
+          "How to deploy and run the policy on Jetson Thor",
+          "The policy is served by a WebSocket policy server speaking the OpenPI protocol, the same protocol used across the DROID policy ecosystem. The client sends an observation dictionary; the server returns an action chunk. For Edge, the server runs natively on Jetson Thor. At roughly 9 GB in BF16, the weights fit in Thor’s on-board memory, so both the policy server and the control client run on the robot with no data-center GPU in the loop.",
+          "Start the policy server on the robot",
+          "export HF_TOKEN=<your_hf_token>\n# Thor: run eager; stock Triton wheels lack sm_110a kernels\nexport TORCHDYNAMO_DISABLE=1\npython -m cosmos_framework.scripts.action_policy_server_robolab \\\n  --checkpoint_path nvidia/Cosmos3-Edge-Policy-DROID \\\n  --port 8000 \\\n  --format-prompt-as-json True\n# first launch downloads weights and takes a few minutes; then:\ncurl localhost:8000/healthz   # -> OK",
+          "Because the server runs on Thor, host=\"localhost\", the request never leaves the robot. On device, the policy runs in real time. This is the on-device inference that Cosmos Edge enables.",
+          "Smoke test (no robot needed)",
+          "The DROID policy is state-conditioned. Meaning that joint_position and gripper_position are real model inputs, not boilerplate. With no arm in the loop, zeros are the honest placeholder; this call just proves the server returns a well-formed action chunk.",
+          "import numpy as np\nfrom PIL import Image\nfrom openpi_client.websocket_client_policy import WebsocketClientPolicy\n\nclient = WebsocketClientPolicy(host=\"localhost\", port=8000)\n\nobservation = {\n    \"prompt\": \"put the marker in the basket\",\n    \"observation/wrist_image_left\": np.asarray(Image.open(\"wrist.jpg\")),\n    \"observation/exterior_image_1_left\": np.asarray(Image.open(\"left.jpg\")),\n    \"observation/exterior_image_2_left\": np.asarray(Image.open(\"right.jpg\")),\n    \"observation/joint_position\": np.zeros(7, dtype=np.float32),   # smoke test only\n    \"observation/gripper_position\": np.float32(0.0),               # smoke test only\n}\nresult = client.infer(observation)\nactions = result[\"action\"]  # [32, 8]: 7 joint positions + gripper, 15 Hz",
+          "Running on the robot",
+          "The same call sits in a replanning loop. Each cycle reads fresh cameras and the arm’s measured joint and gripper positions (replacing the zeros above), executes a prefix of the chunk, then re-asks:",
+          "def get_observation():\n    return {\n        \"prompt\": \"put the marker in the basket\",\n        \"observation/wrist_image_left\": read_camera(\"wrist\"),\n        \"observation/exterior_image_1_left\": read_camera(\"left\"),\n        \"observation/exterior_image_2_left\": read_camera(\"right\"),\n        \"observation/joint_position\": robot.joint_positions(),   # REAL, 7 floats\n        \"observation/gripper_position\": robot.gripper_position(),\n    }\n\nwhile not task_done():\n    result = client.infer(get_observation())\n    execute_actions(result[\"action\"][:16], hz=15)   # first 16 of 32, then replan",
+          "Executing only a prefix and replanning is standard practice: the policy self-corrects every few seconds, and because it is state-conditioned, each replan starts from where the arm actually is rather than where the previous chunk assumed it would be. Starting the server with video decoding enabled returns the policy’s imagined rollout alongside the actions, so you can inspect what the world model predicts for the chunk it emitted.",
+          "Evaluate the policy in a closed-loop simulation",
+          "You don’t need a physical robot to validate a policy. In fact, evaluating a policy in simulation is recommended before evaluating directly on a physical robot to avoid unexpected behaviours before they affect developers or robots. RoboLab—the Isaac Lab-Arena benchmark behind the RoboLab leaderboard—is open, and its client connects to the same policy server. It executes each action chunk in physics and streams rendered observations back for a true closed loop across 120 language-conditioned manipulation tasks.",
+          "# Clone RoboLab and fetch the scene assets\ngit clone https://github.com/NVlabs/RoboLab.git && cd RoboLab\ngit lfs pull\n\n# Build the sim image and run one task against the policy server\n./docker/build_docker.sh latest\n./docker/run_docker.sh latest\npython policies/cosmos3/run.py --task BananaInBowlTask\n\n# Or run headless across many envs for success-rate statistics\npython policies/cosmos3/run.py --task BananaInBowlTask --num-envs 10 --headless",
+          "Swap --task for any of the 120 tasks to build a broader picture of policy behavior. Each run produces viewport and robot-camera videos plus a success log, so you can inspect both the outcome and the trajectory that produced it.",
+          "In closed-loop RoboLab evaluation, the post-trained Edge policy reaches 22.9% success across the task suite. That result is earned at a fraction of the inference compute of larger Cosmos3 variants (Nano reaches 36.8%), which is precisely the trade Edge is designed to make: real-time, fully on-robot autonomy at competitive success rates.",
+          "Note: NVIDIA Isaac Sim 5.x requires the NVIDIA RTX Server Driver Release 580 or later. Confirm the supported driver version in the RoboLab and Isaac Sim documentation before building.",
+          "Post-training beyond robot control",
+          "Post-training techniques that improve robot control also extend to other capabilities, such as synthetic data generation for robot training. Developers can create specialized world models that generate high-quality synthetic data tailored to their environments and tasks for both indoor and outdoor robot training.",
+          "Aigen, for example, post-trained Cosmos to generate diverse synthetic crop and weed variations, enabling an autonomous weeding system to achieve strong performance using just 1% real-world data for training.",
+          "More broadly, Cosmos’s open weights and framework, with the OpenMDW1.1 license, make post-training a powerful, flexible, and easy way to create specialized, highly performant, and accurate custom models for physical AI.",
+          "Get started",
+          "Download Cosmos Edge policy weights and data",
+          "Join the Cosmos Labs livestream on August 20",
+          "Explore Cosmos Edge on Jetson",
+          "Download Cosmos 3 checkpoints",
+          "Get the code on GitHub",
+          "Try Cosmos 3 Nano Reasoner and Cosmos 3 Nano"
+        ],
+        "original_images": [],
+        "original_blocks": [
+          {
+            "type": "byline",
+            "author": {
+              "name": "Michelle Horton",
+              "url": "https://developer.nvidia.com/blog/author/mhorton/"
+            },
+            "published_at": "2026-08-19T16:00:00+00:00",
+            "source": {
+              "name": "NVIDIA Technical Blog"
+            }
+          },
+          {
+            "type": "paragraph",
+            "text": "Robots need policies that can adapt to their sensors, environments, and tasks while running on onboard computing hardware. World models offer a foundation for learning physical interactions, but their size can make on-device deployment difficult. This changes with the new NVIDIA Cosmos 3 Edge.",
+            "html": "Robots need policies that can adapt to their sensors, environments, and tasks while running on onboard computing hardware. <a href=\"https://www.nvidia.com/en-us/glossary/world-models/\">World models</a> offer a foundation for learning physical interactions, but their size can make on-device deployment difficult. This changes with the new NVIDIA Cosmos 3 Edge."
+          },
+          {
+            "type": "paragraph",
+            "text": "Cosmos 3 Edge is a 4B omni-model (with a 2B NVIDIA Nemotron-based reasoner) in the Cosmos 3 family. It was pretrained on the same physical-world data as NVIDIA Cosmos 3 Nano and NVIDIA Cosmos 3 Super and starts with the same grounding in how objects move and interact. Plus, the model is small enough to run on-device on NVIDIA Jetson Thor.",
+            "html": "<a href=\"https://huggingface.co/nvidia/Cosmos3-Edge\">Cosmos 3 Edge</a> is a 4B <a href=\"https://www.nvidia.com/en-us/glossary/omni-model/\">omni-model </a>(with a 2B NVIDIA Nemotron-based reasoner) in the Cosmos 3 family. It was pretrained on the same physical-world data as NVIDIA Cosmos 3 Nano and NVIDIA Cosmos 3 Super and starts with the same grounding in how objects move and interact. Plus, the model is small enough to run on-device on <a href=\"https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-thor/\">NVIDIA Jetson Thor</a>."
+          },
+          {
+            "type": "heading",
+            "level": 2,
+            "text": "What you’ll build",
+            "html": "What you’ll build<a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#what_you’ll_build\"><em></em></a>"
+          },
+          {
+            "type": "paragraph",
+            "text": "By the end of this tutorial, you’ll have a post-trained Cosmos 3 Edge manipulation policy that can run on Jetson Thor and be evaluated in closed-loop simulation."
+          },
+          {
+            "type": "paragraph",
+            "text": "You’ll learn how to:"
+          },
+          {
+            "type": "list",
+            "ordered": true,
+            "items": [
+              {
+                "text": "Post-train Cosmos 3 Edge to predict robot actions."
+              },
+              {
+                "text": "Serve the resulting policy on Jetson Thor."
+              },
+              {
+                "text": "Run inference inside a receding-horizon control loop."
+              },
+              {
+                "text": "Evaluate policy behavior in closed-loop simulation."
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "Each step is reproducible from the open cosmos-framework repo, and the released checkpoint is available on HuggingFace.",
+            "html": "Each step is reproducible from the open <a href=\"https://github.com/NVIDIA/cosmos-framework\"><code>cosmos-framework</code></a> repo, and the released checkpoint is available on <a href=\"https://huggingface.co/nvidia/Cosmos3-Edge\">HuggingFace</a>."
+          },
+          {
+            "type": "video",
+            "provider": "file",
+            "url": "https://developer.download.nvidia.com/video/devblog/Cosmos3-Robot.mp4",
+            "mime_type": "video/mp4",
+            "caption": "Video 1. How to post-train NVIDIA Cosmos 3 Edge into an on-device robot policy"
+          },
+          {
+            "type": "heading",
+            "level": 2,
+            "text": "Why post-train Cosmos 3 Edge for on-device robot manipulation?",
+            "html": "Why post-train Cosmos 3 Edge for on-device robot manipulation?<a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#why_post-train_cosmos_3_edge_for_on-device_robot_manipulation\"><em></em></a>"
+          },
+          {
+            "type": "paragraph",
+            "text": "World foundation models are pretrained on large multimodal datasets that capture patterns in object motion and physical interaction, such as how objects fall, slide, and respond to contact. Cosmos natively generates actions based on physical understanding and prediction capabilities. This prior knowledge provides a useful starting point for robot-policy training rather than requiring the policy to learn all physical relationships from task-specific demonstrations."
+          },
+          {
+            "type": "paragraph",
+            "text": "Deploying these models on a physical robot, however, introduces two practical constraints:"
+          },
+          {
+            "type": "list",
+            "ordered": false,
+            "items": [
+              {
+                "text": "Device memory: The model and its runtime state must fit within the memory available on the robot.",
+                "html": "<strong>Device memory:</strong> The model and its runtime state must fit within the memory available on the robot."
+              },
+              {
+                "text": "Control latency: The complete inference pipeline must be fast enough to support the robot’s required control frequency.",
+                "html": "<strong>Control latency:</strong> The complete inference pipeline must be fast enough to support the robot’s required control frequency."
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "Post-training Cosmos 3 Edge addresses each of these constraints. The resulting policy model fits within Jetson Thor’s memory, so inference runs directly on the robot rather than being offloaded to a data-center GPU."
+          },
+          {
+            "type": "paragraph",
+            "text": "The remaining factor is control latency. The DROID action policy runs in real time, directly on the robot. On an NVIDIA Jetson AGX Thor T5000, it generates each action chunk in about 1.53 seconds (running at 640×540 resolution and 15 Hz), while a single chunk covers roughly 2.13 seconds of robot motion. Because the next chunk is ready before the current one finishes, the arm moves continuously, with no data-center GPU in the loop. The policy supports continuous streaming on-device by generating action chunks and replanning after each inference cycle. It doesn’t replan after every observation."
+          },
+          {
+            "type": "paragraph",
+            "text": "In closed-loop RoboLab tasks, the post-trained policy reaches 22.9% success. Together, these results show that a 4B world foundation model can serve as a practical, real-time, on-device policy backbone. This model fits on a Jetson AGX Thor and runs entirely on the robot.",
+            "html": "In closed-loop <a href=\"https://github.com/NVLabs/RoboLab\">RoboLab</a> tasks, the post-trained policy reaches 22.9% success. Together, these results show that a 4B world foundation model can serve as a practical, real-time, on-device policy backbone. This model fits on a Jetson AGX Thor and runs entirely on the robot."
+          },
+          {
+            "type": "heading",
+            "level": 2,
+            "text": "What data does the policy train on?",
+            "html": "What data does the policy train on?<a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#what_data_does_the_policy_train_on\"><em></em></a>"
+          },
+          {
+            "type": "paragraph",
+            "text": "The release policy in this tutorial trains on the nvidia/Cosmos3-DROID dataset. It contains 76k successful teleoperated trajectories, approximately 350 hours across 86 tasks and 564 scenes, collected with a Franka Panda arm and Robotiq gripper.",
+            "html": "The release policy in this tutorial trains on the <a href=\"https://huggingface.co/datasets/nvidia/Cosmos3-DROID\"><code>nvidia/Cosmos3-DROID</code></a> dataset. It contains 76k successful teleoperated trajectories, approximately 350 hours across 86 tasks and 564 scenes, collected with a Franka Panda arm and Robotiq gripper."
+          },
+          {
+            "type": "paragraph",
+            "text": "The dataset is packaged in LeRobotDataset v3.0 format at 640 × 360 resolution. Prepare it in three stages:"
+          },
+          {
+            "type": "list",
+            "ordered": false,
+            "items": [
+              {
+                "text": "Filter idle and non-task frames."
+              },
+              {
+                "text": "Select successful demonstrations for training."
+              },
+              {
+                "text": "Apply random cropping, rescaling, and color jitter during training."
+              }
+            ]
+          },
+          {
+            "type": "code",
+            "text": "hf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir Cosmos3-DROID"
+          },
+          {
+            "type": "heading",
+            "level": 2,
+            "text": "Bring your own robot data",
+            "html": "Bring your own robot data<a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#bring_your_own_robot_data\"><em></em></a>"
+          },
+          {
+            "type": "paragraph",
+            "text": "Convert your data to the LeRobot Dataset v3 (per-frame camera video, joint states, gripper state, actions, task instruction)."
+          },
+          {
+            "type": "paragraph",
+            "text": "For a DROID-like Franka setup, the primary change is the dataset path. A different embodiment needs its own experiment configuration that defines the action space, dimensionality, camera layout, and normalization settings."
+          },
+          {
+            "type": "paragraph",
+            "text": "Cosmos 3 supports several embodiments, including dual-arm Franka, UR, WidowX 250, LeRobot SO101. See the Cosmos 3 Edge model card for the embodiment list.",
+            "html": "Cosmos 3 supports several embodiments, including dual-arm Franka, UR, WidowX 250, LeRobot SO101. See the Cosmos 3 Edge <a href=\"https://huggingface.co/nvidia/Cosmos3-Edge\">model card</a> for the embodiment list."
+          },
+          {
+            "type": "heading",
+            "level": 3,
+            "text": "Prerequisites",
+            "html": "<strong>Prerequisites</strong><a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#prerequisites\"><em></em></a>"
+          },
+          {
+            "type": "paragraph",
+            "text": "Before starting, confirm that you have:"
+          },
+          {
+            "type": "list",
+            "ordered": false,
+            "items": [
+              {
+                "text": "The latest Cosmos framework release.",
+                "html": "The latest <a href=\"http://github.com/NVIDIA/cosmos-framework\">Cosmos framework</a> release."
+              },
+              {
+                "text": "The validated training hardware: NVIDIA DGX Station with the NVIDIA GB200 Grace Blackwell Superchip or the NVIDIA GB300 Grace Blackwell Ultra Desktop Superchip."
+              },
+              {
+                "text": "The supported NVIDIA CUDA and container versions: CUDA 13.0 (cu130), NGC 26.06-py3."
+              },
+              {
+                "text": "Access to the Cosmos 3 Edge base checkpoint.",
+                "html": "Access to the <a href=\"https://huggingface.co/nvidia/Cosmos3-Edge\">Cosmos 3 Edge base checkpoint</a>."
+              },
+              {
+                "text": "Access to the Cosmos3-DROID dataset.",
+                "html": "Access to the <a href=\"https://huggingface.co/datasets/nvidia/Cosmos3-DROID\">Cosmos3-DROID dataset</a>."
+              },
+              {
+                "text": "A Hugging Face access token."
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "This is foundation model post-training, not a single-GPU fine-tune. The validated run uses 64 nodes of 4× GB200 for 60K iterations, roughly 68 hours (~17.4K GB200-hours). Plan compute accordingly."
+          },
+          {
+            "type": "heading",
+            "level": 3,
+            "text": "How to run post-training",
+            "html": "<strong>How to run post-training</strong><a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#how_to_run_post-training\"><em></em></a>"
+          },
+          {
+            "type": "paragraph",
+            "text": "At a high level, post-training is broken into four steps:"
+          },
+          {
+            "type": "list",
+            "ordered": true,
+            "items": [
+              {
+                "text": "Download the dataset."
+              },
+              {
+                "text": "Convert the base checkpoint to distributed-checkpoint (DCP) format."
+              },
+              {
+                "text": "Apply the curation filter."
+              },
+              {
+                "text": "Launch"
+              }
+            ]
+          },
+          {
+            "type": "code",
+            "text": "# Download the Cosmos3-DROID dataset (success split)\nhf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir /path/to/Cosmos3-DROID\n\n# Convert the base checkpoint to DCP (one-time; runs on CPU — it repacks weights, no GPU math)\npython -m cosmos_framework.scripts.convert_model_to_dcp \\ -o /path/to/Cosmos3-Edge-dcp --checkpoint-path Cosmos3-Edge\n\n# Launch post-training\nbash examples/launch_sft_action_policy_droid_nano.sh"
+          },
+          {
+            "type": "heading",
+            "level": 3,
+            "text": "Edit and launch post-training script",
+            "html": "<strong>Edit and launch post-training script</strong><a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#edit_and_launch_post-training_script\"><em></em></a>"
+          },
+          {
+            "type": "paragraph",
+            "text": "Find this file in the repo:"
+          },
+          {
+            "type": "code",
+            "text": "cosmos_framework/configs/base/experiment/action/posttrain_config/action_policy_droid_nano.py"
+          },
+          {
+            "type": "paragraph",
+            "text": "This launcher registers the recipe for Cosmos 3 Nano. To train Cosmos 3 Edge, make these three edits before launching:"
+          },
+          {
+            "type": "list",
+            "ordered": false,
+            "items": [
+              {
+                "text": "Replace the NANO_MODEL_CONFIG import with EDGE_MODEL_CONFIG (from configs/base/experiment/sft/models/edge_model_config.py).",
+                "html": "Replace the <code>NANO_MODEL_CONFIG</code> import with <code>EDGE_MODEL_CONFIG</code> (from <code>configs/base/experiment/sft/models/edge_model_config.py</code>)."
+              },
+              {
+                "text": "Set BASE_CHECKPOINT_PATH to the Cosmos 3 Edge DCP checkpoint from the conversion step.",
+                "html": "Set <code>BASE_CHECKPOINT_PATH</code> to the Cosmos 3 Edge DCP checkpoint from the conversion step."
+              },
+              {
+                "text": "Rename examples/launch_sft_action_policy_droid_nano.sh to examples/launch_sft_action_policy_droid_edge.sh"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "Everything else, including dataset, action space, curation filter, and training schedule, stays the same."
+          },
+          {
+            "type": "code",
+            "text": "# Launch post-training\nbash examples/launch_sft_action_policy_droid_edge.sh"
+          },
+          {
+            "type": "paragraph",
+            "text": "For the latest end-to-end instructions, including checkpoint conversion, environment configuration, and curation-filter setup, see the DROID post-training reproduction guide and model card. These resources are updated alongside the repository.",
+            "html": "For the latest end-to-end instructions, including checkpoint conversion, environment configuration, and curation-filter setup, see the DROID post-training reproduction guide and <a href=\"https://huggingface.co/nvidia/Cosmos3-Edge-Policy-DROID\">model card</a>. These resources are updated alongside the repository."
+          },
+          {
+            "type": "heading",
+            "level": 3,
+            "text": "How to deploy and run the policy on Jetson Thor",
+            "html": "<strong>How to deploy and run the policy on Jetson Thor</strong><a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#how_to_deploy_and_run_the_policy_on_jetson_thor\"><em></em></a>"
+          },
+          {
+            "type": "paragraph",
+            "text": "The policy is served by a WebSocket policy server speaking the OpenPI protocol, the same protocol used across the DROID policy ecosystem. The client sends an observation dictionary; the server returns an action chunk. For Edge, the server runs natively on Jetson Thor. At roughly 9 GB in BF16, the weights fit in Thor’s on-board memory, so both the policy server and the control client run on the robot with no data-center GPU in the loop.",
+            "html": "The policy is served by a WebSocket policy server speaking the OpenPI protocol, the same protocol used across the DROID policy ecosystem. The client sends an observation dictionary; the server returns an action chunk. For Edge, the server runs <em>natively on Jetson Thor</em>. At roughly 9 GB in BF16, the weights fit in Thor’s on-board memory, so both the policy server and the control client run on the robot with no data-center GPU in the loop."
+          },
+          {
+            "type": "paragraph",
+            "text": "Start the policy server on the robot",
+            "html": "<strong>Start the policy server on the robot</strong>"
+          },
+          {
+            "type": "code",
+            "text": "export HF_TOKEN=<your_hf_token>\n# Thor: run eager; stock Triton wheels lack sm_110a kernels\nexport TORCHDYNAMO_DISABLE=1\npython -m cosmos_framework.scripts.action_policy_server_robolab \\\n  --checkpoint_path nvidia/Cosmos3-Edge-Policy-DROID \\\n  --port 8000 \\\n  --format-prompt-as-json True\n# first launch downloads weights and takes a few minutes; then:\ncurl localhost:8000/healthz   # -> OK"
+          },
+          {
+            "type": "paragraph",
+            "text": "Because the server runs on Thor, host=\"localhost\", the request never leaves the robot. On device, the policy runs in real time. This is the on-device inference that Cosmos Edge enables.",
+            "html": "Because the server runs on Thor, <code>host=\"localhost\"</code>, the request never leaves the robot. On device, the policy runs in real time. This is the on-device inference that Cosmos Edge enables."
+          },
+          {
+            "type": "heading",
+            "level": 3,
+            "text": "Smoke test (no robot needed)",
+            "html": "Smoke test (no robot needed)<a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#smoke_test_no_robot_needed\"><em></em></a>"
+          },
+          {
+            "type": "paragraph",
+            "text": "The DROID policy is state-conditioned. Meaning that joint_position and gripper_position are real model inputs, not boilerplate. With no arm in the loop, zeros are the honest placeholder; this call just proves the server returns a well-formed action chunk.",
+            "html": "The DROID policy is state-conditioned. Meaning that <code>joint_position</code> and <code>gripper_position</code> are real model inputs, not boilerplate. With no arm in the loop, zeros are the honest placeholder; this call just proves the server returns a well-formed action chunk."
+          },
+          {
+            "type": "code",
+            "text": "import numpy as np\nfrom PIL import Image\nfrom openpi_client.websocket_client_policy import WebsocketClientPolicy\n\nclient = WebsocketClientPolicy(host=\"localhost\", port=8000)\n\nobservation = {\n    \"prompt\": \"put the marker in the basket\",\n    \"observation/wrist_image_left\": np.asarray(Image.open(\"wrist.jpg\")),\n    \"observation/exterior_image_1_left\": np.asarray(Image.open(\"left.jpg\")),\n    \"observation/exterior_image_2_left\": np.asarray(Image.open(\"right.jpg\")),\n    \"observation/joint_position\": np.zeros(7, dtype=np.float32),   # smoke test only\n    \"observation/gripper_position\": np.float32(0.0),               # smoke test only\n}\nresult = client.infer(observation)\nactions = result[\"action\"]  # [32, 8]: 7 joint positions + gripper, 15 Hz"
+          },
+          {
+            "type": "heading",
+            "level": 3,
+            "text": "Running on the robot",
+            "html": "Running on the robot<a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#running_on_the_robot\"><em></em></a>"
+          },
+          {
+            "type": "paragraph",
+            "text": "The same call sits in a replanning loop. Each cycle reads fresh cameras and the arm’s measured joint and gripper positions (replacing the zeros above), executes a prefix of the chunk, then re-asks:"
+          },
+          {
+            "type": "code",
+            "text": "def get_observation():\n    return {\n        \"prompt\": \"put the marker in the basket\",\n        \"observation/wrist_image_left\": read_camera(\"wrist\"),\n        \"observation/exterior_image_1_left\": read_camera(\"left\"),\n        \"observation/exterior_image_2_left\": read_camera(\"right\"),\n        \"observation/joint_position\": robot.joint_positions(),   # REAL, 7 floats\n        \"observation/gripper_position\": robot.gripper_position(),\n    }\n\nwhile not task_done():\n    result = client.infer(get_observation())\n    execute_actions(result[\"action\"][:16], hz=15)   # first 16 of 32, then replan"
+          },
+          {
+            "type": "paragraph",
+            "text": "Executing only a prefix and replanning is standard practice: the policy self-corrects every few seconds, and because it is state-conditioned, each replan starts from where the arm actually is rather than where the previous chunk assumed it would be. Starting the server with video decoding enabled returns the policy’s imagined rollout alongside the actions, so you can inspect what the world model predicts for the chunk it emitted."
+          },
+          {
+            "type": "heading",
+            "level": 3,
+            "text": "Evaluate the policy in a closed-loop simulation",
+            "html": "Evaluate the policy in a closed-loop simulation<a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#evaluate_the_policy_in_a_closed-loop_simulation\"><em></em></a>"
+          },
+          {
+            "type": "paragraph",
+            "text": "You don’t need a physical robot to validate a policy. In fact, evaluating a policy in simulation is recommended before evaluating directly on a physical robot to avoid unexpected behaviours before they affect developers or robots. RoboLab—the Isaac Lab-Arena benchmark behind the RoboLab leaderboard—is open, and its client connects to the same policy server. It executes each action chunk in physics and streams rendered observations back for a true closed loop across 120 language-conditioned manipulation tasks.",
+            "html": "You don’t need a physical robot to validate a policy. In fact, evaluating a policy in simulation is recommended before evaluating directly on a physical robot to avoid unexpected behaviours before they affect developers or robots. <a href=\"https://github.com/NVLabs/RoboLab\">RoboLab</a>—the <a href=\"https://developer.nvidia.com/isaac/lab-arena\">Isaac Lab-Arena</a> benchmark behind the RoboLab leaderboard—is open, and its client connects to the same policy server. It executes each action chunk in physics and streams rendered observations back for a true closed loop across 120 language-conditioned manipulation tasks."
+          },
+          {
+            "type": "code",
+            "text": "# Clone RoboLab and fetch the scene assets\ngit clone https://github.com/NVlabs/RoboLab.git && cd RoboLab\ngit lfs pull\n\n# Build the sim image and run one task against the policy server\n./docker/build_docker.sh latest\n./docker/run_docker.sh latest\npython policies/cosmos3/run.py --task BananaInBowlTask\n\n# Or run headless across many envs for success-rate statistics\npython policies/cosmos3/run.py --task BananaInBowlTask --num-envs 10 --headless"
+          },
+          {
+            "type": "paragraph",
+            "text": "Swap --task for any of the 120 tasks to build a broader picture of policy behavior. Each run produces viewport and robot-camera videos plus a success log, so you can inspect both the outcome and the trajectory that produced it.",
+            "html": "Swap <code>--task</code> for any of the 120 tasks to build a broader picture of policy behavior. Each run produces viewport and robot-camera videos plus a success log, so you can inspect both the outcome and the trajectory that produced it."
+          },
+          {
+            "type": "paragraph",
+            "text": "In closed-loop RoboLab evaluation, the post-trained Edge policy reaches 22.9% success across the task suite. That result is earned at a fraction of the inference compute of larger Cosmos3 variants (Nano reaches 36.8%), which is precisely the trade Edge is designed to make: real-time, fully on-robot autonomy at competitive success rates.",
+            "html": "In closed-loop RoboLab evaluation, the post-trained Edge policy reaches <strong>22.9% success</strong> across the task suite. That result is earned at a fraction of the inference compute of larger Cosmos3 variants (Nano reaches 36.8%), which is precisely the trade Edge is designed to make: real-time, fully on-robot autonomy at competitive success rates."
+          },
+          {
+            "type": "paragraph",
+            "text": "Note: NVIDIA Isaac Sim 5.x requires the NVIDIA RTX Server Driver Release 580 or later. Confirm the supported driver version in the RoboLab and Isaac Sim documentation before building."
+          },
+          {
+            "type": "heading",
+            "level": 2,
+            "text": "Post-training beyond robot control",
+            "html": "Post-training beyond robot control<a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#post-training_beyond_robot_control\"><em></em></a>"
+          },
+          {
+            "type": "paragraph",
+            "text": "Post-training techniques that improve robot control also extend to other capabilities, such as synthetic data generation for robot training. Developers can create specialized world models that generate high-quality synthetic data tailored to their environments and tasks for both indoor and outdoor robot training."
+          },
+          {
+            "type": "paragraph",
+            "text": "Aigen, for example, post-trained Cosmos to generate diverse synthetic crop and weed variations, enabling an autonomous weeding system to achieve strong performance using just 1% real-world data for training."
+          },
+          {
+            "type": "paragraph",
+            "text": "More broadly, Cosmos’s open weights and framework, with the OpenMDW1.1 license, make post-training a powerful, flexible, and easy way to create specialized, highly performant, and accurate custom models for physical AI."
+          },
+          {
+            "type": "heading",
+            "level": 2,
+            "text": "Get started",
+            "html": "Get started<a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#get_started\"><em></em></a>"
+          },
+          {
+            "type": "list",
+            "ordered": false,
+            "items": [
+              {
+                "text": "Download Cosmos Edge policy weights and data",
+                "html": "<a href=\"https://huggingface.co/nvidia/Cosmos3-Edge-Policy-DROID\">Download Cosmos Edge policy weights and data</a>"
+              },
+              {
+                "text": "Join the Cosmos Labs livestream on August 20",
+                "html": "Join the <a href=\"https://www.youtube.com/watch?v=oJF_6HgA46E\">Cosmos Labs livestream</a> on August 20"
+              },
+              {
+                "text": "Explore Cosmos Edge on Jetson",
+                "html": "<a href=\"https://www.jetson-ai-lab.com/models/cosmos3-edge/\">Explore Cosmos Edge on Jetson</a>"
+              },
+              {
+                "text": "Download Cosmos 3 checkpoints",
+                "html": "<a href=\"https://huggingface.co/collections/nvidia/cosmos3\">Download Cosmos 3 checkpoints</a>"
+              },
+              {
+                "text": "Get the code on GitHub",
+                "html": "<a href=\"https://github.com/nvidia/Cosmos\">Get the code on GitHub</a>"
+              },
+              {
+                "text": "Try Cosmos 3 Nano Reasoner and Cosmos 3 Nano",
+                "html": "Try <a href=\"https://build.nvidia.com/nvidia/cosmos3-nano-reasoner\">Cosmos 3 Nano Reasoner</a> and <a href=\"https://build.nvidia.com/nvidia/cosmos3-nano\">Cosmos 3 Nano</a>"
+              }
+            ]
+          }
+        ],
+        "content_origin": "full_page",
+        "translated_paragraphs": [
+          "机器人需要能够适应其传感器、环境和任务的策略，同时这些策略需运行在机载计算硬件上。世界模型为学习物理交互提供了基础，但其庞大的规模可能使设备端部署变得困难。而新的 NVIDIA Cosmos 3 Edge 将改变这一局面。",
+          "Cosmos 3 Edge 是 Cosmos 3 系列中的一个 4B 全模态模型（包含一个基于 NVIDIA Nemotron 的 2B 推理器）。它与 NVIDIA Cosmos 3 Nano 和 NVIDIA Cosmos 3 Super 使用相同的物理世界数据进行预训练，并同样以物体如何运动和交互为基础进行初始化。此外，该模型足够小巧，可在 NVIDIA Jetson Thor 上进行设备端部署。",
+          "你将构建的内容",
+          "在本教程结束时，你将拥有一个经过后训练的 Cosmos 3 Edge 操作策略，它可以在 Jetson Thor 上运行，并在闭环仿真中进行评估。",
+          "你将学到：",
+          "对 Cosmos 3 Edge 进行后训练，以预测机器人的动作。",
+          "在 Jetson Thor 上部署生成的策略。",
+          "在滚动时域控制循环内执行推理。",
+          "在闭环仿真中评估策略行为。",
+          "每个步骤均可通过开源的 cosmos-framework 仓库复现，发布的检查点也可在 HuggingFace 上获取。",
+          "为什么需要对 Cosmos 3 Edge 进行后训练以实现设备端机器人操作？",
+          "世界基础模型在大规模多模态数据集上进行预训练，这些数据捕捉了物体运动和物理交互中的模式，例如物体如何下落、滑动以及对外部接触的响应。Cosmos 原生地基于对物理的理解和预测能力来生成动作。这种先验知识为机器人策略训练提供了一个有用的起点，而不必要求策略从特定任务演示中学习所有的物理关系。",
+          "然而，将这些模型部署到实体机器人上会引入两个实际约束：",
+          "设备内存：模型及其运行时状态必须适应机器人可用的内存容量。",
+          "控制延迟：完整的推理流程必须足够快，以支持机器人所需的控制频率。",
+          "经过后处理的 Cosmos 3 Edge 针对上述每个约束进行了优化。生成的策略模型能够适配 Jetson Thor 的内存限制，因此推理直接在机器人上运行，而无需卸载至数据中心的 GPU。",
+          "剩下的因素是控制延迟。DROID 动作策略在机器人上实时运行。在 NVIDIA Jetson AGX Thor T5000 上，它以 640×540 分辨率和 15 Hz 的频率运行，每生成一个动作块（action chunk）大约需要 1.53 秒，而单个动作块覆盖约 2.13 秒的机器人运动时间。由于下一个动作块在当前动作块结束前即可就绪，机械臂能够实现连续运动，且整个过程中不涉及数据中心 GPU 参与。该策略通过在每次推理周期后生成动作块并重新规划，实现了持续的端侧流式处理。它并非在每次观测后都进行重新规划。",
+          "在闭环 RoboLab 任务中，经过后训练的模型达到了 22.9% 的成功率。综合这些结果表明，40 亿参数的世界基础模型可以作为实用、实时且端侧部署的策略骨干网络。该模型可适配于 Jetson AGX Thor，并完全在机器人上运行。",
+          "策略训练使用什么数据？",
+          "本教程发布的策略基于 nvidia/Cosmos3-DROID 数据集进行训练。该数据集包含 76,000 条成功的遥操作轨迹，涵盖约 350 小时的数据，涉及 86 项任务和 564 个场景，由 Franka Panda 机械臂和 Robotiq 夹爪采集而成。",
+          "该数据集以 LeRobotDataset v3.0 格式打包，分辨率为 640 × 360。需分三个阶段准备：",
+          "过滤空闲帧和非任务帧。",
+          "选择成功演示用于训练。",
+          "在训练过程中应用随机裁剪、重缩放和颜色抖动。",
+          "hf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir Cosmos3-DROID",
+          "导入您自己的机器人数据",
+          "将您的数据转换为 LeRobot Dataset v3 格式（包括逐帧相机视频、关节状态、夹爪状态、动作以及任务指令）。",
+          "对于类似 DROID 的 Franka 配置，主要变化在于数据集路径。不同的执行体需要各自独立的实验配置，以定义动作空间、维度、摄像头布局及归一化设置。",
+          "Cosmos 3 支持多种执行体，包括双臂 Franka、UR、WidowX 250 和 LeRobot SO101。请参阅 Cosmos 3 Edge 模型卡片获取执行体列表。",
+          "前置条件",
+          "开始之前，请确认您已具备：",
+          "最新版本的 Cosmos 框架发布包。",
+          "经过验证的训练硬件：搭载 NVIDIA GB200 Grace Blackwell Superchip 或 NVIDIA GB300 Grace Blackwell Ultra Desktop Superchip 的 NVIDIA DGX Station。",
+          "支持的 NVIDIA CUDA 和容器版本：CUDA 13.0 (cu130)，NGC 26.06-py3。",
+          "访问 Cosmos 3 Edge 基础检查点（base checkpoint）。",
+          "访问 Cosmos3-DROID 数据集。",
+          "一个 Hugging Face 访问令牌（access token）。",
+          "这是基础模型的后训练（post-training），而非单 GPU 微调。经验证的运行配置使用 64 个节点，每个节点配备 4× GB200，共进行 60,000 次迭代，耗时约 68 小时（约合 17,400 GB200 小时）。请据此规划计算资源。",
+          "如何运行后训练",
+          "从宏观角度来看，后训练分为四个步骤：",
+          "下载数据集。",
+          "将基础检查点转换为分布式检查点（DCP）格式。",
+          "应用筛选过滤规则。",
+          "启动训练",
+          "# 下载 Cosmos3-DROID 数据集（成功分割部分）\nhf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir /path/to/Cosmos3-DROID\n\n# 将基础检查点转换为 DCP 格式（一次性操作；在 CPU 上运行——仅重新打包权重，不涉及 GPU 数学运算）\npython -m cosmos_framework.scripts.convert_model_to_dcp \\ -o /path/to/Cosmos3-Edge-dcp --checkpoint-path Cosmos3-Edge\n\n# 启动后训练\nbash examples/launch_sft_action_policy_droid_nano.sh",
+          "编辑并启动后训练脚本",
+          "在仓库中找到此文件：",
+          "cosmos_framework/configs/base/experiment/action/posttrain_config/action_policy_droid_nano.py",
+          "该启动器注册了 Cosmos 3 Nano 的训练配方。若要训练 Cosmos 3 Edge，请在启动前进行以下三项修改：",
+          "将 NANO_MODEL_CONFIG 导入替换为 EDGE_MODEL_CONFIG（来自 configs/base/experiment/sft/models/edge_model_config.py）。",
+          "将 BASE_CHECKPOINT_PATH 设置为转换步骤中的 Cosmos 3 Edge DCP 检查点。",
+          "将 examples/launch_sft_action_policy_droid_nano.sh 重命名为 examples/launch_sft_action_policy_droid_edge.sh。",
+          "其他所有内容，包括数据集、动作空间、筛选器和训练计划，均保持不变。",
+          "# 启动后训练\nbash examples/launch_sft_action_policy_droid_edge.sh",
+          "有关最新的端到端说明（包括检查点转换、环境配置和筛选器设置），请参阅 DROID 后训练复现指南和模型卡片。这些资源会随仓库同步更新。",
+          "如何在 Jetson Thor 上部署和运行策略",
+          "该策略由一个遵循 OpenPI 协议的 WebSocket 策略服务器提供服务，该协议与整个 DROID 策略生态系统中使用的协议相同。客户端发送观测字典，服务器返回动作块。对于 Edge 版本，服务器在 Jetson Thor 上原生运行。由于 BF16 格式下权重大小约为 9 GB，可容纳于 Thor 的板载内存中，因此策略服务器和控制客户端均可在机器人上运行，无需数据中心 GPU 参与推理循环。",
+          "在机器人上启动策略服务器",
+          "export HF_TOKEN=<your_hf_token>\n# Thor: 启用 eager 模式；官方 Triton wheel 缺少 sm_110a 内核\nexport TORCHDYNAMO_DISABLE=1\npython -m cosmos_framework.scripts.action_policy_server_robolab \\\n  --checkpoint_path nvidia/Cosmos3-Edge-Policy-DROID \\\n  --port 8000 \\\n  --format-prompt-as-json True\n# 首次启动将下载权重，耗时数分钟；随后执行：\ncurl localhost:8000/healthz   # -> OK",
+          "由于服务器运行在 Thor 上，且 host=\"localhost\"，请求永远不会离开机器人本体。设备端，策略以实时方式运行。这就是 Cosmos Edge 所实现的端侧推理。",
+          "冒烟测试（无需机器人）",
+          "DROID 策略是状态条件化的。这意味着 joint_position 和 gripper_position 是模型的真实输入，而非样板代码。在没有机械臂参与闭环的情况下，零值是诚实的占位符；此次调用仅用于验证服务器是否返回了格式正确的动作块。",
+          "import numpy as np\nfrom PIL import Image\nfrom openpi_client.websocket_client_policy import WebsocketClientPolicy\n\nclient = WebsocketClientPolicy(host=\"localhost\", port=8000)\n\nobservation = {\n    \"prompt\": \"put the marker in the basket\",\n    \"observation/wrist_image_left\": np.asarray(Image.open(\"wrist.jpg\")),\n    \"observation/exterior_image_1_left\": np.asarray(Image.open(\"left.jpg\")),\n    \"observation/exterior_image_2_left\": np.asarray(Image.open(\"right.jpg\")),\n    \"observation/joint_position\": np.zeros(7, dtype=np.float32),   # 仅用于冒烟测试\n    \"observation/gripper_position\": np.float32(0.0),               # 仅用于冒烟测试\n}\nresult = client.infer(observation)\nactions = result[\"action\"]  # [32, 8]: 7 个关节位置 + 夹爪位置，15 Hz",
+          "在机器人上运行",
+          "相同的调用位于重规划循环中。每个周期读取最新的相机图像以及机械臂实测的关节和夹爪位置（替换上述的零值），执行动作块的前缀部分，然后重新发起请求：",
+          "def get_observation():\n    return {\n        \"prompt\": \"put the marker in the basket\",\n        \"observation/wrist_image_left\": read_camera(\"wrist\"),\n        \"observation/exterior_image_1_left\": read_camera(\"left\"),\n        \"observation/exterior_image_2_left\": read_camera(\"right\"),\n        \"observation/joint_position\": robot.joint_positions(),   # REAL, 7 floats\n        \"observation/gripper_position\": robot.gripper_position(),\n    }\n\nwhile not task_done():\n    result = client.infer(get_observation())\n    execute_actions(result[\"action\"][:16], hz=15)   # first 16 of 32, then replan",
+          "仅执行动作序列的前缀并进行重新规划是标准做法：策略每隔几秒会自我修正，且由于它是基于状态条件的，每次重新规划都从机械臂实际所在的位置开始，而不是从前一个动作块所假设的位置开始。在启用视频解码的情况下启动服务器，可以返回策略生成的想象轨迹以及对应的动作，从而让你检查世界模型对其输出的动作块所预测的世界状态。",
+          "在闭环仿真中评估策略",
+          "你不需要实体机器人来验证策略。事实上，建议在直接在物理机器人上评估之前，先在仿真环境中对策略进行评估，以避免意外行为影响开发人员或机器人。RoboLab——即 RoboLab 排行榜背后的 Isaac Lab-Arena 基准测试——是开源的，其客户端连接到相同的策略服务器。它在物理引擎中执行每个动作块，并将渲染后的观测数据流式返回，从而在 120 个语言条件操控任务中实现真正的闭环运行。",
+          "# 克隆 RoboLab 并获取场景资源\ngit clone https://github.com/NVlabs/RoboLab.git && cd RoboLab\ngit lfs pull\n\n# 构建仿真镜像，并向策略服务器运行一个任务\n./docker/build_docker.sh latest\n./docker/run_docker.sh latest\npython policies/cosmos3/run.py --task BananaInBowlTask\n\n# 或者在多个环境中无头运行，以统计成功率\npython policies/cosmos3/run.py --task BananaInBowlTask --num-envs 10 --headless",
+          "将 --task 参数替换为 120 个任务中的任意一个，以全面了解策略行为。每次运行都会生成视口视频、机器人摄像头视频以及成功日志，因此你可以检查最终结果以及产生该结果的轨迹。",
+          "在闭环 RoboLab 评估中，经过后训练的 Edge 策略在整个任务套件中的成功率达到 22.9%。这一成果是在远小于更大规模 Cosmos3 变体（例如 Nano 达到 36.8%）的推理计算量下取得的，这正是 Edge 旨在实现的权衡：在具有竞争力的成功率下，实现实时、完全部署在机器人上的自主能力。",
+          "注意：NVIDIA Isaac Sim 5.x 需要 NVIDIA RTX Server Driver Release 580 或更高版本。在构建之前，请在 RoboLab 和 Isaac Sim 文档中确认受支持的驱动版本。",
+          "超越机器人控制的后训练",
+          "改善机器人控制的后训练技术也适用于其他能力，例如用于机器人训练的合成数据生成。开发人员可以创建专门的 World Model（世界模型），为室内和室外机器人训练生成针对其环境和任务量身定制的高质量合成数据。",
+          "例如，Aigen 对 Cosmos 进行了后训练，以生成多样化的合成作物和杂草变体，使自主除草系统仅使用 1% 的真实世界数据即可实现强大的性能。",
+          "更广泛地说，Cosmos 的开放权重和框架采用 OpenMDW1.1 许可证，使得后训练成为一种强大、灵活且简便的方式，用于为物理 AI 创建专业化、高性能且精确的定制模型。",
+          "开始使用",
+          "下载 Cosmos Edge 策略权重和数据",
+          "参加 8 月 20 日的 Cosmos Labs 直播",
+          "在 Jetson 上探索 Cosmos Edge",
+          "下载 Cosmos 3 检查点",
+          "在 GitHub 上获取代码",
+          "试用 Cosmos 3 Nano Reasoner 和 Cosmos 3 Nano"
+        ],
+        "translated_content": "机器人需要能够适应其传感器、环境和任务的策略，同时这些策略需运行在机载计算硬件上。世界模型为学习物理交互提供了基础，但其庞大的规模可能使设备端部署变得困难。而新的 NVIDIA Cosmos 3 Edge 将改变这一局面。\n\nCosmos 3 Edge 是 Cosmos 3 系列中的一个 4B 全模态模型（包含一个基于 NVIDIA Nemotron 的 2B 推理器）。它与 NVIDIA Cosmos 3 Nano 和 NVIDIA Cosmos 3 Super 使用相同的物理世界数据进行预训练，并同样以物体如何运动和交互为基础进行初始化。此外，该模型足够小巧，可在 NVIDIA Jetson Thor 上进行设备端部署。\n\n你将构建的内容\n\n在本教程结束时，你将拥有一个经过后训练的 Cosmos 3 Edge 操作策略，它可以在 Jetson Thor 上运行，并在闭环仿真中进行评估。\n\n你将学到：\n\n对 Cosmos 3 Edge 进行后训练，以预测机器人的动作。\n\n在 Jetson Thor 上部署生成的策略。\n\n在滚动时域控制循环内执行推理。\n\n在闭环仿真中评估策略行为。\n\n每个步骤均可通过开源的 cosmos-framework 仓库复现，发布的检查点也可在 HuggingFace 上获取。\n\n为什么需要对 Cosmos 3 Edge 进行后训练以实现设备端机器人操作？\n\n世界基础模型在大规模多模态数据集上进行预训练，这些数据捕捉了物体运动和物理交互中的模式，例如物体如何下落、滑动以及对外部接触的响应。Cosmos 原生地基于对物理的理解和预测能力来生成动作。这种先验知识为机器人策略训练提供了一个有用的起点，而不必要求策略从特定任务演示中学习所有的物理关系。\n\n然而，将这些模型部署到实体机器人上会引入两个实际约束：\n\n设备内存：模型及其运行时状态必须适应机器人可用的内存容量。\n\n控制延迟：完整的推理流程必须足够快，以支持机器人所需的控制频率。\n\n经过后处理的 Cosmos 3 Edge 针对上述每个约束进行了优化。生成的策略模型能够适配 Jetson Thor 的内存限制，因此推理直接在机器人上运行，而无需卸载至数据中心的 GPU。\n\n剩下的因素是控制延迟。DROID 动作策略在机器人上实时运行。在 NVIDIA Jetson AGX Thor T5000 上，它以 640×540 分辨率和 15 Hz 的频率运行，每生成一个动作块（action chunk）大约需要 1.53 秒，而单个动作块覆盖约 2.13 秒的机器人运动时间。由于下一个动作块在当前动作块结束前即可就绪，机械臂能够实现连续运动，且整个过程中不涉及数据中心 GPU 参与。该策略通过在每次推理周期后生成动作块并重新规划，实现了持续的端侧流式处理。它并非在每次观测后都进行重新规划。\n\n在闭环 RoboLab 任务中，经过后训练的模型达到了 22.9% 的成功率。综合这些结果表明，40 亿参数的世界基础模型可以作为实用、实时且端侧部署的策略骨干网络。该模型可适配于 Jetson AGX Thor，并完全在机器人上运行。\n\n策略训练使用什么数据？\n\n本教程发布的策略基于 nvidia/Cosmos3-DROID 数据集进行训练。该数据集包含 76,000 条成功的遥操作轨迹，涵盖约 350 小时的数据，涉及 86 项任务和 564 个场景，由 Franka Panda 机械臂和 Robotiq 夹爪采集而成。\n\n该数据集以 LeRobotDataset v3.0 格式打包，分辨率为 640 × 360。需分三个阶段准备：\n\n过滤空闲帧和非任务帧。\n\n选择成功演示用于训练。\n\n在训练过程中应用随机裁剪、重缩放和颜色抖动。\n\nhf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir Cosmos3-DROID\n\n导入您自己的机器人数据\n\n将您的数据转换为 LeRobot Dataset v3 格式（包括逐帧相机视频、关节状态、夹爪状态、动作以及任务指令）。\n\n对于类似 DROID 的 Franka 配置，主要变化在于数据集路径。不同的执行体需要各自独立的实验配置，以定义动作空间、维度、摄像头布局及归一化设置。\n\nCosmos 3 支持多种执行体，包括双臂 Franka、UR、WidowX 250 和 LeRobot SO101。请参阅 Cosmos 3 Edge 模型卡片获取执行体列表。\n\n前置条件\n\n开始之前，请确认您已具备：\n\n最新版本的 Cosmos 框架发布包。\n\n经过验证的训练硬件：搭载 NVIDIA GB200 Grace Blackwell Superchip 或 NVIDIA GB300 Grace Blackwell Ultra Desktop Superchip 的 NVIDIA DGX Station。\n\n支持的 NVIDIA CUDA 和容器版本：CUDA 13.0 (cu130)，NGC 26.06-py3。\n\n访问 Cosmos 3 Edge 基础检查点（base checkpoint）。\n\n访问 Cosmos3-DROID 数据集。\n\n一个 Hugging Face 访问令牌（access token）。\n\n这是基础模型的后训练（post-training），而非单 GPU 微调。经验证的运行配置使用 64 个节点，每个节点配备 4× GB200，共进行 60,000 次迭代，耗时约 68 小时（约合 17,400 GB200 小时）。请据此规划计算资源。\n\n如何运行后训练\n\n从宏观角度来看，后训练分为四个步骤：\n\n下载数据集。\n\n将基础检查点转换为分布式检查点（DCP）格式。\n\n应用筛选过滤规则。\n\n启动训练\n\n# 下载 Cosmos3-DROID 数据集（成功分割部分）\nhf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir /path/to/Cosmos3-DROID\n\n# 将基础检查点转换为 DCP 格式（一次性操作；在 CPU 上运行——仅重新打包权重，不涉及 GPU 数学运算）\npython -m cosmos_framework.scripts.convert_model_to_dcp \\ -o /path/to/Cosmos3-Edge-dcp --checkpoint-path Cosmos3-Edge\n\n# 启动后训练\nbash examples/launch_sft_action_policy_droid_nano.sh\n\n编辑并启动后训练脚本\n\n在仓库中找到此文件：\n\ncosmos_framework/configs/base/experiment/action/posttrain_config/action_policy_droid_nano.py\n\n该启动器注册了 Cosmos 3 Nano 的训练配方。若要训练 Cosmos 3 Edge，请在启动前进行以下三项修改：\n\n将 NANO_MODEL_CONFIG 导入替换为 EDGE_MODEL_CONFIG（来自 configs/base/experiment/sft/models/edge_model_config.py）。\n\n将 BASE_CHECKPOINT_PATH 设置为转换步骤中的 Cosmos 3 Edge DCP 检查点。\n\n将 examples/launch_sft_action_policy_droid_nano.sh 重命名为 examples/launch_sft_action_policy_droid_edge.sh。\n\n其他所有内容，包括数据集、动作空间、筛选器和训练计划，均保持不变。\n\n# 启动后训练\nbash examples/launch_sft_action_policy_droid_edge.sh\n\n有关最新的端到端说明（包括检查点转换、环境配置和筛选器设置），请参阅 DROID 后训练复现指南和模型卡片。这些资源会随仓库同步更新。\n\n如何在 Jetson Thor 上部署和运行策略\n\n该策略由一个遵循 OpenPI 协议的 WebSocket 策略服务器提供服务，该协议与整个 DROID 策略生态系统中使用的协议相同。客户端发送观测字典，服务器返回动作块。对于 Edge 版本，服务器在 Jetson Thor 上原生运行。由于 BF16 格式下权重大小约为 9 GB，可容纳于 Thor 的板载内存中，因此策略服务器和控制客户端均可在机器人上运行，无需数据中心 GPU 参与推理循环。\n\n在机器人上启动策略服务器\n\nexport HF_TOKEN=<your_hf_token>\n# Thor: 启用 eager 模式；官方 Triton wheel 缺少 sm_110a 内核\nexport TORCHDYNAMO_DISABLE=1\npython -m cosmos_framework.scripts.action_policy_server_robolab \\\n  --checkpoint_path nvidia/Cosmos3-Edge-Policy-DROID \\\n  --port 8000 \\\n  --format-prompt-as-json True\n# 首次启动将下载权重，耗时数分钟；随后执行：\ncurl localhost:8000/healthz   # -> OK\n\n由于服务器运行在 Thor 上，且 host=\"localhost\"，请求永远不会离开机器人本体。设备端，策略以实时方式运行。这就是 Cosmos Edge 所实现的端侧推理。\n\n冒烟测试（无需机器人）\n\nDROID 策略是状态条件化的。这意味着 joint_position 和 gripper_position 是模型的真实输入，而非样板代码。在没有机械臂参与闭环的情况下，零值是诚实的占位符；此次调用仅用于验证服务器是否返回了格式正确的动作块。\n\nimport numpy as np\nfrom PIL import Image\nfrom openpi_client.websocket_client_policy import WebsocketClientPolicy\n\nclient = WebsocketClientPolicy(host=\"localhost\", port=8000)\n\nobservation = {\n    \"prompt\": \"put the marker in the basket\",\n    \"observation/wrist_image_left\": np.asarray(Image.open(\"wrist.jpg\")),\n    \"observation/exterior_image_1_left\": np.asarray(Image.open(\"left.jpg\")),\n    \"observation/exterior_image_2_left\": np.asarray(Image.open(\"right.jpg\")),\n    \"observation/joint_position\": np.zeros(7, dtype=np.float32),   # 仅用于冒烟测试\n    \"observation/gripper_position\": np.float32(0.0),               # 仅用于冒烟测试\n}\nresult = client.infer(observation)\nactions = result[\"action\"]  # [32, 8]: 7 个关节位置 + 夹爪位置，15 Hz\n\n在机器人上运行\n\n相同的调用位于重规划循环中。每个周期读取最新的相机图像以及机械臂实测的关节和夹爪位置（替换上述的零值），执行动作块的前缀部分，然后重新发起请求：\n\ndef get_observation():\n    return {\n        \"prompt\": \"put the marker in the basket\",\n        \"observation/wrist_image_left\": read_camera(\"wrist\"),\n        \"observation/exterior_image_1_left\": read_camera(\"left\"),\n        \"observation/exterior_image_2_left\": read_camera(\"right\"),\n        \"observation/joint_position\": robot.joint_positions(),   # REAL, 7 floats\n        \"observation/gripper_position\": robot.gripper_position(),\n    }\n\nwhile not task_done():\n    result = client.infer(get_observation())\n    execute_actions(result[\"action\"][:16], hz=15)   # first 16 of 32, then replan\n\n仅执行动作序列的前缀并进行重新规划是标准做法：策略每隔几秒会自我修正，且由于它是基于状态条件的，每次重新规划都从机械臂实际所在的位置开始，而不是从前一个动作块所假设的位置开始。在启用视频解码的情况下启动服务器，可以返回策略生成的想象轨迹以及对应的动作，从而让你检查世界模型对其输出的动作块所预测的世界状态。\n\n在闭环仿真中评估策略\n\n你不需要实体机器人来验证策略。事实上，建议在直接在物理机器人上评估之前，先在仿真环境中对策略进行评估，以避免意外行为影响开发人员或机器人。RoboLab——即 RoboLab 排行榜背后的 Isaac Lab-Arena 基准测试——是开源的，其客户端连接到相同的策略服务器。它在物理引擎中执行每个动作块，并将渲染后的观测数据流式返回，从而在 120 个语言条件操控任务中实现真正的闭环运行。\n\n# 克隆 RoboLab 并获取场景资源\ngit clone https://github.com/NVlabs/RoboLab.git && cd RoboLab\ngit lfs pull\n\n# 构建仿真镜像，并向策略服务器运行一个任务\n./docker/build_docker.sh latest\n./docker/run_docker.sh latest\npython policies/cosmos3/run.py --task BananaInBowlTask\n\n# 或者在多个环境中无头运行，以统计成功率\npython policies/cosmos3/run.py --task BananaInBowlTask --num-envs 10 --headless\n\n将 --task 参数替换为 120 个任务中的任意一个，以全面了解策略行为。每次运行都会生成视口视频、机器人摄像头视频以及成功日志，因此你可以检查最终结果以及产生该结果的轨迹。\n\n在闭环 RoboLab 评估中，经过后训练的 Edge 策略在整个任务套件中的成功率达到 22.9%。这一成果是在远小于更大规模 Cosmos3 变体（例如 Nano 达到 36.8%）的推理计算量下取得的，这正是 Edge 旨在实现的权衡：在具有竞争力的成功率下，实现实时、完全部署在机器人上的自主能力。\n\n注意：NVIDIA Isaac Sim 5.x 需要 NVIDIA RTX Server Driver Release 580 或更高版本。在构建之前，请在 RoboLab 和 Isaac Sim 文档中确认受支持的驱动版本。\n\n超越机器人控制的后训练\n\n改善机器人控制的后训练技术也适用于其他能力，例如用于机器人训练的合成数据生成。开发人员可以创建专门的 World Model（世界模型），为室内和室外机器人训练生成针对其环境和任务量身定制的高质量合成数据。\n\n例如，Aigen 对 Cosmos 进行了后训练，以生成多样化的合成作物和杂草变体，使自主除草系统仅使用 1% 的真实世界数据即可实现强大的性能。\n\n更广泛地说，Cosmos 的开放权重和框架采用 OpenMDW1.1 许可证，使得后训练成为一种强大、灵活且简便的方式，用于为物理 AI 创建专业化、高性能且精确的定制模型。\n\n开始使用\n\n下载 Cosmos Edge 策略权重和数据\n\n参加 8 月 20 日的 Cosmos Labs 直播\n\n在 Jetson 上探索 Cosmos Edge\n\n下载 Cosmos 3 检查点\n\n在 GitHub 上获取代码\n\n试用 Cosmos 3 Nano Reasoner 和 Cosmos 3 Nano",
+        "translated_blocks": [
+          {
+            "type": "byline",
+            "author": {
+              "name": "Michelle Horton",
+              "url": "https://developer.nvidia.com/blog/author/mhorton/"
+            },
+            "published_at": "2026-08-19T16:00:00+00:00",
+            "source": {
+              "name": "NVIDIA Technical Blog"
+            }
+          },
+          {
+            "type": "paragraph",
+            "text": "机器人需要能够适应其传感器、环境和任务的策略，同时这些策略需运行在机载计算硬件上。世界模型为学习物理交互提供了基础，但其庞大的规模可能使设备端部署变得困难。而新的 NVIDIA Cosmos 3 Edge 将改变这一局面。"
+          },
+          {
+            "type": "paragraph",
+            "text": "Cosmos 3 Edge 是 Cosmos 3 系列中的一个 4B 全模态模型（包含一个基于 NVIDIA Nemotron 的 2B 推理器）。它与 NVIDIA Cosmos 3 Nano 和 NVIDIA Cosmos 3 Super 使用相同的物理世界数据进行预训练，并同样以物体如何运动和交互为基础进行初始化。此外，该模型足够小巧，可在 NVIDIA Jetson Thor 上进行设备端部署。"
+          },
+          {
+            "type": "heading",
+            "level": 2,
+            "text": "你将构建的内容"
+          },
+          {
+            "type": "paragraph",
+            "text": "在本教程结束时，你将拥有一个经过后训练的 Cosmos 3 Edge 操作策略，它可以在 Jetson Thor 上运行，并在闭环仿真中进行评估。"
+          },
+          {
+            "type": "paragraph",
+            "text": "你将学到："
+          },
+          {
+            "type": "list",
+            "ordered": true,
+            "items": [
+              {
+                "text": "对 Cosmos 3 Edge 进行后训练，以预测机器人的动作。"
+              },
+              {
+                "text": "在 Jetson Thor 上部署生成的策略。"
+              },
+              {
+                "text": "在滚动时域控制循环内执行推理。"
+              },
+              {
+                "text": "在闭环仿真中评估策略行为。"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "每个步骤均可通过开源的 cosmos-framework 仓库复现，发布的检查点也可在 HuggingFace 上获取。"
+          },
+          {
+            "type": "video",
+            "provider": "file",
+            "url": "https://developer.download.nvidia.com/video/devblog/Cosmos3-Robot.mp4",
+            "mime_type": "video/mp4",
+            "caption": "Video 1. How to post-train NVIDIA Cosmos 3 Edge into an on-device robot policy"
+          },
+          {
+            "type": "heading",
+            "level": 2,
+            "text": "为什么需要对 Cosmos 3 Edge 进行后训练以实现设备端机器人操作？"
+          },
+          {
+            "type": "paragraph",
+            "text": "世界基础模型在大规模多模态数据集上进行预训练，这些数据捕捉了物体运动和物理交互中的模式，例如物体如何下落、滑动以及对外部接触的响应。Cosmos 原生地基于对物理的理解和预测能力来生成动作。这种先验知识为机器人策略训练提供了一个有用的起点，而不必要求策略从特定任务演示中学习所有的物理关系。"
+          },
+          {
+            "type": "paragraph",
+            "text": "然而，将这些模型部署到实体机器人上会引入两个实际约束："
+          },
+          {
+            "type": "list",
+            "ordered": false,
+            "items": [
+              {
+                "text": "设备内存：模型及其运行时状态必须适应机器人可用的内存容量。"
+              },
+              {
+                "text": "控制延迟：完整的推理流程必须足够快，以支持机器人所需的控制频率。"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "经过后处理的 Cosmos 3 Edge 针对上述每个约束进行了优化。生成的策略模型能够适配 Jetson Thor 的内存限制，因此推理直接在机器人上运行，而无需卸载至数据中心的 GPU。"
+          },
+          {
+            "type": "paragraph",
+            "text": "剩下的因素是控制延迟。DROID 动作策略在机器人上实时运行。在 NVIDIA Jetson AGX Thor T5000 上，它以 640×540 分辨率和 15 Hz 的频率运行，每生成一个动作块（action chunk）大约需要 1.53 秒，而单个动作块覆盖约 2.13 秒的机器人运动时间。由于下一个动作块在当前动作块结束前即可就绪，机械臂能够实现连续运动，且整个过程中不涉及数据中心 GPU 参与。该策略通过在每次推理周期后生成动作块并重新规划，实现了持续的端侧流式处理。它并非在每次观测后都进行重新规划。"
+          },
+          {
+            "type": "paragraph",
+            "text": "在闭环 RoboLab 任务中，经过后训练的模型达到了 22.9% 的成功率。综合这些结果表明，40 亿参数的世界基础模型可以作为实用、实时且端侧部署的策略骨干网络。该模型可适配于 Jetson AGX Thor，并完全在机器人上运行。"
+          },
+          {
+            "type": "heading",
+            "level": 2,
+            "text": "策略训练使用什么数据？"
+          },
+          {
+            "type": "paragraph",
+            "text": "本教程发布的策略基于 nvidia/Cosmos3-DROID 数据集进行训练。该数据集包含 76,000 条成功的遥操作轨迹，涵盖约 350 小时的数据，涉及 86 项任务和 564 个场景，由 Franka Panda 机械臂和 Robotiq 夹爪采集而成。"
+          },
+          {
+            "type": "paragraph",
+            "text": "该数据集以 LeRobotDataset v3.0 格式打包，分辨率为 640 × 360。需分三个阶段准备："
+          },
+          {
+            "type": "list",
+            "ordered": false,
+            "items": [
+              {
+                "text": "过滤空闲帧和非任务帧。"
+              },
+              {
+                "text": "选择成功演示用于训练。"
+              },
+              {
+                "text": "在训练过程中应用随机裁剪、重缩放和颜色抖动。"
+              }
+            ]
+          },
+          {
+            "type": "code",
+            "text": "hf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir Cosmos3-DROID"
+          },
+          {
+            "type": "heading",
+            "level": 2,
+            "text": "导入您自己的机器人数据"
+          },
+          {
+            "type": "paragraph",
+            "text": "将您的数据转换为 LeRobot Dataset v3 格式（包括逐帧相机视频、关节状态、夹爪状态、动作以及任务指令）。"
+          },
+          {
+            "type": "paragraph",
+            "text": "对于类似 DROID 的 Franka 配置，主要变化在于数据集路径。不同的执行体需要各自独立的实验配置，以定义动作空间、维度、摄像头布局及归一化设置。"
+          },
+          {
+            "type": "paragraph",
+            "text": "Cosmos 3 支持多种执行体，包括双臂 Franka、UR、WidowX 250 和 LeRobot SO101。请参阅 Cosmos 3 Edge 模型卡片获取执行体列表。"
+          },
+          {
+            "type": "heading",
+            "level": 3,
+            "text": "前置条件"
+          },
+          {
+            "type": "paragraph",
+            "text": "开始之前，请确认您已具备："
+          },
+          {
+            "type": "list",
+            "ordered": false,
+            "items": [
+              {
+                "text": "最新版本的 Cosmos 框架发布包。"
+              },
+              {
+                "text": "经过验证的训练硬件：搭载 NVIDIA GB200 Grace Blackwell Superchip 或 NVIDIA GB300 Grace Blackwell Ultra Desktop Superchip 的 NVIDIA DGX Station。"
+              },
+              {
+                "text": "支持的 NVIDIA CUDA 和容器版本：CUDA 13.0 (cu130)，NGC 26.06-py3。"
+              },
+              {
+                "text": "访问 Cosmos 3 Edge 基础检查点（base checkpoint）。"
+              },
+              {
+                "text": "访问 Cosmos3-DROID 数据集。"
+              },
+              {
+                "text": "一个 Hugging Face 访问令牌（access token）。"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "这是基础模型的后训练（post-training），而非单 GPU 微调。经验证的运行配置使用 64 个节点，每个节点配备 4× GB200，共进行 60,000 次迭代，耗时约 68 小时（约合 17,400 GB200 小时）。请据此规划计算资源。"
+          },
+          {
+            "type": "heading",
+            "level": 3,
+            "text": "如何运行后训练"
+          },
+          {
+            "type": "paragraph",
+            "text": "从宏观角度来看，后训练分为四个步骤："
+          },
+          {
+            "type": "list",
+            "ordered": true,
+            "items": [
+              {
+                "text": "下载数据集。"
+              },
+              {
+                "text": "将基础检查点转换为分布式检查点（DCP）格式。"
+              },
+              {
+                "text": "应用筛选过滤规则。"
+              },
+              {
+                "text": "启动训练"
+              }
+            ]
+          },
+          {
+            "type": "code",
+            "text": "# 下载 Cosmos3-DROID 数据集（成功分割部分）\nhf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir /path/to/Cosmos3-DROID\n\n# 将基础检查点转换为 DCP 格式（一次性操作；在 CPU 上运行——仅重新打包权重，不涉及 GPU 数学运算）\npython -m cosmos_framework.scripts.convert_model_to_dcp \\ -o /path/to/Cosmos3-Edge-dcp --checkpoint-path Cosmos3-Edge\n\n# 启动后训练\nbash examples/launch_sft_action_policy_droid_nano.sh"
+          },
+          {
+            "type": "heading",
+            "level": 3,
+            "text": "编辑并启动后训练脚本"
+          },
+          {
+            "type": "paragraph",
+            "text": "在仓库中找到此文件："
+          },
+          {
+            "type": "code",
+            "text": "cosmos_framework/configs/base/experiment/action/posttrain_config/action_policy_droid_nano.py"
+          },
+          {
+            "type": "paragraph",
+            "text": "该启动器注册了 Cosmos 3 Nano 的训练配方。若要训练 Cosmos 3 Edge，请在启动前进行以下三项修改："
+          },
+          {
+            "type": "list",
+            "ordered": false,
+            "items": [
+              {
+                "text": "将 NANO_MODEL_CONFIG 导入替换为 EDGE_MODEL_CONFIG（来自 configs/base/experiment/sft/models/edge_model_config.py）。"
+              },
+              {
+                "text": "将 BASE_CHECKPOINT_PATH 设置为转换步骤中的 Cosmos 3 Edge DCP 检查点。"
+              },
+              {
+                "text": "将 examples/launch_sft_action_policy_droid_nano.sh 重命名为 examples/launch_sft_action_policy_droid_edge.sh。"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "text": "其他所有内容，包括数据集、动作空间、筛选器和训练计划，均保持不变。"
+          },
+          {
+            "type": "code",
+            "text": "# 启动后训练\nbash examples/launch_sft_action_policy_droid_edge.sh"
+          },
+          {
+            "type": "paragraph",
+            "text": "有关最新的端到端说明（包括检查点转换、环境配置和筛选器设置），请参阅 DROID 后训练复现指南和模型卡片。这些资源会随仓库同步更新。"
+          },
+          {
+            "type": "heading",
+            "level": 3,
+            "text": "如何在 Jetson Thor 上部署和运行策略"
+          },
+          {
+            "type": "paragraph",
+            "text": "该策略由一个遵循 OpenPI 协议的 WebSocket 策略服务器提供服务，该协议与整个 DROID 策略生态系统中使用的协议相同。客户端发送观测字典，服务器返回动作块。对于 Edge 版本，服务器在 Jetson Thor 上原生运行。由于 BF16 格式下权重大小约为 9 GB，可容纳于 Thor 的板载内存中，因此策略服务器和控制客户端均可在机器人上运行，无需数据中心 GPU 参与推理循环。"
+          },
+          {
+            "type": "paragraph",
+            "text": "在机器人上启动策略服务器"
+          },
+          {
+            "type": "code",
+            "text": "export HF_TOKEN=<your_hf_token>\n# Thor: 启用 eager 模式；官方 Triton wheel 缺少 sm_110a 内核\nexport TORCHDYNAMO_DISABLE=1\npython -m cosmos_framework.scripts.action_policy_server_robolab \\\n  --checkpoint_path nvidia/Cosmos3-Edge-Policy-DROID \\\n  --port 8000 \\\n  --format-prompt-as-json True\n# 首次启动将下载权重，耗时数分钟；随后执行：\ncurl localhost:8000/healthz   # -> OK"
+          },
+          {
+            "type": "paragraph",
+            "text": "由于服务器运行在 Thor 上，且 host=\"localhost\"，请求永远不会离开机器人本体。设备端，策略以实时方式运行。这就是 Cosmos Edge 所实现的端侧推理。"
+          },
+          {
+            "type": "heading",
+            "level": 3,
+            "text": "冒烟测试（无需机器人）"
+          },
+          {
+            "type": "paragraph",
+            "text": "DROID 策略是状态条件化的。这意味着 joint_position 和 gripper_position 是模型的真实输入，而非样板代码。在没有机械臂参与闭环的情况下，零值是诚实的占位符；此次调用仅用于验证服务器是否返回了格式正确的动作块。"
+          },
+          {
+            "type": "code",
+            "text": "import numpy as np\nfrom PIL import Image\nfrom openpi_client.websocket_client_policy import WebsocketClientPolicy\n\nclient = WebsocketClientPolicy(host=\"localhost\", port=8000)\n\nobservation = {\n    \"prompt\": \"put the marker in the basket\",\n    \"observation/wrist_image_left\": np.asarray(Image.open(\"wrist.jpg\")),\n    \"observation/exterior_image_1_left\": np.asarray(Image.open(\"left.jpg\")),\n    \"observation/exterior_image_2_left\": np.asarray(Image.open(\"right.jpg\")),\n    \"observation/joint_position\": np.zeros(7, dtype=np.float32),   # 仅用于冒烟测试\n    \"observation/gripper_position\": np.float32(0.0),               # 仅用于冒烟测试\n}\nresult = client.infer(observation)\nactions = result[\"action\"]  # [32, 8]: 7 个关节位置 + 夹爪位置，15 Hz"
+          },
+          {
+            "type": "heading",
+            "level": 3,
+            "text": "在机器人上运行"
+          },
+          {
+            "type": "paragraph",
+            "text": "相同的调用位于重规划循环中。每个周期读取最新的相机图像以及机械臂实测的关节和夹爪位置（替换上述的零值），执行动作块的前缀部分，然后重新发起请求："
+          },
+          {
+            "type": "code",
+            "text": "def get_observation():\n    return {\n        \"prompt\": \"put the marker in the basket\",\n        \"observation/wrist_image_left\": read_camera(\"wrist\"),\n        \"observation/exterior_image_1_left\": read_camera(\"left\"),\n        \"observation/exterior_image_2_left\": read_camera(\"right\"),\n        \"observation/joint_position\": robot.joint_positions(),   # REAL, 7 floats\n        \"observation/gripper_position\": robot.gripper_position(),\n    }\n\nwhile not task_done():\n    result = client.infer(get_observation())\n    execute_actions(result[\"action\"][:16], hz=15)   # first 16 of 32, then replan"
+          },
+          {
+            "type": "paragraph",
+            "text": "仅执行动作序列的前缀并进行重新规划是标准做法：策略每隔几秒会自我修正，且由于它是基于状态条件的，每次重新规划都从机械臂实际所在的位置开始，而不是从前一个动作块所假设的位置开始。在启用视频解码的情况下启动服务器，可以返回策略生成的想象轨迹以及对应的动作，从而让你检查世界模型对其输出的动作块所预测的世界状态。"
+          },
+          {
+            "type": "heading",
+            "level": 3,
+            "text": "在闭环仿真中评估策略"
+          },
+          {
+            "type": "paragraph",
+            "text": "你不需要实体机器人来验证策略。事实上，建议在直接在物理机器人上评估之前，先在仿真环境中对策略进行评估，以避免意外行为影响开发人员或机器人。RoboLab——即 RoboLab 排行榜背后的 Isaac Lab-Arena 基准测试——是开源的，其客户端连接到相同的策略服务器。它在物理引擎中执行每个动作块，并将渲染后的观测数据流式返回，从而在 120 个语言条件操控任务中实现真正的闭环运行。"
+          },
+          {
+            "type": "code",
+            "text": "# 克隆 RoboLab 并获取场景资源\ngit clone https://github.com/NVlabs/RoboLab.git && cd RoboLab\ngit lfs pull\n\n# 构建仿真镜像，并向策略服务器运行一个任务\n./docker/build_docker.sh latest\n./docker/run_docker.sh latest\npython policies/cosmos3/run.py --task BananaInBowlTask\n\n# 或者在多个环境中无头运行，以统计成功率\npython policies/cosmos3/run.py --task BananaInBowlTask --num-envs 10 --headless"
+          },
+          {
+            "type": "paragraph",
+            "text": "将 --task 参数替换为 120 个任务中的任意一个，以全面了解策略行为。每次运行都会生成视口视频、机器人摄像头视频以及成功日志，因此你可以检查最终结果以及产生该结果的轨迹。"
+          },
+          {
+            "type": "paragraph",
+            "text": "在闭环 RoboLab 评估中，经过后训练的 Edge 策略在整个任务套件中的成功率达到 22.9%。这一成果是在远小于更大规模 Cosmos3 变体（例如 Nano 达到 36.8%）的推理计算量下取得的，这正是 Edge 旨在实现的权衡：在具有竞争力的成功率下，实现实时、完全部署在机器人上的自主能力。"
+          },
+          {
+            "type": "paragraph",
+            "text": "注意：NVIDIA Isaac Sim 5.x 需要 NVIDIA RTX Server Driver Release 580 或更高版本。在构建之前，请在 RoboLab 和 Isaac Sim 文档中确认受支持的驱动版本。"
+          },
+          {
+            "type": "heading",
+            "level": 2,
+            "text": "超越机器人控制的后训练"
+          },
+          {
+            "type": "paragraph",
+            "text": "改善机器人控制的后训练技术也适用于其他能力，例如用于机器人训练的合成数据生成。开发人员可以创建专门的 World Model（世界模型），为室内和室外机器人训练生成针对其环境和任务量身定制的高质量合成数据。"
+          },
+          {
+            "type": "paragraph",
+            "text": "例如，Aigen 对 Cosmos 进行了后训练，以生成多样化的合成作物和杂草变体，使自主除草系统仅使用 1% 的真实世界数据即可实现强大的性能。"
+          },
+          {
+            "type": "paragraph",
+            "text": "更广泛地说，Cosmos 的开放权重和框架采用 OpenMDW1.1 许可证，使得后训练成为一种强大、灵活且简便的方式，用于为物理 AI 创建专业化、高性能且精确的定制模型。"
+          },
+          {
+            "type": "heading",
+            "level": 2,
+            "text": "开始使用"
+          },
+          {
+            "type": "list",
+            "ordered": false,
+            "items": [
+              {
+                "text": "下载 Cosmos Edge 策略权重和数据"
+              },
+              {
+                "text": "参加 8 月 20 日的 Cosmos Labs 直播"
+              },
+              {
+                "text": "在 Jetson 上探索 Cosmos Edge"
+              },
+              {
+                "text": "下载 Cosmos 3 检查点"
+              },
+              {
+                "text": "在 GitHub 上获取代码"
+              },
+              {
+                "text": "试用 Cosmos 3 Nano Reasoner 和 Cosmos 3 Nano"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "sections": {
+      "tutorial": [
+        {
+          "event_id": "e6079369d31ff",
+          "raw_article_id": "a962aa9249e37e6e257aa9e4",
+          "title": "NVIDIA教程：后训练Cosmos 3 Edge实现Jetson Thor端侧机器人控制",
+          "category": "tutorial",
+          "category_label": "技巧",
+          "focus_category": "tutorial",
+          "focus_category_label": "教程实践",
+          "scoring_category": "tutorial",
+          "tags": [
+            "机器人",
+            "多模态",
+            "推理",
+            "边缘计算"
+          ],
+          "final_score": 75.9,
+          "source_count": 1,
+          "main_source": {
+            "id": "nvidia_dev_blog",
+            "name": "NVIDIA Developer Blog",
+            "url": "https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control",
+            "tier": "T2",
+            "category": "official"
+          },
+          "one_line_summary": "NVIDIA发布基于Cosmos 3 Edge模型的机器人操作策略后训练与部署教程。",
+          "summary": "NVIDIA发布针对Cosmos 3 Edge模型的后训练与部署教程，旨在解决世界模型在端侧设备上的部署难题。Cosmos 3 Edge为4B Omni模型（含2B Nemotron推理器），专为Jetson Thor等边缘硬件设计。教程指导用户利用包含7.6万条轨迹的nvidia/Cosmos3-DROID数据集对模型进行后训练，使其具备预测机器人动作的能力，并在Jetson AGX Thor T5000上实现实时闭环控制。实测显示，该策略在RoboLab任务中成功率达22.9%，单次推理耗时约1.53秒，支持连续流式动作生成且无需数据中心GPU介入。文章提供了从数据准备、模型服务到仿真评估的完整可复现步骤及开源代码链接。",
+          "reason": "该教程直接面向开发者，提供将大型世界模型轻量化并部署至边缘机器人的具体实操路径。通过公开数据集和代码，降低了具身智能落地的技术门槛，对探索端侧机器人控制的工程师具有直接参考价值。",
+          "action": "访问HuggingFace下载Cosmos 3 Edge检查点及DROID数据集，克隆cosmos-framework仓库复现端侧机器人控制流程。",
+          "published_at": "2026-08-19T16:00:00+00:00",
+          "source_language": "en",
+          "original_url": "https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control",
+          "original_content": "Robots need policies that can adapt to their sensors, environments, and tasks while running on onboard computing hardware. World models offer a foundation for learning physical interactions, but their size can make on-device deployment difficult. This changes with the new NVIDIA Cosmos 3 Edge.\n\nCosmos 3 Edge is a 4B omni-model (with a 2B NVIDIA Nemotron-based reasoner) in the Cosmos 3 family. It was pretrained on the same physical-world data as NVIDIA Cosmos 3 Nano and NVIDIA Cosmos 3 Super and starts with the same grounding in how objects move and interact. Plus, the model is small enough to run on-device on NVIDIA Jetson Thor.\n\nWhat you’ll build\n\nBy the end of this tutorial, you’ll have a post-trained Cosmos 3 Edge manipulation policy that can run on Jetson Thor and be evaluated in closed-loop simulation.\n\nYou’ll learn how to:\n\nPost-train Cosmos 3 Edge to predict robot actions.\n\nServe the resulting policy on Jetson Thor.\n\nRun inference inside a receding-horizon control loop.\n\nEvaluate policy behavior in closed-loop simulation.\n\nEach step is reproducible from the open cosmos-framework repo, and the released checkpoint is available on HuggingFace.\n\nWhy post-train Cosmos 3 Edge for on-device robot manipulation?\n\nWorld foundation models are pretrained on large multimodal datasets that capture patterns in object motion and physical interaction, such as how objects fall, slide, and respond to contact. Cosmos natively generates actions based on physical understanding and prediction capabilities. This prior knowledge provides a useful starting point for robot-policy training rather than requiring the policy to learn all physical relationships from task-specific demonstrations.\n\nDeploying these models on a physical robot, however, introduces two practical constraints:\n\nDevice memory: The model and its runtime state must fit within the memory available on the robot.\n\nControl latency: The complete inference pipeline must be fast enough to support the robot’s required control frequency.\n\nPost-training Cosmos 3 Edge addresses each of these constraints. The resulting policy model fits within Jetson Thor’s memory, so inference runs directly on the robot rather than being offloaded to a data-center GPU.\n\nThe remaining factor is control latency. The DROID action policy runs in real time, directly on the robot. On an NVIDIA Jetson AGX Thor T5000, it generates each action chunk in about 1.53 seconds (running at 640×540 resolution and 15 Hz), while a single chunk covers roughly 2.13 seconds of robot motion. Because the next chunk is ready before the current one finishes, the arm moves continuously, with no data-center GPU in the loop. The policy supports continuous streaming on-device by generating action chunks and replanning after each inference cycle. It doesn’t replan after every observation.\n\nIn closed-loop RoboLab tasks, the post-trained policy reaches 22.9% success. Together, these results show that a 4B world foundation model can serve as a practical, real-time, on-device policy backbone. This model fits on a Jetson AGX Thor and runs entirely on the robot.\n\nWhat data does the policy train on?\n\nThe release policy in this tutorial trains on the nvidia/Cosmos3-DROID dataset. It contains 76k successful teleoperated trajectories, approximately 350 hours across 86 tasks and 564 scenes, collected with a Franka Panda arm and Robotiq gripper.\n\nThe dataset is packaged in LeRobotDataset v3.0 format at 640 × 360 resolution. Prepare it in three stages:\n\nFilter idle and non-task frames.\n\nSelect successful demonstrations for training.\n\nApply random cropping, rescaling, and color jitter during training.\n\nhf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir Cosmos3-DROID\n\nBring your own robot data\n\nConvert your data to the LeRobot Dataset v3 (per-frame camera video, joint states, gripper state, actions, task instruction).\n\nFor a DROID-like Franka setup, the primary change is the dataset path. A different embodiment needs its own experiment configuration that defines the action space, dimensionality, camera layout, and normalization settings.\n\nCosmos 3 supports several embodiments, including dual-arm Franka, UR, WidowX 250, LeRobot SO101. See the Cosmos 3 Edge model card for the embodiment list.\n\nPrerequisites\n\nBefore starting, confirm that you have:\n\nThe latest Cosmos framework release.\n\nThe validated training hardware: NVIDIA DGX Station with the NVIDIA GB200 Grace Blackwell Superchip or the NVIDIA GB300 Grace Blackwell Ultra Desktop Superchip.\n\nThe supported NVIDIA CUDA and container versions: CUDA 13.0 (cu130), NGC 26.06-py3.\n\nAccess to the Cosmos 3 Edge base checkpoint.\n\nAccess to the Cosmos3-DROID dataset.\n\nA Hugging Face access token.\n\nThis is foundation model post-training, not a single-GPU fine-tune. The validated run uses 64 nodes of 4× GB200 for 60K iterations, roughly 68 hours (~17.4K GB200-hours). Plan compute accordingly.\n\nHow to run post-training\n\nAt a high level, post-training is broken into four steps:\n\nDownload the dataset.\n\nConvert the base checkpoint to distributed-checkpoint (DCP) format.\n\nApply the curation filter.\n\nLaunch\n\n# Download the Cosmos3-DROID dataset (success split)\nhf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir /path/to/Cosmos3-DROID\n\n# Convert the base checkpoint to DCP (one-time; runs on CPU — it repacks weights, no GPU math)\npython -m cosmos_framework.scripts.convert_model_to_dcp \\ -o /path/to/Cosmos3-Edge-dcp --checkpoint-path Cosmos3-Edge\n\n# Launch post-training\nbash examples/launch_sft_action_policy_droid_nano.sh\n\nEdit and launch post-training script\n\nFind this file in the repo:\n\ncosmos_framework/configs/base/experiment/action/posttrain_config/action_policy_droid_nano.py\n\nThis launcher registers the recipe for Cosmos 3 Nano. To train Cosmos 3 Edge, make these three edits before launching:\n\nReplace the NANO_MODEL_CONFIG import with EDGE_MODEL_CONFIG (from configs/base/experiment/sft/models/edge_model_config.py).\n\nSet BASE_CHECKPOINT_PATH to the Cosmos 3 Edge DCP checkpoint from the conversion step.\n\nRename examples/launch_sft_action_policy_droid_nano.sh to examples/launch_sft_action_policy_droid_edge.sh\n\nEverything else, including dataset, action space, curation filter, and training schedule, stays the same.\n\n# Launch post-training\nbash examples/launch_sft_action_policy_droid_edge.sh\n\nFor the latest end-to-end instructions, including checkpoint conversion, environment configuration, and curation-filter setup, see the DROID post-training reproduction guide and model card. These resources are updated alongside the repository.\n\nHow to deploy and run the policy on Jetson Thor\n\nThe policy is served by a WebSocket policy server speaking the OpenPI protocol, the same protocol used across the DROID policy ecosystem. The client sends an observation dictionary; the server returns an action chunk. For Edge, the server runs natively on Jetson Thor. At roughly 9 GB in BF16, the weights fit in Thor’s on-board memory, so both the policy server and the control client run on the robot with no data-center GPU in the loop.\n\nStart the policy server on the robot\n\nexport HF_TOKEN=<your_hf_token>\n# Thor: run eager; stock Triton wheels lack sm_110a kernels\nexport TORCHDYNAMO_DISABLE=1\npython -m cosmos_framework.scripts.action_policy_server_robolab \\\n  --checkpoint_path nvidia/Cosmos3-Edge-Policy-DROID \\\n  --port 8000 \\\n  --format-prompt-as-json True\n# first launch downloads weights and takes a few minutes; then:\ncurl localhost:8000/healthz   # -> OK\n\nBecause the server runs on Thor, host=\"localhost\", the request never leaves the robot. On device, the policy runs in real time. This is the on-device inference that Cosmos Edge enables.\n\nSmoke test (no robot needed)\n\nThe DROID policy is state-conditioned. Meaning that joint_position and gripper_position are real model inputs, not boilerplate. With no arm in the loop, zeros are the honest placeholder; this call just proves the server returns a well-formed action chunk.\n\nimport numpy as np\nfrom PIL import Image\nfrom openpi_client.websocket_client_policy import WebsocketClientPolicy\n\nclient = WebsocketClientPolicy(host=\"localhost\", port=8000)\n\nobservation = {\n    \"prompt\": \"put the marker in the basket\",\n    \"observation/wrist_image_left\": np.asarray(Image.open(\"wrist.jpg\")),\n    \"observation/exterior_image_1_left\": np.asarray(Image.open(\"left.jpg\")),\n    \"observation/exterior_image_2_left\": np.asarray(Image.open(\"right.jpg\")),\n    \"observation/joint_position\": np.zeros(7, dtype=np.float32),   # smoke test only\n    \"observation/gripper_position\": np.float32(0.0),               # smoke test only\n}\nresult = client.infer(observation)\nactions = result[\"action\"]  # [32, 8]: 7 joint positions + gripper, 15 Hz\n\nRunning on the robot\n\nThe same call sits in a replanning loop. Each cycle reads fresh cameras and the arm’s measured joint and gripper positions (replacing the zeros above), executes a prefix of the chunk, then re-asks:\n\ndef get_observation():\n    return {\n        \"prompt\": \"put the marker in the basket\",\n        \"observation/wrist_image_left\": read_camera(\"wrist\"),\n        \"observation/exterior_image_1_left\": read_camera(\"left\"),\n        \"observation/exterior_image_2_left\": read_camera(\"right\"),\n        \"observation/joint_position\": robot.joint_positions(),   # REAL, 7 floats\n        \"observation/gripper_position\": robot.gripper_position(),\n    }\n\nwhile not task_done():\n    result = client.infer(get_observation())\n    execute_actions(result[\"action\"][:16], hz=15)   # first 16 of 32, then replan\n\nExecuting only a prefix and replanning is standard practice: the policy self-corrects every few seconds, and because it is state-conditioned, each replan starts from where the arm actually is rather than where the previous chunk assumed it would be. Starting the server with video decoding enabled returns the policy’s imagined rollout alongside the actions, so you can inspect what the world model predicts for the chunk it emitted.\n\nEvaluate the policy in a closed-loop simulation\n\nYou don’t need a physical robot to validate a policy. In fact, evaluating a policy in simulation is recommended before evaluating directly on a physical robot to avoid unexpected behaviours before they affect developers or robots. RoboLab—the Isaac Lab-Arena benchmark behind the RoboLab leaderboard—is open, and its client connects to the same policy server. It executes each action chunk in physics and streams rendered observations back for a true closed loop across 120 language-conditioned manipulation tasks.\n\n# Clone RoboLab and fetch the scene assets\ngit clone https://github.com/NVlabs/RoboLab.git && cd RoboLab\ngit lfs pull\n\n# Build the sim image and run one task against the policy server\n./docker/build_docker.sh latest\n./docker/run_docker.sh latest\npython policies/cosmos3/run.py --task BananaInBowlTask\n\n# Or run headless across many envs for success-rate statistics\npython policies/cosmos3/run.py --task BananaInBowlTask --num-envs 10 --headless\n\nSwap --task for any of the 120 tasks to build a broader picture of policy behavior. Each run produces viewport and robot-camera videos plus a success log, so you can inspect both the outcome and the trajectory that produced it.\n\nIn closed-loop RoboLab evaluation, the post-trained Edge policy reaches 22.9% success across the task suite. That result is earned at a fraction of the inference compute of larger Cosmos3 variants (Nano reaches 36.8%), which is precisely the trade Edge is designed to make: real-time, fully on-robot autonomy at competitive success rates.\n\nNote: NVIDIA Isaac Sim 5.x requires the NVIDIA RTX Server Driver Release 580 or later. Confirm the supported driver version in the RoboLab and Isaac Sim documentation before building.\n\nPost-training beyond robot control\n\nPost-training techniques that improve robot control also extend to other capabilities, such as synthetic data generation for robot training. Developers can create specialized world models that generate high-quality synthetic data tailored to their environments and tasks for both indoor and outdoor robot training.\n\nAigen, for example, post-trained Cosmos to generate diverse synthetic crop and weed variations, enabling an autonomous weeding system to achieve strong performance using just 1% real-world data for training.\n\nMore broadly, Cosmos’s open weights and framework, with the OpenMDW1.1 license, make post-training a powerful, flexible, and easy way to create specialized, highly performant, and accurate custom models for physical AI.\n\nGet started\n\nDownload Cosmos Edge policy weights and data\n\nJoin the Cosmos Labs livestream on August 20\n\nExplore Cosmos Edge on Jetson\n\nDownload Cosmos 3 checkpoints\n\nGet the code on GitHub\n\nTry Cosmos 3 Nano Reasoner and Cosmos 3 Nano",
+          "original_paragraphs": [
+            "Robots need policies that can adapt to their sensors, environments, and tasks while running on onboard computing hardware. World models offer a foundation for learning physical interactions, but their size can make on-device deployment difficult. This changes with the new NVIDIA Cosmos 3 Edge.",
+            "Cosmos 3 Edge is a 4B omni-model (with a 2B NVIDIA Nemotron-based reasoner) in the Cosmos 3 family. It was pretrained on the same physical-world data as NVIDIA Cosmos 3 Nano and NVIDIA Cosmos 3 Super and starts with the same grounding in how objects move and interact. Plus, the model is small enough to run on-device on NVIDIA Jetson Thor.",
+            "What you’ll build",
+            "By the end of this tutorial, you’ll have a post-trained Cosmos 3 Edge manipulation policy that can run on Jetson Thor and be evaluated in closed-loop simulation.",
+            "You’ll learn how to:",
+            "Post-train Cosmos 3 Edge to predict robot actions.",
+            "Serve the resulting policy on Jetson Thor.",
+            "Run inference inside a receding-horizon control loop.",
+            "Evaluate policy behavior in closed-loop simulation.",
+            "Each step is reproducible from the open cosmos-framework repo, and the released checkpoint is available on HuggingFace.",
+            "Why post-train Cosmos 3 Edge for on-device robot manipulation?",
+            "World foundation models are pretrained on large multimodal datasets that capture patterns in object motion and physical interaction, such as how objects fall, slide, and respond to contact. Cosmos natively generates actions based on physical understanding and prediction capabilities. This prior knowledge provides a useful starting point for robot-policy training rather than requiring the policy to learn all physical relationships from task-specific demonstrations.",
+            "Deploying these models on a physical robot, however, introduces two practical constraints:",
+            "Device memory: The model and its runtime state must fit within the memory available on the robot.",
+            "Control latency: The complete inference pipeline must be fast enough to support the robot’s required control frequency.",
+            "Post-training Cosmos 3 Edge addresses each of these constraints. The resulting policy model fits within Jetson Thor’s memory, so inference runs directly on the robot rather than being offloaded to a data-center GPU.",
+            "The remaining factor is control latency. The DROID action policy runs in real time, directly on the robot. On an NVIDIA Jetson AGX Thor T5000, it generates each action chunk in about 1.53 seconds (running at 640×540 resolution and 15 Hz), while a single chunk covers roughly 2.13 seconds of robot motion. Because the next chunk is ready before the current one finishes, the arm moves continuously, with no data-center GPU in the loop. The policy supports continuous streaming on-device by generating action chunks and replanning after each inference cycle. It doesn’t replan after every observation.",
+            "In closed-loop RoboLab tasks, the post-trained policy reaches 22.9% success. Together, these results show that a 4B world foundation model can serve as a practical, real-time, on-device policy backbone. This model fits on a Jetson AGX Thor and runs entirely on the robot.",
+            "What data does the policy train on?",
+            "The release policy in this tutorial trains on the nvidia/Cosmos3-DROID dataset. It contains 76k successful teleoperated trajectories, approximately 350 hours across 86 tasks and 564 scenes, collected with a Franka Panda arm and Robotiq gripper.",
+            "The dataset is packaged in LeRobotDataset v3.0 format at 640 × 360 resolution. Prepare it in three stages:",
+            "Filter idle and non-task frames.",
+            "Select successful demonstrations for training.",
+            "Apply random cropping, rescaling, and color jitter during training.",
+            "hf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir Cosmos3-DROID",
+            "Bring your own robot data",
+            "Convert your data to the LeRobot Dataset v3 (per-frame camera video, joint states, gripper state, actions, task instruction).",
+            "For a DROID-like Franka setup, the primary change is the dataset path. A different embodiment needs its own experiment configuration that defines the action space, dimensionality, camera layout, and normalization settings.",
+            "Cosmos 3 supports several embodiments, including dual-arm Franka, UR, WidowX 250, LeRobot SO101. See the Cosmos 3 Edge model card for the embodiment list.",
+            "Prerequisites",
+            "Before starting, confirm that you have:",
+            "The latest Cosmos framework release.",
+            "The validated training hardware: NVIDIA DGX Station with the NVIDIA GB200 Grace Blackwell Superchip or the NVIDIA GB300 Grace Blackwell Ultra Desktop Superchip.",
+            "The supported NVIDIA CUDA and container versions: CUDA 13.0 (cu130), NGC 26.06-py3.",
+            "Access to the Cosmos 3 Edge base checkpoint.",
+            "Access to the Cosmos3-DROID dataset.",
+            "A Hugging Face access token.",
+            "This is foundation model post-training, not a single-GPU fine-tune. The validated run uses 64 nodes of 4× GB200 for 60K iterations, roughly 68 hours (~17.4K GB200-hours). Plan compute accordingly.",
+            "How to run post-training",
+            "At a high level, post-training is broken into four steps:",
+            "Download the dataset.",
+            "Convert the base checkpoint to distributed-checkpoint (DCP) format.",
+            "Apply the curation filter.",
+            "Launch",
+            "# Download the Cosmos3-DROID dataset (success split)\nhf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir /path/to/Cosmos3-DROID\n\n# Convert the base checkpoint to DCP (one-time; runs on CPU — it repacks weights, no GPU math)\npython -m cosmos_framework.scripts.convert_model_to_dcp \\ -o /path/to/Cosmos3-Edge-dcp --checkpoint-path Cosmos3-Edge\n\n# Launch post-training\nbash examples/launch_sft_action_policy_droid_nano.sh",
+            "Edit and launch post-training script",
+            "Find this file in the repo:",
+            "cosmos_framework/configs/base/experiment/action/posttrain_config/action_policy_droid_nano.py",
+            "This launcher registers the recipe for Cosmos 3 Nano. To train Cosmos 3 Edge, make these three edits before launching:",
+            "Replace the NANO_MODEL_CONFIG import with EDGE_MODEL_CONFIG (from configs/base/experiment/sft/models/edge_model_config.py).",
+            "Set BASE_CHECKPOINT_PATH to the Cosmos 3 Edge DCP checkpoint from the conversion step.",
+            "Rename examples/launch_sft_action_policy_droid_nano.sh to examples/launch_sft_action_policy_droid_edge.sh",
+            "Everything else, including dataset, action space, curation filter, and training schedule, stays the same.",
+            "# Launch post-training\nbash examples/launch_sft_action_policy_droid_edge.sh",
+            "For the latest end-to-end instructions, including checkpoint conversion, environment configuration, and curation-filter setup, see the DROID post-training reproduction guide and model card. These resources are updated alongside the repository.",
+            "How to deploy and run the policy on Jetson Thor",
+            "The policy is served by a WebSocket policy server speaking the OpenPI protocol, the same protocol used across the DROID policy ecosystem. The client sends an observation dictionary; the server returns an action chunk. For Edge, the server runs natively on Jetson Thor. At roughly 9 GB in BF16, the weights fit in Thor’s on-board memory, so both the policy server and the control client run on the robot with no data-center GPU in the loop.",
+            "Start the policy server on the robot",
+            "export HF_TOKEN=<your_hf_token>\n# Thor: run eager; stock Triton wheels lack sm_110a kernels\nexport TORCHDYNAMO_DISABLE=1\npython -m cosmos_framework.scripts.action_policy_server_robolab \\\n  --checkpoint_path nvidia/Cosmos3-Edge-Policy-DROID \\\n  --port 8000 \\\n  --format-prompt-as-json True\n# first launch downloads weights and takes a few minutes; then:\ncurl localhost:8000/healthz   # -> OK",
+            "Because the server runs on Thor, host=\"localhost\", the request never leaves the robot. On device, the policy runs in real time. This is the on-device inference that Cosmos Edge enables.",
+            "Smoke test (no robot needed)",
+            "The DROID policy is state-conditioned. Meaning that joint_position and gripper_position are real model inputs, not boilerplate. With no arm in the loop, zeros are the honest placeholder; this call just proves the server returns a well-formed action chunk.",
+            "import numpy as np\nfrom PIL import Image\nfrom openpi_client.websocket_client_policy import WebsocketClientPolicy\n\nclient = WebsocketClientPolicy(host=\"localhost\", port=8000)\n\nobservation = {\n    \"prompt\": \"put the marker in the basket\",\n    \"observation/wrist_image_left\": np.asarray(Image.open(\"wrist.jpg\")),\n    \"observation/exterior_image_1_left\": np.asarray(Image.open(\"left.jpg\")),\n    \"observation/exterior_image_2_left\": np.asarray(Image.open(\"right.jpg\")),\n    \"observation/joint_position\": np.zeros(7, dtype=np.float32),   # smoke test only\n    \"observation/gripper_position\": np.float32(0.0),               # smoke test only\n}\nresult = client.infer(observation)\nactions = result[\"action\"]  # [32, 8]: 7 joint positions + gripper, 15 Hz",
+            "Running on the robot",
+            "The same call sits in a replanning loop. Each cycle reads fresh cameras and the arm’s measured joint and gripper positions (replacing the zeros above), executes a prefix of the chunk, then re-asks:",
+            "def get_observation():\n    return {\n        \"prompt\": \"put the marker in the basket\",\n        \"observation/wrist_image_left\": read_camera(\"wrist\"),\n        \"observation/exterior_image_1_left\": read_camera(\"left\"),\n        \"observation/exterior_image_2_left\": read_camera(\"right\"),\n        \"observation/joint_position\": robot.joint_positions(),   # REAL, 7 floats\n        \"observation/gripper_position\": robot.gripper_position(),\n    }\n\nwhile not task_done():\n    result = client.infer(get_observation())\n    execute_actions(result[\"action\"][:16], hz=15)   # first 16 of 32, then replan",
+            "Executing only a prefix and replanning is standard practice: the policy self-corrects every few seconds, and because it is state-conditioned, each replan starts from where the arm actually is rather than where the previous chunk assumed it would be. Starting the server with video decoding enabled returns the policy’s imagined rollout alongside the actions, so you can inspect what the world model predicts for the chunk it emitted.",
+            "Evaluate the policy in a closed-loop simulation",
+            "You don’t need a physical robot to validate a policy. In fact, evaluating a policy in simulation is recommended before evaluating directly on a physical robot to avoid unexpected behaviours before they affect developers or robots. RoboLab—the Isaac Lab-Arena benchmark behind the RoboLab leaderboard—is open, and its client connects to the same policy server. It executes each action chunk in physics and streams rendered observations back for a true closed loop across 120 language-conditioned manipulation tasks.",
+            "# Clone RoboLab and fetch the scene assets\ngit clone https://github.com/NVlabs/RoboLab.git && cd RoboLab\ngit lfs pull\n\n# Build the sim image and run one task against the policy server\n./docker/build_docker.sh latest\n./docker/run_docker.sh latest\npython policies/cosmos3/run.py --task BananaInBowlTask\n\n# Or run headless across many envs for success-rate statistics\npython policies/cosmos3/run.py --task BananaInBowlTask --num-envs 10 --headless",
+            "Swap --task for any of the 120 tasks to build a broader picture of policy behavior. Each run produces viewport and robot-camera videos plus a success log, so you can inspect both the outcome and the trajectory that produced it.",
+            "In closed-loop RoboLab evaluation, the post-trained Edge policy reaches 22.9% success across the task suite. That result is earned at a fraction of the inference compute of larger Cosmos3 variants (Nano reaches 36.8%), which is precisely the trade Edge is designed to make: real-time, fully on-robot autonomy at competitive success rates.",
+            "Note: NVIDIA Isaac Sim 5.x requires the NVIDIA RTX Server Driver Release 580 or later. Confirm the supported driver version in the RoboLab and Isaac Sim documentation before building.",
+            "Post-training beyond robot control",
+            "Post-training techniques that improve robot control also extend to other capabilities, such as synthetic data generation for robot training. Developers can create specialized world models that generate high-quality synthetic data tailored to their environments and tasks for both indoor and outdoor robot training.",
+            "Aigen, for example, post-trained Cosmos to generate diverse synthetic crop and weed variations, enabling an autonomous weeding system to achieve strong performance using just 1% real-world data for training.",
+            "More broadly, Cosmos’s open weights and framework, with the OpenMDW1.1 license, make post-training a powerful, flexible, and easy way to create specialized, highly performant, and accurate custom models for physical AI.",
+            "Get started",
+            "Download Cosmos Edge policy weights and data",
+            "Join the Cosmos Labs livestream on August 20",
+            "Explore Cosmos Edge on Jetson",
+            "Download Cosmos 3 checkpoints",
+            "Get the code on GitHub",
+            "Try Cosmos 3 Nano Reasoner and Cosmos 3 Nano"
+          ],
+          "original_images": [],
+          "original_blocks": [
+            {
+              "type": "byline",
+              "author": {
+                "name": "Michelle Horton",
+                "url": "https://developer.nvidia.com/blog/author/mhorton/"
+              },
+              "published_at": "2026-08-19T16:00:00+00:00",
+              "source": {
+                "name": "NVIDIA Technical Blog"
+              }
+            },
+            {
+              "type": "paragraph",
+              "text": "Robots need policies that can adapt to their sensors, environments, and tasks while running on onboard computing hardware. World models offer a foundation for learning physical interactions, but their size can make on-device deployment difficult. This changes with the new NVIDIA Cosmos 3 Edge.",
+              "html": "Robots need policies that can adapt to their sensors, environments, and tasks while running on onboard computing hardware. <a href=\"https://www.nvidia.com/en-us/glossary/world-models/\">World models</a> offer a foundation for learning physical interactions, but their size can make on-device deployment difficult. This changes with the new NVIDIA Cosmos 3 Edge."
+            },
+            {
+              "type": "paragraph",
+              "text": "Cosmos 3 Edge is a 4B omni-model (with a 2B NVIDIA Nemotron-based reasoner) in the Cosmos 3 family. It was pretrained on the same physical-world data as NVIDIA Cosmos 3 Nano and NVIDIA Cosmos 3 Super and starts with the same grounding in how objects move and interact. Plus, the model is small enough to run on-device on NVIDIA Jetson Thor.",
+              "html": "<a href=\"https://huggingface.co/nvidia/Cosmos3-Edge\">Cosmos 3 Edge</a> is a 4B <a href=\"https://www.nvidia.com/en-us/glossary/omni-model/\">omni-model </a>(with a 2B NVIDIA Nemotron-based reasoner) in the Cosmos 3 family. It was pretrained on the same physical-world data as NVIDIA Cosmos 3 Nano and NVIDIA Cosmos 3 Super and starts with the same grounding in how objects move and interact. Plus, the model is small enough to run on-device on <a href=\"https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-thor/\">NVIDIA Jetson Thor</a>."
+            },
+            {
+              "type": "heading",
+              "level": 2,
+              "text": "What you’ll build",
+              "html": "What you’ll build<a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#what_you’ll_build\"><em></em></a>"
+            },
+            {
+              "type": "paragraph",
+              "text": "By the end of this tutorial, you’ll have a post-trained Cosmos 3 Edge manipulation policy that can run on Jetson Thor and be evaluated in closed-loop simulation."
+            },
+            {
+              "type": "paragraph",
+              "text": "You’ll learn how to:"
+            },
+            {
+              "type": "list",
+              "ordered": true,
+              "items": [
+                {
+                  "text": "Post-train Cosmos 3 Edge to predict robot actions."
+                },
+                {
+                  "text": "Serve the resulting policy on Jetson Thor."
+                },
+                {
+                  "text": "Run inference inside a receding-horizon control loop."
+                },
+                {
+                  "text": "Evaluate policy behavior in closed-loop simulation."
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "text": "Each step is reproducible from the open cosmos-framework repo, and the released checkpoint is available on HuggingFace.",
+              "html": "Each step is reproducible from the open <a href=\"https://github.com/NVIDIA/cosmos-framework\"><code>cosmos-framework</code></a> repo, and the released checkpoint is available on <a href=\"https://huggingface.co/nvidia/Cosmos3-Edge\">HuggingFace</a>."
+            },
+            {
+              "type": "video",
+              "provider": "file",
+              "url": "https://developer.download.nvidia.com/video/devblog/Cosmos3-Robot.mp4",
+              "mime_type": "video/mp4",
+              "caption": "Video 1. How to post-train NVIDIA Cosmos 3 Edge into an on-device robot policy"
+            },
+            {
+              "type": "heading",
+              "level": 2,
+              "text": "Why post-train Cosmos 3 Edge for on-device robot manipulation?",
+              "html": "Why post-train Cosmos 3 Edge for on-device robot manipulation?<a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#why_post-train_cosmos_3_edge_for_on-device_robot_manipulation\"><em></em></a>"
+            },
+            {
+              "type": "paragraph",
+              "text": "World foundation models are pretrained on large multimodal datasets that capture patterns in object motion and physical interaction, such as how objects fall, slide, and respond to contact. Cosmos natively generates actions based on physical understanding and prediction capabilities. This prior knowledge provides a useful starting point for robot-policy training rather than requiring the policy to learn all physical relationships from task-specific demonstrations."
+            },
+            {
+              "type": "paragraph",
+              "text": "Deploying these models on a physical robot, however, introduces two practical constraints:"
+            },
+            {
+              "type": "list",
+              "ordered": false,
+              "items": [
+                {
+                  "text": "Device memory: The model and its runtime state must fit within the memory available on the robot.",
+                  "html": "<strong>Device memory:</strong> The model and its runtime state must fit within the memory available on the robot."
+                },
+                {
+                  "text": "Control latency: The complete inference pipeline must be fast enough to support the robot’s required control frequency.",
+                  "html": "<strong>Control latency:</strong> The complete inference pipeline must be fast enough to support the robot’s required control frequency."
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "text": "Post-training Cosmos 3 Edge addresses each of these constraints. The resulting policy model fits within Jetson Thor’s memory, so inference runs directly on the robot rather than being offloaded to a data-center GPU."
+            },
+            {
+              "type": "paragraph",
+              "text": "The remaining factor is control latency. The DROID action policy runs in real time, directly on the robot. On an NVIDIA Jetson AGX Thor T5000, it generates each action chunk in about 1.53 seconds (running at 640×540 resolution and 15 Hz), while a single chunk covers roughly 2.13 seconds of robot motion. Because the next chunk is ready before the current one finishes, the arm moves continuously, with no data-center GPU in the loop. The policy supports continuous streaming on-device by generating action chunks and replanning after each inference cycle. It doesn’t replan after every observation."
+            },
+            {
+              "type": "paragraph",
+              "text": "In closed-loop RoboLab tasks, the post-trained policy reaches 22.9% success. Together, these results show that a 4B world foundation model can serve as a practical, real-time, on-device policy backbone. This model fits on a Jetson AGX Thor and runs entirely on the robot.",
+              "html": "In closed-loop <a href=\"https://github.com/NVLabs/RoboLab\">RoboLab</a> tasks, the post-trained policy reaches 22.9% success. Together, these results show that a 4B world foundation model can serve as a practical, real-time, on-device policy backbone. This model fits on a Jetson AGX Thor and runs entirely on the robot."
+            },
+            {
+              "type": "heading",
+              "level": 2,
+              "text": "What data does the policy train on?",
+              "html": "What data does the policy train on?<a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#what_data_does_the_policy_train_on\"><em></em></a>"
+            },
+            {
+              "type": "paragraph",
+              "text": "The release policy in this tutorial trains on the nvidia/Cosmos3-DROID dataset. It contains 76k successful teleoperated trajectories, approximately 350 hours across 86 tasks and 564 scenes, collected with a Franka Panda arm and Robotiq gripper.",
+              "html": "The release policy in this tutorial trains on the <a href=\"https://huggingface.co/datasets/nvidia/Cosmos3-DROID\"><code>nvidia/Cosmos3-DROID</code></a> dataset. It contains 76k successful teleoperated trajectories, approximately 350 hours across 86 tasks and 564 scenes, collected with a Franka Panda arm and Robotiq gripper."
+            },
+            {
+              "type": "paragraph",
+              "text": "The dataset is packaged in LeRobotDataset v3.0 format at 640 × 360 resolution. Prepare it in three stages:"
+            },
+            {
+              "type": "list",
+              "ordered": false,
+              "items": [
+                {
+                  "text": "Filter idle and non-task frames."
+                },
+                {
+                  "text": "Select successful demonstrations for training."
+                },
+                {
+                  "text": "Apply random cropping, rescaling, and color jitter during training."
+                }
+              ]
+            },
+            {
+              "type": "code",
+              "text": "hf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir Cosmos3-DROID"
+            },
+            {
+              "type": "heading",
+              "level": 2,
+              "text": "Bring your own robot data",
+              "html": "Bring your own robot data<a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#bring_your_own_robot_data\"><em></em></a>"
+            },
+            {
+              "type": "paragraph",
+              "text": "Convert your data to the LeRobot Dataset v3 (per-frame camera video, joint states, gripper state, actions, task instruction)."
+            },
+            {
+              "type": "paragraph",
+              "text": "For a DROID-like Franka setup, the primary change is the dataset path. A different embodiment needs its own experiment configuration that defines the action space, dimensionality, camera layout, and normalization settings."
+            },
+            {
+              "type": "paragraph",
+              "text": "Cosmos 3 supports several embodiments, including dual-arm Franka, UR, WidowX 250, LeRobot SO101. See the Cosmos 3 Edge model card for the embodiment list.",
+              "html": "Cosmos 3 supports several embodiments, including dual-arm Franka, UR, WidowX 250, LeRobot SO101. See the Cosmos 3 Edge <a href=\"https://huggingface.co/nvidia/Cosmos3-Edge\">model card</a> for the embodiment list."
+            },
+            {
+              "type": "heading",
+              "level": 3,
+              "text": "Prerequisites",
+              "html": "<strong>Prerequisites</strong><a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#prerequisites\"><em></em></a>"
+            },
+            {
+              "type": "paragraph",
+              "text": "Before starting, confirm that you have:"
+            },
+            {
+              "type": "list",
+              "ordered": false,
+              "items": [
+                {
+                  "text": "The latest Cosmos framework release.",
+                  "html": "The latest <a href=\"http://github.com/NVIDIA/cosmos-framework\">Cosmos framework</a> release."
+                },
+                {
+                  "text": "The validated training hardware: NVIDIA DGX Station with the NVIDIA GB200 Grace Blackwell Superchip or the NVIDIA GB300 Grace Blackwell Ultra Desktop Superchip."
+                },
+                {
+                  "text": "The supported NVIDIA CUDA and container versions: CUDA 13.0 (cu130), NGC 26.06-py3."
+                },
+                {
+                  "text": "Access to the Cosmos 3 Edge base checkpoint.",
+                  "html": "Access to the <a href=\"https://huggingface.co/nvidia/Cosmos3-Edge\">Cosmos 3 Edge base checkpoint</a>."
+                },
+                {
+                  "text": "Access to the Cosmos3-DROID dataset.",
+                  "html": "Access to the <a href=\"https://huggingface.co/datasets/nvidia/Cosmos3-DROID\">Cosmos3-DROID dataset</a>."
+                },
+                {
+                  "text": "A Hugging Face access token."
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "text": "This is foundation model post-training, not a single-GPU fine-tune. The validated run uses 64 nodes of 4× GB200 for 60K iterations, roughly 68 hours (~17.4K GB200-hours). Plan compute accordingly."
+            },
+            {
+              "type": "heading",
+              "level": 3,
+              "text": "How to run post-training",
+              "html": "<strong>How to run post-training</strong><a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#how_to_run_post-training\"><em></em></a>"
+            },
+            {
+              "type": "paragraph",
+              "text": "At a high level, post-training is broken into four steps:"
+            },
+            {
+              "type": "list",
+              "ordered": true,
+              "items": [
+                {
+                  "text": "Download the dataset."
+                },
+                {
+                  "text": "Convert the base checkpoint to distributed-checkpoint (DCP) format."
+                },
+                {
+                  "text": "Apply the curation filter."
+                },
+                {
+                  "text": "Launch"
+                }
+              ]
+            },
+            {
+              "type": "code",
+              "text": "# Download the Cosmos3-DROID dataset (success split)\nhf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir /path/to/Cosmos3-DROID\n\n# Convert the base checkpoint to DCP (one-time; runs on CPU — it repacks weights, no GPU math)\npython -m cosmos_framework.scripts.convert_model_to_dcp \\ -o /path/to/Cosmos3-Edge-dcp --checkpoint-path Cosmos3-Edge\n\n# Launch post-training\nbash examples/launch_sft_action_policy_droid_nano.sh"
+            },
+            {
+              "type": "heading",
+              "level": 3,
+              "text": "Edit and launch post-training script",
+              "html": "<strong>Edit and launch post-training script</strong><a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#edit_and_launch_post-training_script\"><em></em></a>"
+            },
+            {
+              "type": "paragraph",
+              "text": "Find this file in the repo:"
+            },
+            {
+              "type": "code",
+              "text": "cosmos_framework/configs/base/experiment/action/posttrain_config/action_policy_droid_nano.py"
+            },
+            {
+              "type": "paragraph",
+              "text": "This launcher registers the recipe for Cosmos 3 Nano. To train Cosmos 3 Edge, make these three edits before launching:"
+            },
+            {
+              "type": "list",
+              "ordered": false,
+              "items": [
+                {
+                  "text": "Replace the NANO_MODEL_CONFIG import with EDGE_MODEL_CONFIG (from configs/base/experiment/sft/models/edge_model_config.py).",
+                  "html": "Replace the <code>NANO_MODEL_CONFIG</code> import with <code>EDGE_MODEL_CONFIG</code> (from <code>configs/base/experiment/sft/models/edge_model_config.py</code>)."
+                },
+                {
+                  "text": "Set BASE_CHECKPOINT_PATH to the Cosmos 3 Edge DCP checkpoint from the conversion step.",
+                  "html": "Set <code>BASE_CHECKPOINT_PATH</code> to the Cosmos 3 Edge DCP checkpoint from the conversion step."
+                },
+                {
+                  "text": "Rename examples/launch_sft_action_policy_droid_nano.sh to examples/launch_sft_action_policy_droid_edge.sh"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "text": "Everything else, including dataset, action space, curation filter, and training schedule, stays the same."
+            },
+            {
+              "type": "code",
+              "text": "# Launch post-training\nbash examples/launch_sft_action_policy_droid_edge.sh"
+            },
+            {
+              "type": "paragraph",
+              "text": "For the latest end-to-end instructions, including checkpoint conversion, environment configuration, and curation-filter setup, see the DROID post-training reproduction guide and model card. These resources are updated alongside the repository.",
+              "html": "For the latest end-to-end instructions, including checkpoint conversion, environment configuration, and curation-filter setup, see the DROID post-training reproduction guide and <a href=\"https://huggingface.co/nvidia/Cosmos3-Edge-Policy-DROID\">model card</a>. These resources are updated alongside the repository."
+            },
+            {
+              "type": "heading",
+              "level": 3,
+              "text": "How to deploy and run the policy on Jetson Thor",
+              "html": "<strong>How to deploy and run the policy on Jetson Thor</strong><a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#how_to_deploy_and_run_the_policy_on_jetson_thor\"><em></em></a>"
+            },
+            {
+              "type": "paragraph",
+              "text": "The policy is served by a WebSocket policy server speaking the OpenPI protocol, the same protocol used across the DROID policy ecosystem. The client sends an observation dictionary; the server returns an action chunk. For Edge, the server runs natively on Jetson Thor. At roughly 9 GB in BF16, the weights fit in Thor’s on-board memory, so both the policy server and the control client run on the robot with no data-center GPU in the loop.",
+              "html": "The policy is served by a WebSocket policy server speaking the OpenPI protocol, the same protocol used across the DROID policy ecosystem. The client sends an observation dictionary; the server returns an action chunk. For Edge, the server runs <em>natively on Jetson Thor</em>. At roughly 9 GB in BF16, the weights fit in Thor’s on-board memory, so both the policy server and the control client run on the robot with no data-center GPU in the loop."
+            },
+            {
+              "type": "paragraph",
+              "text": "Start the policy server on the robot",
+              "html": "<strong>Start the policy server on the robot</strong>"
+            },
+            {
+              "type": "code",
+              "text": "export HF_TOKEN=<your_hf_token>\n# Thor: run eager; stock Triton wheels lack sm_110a kernels\nexport TORCHDYNAMO_DISABLE=1\npython -m cosmos_framework.scripts.action_policy_server_robolab \\\n  --checkpoint_path nvidia/Cosmos3-Edge-Policy-DROID \\\n  --port 8000 \\\n  --format-prompt-as-json True\n# first launch downloads weights and takes a few minutes; then:\ncurl localhost:8000/healthz   # -> OK"
+            },
+            {
+              "type": "paragraph",
+              "text": "Because the server runs on Thor, host=\"localhost\", the request never leaves the robot. On device, the policy runs in real time. This is the on-device inference that Cosmos Edge enables.",
+              "html": "Because the server runs on Thor, <code>host=\"localhost\"</code>, the request never leaves the robot. On device, the policy runs in real time. This is the on-device inference that Cosmos Edge enables."
+            },
+            {
+              "type": "heading",
+              "level": 3,
+              "text": "Smoke test (no robot needed)",
+              "html": "Smoke test (no robot needed)<a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#smoke_test_no_robot_needed\"><em></em></a>"
+            },
+            {
+              "type": "paragraph",
+              "text": "The DROID policy is state-conditioned. Meaning that joint_position and gripper_position are real model inputs, not boilerplate. With no arm in the loop, zeros are the honest placeholder; this call just proves the server returns a well-formed action chunk.",
+              "html": "The DROID policy is state-conditioned. Meaning that <code>joint_position</code> and <code>gripper_position</code> are real model inputs, not boilerplate. With no arm in the loop, zeros are the honest placeholder; this call just proves the server returns a well-formed action chunk."
+            },
+            {
+              "type": "code",
+              "text": "import numpy as np\nfrom PIL import Image\nfrom openpi_client.websocket_client_policy import WebsocketClientPolicy\n\nclient = WebsocketClientPolicy(host=\"localhost\", port=8000)\n\nobservation = {\n    \"prompt\": \"put the marker in the basket\",\n    \"observation/wrist_image_left\": np.asarray(Image.open(\"wrist.jpg\")),\n    \"observation/exterior_image_1_left\": np.asarray(Image.open(\"left.jpg\")),\n    \"observation/exterior_image_2_left\": np.asarray(Image.open(\"right.jpg\")),\n    \"observation/joint_position\": np.zeros(7, dtype=np.float32),   # smoke test only\n    \"observation/gripper_position\": np.float32(0.0),               # smoke test only\n}\nresult = client.infer(observation)\nactions = result[\"action\"]  # [32, 8]: 7 joint positions + gripper, 15 Hz"
+            },
+            {
+              "type": "heading",
+              "level": 3,
+              "text": "Running on the robot",
+              "html": "Running on the robot<a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#running_on_the_robot\"><em></em></a>"
+            },
+            {
+              "type": "paragraph",
+              "text": "The same call sits in a replanning loop. Each cycle reads fresh cameras and the arm’s measured joint and gripper positions (replacing the zeros above), executes a prefix of the chunk, then re-asks:"
+            },
+            {
+              "type": "code",
+              "text": "def get_observation():\n    return {\n        \"prompt\": \"put the marker in the basket\",\n        \"observation/wrist_image_left\": read_camera(\"wrist\"),\n        \"observation/exterior_image_1_left\": read_camera(\"left\"),\n        \"observation/exterior_image_2_left\": read_camera(\"right\"),\n        \"observation/joint_position\": robot.joint_positions(),   # REAL, 7 floats\n        \"observation/gripper_position\": robot.gripper_position(),\n    }\n\nwhile not task_done():\n    result = client.infer(get_observation())\n    execute_actions(result[\"action\"][:16], hz=15)   # first 16 of 32, then replan"
+            },
+            {
+              "type": "paragraph",
+              "text": "Executing only a prefix and replanning is standard practice: the policy self-corrects every few seconds, and because it is state-conditioned, each replan starts from where the arm actually is rather than where the previous chunk assumed it would be. Starting the server with video decoding enabled returns the policy’s imagined rollout alongside the actions, so you can inspect what the world model predicts for the chunk it emitted."
+            },
+            {
+              "type": "heading",
+              "level": 3,
+              "text": "Evaluate the policy in a closed-loop simulation",
+              "html": "Evaluate the policy in a closed-loop simulation<a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#evaluate_the_policy_in_a_closed-loop_simulation\"><em></em></a>"
+            },
+            {
+              "type": "paragraph",
+              "text": "You don’t need a physical robot to validate a policy. In fact, evaluating a policy in simulation is recommended before evaluating directly on a physical robot to avoid unexpected behaviours before they affect developers or robots. RoboLab—the Isaac Lab-Arena benchmark behind the RoboLab leaderboard—is open, and its client connects to the same policy server. It executes each action chunk in physics and streams rendered observations back for a true closed loop across 120 language-conditioned manipulation tasks.",
+              "html": "You don’t need a physical robot to validate a policy. In fact, evaluating a policy in simulation is recommended before evaluating directly on a physical robot to avoid unexpected behaviours before they affect developers or robots. <a href=\"https://github.com/NVLabs/RoboLab\">RoboLab</a>—the <a href=\"https://developer.nvidia.com/isaac/lab-arena\">Isaac Lab-Arena</a> benchmark behind the RoboLab leaderboard—is open, and its client connects to the same policy server. It executes each action chunk in physics and streams rendered observations back for a true closed loop across 120 language-conditioned manipulation tasks."
+            },
+            {
+              "type": "code",
+              "text": "# Clone RoboLab and fetch the scene assets\ngit clone https://github.com/NVlabs/RoboLab.git && cd RoboLab\ngit lfs pull\n\n# Build the sim image and run one task against the policy server\n./docker/build_docker.sh latest\n./docker/run_docker.sh latest\npython policies/cosmos3/run.py --task BananaInBowlTask\n\n# Or run headless across many envs for success-rate statistics\npython policies/cosmos3/run.py --task BananaInBowlTask --num-envs 10 --headless"
+            },
+            {
+              "type": "paragraph",
+              "text": "Swap --task for any of the 120 tasks to build a broader picture of policy behavior. Each run produces viewport and robot-camera videos plus a success log, so you can inspect both the outcome and the trajectory that produced it.",
+              "html": "Swap <code>--task</code> for any of the 120 tasks to build a broader picture of policy behavior. Each run produces viewport and robot-camera videos plus a success log, so you can inspect both the outcome and the trajectory that produced it."
+            },
+            {
+              "type": "paragraph",
+              "text": "In closed-loop RoboLab evaluation, the post-trained Edge policy reaches 22.9% success across the task suite. That result is earned at a fraction of the inference compute of larger Cosmos3 variants (Nano reaches 36.8%), which is precisely the trade Edge is designed to make: real-time, fully on-robot autonomy at competitive success rates.",
+              "html": "In closed-loop RoboLab evaluation, the post-trained Edge policy reaches <strong>22.9% success</strong> across the task suite. That result is earned at a fraction of the inference compute of larger Cosmos3 variants (Nano reaches 36.8%), which is precisely the trade Edge is designed to make: real-time, fully on-robot autonomy at competitive success rates."
+            },
+            {
+              "type": "paragraph",
+              "text": "Note: NVIDIA Isaac Sim 5.x requires the NVIDIA RTX Server Driver Release 580 or later. Confirm the supported driver version in the RoboLab and Isaac Sim documentation before building."
+            },
+            {
+              "type": "heading",
+              "level": 2,
+              "text": "Post-training beyond robot control",
+              "html": "Post-training beyond robot control<a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#post-training_beyond_robot_control\"><em></em></a>"
+            },
+            {
+              "type": "paragraph",
+              "text": "Post-training techniques that improve robot control also extend to other capabilities, such as synthetic data generation for robot training. Developers can create specialized world models that generate high-quality synthetic data tailored to their environments and tasks for both indoor and outdoor robot training."
+            },
+            {
+              "type": "paragraph",
+              "text": "Aigen, for example, post-trained Cosmos to generate diverse synthetic crop and weed variations, enabling an autonomous weeding system to achieve strong performance using just 1% real-world data for training."
+            },
+            {
+              "type": "paragraph",
+              "text": "More broadly, Cosmos’s open weights and framework, with the OpenMDW1.1 license, make post-training a powerful, flexible, and easy way to create specialized, highly performant, and accurate custom models for physical AI."
+            },
+            {
+              "type": "heading",
+              "level": 2,
+              "text": "Get started",
+              "html": "Get started<a href=\"https://developer.nvidia.com/blog/post-train-nvidia-cosmos-3-edge-for-on-device-robot-control#get_started\"><em></em></a>"
+            },
+            {
+              "type": "list",
+              "ordered": false,
+              "items": [
+                {
+                  "text": "Download Cosmos Edge policy weights and data",
+                  "html": "<a href=\"https://huggingface.co/nvidia/Cosmos3-Edge-Policy-DROID\">Download Cosmos Edge policy weights and data</a>"
+                },
+                {
+                  "text": "Join the Cosmos Labs livestream on August 20",
+                  "html": "Join the <a href=\"https://www.youtube.com/watch?v=oJF_6HgA46E\">Cosmos Labs livestream</a> on August 20"
+                },
+                {
+                  "text": "Explore Cosmos Edge on Jetson",
+                  "html": "<a href=\"https://www.jetson-ai-lab.com/models/cosmos3-edge/\">Explore Cosmos Edge on Jetson</a>"
+                },
+                {
+                  "text": "Download Cosmos 3 checkpoints",
+                  "html": "<a href=\"https://huggingface.co/collections/nvidia/cosmos3\">Download Cosmos 3 checkpoints</a>"
+                },
+                {
+                  "text": "Get the code on GitHub",
+                  "html": "<a href=\"https://github.com/nvidia/Cosmos\">Get the code on GitHub</a>"
+                },
+                {
+                  "text": "Try Cosmos 3 Nano Reasoner and Cosmos 3 Nano",
+                  "html": "Try <a href=\"https://build.nvidia.com/nvidia/cosmos3-nano-reasoner\">Cosmos 3 Nano Reasoner</a> and <a href=\"https://build.nvidia.com/nvidia/cosmos3-nano\">Cosmos 3 Nano</a>"
+                }
+              ]
+            }
+          ],
+          "content_origin": "full_page",
+          "translated_paragraphs": [
+            "机器人需要能够适应其传感器、环境和任务的策略，同时这些策略需运行在机载计算硬件上。世界模型为学习物理交互提供了基础，但其庞大的规模可能使设备端部署变得困难。而新的 NVIDIA Cosmos 3 Edge 将改变这一局面。",
+            "Cosmos 3 Edge 是 Cosmos 3 系列中的一个 4B 全模态模型（包含一个基于 NVIDIA Nemotron 的 2B 推理器）。它与 NVIDIA Cosmos 3 Nano 和 NVIDIA Cosmos 3 Super 使用相同的物理世界数据进行预训练，并同样以物体如何运动和交互为基础进行初始化。此外，该模型足够小巧，可在 NVIDIA Jetson Thor 上进行设备端部署。",
+            "你将构建的内容",
+            "在本教程结束时，你将拥有一个经过后训练的 Cosmos 3 Edge 操作策略，它可以在 Jetson Thor 上运行，并在闭环仿真中进行评估。",
+            "你将学到：",
+            "对 Cosmos 3 Edge 进行后训练，以预测机器人的动作。",
+            "在 Jetson Thor 上部署生成的策略。",
+            "在滚动时域控制循环内执行推理。",
+            "在闭环仿真中评估策略行为。",
+            "每个步骤均可通过开源的 cosmos-framework 仓库复现，发布的检查点也可在 HuggingFace 上获取。",
+            "为什么需要对 Cosmos 3 Edge 进行后训练以实现设备端机器人操作？",
+            "世界基础模型在大规模多模态数据集上进行预训练，这些数据捕捉了物体运动和物理交互中的模式，例如物体如何下落、滑动以及对外部接触的响应。Cosmos 原生地基于对物理的理解和预测能力来生成动作。这种先验知识为机器人策略训练提供了一个有用的起点，而不必要求策略从特定任务演示中学习所有的物理关系。",
+            "然而，将这些模型部署到实体机器人上会引入两个实际约束：",
+            "设备内存：模型及其运行时状态必须适应机器人可用的内存容量。",
+            "控制延迟：完整的推理流程必须足够快，以支持机器人所需的控制频率。",
+            "经过后处理的 Cosmos 3 Edge 针对上述每个约束进行了优化。生成的策略模型能够适配 Jetson Thor 的内存限制，因此推理直接在机器人上运行，而无需卸载至数据中心的 GPU。",
+            "剩下的因素是控制延迟。DROID 动作策略在机器人上实时运行。在 NVIDIA Jetson AGX Thor T5000 上，它以 640×540 分辨率和 15 Hz 的频率运行，每生成一个动作块（action chunk）大约需要 1.53 秒，而单个动作块覆盖约 2.13 秒的机器人运动时间。由于下一个动作块在当前动作块结束前即可就绪，机械臂能够实现连续运动，且整个过程中不涉及数据中心 GPU 参与。该策略通过在每次推理周期后生成动作块并重新规划，实现了持续的端侧流式处理。它并非在每次观测后都进行重新规划。",
+            "在闭环 RoboLab 任务中，经过后训练的模型达到了 22.9% 的成功率。综合这些结果表明，40 亿参数的世界基础模型可以作为实用、实时且端侧部署的策略骨干网络。该模型可适配于 Jetson AGX Thor，并完全在机器人上运行。",
+            "策略训练使用什么数据？",
+            "本教程发布的策略基于 nvidia/Cosmos3-DROID 数据集进行训练。该数据集包含 76,000 条成功的遥操作轨迹，涵盖约 350 小时的数据，涉及 86 项任务和 564 个场景，由 Franka Panda 机械臂和 Robotiq 夹爪采集而成。",
+            "该数据集以 LeRobotDataset v3.0 格式打包，分辨率为 640 × 360。需分三个阶段准备：",
+            "过滤空闲帧和非任务帧。",
+            "选择成功演示用于训练。",
+            "在训练过程中应用随机裁剪、重缩放和颜色抖动。",
+            "hf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir Cosmos3-DROID",
+            "导入您自己的机器人数据",
+            "将您的数据转换为 LeRobot Dataset v3 格式（包括逐帧相机视频、关节状态、夹爪状态、动作以及任务指令）。",
+            "对于类似 DROID 的 Franka 配置，主要变化在于数据集路径。不同的执行体需要各自独立的实验配置，以定义动作空间、维度、摄像头布局及归一化设置。",
+            "Cosmos 3 支持多种执行体，包括双臂 Franka、UR、WidowX 250 和 LeRobot SO101。请参阅 Cosmos 3 Edge 模型卡片获取执行体列表。",
+            "前置条件",
+            "开始之前，请确认您已具备：",
+            "最新版本的 Cosmos 框架发布包。",
+            "经过验证的训练硬件：搭载 NVIDIA GB200 Grace Blackwell Superchip 或 NVIDIA GB300 Grace Blackwell Ultra Desktop Superchip 的 NVIDIA DGX Station。",
+            "支持的 NVIDIA CUDA 和容器版本：CUDA 13.0 (cu130)，NGC 26.06-py3。",
+            "访问 Cosmos 3 Edge 基础检查点（base checkpoint）。",
+            "访问 Cosmos3-DROID 数据集。",
+            "一个 Hugging Face 访问令牌（access token）。",
+            "这是基础模型的后训练（post-training），而非单 GPU 微调。经验证的运行配置使用 64 个节点，每个节点配备 4× GB200，共进行 60,000 次迭代，耗时约 68 小时（约合 17,400 GB200 小时）。请据此规划计算资源。",
+            "如何运行后训练",
+            "从宏观角度来看，后训练分为四个步骤：",
+            "下载数据集。",
+            "将基础检查点转换为分布式检查点（DCP）格式。",
+            "应用筛选过滤规则。",
+            "启动训练",
+            "# 下载 Cosmos3-DROID 数据集（成功分割部分）\nhf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir /path/to/Cosmos3-DROID\n\n# 将基础检查点转换为 DCP 格式（一次性操作；在 CPU 上运行——仅重新打包权重，不涉及 GPU 数学运算）\npython -m cosmos_framework.scripts.convert_model_to_dcp \\ -o /path/to/Cosmos3-Edge-dcp --checkpoint-path Cosmos3-Edge\n\n# 启动后训练\nbash examples/launch_sft_action_policy_droid_nano.sh",
+            "编辑并启动后训练脚本",
+            "在仓库中找到此文件：",
+            "cosmos_framework/configs/base/experiment/action/posttrain_config/action_policy_droid_nano.py",
+            "该启动器注册了 Cosmos 3 Nano 的训练配方。若要训练 Cosmos 3 Edge，请在启动前进行以下三项修改：",
+            "将 NANO_MODEL_CONFIG 导入替换为 EDGE_MODEL_CONFIG（来自 configs/base/experiment/sft/models/edge_model_config.py）。",
+            "将 BASE_CHECKPOINT_PATH 设置为转换步骤中的 Cosmos 3 Edge DCP 检查点。",
+            "将 examples/launch_sft_action_policy_droid_nano.sh 重命名为 examples/launch_sft_action_policy_droid_edge.sh。",
+            "其他所有内容，包括数据集、动作空间、筛选器和训练计划，均保持不变。",
+            "# 启动后训练\nbash examples/launch_sft_action_policy_droid_edge.sh",
+            "有关最新的端到端说明（包括检查点转换、环境配置和筛选器设置），请参阅 DROID 后训练复现指南和模型卡片。这些资源会随仓库同步更新。",
+            "如何在 Jetson Thor 上部署和运行策略",
+            "该策略由一个遵循 OpenPI 协议的 WebSocket 策略服务器提供服务，该协议与整个 DROID 策略生态系统中使用的协议相同。客户端发送观测字典，服务器返回动作块。对于 Edge 版本，服务器在 Jetson Thor 上原生运行。由于 BF16 格式下权重大小约为 9 GB，可容纳于 Thor 的板载内存中，因此策略服务器和控制客户端均可在机器人上运行，无需数据中心 GPU 参与推理循环。",
+            "在机器人上启动策略服务器",
+            "export HF_TOKEN=<your_hf_token>\n# Thor: 启用 eager 模式；官方 Triton wheel 缺少 sm_110a 内核\nexport TORCHDYNAMO_DISABLE=1\npython -m cosmos_framework.scripts.action_policy_server_robolab \\\n  --checkpoint_path nvidia/Cosmos3-Edge-Policy-DROID \\\n  --port 8000 \\\n  --format-prompt-as-json True\n# 首次启动将下载权重，耗时数分钟；随后执行：\ncurl localhost:8000/healthz   # -> OK",
+            "由于服务器运行在 Thor 上，且 host=\"localhost\"，请求永远不会离开机器人本体。设备端，策略以实时方式运行。这就是 Cosmos Edge 所实现的端侧推理。",
+            "冒烟测试（无需机器人）",
+            "DROID 策略是状态条件化的。这意味着 joint_position 和 gripper_position 是模型的真实输入，而非样板代码。在没有机械臂参与闭环的情况下，零值是诚实的占位符；此次调用仅用于验证服务器是否返回了格式正确的动作块。",
+            "import numpy as np\nfrom PIL import Image\nfrom openpi_client.websocket_client_policy import WebsocketClientPolicy\n\nclient = WebsocketClientPolicy(host=\"localhost\", port=8000)\n\nobservation = {\n    \"prompt\": \"put the marker in the basket\",\n    \"observation/wrist_image_left\": np.asarray(Image.open(\"wrist.jpg\")),\n    \"observation/exterior_image_1_left\": np.asarray(Image.open(\"left.jpg\")),\n    \"observation/exterior_image_2_left\": np.asarray(Image.open(\"right.jpg\")),\n    \"observation/joint_position\": np.zeros(7, dtype=np.float32),   # 仅用于冒烟测试\n    \"observation/gripper_position\": np.float32(0.0),               # 仅用于冒烟测试\n}\nresult = client.infer(observation)\nactions = result[\"action\"]  # [32, 8]: 7 个关节位置 + 夹爪位置，15 Hz",
+            "在机器人上运行",
+            "相同的调用位于重规划循环中。每个周期读取最新的相机图像以及机械臂实测的关节和夹爪位置（替换上述的零值），执行动作块的前缀部分，然后重新发起请求：",
+            "def get_observation():\n    return {\n        \"prompt\": \"put the marker in the basket\",\n        \"observation/wrist_image_left\": read_camera(\"wrist\"),\n        \"observation/exterior_image_1_left\": read_camera(\"left\"),\n        \"observation/exterior_image_2_left\": read_camera(\"right\"),\n        \"observation/joint_position\": robot.joint_positions(),   # REAL, 7 floats\n        \"observation/gripper_position\": robot.gripper_position(),\n    }\n\nwhile not task_done():\n    result = client.infer(get_observation())\n    execute_actions(result[\"action\"][:16], hz=15)   # first 16 of 32, then replan",
+            "仅执行动作序列的前缀并进行重新规划是标准做法：策略每隔几秒会自我修正，且由于它是基于状态条件的，每次重新规划都从机械臂实际所在的位置开始，而不是从前一个动作块所假设的位置开始。在启用视频解码的情况下启动服务器，可以返回策略生成的想象轨迹以及对应的动作，从而让你检查世界模型对其输出的动作块所预测的世界状态。",
+            "在闭环仿真中评估策略",
+            "你不需要实体机器人来验证策略。事实上，建议在直接在物理机器人上评估之前，先在仿真环境中对策略进行评估，以避免意外行为影响开发人员或机器人。RoboLab——即 RoboLab 排行榜背后的 Isaac Lab-Arena 基准测试——是开源的，其客户端连接到相同的策略服务器。它在物理引擎中执行每个动作块，并将渲染后的观测数据流式返回，从而在 120 个语言条件操控任务中实现真正的闭环运行。",
+            "# 克隆 RoboLab 并获取场景资源\ngit clone https://github.com/NVlabs/RoboLab.git && cd RoboLab\ngit lfs pull\n\n# 构建仿真镜像，并向策略服务器运行一个任务\n./docker/build_docker.sh latest\n./docker/run_docker.sh latest\npython policies/cosmos3/run.py --task BananaInBowlTask\n\n# 或者在多个环境中无头运行，以统计成功率\npython policies/cosmos3/run.py --task BananaInBowlTask --num-envs 10 --headless",
+            "将 --task 参数替换为 120 个任务中的任意一个，以全面了解策略行为。每次运行都会生成视口视频、机器人摄像头视频以及成功日志，因此你可以检查最终结果以及产生该结果的轨迹。",
+            "在闭环 RoboLab 评估中，经过后训练的 Edge 策略在整个任务套件中的成功率达到 22.9%。这一成果是在远小于更大规模 Cosmos3 变体（例如 Nano 达到 36.8%）的推理计算量下取得的，这正是 Edge 旨在实现的权衡：在具有竞争力的成功率下，实现实时、完全部署在机器人上的自主能力。",
+            "注意：NVIDIA Isaac Sim 5.x 需要 NVIDIA RTX Server Driver Release 580 或更高版本。在构建之前，请在 RoboLab 和 Isaac Sim 文档中确认受支持的驱动版本。",
+            "超越机器人控制的后训练",
+            "改善机器人控制的后训练技术也适用于其他能力，例如用于机器人训练的合成数据生成。开发人员可以创建专门的 World Model（世界模型），为室内和室外机器人训练生成针对其环境和任务量身定制的高质量合成数据。",
+            "例如，Aigen 对 Cosmos 进行了后训练，以生成多样化的合成作物和杂草变体，使自主除草系统仅使用 1% 的真实世界数据即可实现强大的性能。",
+            "更广泛地说，Cosmos 的开放权重和框架采用 OpenMDW1.1 许可证，使得后训练成为一种强大、灵活且简便的方式，用于为物理 AI 创建专业化、高性能且精确的定制模型。",
+            "开始使用",
+            "下载 Cosmos Edge 策略权重和数据",
+            "参加 8 月 20 日的 Cosmos Labs 直播",
+            "在 Jetson 上探索 Cosmos Edge",
+            "下载 Cosmos 3 检查点",
+            "在 GitHub 上获取代码",
+            "试用 Cosmos 3 Nano Reasoner 和 Cosmos 3 Nano"
+          ],
+          "translated_content": "机器人需要能够适应其传感器、环境和任务的策略，同时这些策略需运行在机载计算硬件上。世界模型为学习物理交互提供了基础，但其庞大的规模可能使设备端部署变得困难。而新的 NVIDIA Cosmos 3 Edge 将改变这一局面。\n\nCosmos 3 Edge 是 Cosmos 3 系列中的一个 4B 全模态模型（包含一个基于 NVIDIA Nemotron 的 2B 推理器）。它与 NVIDIA Cosmos 3 Nano 和 NVIDIA Cosmos 3 Super 使用相同的物理世界数据进行预训练，并同样以物体如何运动和交互为基础进行初始化。此外，该模型足够小巧，可在 NVIDIA Jetson Thor 上进行设备端部署。\n\n你将构建的内容\n\n在本教程结束时，你将拥有一个经过后训练的 Cosmos 3 Edge 操作策略，它可以在 Jetson Thor 上运行，并在闭环仿真中进行评估。\n\n你将学到：\n\n对 Cosmos 3 Edge 进行后训练，以预测机器人的动作。\n\n在 Jetson Thor 上部署生成的策略。\n\n在滚动时域控制循环内执行推理。\n\n在闭环仿真中评估策略行为。\n\n每个步骤均可通过开源的 cosmos-framework 仓库复现，发布的检查点也可在 HuggingFace 上获取。\n\n为什么需要对 Cosmos 3 Edge 进行后训练以实现设备端机器人操作？\n\n世界基础模型在大规模多模态数据集上进行预训练，这些数据捕捉了物体运动和物理交互中的模式，例如物体如何下落、滑动以及对外部接触的响应。Cosmos 原生地基于对物理的理解和预测能力来生成动作。这种先验知识为机器人策略训练提供了一个有用的起点，而不必要求策略从特定任务演示中学习所有的物理关系。\n\n然而，将这些模型部署到实体机器人上会引入两个实际约束：\n\n设备内存：模型及其运行时状态必须适应机器人可用的内存容量。\n\n控制延迟：完整的推理流程必须足够快，以支持机器人所需的控制频率。\n\n经过后处理的 Cosmos 3 Edge 针对上述每个约束进行了优化。生成的策略模型能够适配 Jetson Thor 的内存限制，因此推理直接在机器人上运行，而无需卸载至数据中心的 GPU。\n\n剩下的因素是控制延迟。DROID 动作策略在机器人上实时运行。在 NVIDIA Jetson AGX Thor T5000 上，它以 640×540 分辨率和 15 Hz 的频率运行，每生成一个动作块（action chunk）大约需要 1.53 秒，而单个动作块覆盖约 2.13 秒的机器人运动时间。由于下一个动作块在当前动作块结束前即可就绪，机械臂能够实现连续运动，且整个过程中不涉及数据中心 GPU 参与。该策略通过在每次推理周期后生成动作块并重新规划，实现了持续的端侧流式处理。它并非在每次观测后都进行重新规划。\n\n在闭环 RoboLab 任务中，经过后训练的模型达到了 22.9% 的成功率。综合这些结果表明，40 亿参数的世界基础模型可以作为实用、实时且端侧部署的策略骨干网络。该模型可适配于 Jetson AGX Thor，并完全在机器人上运行。\n\n策略训练使用什么数据？\n\n本教程发布的策略基于 nvidia/Cosmos3-DROID 数据集进行训练。该数据集包含 76,000 条成功的遥操作轨迹，涵盖约 350 小时的数据，涉及 86 项任务和 564 个场景，由 Franka Panda 机械臂和 Robotiq 夹爪采集而成。\n\n该数据集以 LeRobotDataset v3.0 格式打包，分辨率为 640 × 360。需分三个阶段准备：\n\n过滤空闲帧和非任务帧。\n\n选择成功演示用于训练。\n\n在训练过程中应用随机裁剪、重缩放和颜色抖动。\n\nhf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir Cosmos3-DROID\n\n导入您自己的机器人数据\n\n将您的数据转换为 LeRobot Dataset v3 格式（包括逐帧相机视频、关节状态、夹爪状态、动作以及任务指令）。\n\n对于类似 DROID 的 Franka 配置，主要变化在于数据集路径。不同的执行体需要各自独立的实验配置，以定义动作空间、维度、摄像头布局及归一化设置。\n\nCosmos 3 支持多种执行体，包括双臂 Franka、UR、WidowX 250 和 LeRobot SO101。请参阅 Cosmos 3 Edge 模型卡片获取执行体列表。\n\n前置条件\n\n开始之前，请确认您已具备：\n\n最新版本的 Cosmos 框架发布包。\n\n经过验证的训练硬件：搭载 NVIDIA GB200 Grace Blackwell Superchip 或 NVIDIA GB300 Grace Blackwell Ultra Desktop Superchip 的 NVIDIA DGX Station。\n\n支持的 NVIDIA CUDA 和容器版本：CUDA 13.0 (cu130)，NGC 26.06-py3。\n\n访问 Cosmos 3 Edge 基础检查点（base checkpoint）。\n\n访问 Cosmos3-DROID 数据集。\n\n一个 Hugging Face 访问令牌（access token）。\n\n这是基础模型的后训练（post-training），而非单 GPU 微调。经验证的运行配置使用 64 个节点，每个节点配备 4× GB200，共进行 60,000 次迭代，耗时约 68 小时（约合 17,400 GB200 小时）。请据此规划计算资源。\n\n如何运行后训练\n\n从宏观角度来看，后训练分为四个步骤：\n\n下载数据集。\n\n将基础检查点转换为分布式检查点（DCP）格式。\n\n应用筛选过滤规则。\n\n启动训练\n\n# 下载 Cosmos3-DROID 数据集（成功分割部分）\nhf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir /path/to/Cosmos3-DROID\n\n# 将基础检查点转换为 DCP 格式（一次性操作；在 CPU 上运行——仅重新打包权重，不涉及 GPU 数学运算）\npython -m cosmos_framework.scripts.convert_model_to_dcp \\ -o /path/to/Cosmos3-Edge-dcp --checkpoint-path Cosmos3-Edge\n\n# 启动后训练\nbash examples/launch_sft_action_policy_droid_nano.sh\n\n编辑并启动后训练脚本\n\n在仓库中找到此文件：\n\ncosmos_framework/configs/base/experiment/action/posttrain_config/action_policy_droid_nano.py\n\n该启动器注册了 Cosmos 3 Nano 的训练配方。若要训练 Cosmos 3 Edge，请在启动前进行以下三项修改：\n\n将 NANO_MODEL_CONFIG 导入替换为 EDGE_MODEL_CONFIG（来自 configs/base/experiment/sft/models/edge_model_config.py）。\n\n将 BASE_CHECKPOINT_PATH 设置为转换步骤中的 Cosmos 3 Edge DCP 检查点。\n\n将 examples/launch_sft_action_policy_droid_nano.sh 重命名为 examples/launch_sft_action_policy_droid_edge.sh。\n\n其他所有内容，包括数据集、动作空间、筛选器和训练计划，均保持不变。\n\n# 启动后训练\nbash examples/launch_sft_action_policy_droid_edge.sh\n\n有关最新的端到端说明（包括检查点转换、环境配置和筛选器设置），请参阅 DROID 后训练复现指南和模型卡片。这些资源会随仓库同步更新。\n\n如何在 Jetson Thor 上部署和运行策略\n\n该策略由一个遵循 OpenPI 协议的 WebSocket 策略服务器提供服务，该协议与整个 DROID 策略生态系统中使用的协议相同。客户端发送观测字典，服务器返回动作块。对于 Edge 版本，服务器在 Jetson Thor 上原生运行。由于 BF16 格式下权重大小约为 9 GB，可容纳于 Thor 的板载内存中，因此策略服务器和控制客户端均可在机器人上运行，无需数据中心 GPU 参与推理循环。\n\n在机器人上启动策略服务器\n\nexport HF_TOKEN=<your_hf_token>\n# Thor: 启用 eager 模式；官方 Triton wheel 缺少 sm_110a 内核\nexport TORCHDYNAMO_DISABLE=1\npython -m cosmos_framework.scripts.action_policy_server_robolab \\\n  --checkpoint_path nvidia/Cosmos3-Edge-Policy-DROID \\\n  --port 8000 \\\n  --format-prompt-as-json True\n# 首次启动将下载权重，耗时数分钟；随后执行：\ncurl localhost:8000/healthz   # -> OK\n\n由于服务器运行在 Thor 上，且 host=\"localhost\"，请求永远不会离开机器人本体。设备端，策略以实时方式运行。这就是 Cosmos Edge 所实现的端侧推理。\n\n冒烟测试（无需机器人）\n\nDROID 策略是状态条件化的。这意味着 joint_position 和 gripper_position 是模型的真实输入，而非样板代码。在没有机械臂参与闭环的情况下，零值是诚实的占位符；此次调用仅用于验证服务器是否返回了格式正确的动作块。\n\nimport numpy as np\nfrom PIL import Image\nfrom openpi_client.websocket_client_policy import WebsocketClientPolicy\n\nclient = WebsocketClientPolicy(host=\"localhost\", port=8000)\n\nobservation = {\n    \"prompt\": \"put the marker in the basket\",\n    \"observation/wrist_image_left\": np.asarray(Image.open(\"wrist.jpg\")),\n    \"observation/exterior_image_1_left\": np.asarray(Image.open(\"left.jpg\")),\n    \"observation/exterior_image_2_left\": np.asarray(Image.open(\"right.jpg\")),\n    \"observation/joint_position\": np.zeros(7, dtype=np.float32),   # 仅用于冒烟测试\n    \"observation/gripper_position\": np.float32(0.0),               # 仅用于冒烟测试\n}\nresult = client.infer(observation)\nactions = result[\"action\"]  # [32, 8]: 7 个关节位置 + 夹爪位置，15 Hz\n\n在机器人上运行\n\n相同的调用位于重规划循环中。每个周期读取最新的相机图像以及机械臂实测的关节和夹爪位置（替换上述的零值），执行动作块的前缀部分，然后重新发起请求：\n\ndef get_observation():\n    return {\n        \"prompt\": \"put the marker in the basket\",\n        \"observation/wrist_image_left\": read_camera(\"wrist\"),\n        \"observation/exterior_image_1_left\": read_camera(\"left\"),\n        \"observation/exterior_image_2_left\": read_camera(\"right\"),\n        \"observation/joint_position\": robot.joint_positions(),   # REAL, 7 floats\n        \"observation/gripper_position\": robot.gripper_position(),\n    }\n\nwhile not task_done():\n    result = client.infer(get_observation())\n    execute_actions(result[\"action\"][:16], hz=15)   # first 16 of 32, then replan\n\n仅执行动作序列的前缀并进行重新规划是标准做法：策略每隔几秒会自我修正，且由于它是基于状态条件的，每次重新规划都从机械臂实际所在的位置开始，而不是从前一个动作块所假设的位置开始。在启用视频解码的情况下启动服务器，可以返回策略生成的想象轨迹以及对应的动作，从而让你检查世界模型对其输出的动作块所预测的世界状态。\n\n在闭环仿真中评估策略\n\n你不需要实体机器人来验证策略。事实上，建议在直接在物理机器人上评估之前，先在仿真环境中对策略进行评估，以避免意外行为影响开发人员或机器人。RoboLab——即 RoboLab 排行榜背后的 Isaac Lab-Arena 基准测试——是开源的，其客户端连接到相同的策略服务器。它在物理引擎中执行每个动作块，并将渲染后的观测数据流式返回，从而在 120 个语言条件操控任务中实现真正的闭环运行。\n\n# 克隆 RoboLab 并获取场景资源\ngit clone https://github.com/NVlabs/RoboLab.git && cd RoboLab\ngit lfs pull\n\n# 构建仿真镜像，并向策略服务器运行一个任务\n./docker/build_docker.sh latest\n./docker/run_docker.sh latest\npython policies/cosmos3/run.py --task BananaInBowlTask\n\n# 或者在多个环境中无头运行，以统计成功率\npython policies/cosmos3/run.py --task BananaInBowlTask --num-envs 10 --headless\n\n将 --task 参数替换为 120 个任务中的任意一个，以全面了解策略行为。每次运行都会生成视口视频、机器人摄像头视频以及成功日志，因此你可以检查最终结果以及产生该结果的轨迹。\n\n在闭环 RoboLab 评估中，经过后训练的 Edge 策略在整个任务套件中的成功率达到 22.9%。这一成果是在远小于更大规模 Cosmos3 变体（例如 Nano 达到 36.8%）的推理计算量下取得的，这正是 Edge 旨在实现的权衡：在具有竞争力的成功率下，实现实时、完全部署在机器人上的自主能力。\n\n注意：NVIDIA Isaac Sim 5.x 需要 NVIDIA RTX Server Driver Release 580 或更高版本。在构建之前，请在 RoboLab 和 Isaac Sim 文档中确认受支持的驱动版本。\n\n超越机器人控制的后训练\n\n改善机器人控制的后训练技术也适用于其他能力，例如用于机器人训练的合成数据生成。开发人员可以创建专门的 World Model（世界模型），为室内和室外机器人训练生成针对其环境和任务量身定制的高质量合成数据。\n\n例如，Aigen 对 Cosmos 进行了后训练，以生成多样化的合成作物和杂草变体，使自主除草系统仅使用 1% 的真实世界数据即可实现强大的性能。\n\n更广泛地说，Cosmos 的开放权重和框架采用 OpenMDW1.1 许可证，使得后训练成为一种强大、灵活且简便的方式，用于为物理 AI 创建专业化、高性能且精确的定制模型。\n\n开始使用\n\n下载 Cosmos Edge 策略权重和数据\n\n参加 8 月 20 日的 Cosmos Labs 直播\n\n在 Jetson 上探索 Cosmos Edge\n\n下载 Cosmos 3 检查点\n\n在 GitHub 上获取代码\n\n试用 Cosmos 3 Nano Reasoner 和 Cosmos 3 Nano",
+          "translated_blocks": [
+            {
+              "type": "byline",
+              "author": {
+                "name": "Michelle Horton",
+                "url": "https://developer.nvidia.com/blog/author/mhorton/"
+              },
+              "published_at": "2026-08-19T16:00:00+00:00",
+              "source": {
+                "name": "NVIDIA Technical Blog"
+              }
+            },
+            {
+              "type": "paragraph",
+              "text": "机器人需要能够适应其传感器、环境和任务的策略，同时这些策略需运行在机载计算硬件上。世界模型为学习物理交互提供了基础，但其庞大的规模可能使设备端部署变得困难。而新的 NVIDIA Cosmos 3 Edge 将改变这一局面。"
+            },
+            {
+              "type": "paragraph",
+              "text": "Cosmos 3 Edge 是 Cosmos 3 系列中的一个 4B 全模态模型（包含一个基于 NVIDIA Nemotron 的 2B 推理器）。它与 NVIDIA Cosmos 3 Nano 和 NVIDIA Cosmos 3 Super 使用相同的物理世界数据进行预训练，并同样以物体如何运动和交互为基础进行初始化。此外，该模型足够小巧，可在 NVIDIA Jetson Thor 上进行设备端部署。"
+            },
+            {
+              "type": "heading",
+              "level": 2,
+              "text": "你将构建的内容"
+            },
+            {
+              "type": "paragraph",
+              "text": "在本教程结束时，你将拥有一个经过后训练的 Cosmos 3 Edge 操作策略，它可以在 Jetson Thor 上运行，并在闭环仿真中进行评估。"
+            },
+            {
+              "type": "paragraph",
+              "text": "你将学到："
+            },
+            {
+              "type": "list",
+              "ordered": true,
+              "items": [
+                {
+                  "text": "对 Cosmos 3 Edge 进行后训练，以预测机器人的动作。"
+                },
+                {
+                  "text": "在 Jetson Thor 上部署生成的策略。"
+                },
+                {
+                  "text": "在滚动时域控制循环内执行推理。"
+                },
+                {
+                  "text": "在闭环仿真中评估策略行为。"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "text": "每个步骤均可通过开源的 cosmos-framework 仓库复现，发布的检查点也可在 HuggingFace 上获取。"
+            },
+            {
+              "type": "video",
+              "provider": "file",
+              "url": "https://developer.download.nvidia.com/video/devblog/Cosmos3-Robot.mp4",
+              "mime_type": "video/mp4",
+              "caption": "Video 1. How to post-train NVIDIA Cosmos 3 Edge into an on-device robot policy"
+            },
+            {
+              "type": "heading",
+              "level": 2,
+              "text": "为什么需要对 Cosmos 3 Edge 进行后训练以实现设备端机器人操作？"
+            },
+            {
+              "type": "paragraph",
+              "text": "世界基础模型在大规模多模态数据集上进行预训练，这些数据捕捉了物体运动和物理交互中的模式，例如物体如何下落、滑动以及对外部接触的响应。Cosmos 原生地基于对物理的理解和预测能力来生成动作。这种先验知识为机器人策略训练提供了一个有用的起点，而不必要求策略从特定任务演示中学习所有的物理关系。"
+            },
+            {
+              "type": "paragraph",
+              "text": "然而，将这些模型部署到实体机器人上会引入两个实际约束："
+            },
+            {
+              "type": "list",
+              "ordered": false,
+              "items": [
+                {
+                  "text": "设备内存：模型及其运行时状态必须适应机器人可用的内存容量。"
+                },
+                {
+                  "text": "控制延迟：完整的推理流程必须足够快，以支持机器人所需的控制频率。"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "text": "经过后处理的 Cosmos 3 Edge 针对上述每个约束进行了优化。生成的策略模型能够适配 Jetson Thor 的内存限制，因此推理直接在机器人上运行，而无需卸载至数据中心的 GPU。"
+            },
+            {
+              "type": "paragraph",
+              "text": "剩下的因素是控制延迟。DROID 动作策略在机器人上实时运行。在 NVIDIA Jetson AGX Thor T5000 上，它以 640×540 分辨率和 15 Hz 的频率运行，每生成一个动作块（action chunk）大约需要 1.53 秒，而单个动作块覆盖约 2.13 秒的机器人运动时间。由于下一个动作块在当前动作块结束前即可就绪，机械臂能够实现连续运动，且整个过程中不涉及数据中心 GPU 参与。该策略通过在每次推理周期后生成动作块并重新规划，实现了持续的端侧流式处理。它并非在每次观测后都进行重新规划。"
+            },
+            {
+              "type": "paragraph",
+              "text": "在闭环 RoboLab 任务中，经过后训练的模型达到了 22.9% 的成功率。综合这些结果表明，40 亿参数的世界基础模型可以作为实用、实时且端侧部署的策略骨干网络。该模型可适配于 Jetson AGX Thor，并完全在机器人上运行。"
+            },
+            {
+              "type": "heading",
+              "level": 2,
+              "text": "策略训练使用什么数据？"
+            },
+            {
+              "type": "paragraph",
+              "text": "本教程发布的策略基于 nvidia/Cosmos3-DROID 数据集进行训练。该数据集包含 76,000 条成功的遥操作轨迹，涵盖约 350 小时的数据，涉及 86 项任务和 564 个场景，由 Franka Panda 机械臂和 Robotiq 夹爪采集而成。"
+            },
+            {
+              "type": "paragraph",
+              "text": "该数据集以 LeRobotDataset v3.0 格式打包，分辨率为 640 × 360。需分三个阶段准备："
+            },
+            {
+              "type": "list",
+              "ordered": false,
+              "items": [
+                {
+                  "text": "过滤空闲帧和非任务帧。"
+                },
+                {
+                  "text": "选择成功演示用于训练。"
+                },
+                {
+                  "text": "在训练过程中应用随机裁剪、重缩放和颜色抖动。"
+                }
+              ]
+            },
+            {
+              "type": "code",
+              "text": "hf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir Cosmos3-DROID"
+            },
+            {
+              "type": "heading",
+              "level": 2,
+              "text": "导入您自己的机器人数据"
+            },
+            {
+              "type": "paragraph",
+              "text": "将您的数据转换为 LeRobot Dataset v3 格式（包括逐帧相机视频、关节状态、夹爪状态、动作以及任务指令）。"
+            },
+            {
+              "type": "paragraph",
+              "text": "对于类似 DROID 的 Franka 配置，主要变化在于数据集路径。不同的执行体需要各自独立的实验配置，以定义动作空间、维度、摄像头布局及归一化设置。"
+            },
+            {
+              "type": "paragraph",
+              "text": "Cosmos 3 支持多种执行体，包括双臂 Franka、UR、WidowX 250 和 LeRobot SO101。请参阅 Cosmos 3 Edge 模型卡片获取执行体列表。"
+            },
+            {
+              "type": "heading",
+              "level": 3,
+              "text": "前置条件"
+            },
+            {
+              "type": "paragraph",
+              "text": "开始之前，请确认您已具备："
+            },
+            {
+              "type": "list",
+              "ordered": false,
+              "items": [
+                {
+                  "text": "最新版本的 Cosmos 框架发布包。"
+                },
+                {
+                  "text": "经过验证的训练硬件：搭载 NVIDIA GB200 Grace Blackwell Superchip 或 NVIDIA GB300 Grace Blackwell Ultra Desktop Superchip 的 NVIDIA DGX Station。"
+                },
+                {
+                  "text": "支持的 NVIDIA CUDA 和容器版本：CUDA 13.0 (cu130)，NGC 26.06-py3。"
+                },
+                {
+                  "text": "访问 Cosmos 3 Edge 基础检查点（base checkpoint）。"
+                },
+                {
+                  "text": "访问 Cosmos3-DROID 数据集。"
+                },
+                {
+                  "text": "一个 Hugging Face 访问令牌（access token）。"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "text": "这是基础模型的后训练（post-training），而非单 GPU 微调。经验证的运行配置使用 64 个节点，每个节点配备 4× GB200，共进行 60,000 次迭代，耗时约 68 小时（约合 17,400 GB200 小时）。请据此规划计算资源。"
+            },
+            {
+              "type": "heading",
+              "level": 3,
+              "text": "如何运行后训练"
+            },
+            {
+              "type": "paragraph",
+              "text": "从宏观角度来看，后训练分为四个步骤："
+            },
+            {
+              "type": "list",
+              "ordered": true,
+              "items": [
+                {
+                  "text": "下载数据集。"
+                },
+                {
+                  "text": "将基础检查点转换为分布式检查点（DCP）格式。"
+                },
+                {
+                  "text": "应用筛选过滤规则。"
+                },
+                {
+                  "text": "启动训练"
+                }
+              ]
+            },
+            {
+              "type": "code",
+              "text": "# 下载 Cosmos3-DROID 数据集（成功分割部分）\nhf download nvidia/Cosmos3-DROID --repo-type dataset --local-dir /path/to/Cosmos3-DROID\n\n# 将基础检查点转换为 DCP 格式（一次性操作；在 CPU 上运行——仅重新打包权重，不涉及 GPU 数学运算）\npython -m cosmos_framework.scripts.convert_model_to_dcp \\ -o /path/to/Cosmos3-Edge-dcp --checkpoint-path Cosmos3-Edge\n\n# 启动后训练\nbash examples/launch_sft_action_policy_droid_nano.sh"
+            },
+            {
+              "type": "heading",
+              "level": 3,
+              "text": "编辑并启动后训练脚本"
+            },
+            {
+              "type": "paragraph",
+              "text": "在仓库中找到此文件："
+            },
+            {
+              "type": "code",
+              "text": "cosmos_framework/configs/base/experiment/action/posttrain_config/action_policy_droid_nano.py"
+            },
+            {
+              "type": "paragraph",
+              "text": "该启动器注册了 Cosmos 3 Nano 的训练配方。若要训练 Cosmos 3 Edge，请在启动前进行以下三项修改："
+            },
+            {
+              "type": "list",
+              "ordered": false,
+              "items": [
+                {
+                  "text": "将 NANO_MODEL_CONFIG 导入替换为 EDGE_MODEL_CONFIG（来自 configs/base/experiment/sft/models/edge_model_config.py）。"
+                },
+                {
+                  "text": "将 BASE_CHECKPOINT_PATH 设置为转换步骤中的 Cosmos 3 Edge DCP 检查点。"
+                },
+                {
+                  "text": "将 examples/launch_sft_action_policy_droid_nano.sh 重命名为 examples/launch_sft_action_policy_droid_edge.sh。"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "text": "其他所有内容，包括数据集、动作空间、筛选器和训练计划，均保持不变。"
+            },
+            {
+              "type": "code",
+              "text": "# 启动后训练\nbash examples/launch_sft_action_policy_droid_edge.sh"
+            },
+            {
+              "type": "paragraph",
+              "text": "有关最新的端到端说明（包括检查点转换、环境配置和筛选器设置），请参阅 DROID 后训练复现指南和模型卡片。这些资源会随仓库同步更新。"
+            },
+            {
+              "type": "heading",
+              "level": 3,
+              "text": "如何在 Jetson Thor 上部署和运行策略"
+            },
+            {
+              "type": "paragraph",
+              "text": "该策略由一个遵循 OpenPI 协议的 WebSocket 策略服务器提供服务，该协议与整个 DROID 策略生态系统中使用的协议相同。客户端发送观测字典，服务器返回动作块。对于 Edge 版本，服务器在 Jetson Thor 上原生运行。由于 BF16 格式下权重大小约为 9 GB，可容纳于 Thor 的板载内存中，因此策略服务器和控制客户端均可在机器人上运行，无需数据中心 GPU 参与推理循环。"
+            },
+            {
+              "type": "paragraph",
+              "text": "在机器人上启动策略服务器"
+            },
+            {
+              "type": "code",
+              "text": "export HF_TOKEN=<your_hf_token>\n# Thor: 启用 eager 模式；官方 Triton wheel 缺少 sm_110a 内核\nexport TORCHDYNAMO_DISABLE=1\npython -m cosmos_framework.scripts.action_policy_server_robolab \\\n  --checkpoint_path nvidia/Cosmos3-Edge-Policy-DROID \\\n  --port 8000 \\\n  --format-prompt-as-json True\n# 首次启动将下载权重，耗时数分钟；随后执行：\ncurl localhost:8000/healthz   # -> OK"
+            },
+            {
+              "type": "paragraph",
+              "text": "由于服务器运行在 Thor 上，且 host=\"localhost\"，请求永远不会离开机器人本体。设备端，策略以实时方式运行。这就是 Cosmos Edge 所实现的端侧推理。"
+            },
+            {
+              "type": "heading",
+              "level": 3,
+              "text": "冒烟测试（无需机器人）"
+            },
+            {
+              "type": "paragraph",
+              "text": "DROID 策略是状态条件化的。这意味着 joint_position 和 gripper_position 是模型的真实输入，而非样板代码。在没有机械臂参与闭环的情况下，零值是诚实的占位符；此次调用仅用于验证服务器是否返回了格式正确的动作块。"
+            },
+            {
+              "type": "code",
+              "text": "import numpy as np\nfrom PIL import Image\nfrom openpi_client.websocket_client_policy import WebsocketClientPolicy\n\nclient = WebsocketClientPolicy(host=\"localhost\", port=8000)\n\nobservation = {\n    \"prompt\": \"put the marker in the basket\",\n    \"observation/wrist_image_left\": np.asarray(Image.open(\"wrist.jpg\")),\n    \"observation/exterior_image_1_left\": np.asarray(Image.open(\"left.jpg\")),\n    \"observation/exterior_image_2_left\": np.asarray(Image.open(\"right.jpg\")),\n    \"observation/joint_position\": np.zeros(7, dtype=np.float32),   # 仅用于冒烟测试\n    \"observation/gripper_position\": np.float32(0.0),               # 仅用于冒烟测试\n}\nresult = client.infer(observation)\nactions = result[\"action\"]  # [32, 8]: 7 个关节位置 + 夹爪位置，15 Hz"
+            },
+            {
+              "type": "heading",
+              "level": 3,
+              "text": "在机器人上运行"
+            },
+            {
+              "type": "paragraph",
+              "text": "相同的调用位于重规划循环中。每个周期读取最新的相机图像以及机械臂实测的关节和夹爪位置（替换上述的零值），执行动作块的前缀部分，然后重新发起请求："
+            },
+            {
+              "type": "code",
+              "text": "def get_observation():\n    return {\n        \"prompt\": \"put the marker in the basket\",\n        \"observation/wrist_image_left\": read_camera(\"wrist\"),\n        \"observation/exterior_image_1_left\": read_camera(\"left\"),\n        \"observation/exterior_image_2_left\": read_camera(\"right\"),\n        \"observation/joint_position\": robot.joint_positions(),   # REAL, 7 floats\n        \"observation/gripper_position\": robot.gripper_position(),\n    }\n\nwhile not task_done():\n    result = client.infer(get_observation())\n    execute_actions(result[\"action\"][:16], hz=15)   # first 16 of 32, then replan"
+            },
+            {
+              "type": "paragraph",
+              "text": "仅执行动作序列的前缀并进行重新规划是标准做法：策略每隔几秒会自我修正，且由于它是基于状态条件的，每次重新规划都从机械臂实际所在的位置开始，而不是从前一个动作块所假设的位置开始。在启用视频解码的情况下启动服务器，可以返回策略生成的想象轨迹以及对应的动作，从而让你检查世界模型对其输出的动作块所预测的世界状态。"
+            },
+            {
+              "type": "heading",
+              "level": 3,
+              "text": "在闭环仿真中评估策略"
+            },
+            {
+              "type": "paragraph",
+              "text": "你不需要实体机器人来验证策略。事实上，建议在直接在物理机器人上评估之前，先在仿真环境中对策略进行评估，以避免意外行为影响开发人员或机器人。RoboLab——即 RoboLab 排行榜背后的 Isaac Lab-Arena 基准测试——是开源的，其客户端连接到相同的策略服务器。它在物理引擎中执行每个动作块，并将渲染后的观测数据流式返回，从而在 120 个语言条件操控任务中实现真正的闭环运行。"
+            },
+            {
+              "type": "code",
+              "text": "# 克隆 RoboLab 并获取场景资源\ngit clone https://github.com/NVlabs/RoboLab.git && cd RoboLab\ngit lfs pull\n\n# 构建仿真镜像，并向策略服务器运行一个任务\n./docker/build_docker.sh latest\n./docker/run_docker.sh latest\npython policies/cosmos3/run.py --task BananaInBowlTask\n\n# 或者在多个环境中无头运行，以统计成功率\npython policies/cosmos3/run.py --task BananaInBowlTask --num-envs 10 --headless"
+            },
+            {
+              "type": "paragraph",
+              "text": "将 --task 参数替换为 120 个任务中的任意一个，以全面了解策略行为。每次运行都会生成视口视频、机器人摄像头视频以及成功日志，因此你可以检查最终结果以及产生该结果的轨迹。"
+            },
+            {
+              "type": "paragraph",
+              "text": "在闭环 RoboLab 评估中，经过后训练的 Edge 策略在整个任务套件中的成功率达到 22.9%。这一成果是在远小于更大规模 Cosmos3 变体（例如 Nano 达到 36.8%）的推理计算量下取得的，这正是 Edge 旨在实现的权衡：在具有竞争力的成功率下，实现实时、完全部署在机器人上的自主能力。"
+            },
+            {
+              "type": "paragraph",
+              "text": "注意：NVIDIA Isaac Sim 5.x 需要 NVIDIA RTX Server Driver Release 580 或更高版本。在构建之前，请在 RoboLab 和 Isaac Sim 文档中确认受支持的驱动版本。"
+            },
+            {
+              "type": "heading",
+              "level": 2,
+              "text": "超越机器人控制的后训练"
+            },
+            {
+              "type": "paragraph",
+              "text": "改善机器人控制的后训练技术也适用于其他能力，例如用于机器人训练的合成数据生成。开发人员可以创建专门的 World Model（世界模型），为室内和室外机器人训练生成针对其环境和任务量身定制的高质量合成数据。"
+            },
+            {
+              "type": "paragraph",
+              "text": "例如，Aigen 对 Cosmos 进行了后训练，以生成多样化的合成作物和杂草变体，使自主除草系统仅使用 1% 的真实世界数据即可实现强大的性能。"
+            },
+            {
+              "type": "paragraph",
+              "text": "更广泛地说，Cosmos 的开放权重和框架采用 OpenMDW1.1 许可证，使得后训练成为一种强大、灵活且简便的方式，用于为物理 AI 创建专业化、高性能且精确的定制模型。"
+            },
+            {
+              "type": "heading",
+              "level": 2,
+              "text": "开始使用"
+            },
+            {
+              "type": "list",
+              "ordered": false,
+              "items": [
+                {
+                  "text": "下载 Cosmos Edge 策略权重和数据"
+                },
+                {
+                  "text": "参加 8 月 20 日的 Cosmos Labs 直播"
+                },
+                {
+                  "text": "在 Jetson 上探索 Cosmos Edge"
+                },
+                {
+                  "text": "下载 Cosmos 3 检查点"
+                },
+                {
+                  "text": "在 GitHub 上获取代码"
+                },
+                {
+                  "text": "试用 Cosmos 3 Nano Reasoner 和 Cosmos 3 Nano"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "article_count": 1
+  },
+  "article_count": 1,
+  "status": "generated"
+}

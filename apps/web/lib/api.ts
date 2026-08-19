@@ -386,6 +386,8 @@ export type PeriodReport = {
   mainline_title?: string;
   mainline_body?: string;
   theme_notes?: PeriodThemeNote[];
+  /** generated=AI 写成；fallback=从没写成过，正文是确定性兜底文案；
+   *  stale=素材更新了但这轮没写成，保留的是上一版真 AI 正文，下轮会重写 */
   summary_status?: string;
   /** 非空表示本期已封版定稿；空则期次进行中，文字和名单都可能再变 */
   finalized_at?: string | null;

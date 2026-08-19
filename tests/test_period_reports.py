@@ -839,3 +839,195 @@ class MonthlyTrendEvidenceTests(unittest.TestCase):
         self.assertEqual(len(report["theme_notes"]), 1)
         self.assertEqual(report["theme_notes"][0]["note"], "论述还在")
         self.assertEqual(report["theme_notes"][0]["event_ids"], [])
+
+
+class WeeklyCapRegressionTests(unittest.TestCase):
+    """2026-08-19 对抗性审查确认的缺陷：`multi[:WEEKLY_ITEM_CAP]` 把多信源
+    截断在 40，且保底/补足都对着同一个名额计数。2026-08-10 那周实测 48 条
+    多信源——8 条被静默丢弃，名额占满还让保底整体失效。"""
+
+    def test_every_multi_source_item_survives_beyond_the_cap(self):
+        from app.services.period_summary_service import (
+            WEEKLY_ITEM_CAP,
+            select_period_items,
+        )
+
+        items = [
+            make_item(f"多信源{i:02d}", score=90.0 - i * 0.1, source_count=2)
+            for i in range(WEEKLY_ITEM_CAP + 8)
+        ]
+        selected = select_period_items("weekly", items)
+
+        self.assertEqual(len(selected), WEEKLY_ITEM_CAP + 8)
+        self.assertIn("多信源47", [item["title"] for item in selected])
+
+    def test_category_floor_still_applies_when_multi_source_fills_the_cap(self):
+        """多信源占满名额时，小分类的保底不能跟着消失——那正是保底要防的。"""
+        from app.services.period_summary_service import (
+            WEEKLY_CATEGORY_FLOOR,
+            WEEKLY_ITEM_CAP,
+            select_period_items,
+        )
+
+        items = [
+            make_item(f"大类{i:02d}", score=90.0 - i * 0.1, source_count=2, category="model")
+            for i in range(WEEKLY_ITEM_CAP + 5)
+        ] + [
+            make_item("小类甲", score=5.0, category="policy"),
+            make_item("小类乙", score=4.0, category="policy"),
+            make_item("小类丙", score=3.0, category="policy"),
+        ]
+        selected = select_period_items("weekly", items)
+
+        titles = [item["title"] for item in selected]
+        self.assertIn("小类甲", titles)
+        self.assertIn("小类乙", titles)
+        # 保底只保底，不是把小分类全收
+        self.assertNotIn("小类丙", titles)
+        policy = [item for item in selected if item["category"] == "policy"]
+        self.assertEqual(len(policy), WEEKLY_CATEGORY_FLOOR)
+
+    def test_single_source_backfill_still_respects_the_cap(self):
+        """cap 依然约束最后那步：多信源少的一周，名单不该超出目标规模。"""
+        from app.services.period_summary_service import (
+            WEEKLY_ITEM_CAP,
+            select_period_items,
+        )
+
+        items = [make_item(f"单信源{i:02d}", score=90.0 - i * 0.1) for i in range(60)]
+        selected = select_period_items("weekly", items)
+
+        self.assertEqual(len(selected), WEEKLY_ITEM_CAP)
+
+    def test_summary_input_covers_the_whole_selection_past_forty(self):
+        """AI 输入必须是名单本身：名单超过 40 时综述不能只看到前 40 条。"""
+        from app.services.period_summary_service import _summary_input, select_period_items
+
+        items = [
+            make_item(f"多信源{i:02d}", score=90.0 - i * 0.1, source_count=2)
+            for i in range(48)
+        ]
+        selected = select_period_items("weekly", items)
+        built = _summary_input("weekly", selected)
+
+        self.assertEqual(len(built["mainline_events"]), 48)
+
+    def test_oversized_input_drops_whole_items_and_stays_valid_json(self):
+        """预算裁剪按整条丢弃——字符级截断会送出非法 JSON。"""
+        import json as json_module
+
+        from app.services.period_summary_service import (
+            SUMMARY_INPUT_CHAR_BUDGET,
+            _summary_input,
+        )
+
+        bloated = [
+            make_item(f"事件{i:02d}", score=90.0 - i * 0.1, source_count=2, summary="摘" * 200)
+            for i in range(80)
+        ]
+        for item in bloated:
+            item["title"] = item["title"] + "长" * 200
+
+        built = _summary_input("monthly", bloated)
+        dumped = json_module.dumps(built, ensure_ascii=False)
+
+        self.assertLessEqual(len(dumped), SUMMARY_INPUT_CHAR_BUDGET)
+        # 合法 JSON，且丢的是尾部整条而不是半个字符串
+        self.assertEqual(json_module.loads(dumped), built)
+        self.assertLess(len(built["events"]), 80)
+        self.assertEqual(built["events"][0]["title"], bloated[0]["title"][:80])
+
+
+class FailureKeepsPublishedTextTests(unittest.TestCase):
+    """AI 失败不得让读者看到的内容变差：已经写出来过的正文要留住，
+    只有从没写出来过才用兜底文案占位。"""
+
+    def _boom(self):
+        class BoomProvider(FakeAIProvider):
+            def summarize_period(self, summary_input, kind, range_label):
+                raise RuntimeError("provider down")
+
+        return BoomProvider()
+
+    def test_failure_keeps_the_stored_generated_text_as_stale(self):
+        items = [make_item("事件A", source_count=2)]
+        good = build_period_report(
+            kind="weekly",
+            anchor=date(2026, 7, 10),
+            items=items,
+            report_dates=["2026-07-10"],
+            ai_provider=CountingProvider(),
+        )
+        self.assertEqual(good["status"], "generated")
+
+        # 素材变了（digest 失效必然重新调用），而 provider 挂了
+        degraded = build_period_report(
+            kind="weekly",
+            anchor=date(2026, 7, 10),
+            items=items + [make_item("新事件", source_count=2)],
+            report_dates=["2026-07-10"],
+            ai_provider=self._boom(),
+            previous=good,
+        )
+
+        self.assertEqual(degraded["status"], "stale")
+        self.assertEqual(degraded["mainline_body"], good["mainline_body"])
+        self.assertNotIn("生成失败", degraded["mainline_body"])
+        # 指纹不留，下一轮必然重试
+        self.assertIsNone(degraded["summary_digest"])
+        # 快照仍跟上新素材
+        self.assertEqual(degraded["article_count"], 2)
+
+    def test_stale_is_never_finalized(self):
+        good = build_period_report(
+            kind="weekly",
+            anchor=date(2026, 7, 10),
+            items=[make_item("事件A", source_count=2)],
+            report_dates=["2026-07-10"],
+            ai_provider=CountingProvider(),
+        )
+        degraded = build_period_report(
+            kind="weekly",
+            anchor=date(2026, 7, 10),
+            items=[make_item("事件A", source_count=2), make_item("新事件", source_count=2)],
+            report_dates=["2026-07-10"],
+            ai_provider=self._boom(),
+            previous=good,
+            finalize=True,
+        )
+
+        self.assertEqual(degraded["status"], "stale")
+        self.assertIsNone(degraded["finalized_at"])
+
+    def test_first_ever_failure_still_uses_the_fallback_copy(self):
+        """从没写出来过：兜底文案至少点出本期头条，比空白强。"""
+        report = build_period_report(
+            kind="weekly",
+            anchor=date(2026, 7, 10),
+            items=[make_item("事件A")],
+            report_dates=["2026-07-10"],
+            ai_provider=self._boom(),
+        )
+
+        self.assertEqual(report["status"], "fallback")
+        self.assertIn("生成失败", report["mainline_body"])
+
+    def test_failure_after_a_fallback_row_still_falls_back(self):
+        """存量本身就是兜底文案时没有值得保留的东西，照常重写兜底。"""
+        first = build_period_report(
+            kind="weekly",
+            anchor=date(2026, 7, 10),
+            items=[make_item("事件A")],
+            report_dates=["2026-07-10"],
+            ai_provider=self._boom(),
+        )
+        second = build_period_report(
+            kind="weekly",
+            anchor=date(2026, 7, 10),
+            items=[make_item("事件A")],
+            report_dates=["2026-07-10"],
+            ai_provider=self._boom(),
+            previous=first,
+        )
+
+        self.assertEqual(second["status"], "fallback")

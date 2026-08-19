@@ -188,13 +188,22 @@ def build_daily_summary(
     items: list[dict[str, Any]],
     ai_provider: Any,
     previous_digest: str | None = None,
+    previous_status: str | None = None,
 ) -> dict[str, Any] | None:
     """Write the day's mainline and category notes, or None to keep what is
     already stored.
 
-    None (rather than a payload) is returned when the material is unchanged -
-    the caller must not overwrite the stored text with a fresh AI call it did
-    not need to make.
+    None (rather than a payload) is returned in two cases, and in both the
+    caller must leave the stored row alone:
+
+    - the material is unchanged, so a fresh AI call was never made;
+    - the call was made and failed while a written mainline is already
+      published (previous_status == "generated"). Writing the empty "failed"
+      payload there would pull a published mainline off the page over a
+      transient provider outage, and if that was the day's last run the text
+      is gone for good - daily reports are only refreshed on their own day.
+      This is what refresh_service means by "failures degrade to leaving the
+      previous summary in place".
     """
     if not items:
         return empty_summary()
@@ -234,9 +243,19 @@ def build_daily_summary(
             SUMMARY_ATTEMPTS,
         )
     if summary is None:
-        # 没有确定性兜底文案：主线写不出来就不显示。周月报那边保留兜底是
-        # 因为它至少点出了本期头条，而日报的头条就在下面的列表里，再复述
-        # 一遍只是噪声。
+        if previous_status == "generated":
+            # 已经发布过一段主线：保留它，别用空的 failed 行把它抹掉。
+            # 这天的日报只在当天刷新，抹掉就找不回来了。digest 没写，
+            # 下一轮照常重试。
+            logger.warning(
+                "daily summary for %s failed %d times; keeping the published mainline",
+                report_date,
+                SUMMARY_ATTEMPTS,
+            )
+            return None
+        # 从没写出来过：没有确定性兜底文案，主线写不出来就不显示。周月报
+        # 那边保留兜底是因为它至少点出了本期头条，而日报的头条就在下面的
+        # 列表里，再复述一遍只是噪声。
         return empty_summary(status="failed")
 
     return {

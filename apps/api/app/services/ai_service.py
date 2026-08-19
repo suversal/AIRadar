@@ -31,6 +31,13 @@ DEFAULT_TIMEOUT_SECONDS = 60
 #: out into the deterministic fallback (「本期 AI 综述生成失败」).
 LONG_FORM_TIMEOUT_SECONDS = 180
 
+#: Last-resort cut on the serialized summary input. Cutting a JSON string at a
+#: character boundary sends the model malformed JSON, so the real sizing lives
+#: upstream in period_summary_service (SUMMARY_INPUT_CHAR_BUDGET drops whole
+#: items instead). This sits above that budget precisely so it never fires in
+#: normal operation - it only bounds a request that somehow escaped the budget.
+SUMMARY_INPUT_CHAR_LIMIT = 16000
+
 #: Extra attempts after the first, for transport-level failures only.
 NETWORK_RETRY_ATTEMPTS = 2
 
@@ -1129,7 +1136,7 @@ class OpenAIProvider(_UsageReportingProvider):
                 {"role": "system", "content": period_summary_prompt(kind, range_label)},
                 {
                     "role": "user",
-                    "content": json.dumps(summary_input, ensure_ascii=False)[:8000],
+                    "content": json.dumps(summary_input, ensure_ascii=False)[:SUMMARY_INPUT_CHAR_LIMIT],
                 },
             ],
         }
@@ -1146,7 +1153,7 @@ class OpenAIProvider(_UsageReportingProvider):
                 {"role": "system", "content": daily_summary_prompt(date_label)},
                 {
                     "role": "user",
-                    "content": json.dumps(summary_input, ensure_ascii=False)[:8000],
+                    "content": json.dumps(summary_input, ensure_ascii=False)[:SUMMARY_INPUT_CHAR_LIMIT],
                 },
             ],
         }
@@ -1297,7 +1304,7 @@ class KimiProvider(_UsageReportingProvider):
                 {"role": "system", "content": period_summary_prompt(kind, range_label)},
                 {
                     "role": "user",
-                    "content": json.dumps(summary_input, ensure_ascii=False)[:8000],
+                    "content": json.dumps(summary_input, ensure_ascii=False)[:SUMMARY_INPUT_CHAR_LIMIT],
                 },
             ],
         }
@@ -1314,7 +1321,7 @@ class KimiProvider(_UsageReportingProvider):
                 {"role": "system", "content": daily_summary_prompt(date_label)},
                 {
                     "role": "user",
-                    "content": json.dumps(summary_input, ensure_ascii=False)[:8000],
+                    "content": json.dumps(summary_input, ensure_ascii=False)[:SUMMARY_INPUT_CHAR_LIMIT],
                 },
             ],
         }
@@ -1552,7 +1559,7 @@ class _OpenAICompatibleProvider(_UsageReportingProvider):
                 {"role": "system", "content": period_summary_prompt(kind, range_label)},
                 {
                     "role": "user",
-                    "content": json.dumps(summary_input, ensure_ascii=False)[:8000],
+                    "content": json.dumps(summary_input, ensure_ascii=False)[:SUMMARY_INPUT_CHAR_LIMIT],
                 },
             ],
             max_tokens=max(self.max_tokens, 8192),
@@ -1574,7 +1581,7 @@ class _OpenAICompatibleProvider(_UsageReportingProvider):
                 {"role": "system", "content": daily_summary_prompt(date_label)},
                 {
                     "role": "user",
-                    "content": json.dumps(summary_input, ensure_ascii=False)[:8000],
+                    "content": json.dumps(summary_input, ensure_ascii=False)[:SUMMARY_INPUT_CHAR_LIMIT],
                 },
             ],
             max_tokens=max(self.max_tokens, 4096),
