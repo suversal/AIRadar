@@ -37,7 +37,14 @@ MAINLINE_ITEM_LIMIT = 20
 #: note does not need summaries, and dropping them is what keeps the whole
 #: payload well inside the request budget with five categories in play
 #: (measured 1.9k of the 8k limit on a 25-item day).
-CATEGORY_ITEM_LIMIT = 10
+#:
+#: 20, not 10: at 10 the cut fired almost daily (8 of the 10 days to 2026-08-19
+#: had a category over 10 items; product hit 22), so a note claiming to cover
+#: the category's whole day was routinely written from half of it. At 20 the
+#: cut is back to being a fuse for extreme days - one day in those ten would
+#: lose 2 tail items - and the heaviest measured day (58 items) still stays
+#: around 3k of the 8k request budget.
+CATEGORY_ITEM_LIMIT = 20
 
 #: Minimum mainline length before one retry is spent. As with the weekly and
 #: monthly reports, the floor sits below what the prompt asks: a short but real
