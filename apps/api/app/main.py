@@ -527,9 +527,14 @@ def create_app(
                 mode, period_key
             )
             entries = persisted.get("entries") if persisted else None
-            if entries:
+            # 判据是「有没有快照」，不是「快照里有没有条目」：名单确实为空的
+            # 期次（status="empty"，期内条目全被移除）也是一份有效快照，回退
+            # 去重算全量会把它没能入选的东西又摆回页面上
+            if entries is not None:
                 event_ids = [entry["event_id"] for entry in entries if entry.get("event_id")]
-                hydrated_items = repository.get_event_items_by_ids(event_ids)
+                hydrated_items = (
+                    repository.get_event_items_by_ids(event_ids) if event_ids else []
+                )
                 # 快照冻的是生成当时的 event_id，而现场解析回来的条目带的是
                 # 重定向之后的 id：中间只要发生过一次聚类合并，两边就对不上。
                 # 先统一到 canonical，再做下面两处按 id 的关联。

@@ -208,6 +208,12 @@ def select_period_items(kind: str, items: list[dict[str, Any]]) -> list[dict[str
     是因为一天之内只有一个模型（见 scoring_service），周月报跨天跨模型，
     必须用名次逻辑（见 sort_period_items 的换模型事故）。
     """
+    # 没有 event_id 的条目进不了名单：entries 快照按 event_id 冻结、页面按
+    # event_id 现场解析，留着它们只会让 article_count 比页面真正渲染出来的
+    # 条数多，而月报还会把它们喂进 AI（综述描写读者看不见的事件）。
+    # _merge_daily_items 允许用 original_url/title 兜底做合并键，所以旧格式
+    # 的日报条目确实可能走到这里。
+    items = [item for item in items if item.get("event_id")]
     if kind == "weekly":
         return _select_weekly_items(items)
     if kind == "monthly":
@@ -506,6 +512,35 @@ def _period_stats(
     return stats
 
 
+def _empty_period_report(
+    *,
+    kind: str,
+    key: str,
+    range_start: date,
+    range_end: date,
+    items: list[dict[str, Any]],
+    report_dates: list[str],
+) -> dict[str, Any]:
+    """名单为空时的报告行：不编造综述，前端按 status 显示空状态。"""
+    return {
+        "kind": kind,
+        "period_key": key,
+        "range_start": range_start.isoformat(),
+        "range_end": range_end.isoformat(),
+        "mainline_title": "",
+        "mainline_body": "",
+        "theme_notes": [],
+        "article_count": 0,
+        "report_dates": list(report_dates),
+        "entries": [],
+        "stats": _period_stats(items, []),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "status": "empty",
+        "summary_digest": None,
+        "finalized_at": None,
+    }
+
+
 def build_period_report(
     *,
     kind: str,
@@ -542,6 +577,21 @@ def build_period_report(
     mainline_min_chars = (
         MAINLINE_BODY_MIN_CHARS if kind == "weekly" else MONTHLY_MAINLINE_MIN_CHARS
     )
+
+    if not selected:
+        # 名单空了（期内条目全被审核移除是真会发生的）。日报侧对空输入有守卫，
+        # 这边原来没有：拿一份空 summary_input 去调 AI，只校验 title/body 非空
+        # 的解析会把凭空编出来的一段文字当成综述存下，跨期时还封版冻住。
+        # 不调用、不封版、不存指纹——什么时候有内容了，什么时候再写。
+        logger.warning("period %s %s has no selectable items; skipping the AI call", kind, key)
+        return _empty_period_report(
+            kind=kind,
+            key=key,
+            range_start=range_start,
+            range_end=range_end,
+            items=items,
+            report_dates=report_dates,
+        )
 
     status = "generated"
     summary: dict[str, Any] | None = None

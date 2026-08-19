@@ -1102,8 +1102,9 @@ class ReportBodyCompletenessTests(unittest.TestCase):
         self.assertEqual(report["status"], "generated")
         self.assertTrue(report["summary_digest"])
 
-    def test_empty_selection_does_not_demand_a_body(self):
-        """名单为空时本来就没有正文可写，不该判成 partial 而无限重试。"""
+    def test_empty_selection_never_calls_the_provider(self):
+        """名单为空时不调 AI：解析只校验 title/body 非空，凭空编出来的一段
+        文字会被当成综述存下，跨期时还封版冻住。"""
         provider = self._provider(notes_key="trends", notes=[])
         report = build_period_report(
             kind="monthly",
@@ -1111,9 +1112,29 @@ class ReportBodyCompletenessTests(unittest.TestCase):
             items=[],
             report_dates=[],
             ai_provider=provider,
+            finalize=True,
         )
 
-        self.assertEqual(report["status"], "generated")
+        self.assertEqual(provider.calls, 0)
+        self.assertEqual(report["status"], "empty")
+        self.assertEqual(report["mainline_body"], "")
+        self.assertEqual(report["article_count"], 0)
+        # 空期次不封版也不存指纹：有内容了再写
+        self.assertIsNone(report["finalized_at"])
+        self.assertIsNone(report["summary_digest"])
+
+    def test_items_without_event_id_never_reach_the_selection(self):
+        """entries 快照按 event_id 冻结、页面按 event_id 现场解析——没有 id
+        的条目留在名单里只会让计数比页面渲染出的条数多。"""
+        from app.services.period_summary_service import select_period_items
+
+        anonymous = make_item("没有 id 的条目", source_count=2)
+        del anonymous["event_id"]
+        selected = select_period_items(
+            "weekly", [make_item("正常条目", source_count=2), anonymous]
+        )
+
+        self.assertEqual([item["title"] for item in selected], ["正常条目"])
 
 
 class CategoryFloorResolutionTests(unittest.TestCase):
