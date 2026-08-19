@@ -71,20 +71,59 @@ class PeriodKeyTests(unittest.TestCase):
 
 
 class PeriodSummaryTests(unittest.TestCase):
-    def test_parse_period_summary_payload_validates_fields(self):
+    def test_parse_weekly_payload_validates_category_notes(self):
         payload = parse_period_summary_payload(
             {
                 "mainline_title": "智能体落地成为本周主线",
                 "mainline_body": "本周动态围绕……",
-                "theme_notes": [{"label": "模型", "note": "多家发布"}, "bad"],
-            }
+                "category_notes": [
+                    {"category": "model", "note": "多家发布"},
+                    {"category": "不存在的分类", "note": "该被丢弃"},
+                    "bad",
+                ],
+            },
+            "weekly",
         )
 
         self.assertEqual(payload["mainline_title"], "智能体落地成为本周主线")
-        self.assertEqual(payload["theme_notes"], [{"label": "模型", "note": "多家发布"}])
+        self.assertEqual(len(payload["theme_notes"]), 1)
+        self.assertEqual(payload["theme_notes"][0]["category"], "model")
+        self.assertEqual(payload["theme_notes"][0]["note"], "多家发布")
+        # label 由 taxonomy 补全，不信 AI 回填
+        self.assertTrue(payload["theme_notes"][0]["label"])
 
         with self.assertRaises(ValueError):
-            parse_period_summary_payload({"mainline_title": "只有标题"})
+            parse_period_summary_payload({"mainline_title": "只有标题"}, "weekly")
+
+    def test_parse_monthly_payload_keeps_trends_with_event_ids(self):
+        payload = parse_period_summary_payload(
+            {
+                "mainline_title": "本月主线",
+                "mainline_body": "本月……",
+                "trends": [
+                    {"label": "智能体落地", "note": "论述……", "event_ids": ["e-1", "e-2"]},
+                    {"label": "", "note": "没标签该被丢弃"},
+                ],
+            },
+            "monthly",
+        )
+
+        self.assertEqual(
+            payload["theme_notes"],
+            [{"label": "智能体落地", "note": "论述……", "event_ids": ["e-1", "e-2"]}],
+        )
+
+    def test_parse_is_tolerant_of_its_own_normalized_output(self):
+        """provider 内部先 parse 一次，build_period_report 再 parse 一次——
+        第二次吃到的是第一次的产物，不能丢内容。"""
+        raw = {
+            "mainline_title": "本月主线",
+            "mainline_body": "本月……",
+            "trends": [{"label": "趋势", "note": "论述", "event_ids": ["e-1"]}],
+        }
+        once = parse_period_summary_payload(raw, "monthly")
+        twice = parse_period_summary_payload(once, "monthly")
+        self.assertEqual(once, twice)
 
     def test_build_period_report_uses_ai_summary_and_metadata(self):
         items = [make_item(f"事件{i}", score=90 - i) for i in range(3)]
@@ -686,11 +725,17 @@ class PeriodSelectionTests(unittest.TestCase):
             [entry["event_id"] for entry in report["entries"]],
             ["e-多信源", "e-单信源"],
         )
-        self.assertEqual(
-            [seen["title"] for seen in provider.seen], ["多信源", "单信源"]
-        )
-        self.assertEqual(provider.seen[0]["source_count"], 2)
-        self.assertEqual(provider.seen[0]["days_covered"], 1)
+        # 周报输入是结构化的：主线部分只见多信源，分类部分覆盖全名单
+        mainline = provider.seen["mainline_events"]
+        self.assertEqual([event["title"] for event in mainline], ["多信源"])
+        self.assertEqual(mainline[0]["source_count"], 2)
+        self.assertEqual(mainline[0]["days_covered"], 1)
+        category_titles = [
+            title
+            for group in provider.seen["categories"]
+            for title in group["titles"]
+        ]
+        self.assertEqual(sorted(category_titles), ["单信源", "多信源"])
 
     def test_stats_carry_honest_dual_counts(self):
         from app.services.period_summary_service import (
@@ -742,3 +787,55 @@ class MergeDaysCoveredTests(unittest.TestCase):
         # 新日期的副本胜出：分数是 8-11 的 85 而不是 8-10 的 80
         self.assertEqual(by_title["连报的事"]["final_score"], 85.0)
         self.assertEqual(by_title["只出现一天"]["days_covered"], 1)
+
+
+class MonthlyTrendEvidenceTests(unittest.TestCase):
+    """趋势线的证据必须真在名单里：回填错的丢弃，全空时只留论述——
+    宁缺毋假，不拿高分事件冒充证据。"""
+
+    def _build(self, provider):
+        items = [
+            make_item(f"事件{i}", score=90.0 - i, source_count=2) for i in range(5)
+        ]
+        return build_period_report(
+            kind="monthly",
+            anchor=date(2026, 7, 10),
+            items=items,
+            report_dates=["2026-07-10"],
+            ai_provider=provider,
+        )
+
+    def test_fabricated_event_ids_are_dropped(self):
+        class FabricatingProvider(FakeAIProvider):
+            def summarize_period(self, summary_input, kind, range_label):
+                real = summary_input["events"][0]["event_id"]
+                return {
+                    "mainline_title": "本月主线",
+                    "mainline_body": "本月……" + "补" * 120,
+                    "trends": [
+                        {
+                            "label": "趋势甲",
+                            "note": "论述",
+                            "event_ids": [real, "e-编造的", "e-也是编的"],
+                        }
+                    ],
+                }
+
+        report = self._build(FabricatingProvider())
+        self.assertEqual(report["theme_notes"][0]["event_ids"], ["e-事件0"])
+
+    def test_trend_with_no_valid_evidence_keeps_prose_only(self):
+        class BaselessProvider(FakeAIProvider):
+            def summarize_period(self, summary_input, kind, range_label):
+                return {
+                    "mainline_title": "本月主线",
+                    "mainline_body": "本月……" + "补" * 120,
+                    "trends": [
+                        {"label": "无证据趋势", "note": "论述还在", "event_ids": ["e-编造的"]}
+                    ],
+                }
+
+        report = self._build(BaselessProvider())
+        self.assertEqual(len(report["theme_notes"]), 1)
+        self.assertEqual(report["theme_notes"][0]["note"], "论述还在")
+        self.assertEqual(report["theme_notes"][0]["event_ids"], [])

@@ -680,17 +680,44 @@ def prefilter_system_prompt() -> str:
 
 
 def period_summary_prompt(kind: str, range_label: str) -> str:
-    label = "周" if kind == "weekly" else "月"
+    """周报和月报刻意不是同一个 prompt：周报和日报同构（主线+分类概述，
+    读者从日切到周理解模型不用换），月报换结构（一段定调总述+2-3条趋势线，
+    每条趋势必须回填 event_id 作证据——月尺度上按分类组织没有信息量，
+    「这个月什么在变」只有跨分类的趋势抓得住）。"""
+    if kind == "weekly":
+        return (
+            f"You are the editor of a Chinese AI intelligence weekly report covering {range_label}. "
+            "The input has two parts: \"mainline_events\" are this week's selected events that "
+            "multiple independent sources reported (source_count) or that stayed in the news for "
+            "several days (days_covered); \"categories\" lists each focus category's selected "
+            "items for the week (titles only). "
+            "Return strict JSON: {\"mainline_title\": \"一句话概括本周主线（20字内）\", "
+            "\"mainline_body\": \"总长度严格在360-440字之间（不少于360字，不超过440字，两者都视为不合格），"
+            "只写 mainline_events 里的事，归纳2-3条真实主线（挑最重要的几条，其余舍弃），"
+            "每条主线独立成一段、控制在150-190字、用2-3句话点出关键事件、数据或参数、"
+            "以及为什么重要，多信源且连报多天的事优先。不要写背景铺垫或空泛总结，"
+            "引用具体事件名和公司/项目名。写完后自行数字数并调整，确保总字数落在360-440字区间。"
+            "段落之间用换行符 \\n\\n 分隔，返回的 JSON 字符串里必须包含真实换行\", "
+            "\"category_notes\": [{\"category\": \"原样回填输入里的 category 值\", "
+            "\"note\": \"60-90字，概括该分类本周的整体动向，点到具体名字。"
+            "不要复述 mainline_body 已经讲过的事——主线负责本周最大的新闻，这里负责这一类的全貌\"}]}. "
+            "categories 里出现的每个 category 都要在 category_notes 里出现且只出现一次。"
+            "Base every claim on the provided items only; no speculation."
+        )
     return (
-        f"You are the editor of a Chinese AI intelligence {kind} report covering {range_label}. "
-        "Given the interval's top AI events, write the mainline narrative. "
-        "Return strict JSON: {\"mainline_title\": \"一句话概括本" + label + "主线（20字内）\", "
-        "\"mainline_body\": \"总长度严格在360-440字之间（不少于360字，不超过440字，两者都视为不合格），"
-        "归纳2-3条真实主线（如模型迭代/智能体落地/安全事件/融资基建/开源生态等，挑最重要的几条，"
-        "其余舍弃），每条主线独立成一段、控制在150-190字、用2-3句话点出关键事件、数据或参数、"
-        "以及为什么重要，不要写背景铺垫或空泛总结，引用具体事件名和公司/项目名。写完后自行数字数并调整，"
-        "确保总字数落在360-440字区间。段落之间用换行符 \\n\\n 分隔，返回的 JSON 字符串里必须包含真实换行\", "
-        "\"theme_notes\": [{\"label\": \"主题名\", \"note\": \"30字内该主题动向\"}]}. "
+        f"You are the editor of a Chinese AI intelligence monthly report covering {range_label}. "
+        "The input is \"events\": the month's selected events, each with an event_id, how many "
+        "independent sources reported it (source_count) and how many days it stayed in the news "
+        "(days_covered). "
+        "Return strict JSON: {\"mainline_title\": \"一句话概括本月主线（20字内）\", "
+        "\"mainline_body\": \"150-250字的定调总述：这个月什么在变、往哪个方向变。"
+        "点出2-3个具体事件名与关键数据，不要罗列、不要背景铺垫\", "
+        "\"trends\": [{\"label\": \"趋势名（12字内，如：智能体落地加速）\", "
+        "\"note\": \"120-180字论述这条趋势：发生了什么、为什么重要、和上月比变化在哪，"
+        "引用具体公司/项目名与数据\", "
+        "\"event_ids\": [\"支撑这条趋势的3-5个事件，必须原样引用输入里的 event_id，禁止编造\"]}]}. "
+        "trends 给2-3条，跨 category 归纳——趋势是跨分类的（一条趋势可以同时横跨产品、技术、"
+        "行业），不要按输入的 category 字段分组。每个入选 trends 的判断都必须有 event_ids 支撑。"
         "Base every claim on the provided events only; no speculation."
     )
 
@@ -824,17 +851,37 @@ class FakeAIProvider:
         ]
 
     def summarize_period(
-        self, items: list[dict[str, Any]], kind: str, range_label: str
+        self, summary_input: dict[str, Any], kind: str, range_label: str
     ) -> dict[str, Any]:
-        label = "本周" if kind == "weekly" else "本月"
-        top = items[0]["title"] if items else "AI 动态"
+        if kind == "weekly":
+            events = summary_input.get("mainline_events") or []
+            top = events[0]["title"] if events else "AI 动态"
+            return {
+                "mainline_title": f"本周主线：{top[:16]}",
+                "mainline_body": (
+                    f"本周（{range_label}）有 {len(events)} 件事被多家信源报道，"
+                    f"主线围绕「{top}」等事件展开。（fake 确定性综述）"
+                ),
+                "category_notes": [
+                    {"category": group["category"], "note": f"{group['item_count']} 条动态（fake）"}
+                    for group in summary_input.get("categories") or []
+                ],
+            }
+        events = summary_input.get("events") or []
+        top = events[0]["title"] if events else "AI 动态"
         return {
-            "mainline_title": f"{label}主线：{top[:16]}",
+            "mainline_title": f"本月主线：{top[:16]}",
             "mainline_body": (
-                f"{label}（{range_label}）共 {len(items)} 条重点动态，主线围绕「{top}」等事件展开，"
-                "模型能力迭代与智能体落地并进。（fake 确定性综述）"
+                f"本月（{range_label}）共 {len(events)} 条重点动态，围绕「{top}」等事件展开。"
+                "（fake 确定性综述）"
             ),
-            "theme_notes": [{"label": "模型", "note": "多家模型更新"}],
+            "trends": [
+                {
+                    "label": "模型动态",
+                    "note": "多家模型更新（fake 趋势论述）",
+                    "event_ids": [event["event_id"] for event in events[:3]],
+                }
+            ],
         }
 
     def summarize_daily(self, summary_input: dict[str, Any], date_label: str) -> dict[str, Any]:
@@ -1073,7 +1120,7 @@ class OpenAIProvider(_UsageReportingProvider):
         return parse_translation_payload(parse_chat_json(content))
 
     def summarize_period(
-        self, items: list[dict[str, Any]], kind: str, range_label: str
+        self, summary_input: dict[str, Any], kind: str, range_label: str
     ) -> dict[str, Any]:
         payload = {
             "model": self.scoring_model,
@@ -1082,14 +1129,14 @@ class OpenAIProvider(_UsageReportingProvider):
                 {"role": "system", "content": period_summary_prompt(kind, range_label)},
                 {
                     "role": "user",
-                    "content": json.dumps({"events": items}, ensure_ascii=False)[:8000],
+                    "content": json.dumps(summary_input, ensure_ascii=False)[:8000],
                 },
             ],
         }
         content = self._chat_content(
             payload, "summarize_period", timeout=LONG_FORM_TIMEOUT_SECONDS
         )
-        return parse_period_summary_payload(parse_chat_json(content))
+        return parse_period_summary_payload(parse_chat_json(content), kind)
 
     def summarize_daily(self, summary_input: dict[str, Any], date_label: str) -> dict[str, Any]:
         payload = {
@@ -1241,7 +1288,7 @@ class KimiProvider(_UsageReportingProvider):
         return parse_translation_payload(parse_chat_json(content))
 
     def summarize_period(
-        self, items: list[dict[str, Any]], kind: str, range_label: str
+        self, summary_input: dict[str, Any], kind: str, range_label: str
     ) -> dict[str, Any]:
         payload = {
             "model": self.model,
@@ -1250,14 +1297,14 @@ class KimiProvider(_UsageReportingProvider):
                 {"role": "system", "content": period_summary_prompt(kind, range_label)},
                 {
                     "role": "user",
-                    "content": json.dumps({"events": items}, ensure_ascii=False)[:8000],
+                    "content": json.dumps(summary_input, ensure_ascii=False)[:8000],
                 },
             ],
         }
         content = self._chat_content(
             payload, "summarize_period", timeout=LONG_FORM_TIMEOUT_SECONDS
         )
-        return parse_period_summary_payload(parse_chat_json(content))
+        return parse_period_summary_payload(parse_chat_json(content), kind)
 
     def summarize_daily(self, summary_input: dict[str, Any], date_label: str) -> dict[str, Any]:
         payload = {
@@ -1492,7 +1539,7 @@ class _OpenAICompatibleProvider(_UsageReportingProvider):
         return parse_translation_payload(parse_chat_json(content))
 
     def summarize_period(
-        self, items: list[dict[str, Any]], kind: str, range_label: str
+        self, summary_input: dict[str, Any], kind: str, range_label: str
     ) -> dict[str, Any]:
         # the one call that keeps full thinking: it runs once per week/month,
         # so its share of the bill is noise, while it is the only task here
@@ -1505,7 +1552,7 @@ class _OpenAICompatibleProvider(_UsageReportingProvider):
                 {"role": "system", "content": period_summary_prompt(kind, range_label)},
                 {
                     "role": "user",
-                    "content": json.dumps({"events": items}, ensure_ascii=False)[:8000],
+                    "content": json.dumps(summary_input, ensure_ascii=False)[:8000],
                 },
             ],
             max_tokens=max(self.max_tokens, 8192),
@@ -1514,7 +1561,7 @@ class _OpenAICompatibleProvider(_UsageReportingProvider):
         content = self._chat_content(
             payload, "summarize_period", timeout=LONG_FORM_TIMEOUT_SECONDS
         )
-        return parse_period_summary_payload(parse_chat_json(content))
+        return parse_period_summary_payload(parse_chat_json(content), kind)
 
     def summarize_daily(self, summary_input: dict[str, Any], date_label: str) -> dict[str, Any]:
         # Same full-thinking treatment as summarize_period: this is the other

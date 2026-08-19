@@ -17,8 +17,11 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from app.api.public import month_range, sort_period_items
+from app.services.taxonomy import FOCUS_CATEGORIES, resolve_focus_category
 
 logger = logging.getLogger(__name__)
+
+_FOCUS_LABELS = dict(FOCUS_CATEGORIES)
 
 SUMMARY_ITEM_LIMIT = 40
 
@@ -35,6 +38,10 @@ SUMMARY_ITEM_LIMIT = 40
 #: worse rather than better; see build_period_report, which publishes the second
 #: attempt whatever its length.
 MAINLINE_BODY_MIN_CHARS = 200
+
+#: 月报主线是一段定调的总述（prompt 要求 150-250 字），不是周报那种 2-3 条
+#: 主线的长文——正文主体在趋势线里。重试线相应放低。
+MONTHLY_MAINLINE_MIN_CHARS = 100
 
 SUMMARY_ATTEMPTS = 2
 
@@ -90,19 +97,50 @@ def period_targets_for(kind: str, anchor_date: date) -> list[str]:
     return [previous, current]
 
 
-def parse_period_summary_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def parse_period_summary_payload(payload: dict[str, Any], kind: str = "weekly") -> dict[str, Any]:
+    """Normalize a weekly/monthly AI payload into the stored shape.
+
+    Both kinds land in the same theme_notes column but carry different
+    structures - weekly notes are per focus category (mirroring the daily
+    report), monthly notes are free-form trends with supporting event ids:
+
+    - weekly:  [{"category", "label", "note"}]
+    - monthly: [{"label", "note", "event_ids"}]
+
+    The parser is deliberately tolerant of both the raw AI keys
+    (category_notes/trends/theme_notes) and its own normalized output, because
+    providers parse internally and build_period_report parses again.
+    """
     title = str(payload.get("mainline_title") or "").strip()
     body = str(payload.get("mainline_body") or "").strip()
     if not title or not body:
         raise ValueError("period summary payload missing mainline_title/mainline_body")
-    theme_notes = []
-    for note in payload.get("theme_notes") or []:
-        if not isinstance(note, dict):
-            continue
-        label = str(note.get("label") or "").strip()
-        text = str(note.get("note") or "").strip()
-        if label and text:
-            theme_notes.append({"label": label, "note": text})
+
+    theme_notes: list[dict[str, Any]] = []
+    if kind == "weekly":
+        for note in payload.get("category_notes") or payload.get("theme_notes") or []:
+            if not isinstance(note, dict):
+                continue
+            key = str(note.get("category") or "").strip()
+            text = str(note.get("note") or "").strip()
+            if key in _FOCUS_LABELS and text:
+                theme_notes.append(
+                    {"category": key, "label": _FOCUS_LABELS[key], "note": text}
+                )
+    else:
+        for note in payload.get("trends") or payload.get("theme_notes") or []:
+            if not isinstance(note, dict):
+                continue
+            label = str(note.get("label") or "").strip()
+            text = str(note.get("note") or "").strip()
+            if not label or not text:
+                continue
+            event_ids = [
+                str(event_id)
+                for event_id in (note.get("event_ids") or [])
+                if event_id
+            ]
+            theme_notes.append({"label": label, "note": text, "event_ids": event_ids})
     return {"mainline_title": title, "mainline_body": body, "theme_notes": theme_notes}
 
 
@@ -240,21 +278,74 @@ def _select_monthly_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return selected
 
 
-def _summary_input(selected: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _group_selected_by_focus(
+    selected: list[dict[str, Any]],
+) -> list[tuple[str, str, list[dict[str, Any]]]]:
+    """(key, label, items) per focus category present in the selection, in
+    FOCUS_CATEGORIES order, preserving selection order within each group -
+    the AI's category input must mirror what the page's category sections
+    will render, not a re-sort of it."""
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in selected:
+        key = resolve_focus_category(
+            item.get("focus_category"),
+            item.get("scoring_category") or item.get("category"),
+        )
+        grouped.setdefault(str(key), []).append(item)
+    return [
+        (key, label, grouped[key])
+        for key, label in FOCUS_CATEGORIES
+        if grouped.get(key)
+    ]
+
+
+def _summary_input(kind: str, selected: list[dict[str, Any]]) -> dict[str, Any]:
     """What the AI is shown: exactly the selection, in selection order. The
     prose must be written from what the reader will actually see - same
     contract as _regenerate_daily_summary reading the resolved payload.
+
+    Weekly mirrors the daily report's two-scope structure (mainline from the
+    multi-source events, one note per category from that category's whole
+    selection). Monthly is a flat event list with ids - the AI groups it into
+    trends itself and must quote event_ids as evidence.
     SUMMARY_ITEM_LIMIT stays as a fuse only; both caps sit at or below it."""
-    return [
-        {
-            "title": str(item.get("title") or "")[:80],
-            "summary": str(item.get("one_line_summary") or item.get("summary") or "")[:120],
-            "category": str(item.get("focus_category") or item.get("category") or ""),
-            "source_count": int(item.get("source_count") or 1),
-            "days_covered": _days_covered(item),
+    selected = selected[:SUMMARY_ITEM_LIMIT]
+    if kind == "weekly":
+        return {
+            "mainline_events": [
+                {
+                    "title": str(item.get("title") or "")[:70],
+                    "summary": str(item.get("one_line_summary") or item.get("summary") or "")[:110],
+                    "category": str(item.get("focus_category") or item.get("category") or ""),
+                    "source_count": int(item.get("source_count") or 1),
+                    "days_covered": _days_covered(item),
+                }
+                for item in selected
+                if _is_multi_source(item)
+            ],
+            "categories": [
+                {
+                    "category": key,
+                    "label": label,
+                    "item_count": len(group),
+                    "titles": [str(item.get("title") or "")[:60] for item in group],
+                }
+                for key, label, group in _group_selected_by_focus(selected)
+            ],
         }
-        for item in selected[:SUMMARY_ITEM_LIMIT]
-    ]
+    return {
+        "events": [
+            {
+                "event_id": str(item.get("event_id") or ""),
+                "title": str(item.get("title") or "")[:80],
+                "summary": str(item.get("one_line_summary") or item.get("summary") or "")[:120],
+                "category": str(item.get("focus_category") or item.get("category") or ""),
+                "source_count": int(item.get("source_count") or 1),
+                "days_covered": _days_covered(item),
+            }
+            for item in selected
+        ]
+    }
 
 
 def summary_digest(summary_input: list[dict[str, Any]]) -> str:
@@ -263,6 +354,27 @@ def summary_digest(summary_input: list[dict[str, Any]]) -> str:
     for again. Same contract as daily_summary_service.summary_digest."""
     canonical = json.dumps(summary_input, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _validated_trend_notes(
+    theme_notes: list[dict[str, Any]], selected: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """月报趋势线的证据校验：回填的 event_id 必须真在入选名单里，回填错的
+    直接丢弃。一条趋势一个合法 id 都没有时保留论述、挂空证据列表——页面
+    只显示文字不挂卡片。刻意**不做**「兜底塞几条高分事件冒充证据」：宁缺
+    毋假。"""
+    allowed = {
+        str(item.get("event_id"))
+        for item in selected
+        if item.get("event_id")
+    }
+    validated = []
+    for note in theme_notes:
+        event_ids = [
+            event_id for event_id in note.get("event_ids") or [] if event_id in allowed
+        ]
+        validated.append({**note, "event_ids": event_ids})
+    return validated
 
 
 def _fallback_summary(kind: str, selected: list[dict[str, Any]]) -> dict[str, Any]:
@@ -366,8 +478,11 @@ def build_period_report(
     # 名单在这里一次定死：页面（经 entries 快照）和 AI 综述（经
     # summary_input）看到的是同一份、同一个顺序的东西
     selected = select_period_items(kind, items)
-    summary_input = _summary_input(selected)
+    summary_input = _summary_input(kind, selected)
     digest = summary_digest(summary_input)
+    mainline_min_chars = (
+        MAINLINE_BODY_MIN_CHARS if kind == "weekly" else MONTHLY_MAINLINE_MIN_CHARS
+    )
 
     status = "generated"
     summary: dict[str, Any] | None = None
@@ -387,7 +502,7 @@ def build_period_report(
         for attempt in range(1, SUMMARY_ATTEMPTS + 1):
             try:
                 drafted = ai_provider.summarize_period(summary_input, kind, range_label)
-                drafted = parse_period_summary_payload(drafted)
+                drafted = parse_period_summary_payload(drafted, kind)
             except Exception:
                 logger.warning(
                     "period summary attempt %d/%d failed for %s %s",
@@ -398,17 +513,21 @@ def build_period_report(
                     exc_info=True,
                 )
                 continue
+            if kind == "monthly":
+                drafted["theme_notes"] = _validated_trend_notes(
+                    drafted["theme_notes"], selected
+                )
             # keep the newest draft either way: a short summary is still worth
             # publishing, so length only decides whether to spend another attempt
             summary = drafted
-            if len(drafted["mainline_body"]) >= MAINLINE_BODY_MIN_CHARS:
+            if len(drafted["mainline_body"]) >= mainline_min_chars:
                 break
             logger.warning(
                 "period summary for %s %s is %d chars (min %d) on attempt %d/%d",
                 kind,
                 key,
                 len(drafted["mainline_body"]),
-                MAINLINE_BODY_MIN_CHARS,
+                mainline_min_chars,
                 attempt,
                 SUMMARY_ATTEMPTS,
             )
