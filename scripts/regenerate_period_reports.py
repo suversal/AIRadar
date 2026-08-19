@@ -57,11 +57,22 @@ def regenerate(
     *,
     ai_provider,
     apply: bool,
+    force: bool = False,
+    today: date | None = None,
 ) -> list[dict]:
     repository = RadarRepository(session)
+    today = today or date.today()
     results = []
     for kind, key in targets:
         range_start, range_end = period_range_for_key(kind, key)
+        stored = repository.get_period_report(kind, key)
+        # 已封版的期次是定稿，默认不碰；--force 是编辑决定重写（比如这次
+        # 换了报告结构），重写完仍然是定稿
+        if stored and stored.get("finalized_at") and not force:
+            results.append(
+                {"kind": kind, "key": key, "status": "skipped-finalized", "items": 0}
+            )
+            continue
         daily_payloads = repository.get_daily_report_payloads_between(range_start, range_end)
         merged = build_period_payload(
             daily_payloads, mode=kind, range_start=range_start, range_end=range_end
@@ -86,6 +97,11 @@ def regenerate(
             items=merged["items"],
             report_dates=sorted(merged["report_dates"]),
             ai_provider=ai_provider,
+            # digest 复用照常生效：素材和输入结构都没变的期次不重买
+            previous=stored,
+            # 已经翻篇的期次这一遍就是它的收尾：直接封版，交还给刷新
+            # 流水线也只会被 finalized_at 跳过，没有第二次机会了
+            finalize=range_end < today,
         )
         repository.upsert_period_report(report)
         session.commit()
@@ -97,6 +113,7 @@ def regenerate(
                 "items": report["article_count"],
                 "body_chars": len(report["mainline_body"]),
                 "title": report["mainline_title"],
+                "finalized": bool(report.get("finalized_at")),
             }
         )
     return results
@@ -108,6 +125,11 @@ def main() -> int:
     parser.add_argument("--since", required=True)
     parser.add_argument("--until", required=True)
     parser.add_argument("--apply", action="store_true", help="write the regenerated reports")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="regenerate even finalized periods (they stay finalized afterwards)",
+    )
     args = parser.parse_args()
     if not args.database_url:
         parser.error("--database-url or DATABASE_URL is required")
@@ -122,14 +144,17 @@ def main() -> int:
 
     session = build_session_factory(args.database_url)()
     try:
-        results = regenerate(session, targets, ai_provider=ai_provider, apply=args.apply)
+        results = regenerate(
+            session, targets, ai_provider=ai_provider, apply=args.apply, force=args.force
+        )
     finally:
         session.close()
 
     for row in results:
         extra = ""
         if "body_chars" in row:
-            extra = f" body={row['body_chars']}字 「{row['title'][:28]}」"
+            seal = " [封版]" if row.get("finalized") else ""
+            extra = f" body={row['body_chars']}字 「{row['title'][:28]}」{seal}"
         print(f"{row['kind']:8s} {row['key']:9s} {row['status']:16s} items={row['items']}{extra}")
     fallbacks = [row for row in results if row["status"] == "fallback"]
     if fallbacks:
