@@ -25,24 +25,37 @@ export async function MonthlyReportPage({ periodKey }: { periodKey?: string }) {
     ...digest.categoryDistribution.map(([, count]) => count),
   );
 
-  return (
-    <ReportShell
-      activeMode="monthly"
-      secondary={<PeriodArchiveList mode="monthly" archive={archive} activeKey={activeKey} />}
-    >
-      <div className="mx-auto max-w-4xl">
-        <PeriodHeader
-          mode="monthly"
-          issueMeta={digest.issueMeta}
-          range={digest.range}
-          tagline="MONTHLY · 当月趋势提炼，代表事件为证"
-        />
+  const archiveList = (
+    <PeriodArchiveList mode="monthly" archive={archive} activeKey={activeKey} />
+  );
+  const header = (
+    <PeriodHeader
+      mode="monthly"
+      issueMeta={digest.issueMeta}
+      range={digest.range}
+      tagline="MONTHLY · 当月趋势提炼，代表事件为证"
+    />
+  );
 
-        {period.error ? (
-          <div className="mb-5 rounded-md border border-danger/40 bg-danger/10 p-4 text-sm leading-6 text-danger">
+  // 接口挂了就只说这件事，理由同周报页：降级对象里没有真实状态，继续渲染
+  // 会叠出凭空编造的状态陈述。
+  if (period.error) {
+    return (
+      <ReportShell activeMode="monthly" secondary={archiveList}>
+        <div className="mx-auto max-w-4xl">
+          {header}
+          <div className="rounded-md border border-danger/40 bg-danger/10 p-4 text-sm leading-6 text-danger">
             {period.error}
           </div>
-        ) : null}
+        </div>
+      </ReportShell>
+    );
+  }
+
+  return (
+    <ReportShell activeMode="monthly" secondary={archiveList}>
+      <div className="mx-auto max-w-4xl">
+        {header}
 
         <SealBanner seal={digest.seal} />
 

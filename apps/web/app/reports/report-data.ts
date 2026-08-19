@@ -121,7 +121,7 @@ function resolveRange(period: PeriodReport) {
   return `${today} ~ ${today}`;
 }
 
-function mainlineFor(period: PeriodReport, mode: PeriodMode) {
+function mainlineFor(period: PeriodReport, mode: PeriodMode, live: boolean) {
   // the AI-written interval summary is the whole point of a period report;
   // fall back to a template only when it has not been generated yet.
   //
@@ -148,36 +148,55 @@ function mainlineFor(period: PeriodReport, mode: PeriodMode) {
   }
   const prefix = mode === "weekly" ? "本周" : "本月";
   const top = period.items[0];
+  // 「稍后自动生成」只对还在进行中的期次成立：刷新流水线只回看上一个期次，
+  // 早已翻篇又没有快照的期次不会有人再为它生成综述，别给读者空承诺。
+  const pending = live
+    ? "完整的 AI 综述稍后自动生成。"
+    : "本期没有生成过 AI 综述，以下为按日报实时汇总的内容。";
   if (!top) {
     return {
       title: `${prefix} AI 动态等待生成`,
-      body: "本期收录的动态还不够多，完整的 AI 综述会在内容积累后自动生成。",
+      body: live
+        ? "本期收录的动态还不够多，完整的 AI 综述会在内容积累后自动生成。"
+        : "本期没有收录到可展示的动态。",
       ai: false,
     };
   }
   return {
     title: `${prefix} AI 动态一览`,
-    body: `${prefix}代表内容包括“${top.title}”等。完整的 AI 综述稍后自动生成。`,
+    body: `${prefix}代表内容包括“${top.title}”等。${pending}`,
     ai: false,
   };
 }
 
-/** 封版状态：进行中的期次页面要明示「X 日封版」，读者才知道自己看的
- *  文字还会变。封版日 = range_end 的次日（跨期后第一批运行收尾）。 */
+function localDateString(value: Date) {
+  // 不用 toISOString()：它折回 UTC，在 UTC+8 会把 08-24 打回 08-23
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${value.getFullYear()}-${month}-${day}`;
+}
+
+/** 封版状态。进行中的期次要明示「X 日定稿」，读者才知道自己看的文字还会变。
+ *
+ *  「未封版」不等于「进行中」：迁移给存量历史行留的是 NULL，重试一直失败的
+ *  期次翻篇后也会永远停在未封版，无快照回退路径压根没有这个字段。这些情况
+ *  下横幅原来会对读者做两个虚假陈述——内容「随日报每日更新」（其实早就没人
+ *  再碰它了）和一个已经过去的定稿日期。所以进行中要由日期说了算：期次的
+ *  最后一天还没过完，才算进行中。 */
 function sealStateFor(period: PeriodReport) {
   const sealed = Boolean(period.finalized_at);
   let sealDate: string | null = null;
+  let live = false;
   if (!sealed && period.range_end) {
     const end = new Date(`${period.range_end}T00:00:00`);
     if (!Number.isNaN(end.getTime())) {
+      const today = new Date();
+      live = localDateString(today) <= period.range_end;
       end.setDate(end.getDate() + 1);
-      // 不用 toISOString()：它折回 UTC，在 UTC+8 会把 08-24 打回 08-23
-      const month = String(end.getMonth() + 1).padStart(2, "0");
-      const day = String(end.getDate()).padStart(2, "0");
-      sealDate = `${end.getFullYear()}-${month}-${day}`;
+      sealDate = localDateString(end);
     }
   }
-  return { sealed, sealDate };
+  return { sealed, sealDate, live };
 }
 
 export type WeeklyCategory = {
@@ -213,6 +232,10 @@ export function buildWeeklyDigest(period: PeriodReport) {
   const sourceCoverage =
     period.stats?.source_coverage_count ??
     new Set(period.items.map((item) => item.main_source?.id).filter(Boolean)).size;
+  const seal = sealStateFor(period);
+  // 没有持久化快照时（接口回退到实时汇总），items 是期间全量、没有经过选品，
+  // 拿「入选」称呼它是失真的——那一路根本没有名单这回事
+  const provisional = !period.generated;
 
   return {
     title: "AI·RADAR 周报",
@@ -220,11 +243,15 @@ export function buildWeeklyDigest(period: PeriodReport) {
     issueMeta: `VOL.${period.period_key ?? resolveRange(period).slice(0, 7)} · ${period.items.length} STORIES · AI RADAR WEEKLY`,
     periodKey: period.period_key ?? "",
     range: resolveRange(period),
-    mainline: mainlineFor(period, "weekly"),
+    mainline: mainlineFor(period, "weekly", seal.live),
     categories,
-    seal: sealStateFor(period),
+    seal,
+    provisional,
     stats: [
-      { label: "本周入选", value: period.items.length.toString() },
+      {
+        label: provisional ? "本周收录" : "本周入选",
+        value: period.items.length.toString(),
+      },
       { label: "期间收录", value: coverageCount.toString() },
       { label: "覆盖天数", value: coveredDays.toString() },
       { label: "信源覆盖", value: sourceCoverage.toString() },
@@ -260,20 +287,28 @@ export function buildMonthlyDigest(period: PeriodReport) {
     (left, right) => right[1] - left[1],
   );
 
+  const seal = sealStateFor(period);
+  // 同 buildWeeklyDigest：没有快照时 items 是全量、没有名单这回事
+  const provisional = !period.generated;
+
   return {
     title: "AI·RADAR 月报",
     label: "MONTHLY",
     issueMeta: `VOL.${period.period_key ?? resolveRange(period).slice(0, 7)} · ${period.items.length} STORIES · AI RADAR MONTHLY`,
     periodKey: period.period_key ?? "",
     range: resolveRange(period),
-    mainline: mainlineFor(period, "monthly"),
+    mainline: mainlineFor(period, "monthly", seal.live),
     trends,
     /** 完整榜单：后端名单序（多信源 → 持续度 → 分位） */
     ranked: period.items,
-    seal: sealStateFor(period),
+    seal,
+    provisional,
     categoryDistribution,
     stats: [
-      { label: "本月入选", value: period.items.length.toString() },
+      {
+        label: provisional ? "本月收录" : "本月入选",
+        value: period.items.length.toString(),
+      },
       { label: "期间收录", value: coverageCount.toString() },
       { label: "覆盖天数", value: coveredDays.toString() },
       {

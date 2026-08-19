@@ -19,25 +19,38 @@ export async function WeeklyReportPage({ periodKey }: { periodKey?: string }) {
   ]);
   const digest = buildWeeklyDigest(period);
   const activeKey = period.period_key ?? "";
+  const archiveList = (
+    <PeriodArchiveList mode="weekly" archive={archive} activeKey={activeKey} />
+  );
+  const header = (
+    <PeriodHeader
+      mode="weekly"
+      issueMeta={digest.issueMeta}
+      range={digest.range}
+      tagline="WEEKLY · 本周日报的汇总，AI 提炼主线与栏目概述"
+    />
+  );
 
-  return (
-    <ReportShell
-      activeMode="weekly"
-      secondary={<PeriodArchiveList mode="weekly" archive={archive} activeKey={activeKey} />}
-    >
-      <div className="mx-auto max-w-4xl">
-        <PeriodHeader
-          mode="weekly"
-          issueMeta={digest.issueMeta}
-          range={digest.range}
-          tagline="WEEKLY · 本周日报的汇总，AI 提炼主线与栏目概述"
-        />
-
-        {period.error ? (
-          <div className="mb-5 rounded-md border border-danger/40 bg-danger/10 p-4 text-sm leading-6 text-danger">
+  // 接口挂了就只说这件事。降级对象里没有任何真实状态，继续往下渲染会在
+  // 错误横幅底下叠出「本期进行中」「内容还不够多」这类凭空编造的状态陈述，
+  // 读者反而分不清是故障还是真没内容。
+  if (period.error) {
+    return (
+      <ReportShell activeMode="weekly" secondary={archiveList}>
+        <div className="mx-auto max-w-4xl">
+          {header}
+          <div className="rounded-md border border-danger/40 bg-danger/10 p-4 text-sm leading-6 text-danger">
             {period.error}
           </div>
-        ) : null}
+        </div>
+      </ReportShell>
+    );
+  }
+
+  return (
+    <ReportShell activeMode="weekly" secondary={archiveList}>
+      <div className="mx-auto max-w-4xl">
+        {header}
 
         <SealBanner seal={digest.seal} />
 

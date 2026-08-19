@@ -88,13 +88,16 @@ export function PeriodHeader({
 }
 
 /** 进行中的期次要明说：文字和名单都还会随日报刷新变化，X 日定稿。
- *  已封版的期次什么都不渲染——定稿是常态，不值得挂横幅。 */
+ *
+ *  已封版、以及已经翻篇但没定稿的期次都不挂横幅：前者定稿是常态不值得说，
+ *  后者说「进行中，X 日定稿」是双重虚假陈述——内容早就没人再碰，日期也已
+ *  经过去了。 */
 export function SealBanner({
   seal,
 }: {
-  seal: { sealed: boolean; sealDate: string | null };
+  seal: { sealed: boolean; sealDate: string | null; live: boolean };
 }) {
-  if (seal.sealed) {
+  if (seal.sealed || !seal.live) {
     return null;
   }
   return (
