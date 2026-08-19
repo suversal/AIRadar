@@ -1,0 +1,171 @@
+{
+  "run_started_at": "2026-08-19T12:04:28.858885+00:00",
+  "run_finished_at": "2026-08-19T12:04:48.991650+00:00",
+  "source_count": 23,
+  "article_count": 1475,
+  "per_source": {
+    "huggingface_blog": {
+      "status": "ok",
+      "article_count": 844,
+      "fetched_count": 844,
+      "duration_ms": 2040.18,
+      "error": null
+    },
+    "github_ai_blog": {
+      "status": "ok",
+      "article_count": 10,
+      "fetched_count": 10,
+      "duration_ms": 2154.5,
+      "error": null
+    },
+    "aws_ml_blog": {
+      "status": "ok",
+      "article_count": 20,
+      "fetched_count": 20,
+      "duration_ms": 9258.41,
+      "error": null
+    },
+    "ithome": {
+      "status": "ok",
+      "article_count": 60,
+      "fetched_count": 60,
+      "duration_ms": 1713.82,
+      "error": null
+    },
+    "latent_space": {
+      "status": "ok",
+      "article_count": 20,
+      "fetched_count": 20,
+      "duration_ms": 1468.32,
+      "error": null
+    },
+    "google_ai_blog": {
+      "status": "ok",
+      "article_count": 20,
+      "fetched_count": 20,
+      "duration_ms": 1874.06,
+      "error": null
+    },
+    "cursor_changelog": {
+      "status": "ok",
+      "article_count": 50,
+      "fetched_count": 50,
+      "duration_ms": 675.41,
+      "error": null
+    },
+    "aihot_feed": {
+      "status": "ok",
+      "article_count": 50,
+      "fetched_count": 50,
+      "duration_ms": 169.21,
+      "error": null
+    },
+    "infoq_cn": {
+      "status": "ok",
+      "article_count": 20,
+      "fetched_count": 20,
+      "duration_ms": 177.37,
+      "error": null
+    },
+    "qbitai": {
+      "status": "ok",
+      "article_count": 10,
+      "fetched_count": 10,
+      "duration_ms": 68.87,
+      "error": null
+    },
+    "nvidia_dev_blog": {
+      "status": "ok",
+      "article_count": 100,
+      "fetched_count": 100,
+      "duration_ms": 1723.81,
+      "error": null
+    },
+    "telegram_zaihuapd": {
+      "status": "ok",
+      "article_count": 20,
+      "fetched_count": 20,
+      "duration_ms": 9685.57,
+      "error": null
+    },
+    "github_trending_ai": {
+      "status": "ok",
+      "article_count": 5,
+      "fetched_count": 5,
+      "duration_ms": 2571.62,
+      "error": null
+    },
+    "telegram_xhqcankao": {
+      "status": "ok",
+      "article_count": 20,
+      "fetched_count": 20,
+      "duration_ms": 4854.95,
+      "error": null
+    },
+    "techcrunch_ai": {
+      "status": "ok",
+      "article_count": 20,
+      "fetched_count": 20,
+      "duration_ms": 280.65,
+      "error": null
+    },
+    "github_engineering": {
+      "status": "ok",
+      "article_count": 10,
+      "fetched_count": 10,
+      "duration_ms": 525.35,
+      "error": null
+    },
+    "deepmind_blog": {
+      "status": "ok",
+      "article_count": 100,
+      "fetched_count": 100,
+      "duration_ms": 2131.33,
+      "error": null
+    },
+    "kr36": {
+      "status": "ok",
+      "article_count": 30,
+      "fetched_count": 30,
+      "duration_ms": 624.93,
+      "error": null
+    },
+    "arxiv_ai": {
+      "status": "skipped",
+      "article_count": 0,
+      "duration_ms": 15726.14,
+      "error": "The read operation timed out"
+    },
+    "ifanr": {
+      "status": "ok",
+      "article_count": 20,
+      "fetched_count": 20,
+      "duration_ms": 493.21,
+      "error": null
+    },
+    "nvidia_blog": {
+      "status": "ok",
+      "article_count": 18,
+      "fetched_count": 18,
+      "duration_ms": 2596.63,
+      "error": null
+    },
+    "anthropic_news": {
+      "status": "ok",
+      "article_count": 8,
+      "fetched_count": 8,
+      "duration_ms": 897.33,
+      "error": null
+    },
+    "telegram_dnspodt": {
+      "status": "ok",
+      "article_count": 20,
+      "fetched_count": 20,
+      "duration_ms": 3768.09,
+      "error": null
+    }
+  },
+  "skipped_reasons": {
+    "arxiv_ai:fetch_failed": 1
+  }
+}

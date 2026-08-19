@@ -420,6 +420,15 @@ class PeriodReportModel(Base):
     pipeline_run_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pipeline_runs.id"))
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     status: Mapped[str] = mapped_column(String, nullable=False, default="generated")
+    # fingerprint of exactly what the AI was shown (same mechanism as
+    # daily_reports.summary_digest): equal digest -> the stored text is
+    # reused instead of re-bought. Only set when status is "generated", so
+    # a fallback row always retries on the next run.
+    summary_digest: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # set once by the period's closing pass (first refresh after range_end,
+    # succeeding with a generated summary). Non-NULL freezes the whole row:
+    # no later run may rewrite the text or the entries/stats snapshot.
+    finalized_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PipelineRunModel(Base):

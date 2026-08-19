@@ -3183,6 +3183,50 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("2026-08-17", str(second["generated_at"]))
         self.assertEqual(second["article_count"], 616)
 
+    def test_period_report_persists_digest_and_one_way_finalization(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        base = {
+            "kind": "weekly",
+            "period_key": "2026-W33",
+            "range_start": "2026-08-10",
+            "range_end": "2026-08-16",
+            "mainline_title": "主线",
+            "mainline_body": "正文",
+            "theme_notes": [],
+            "article_count": 3,
+            "report_dates": ["2026-08-15"],
+            "entries": [],
+            "stats": {},
+            "generated_at": "2026-08-16T02:00:00+00:00",
+            "status": "generated",
+            "summary_digest": "abc123",
+            "finalized_at": None,
+        }
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_period_report(base)
+            session.commit()
+            live = repository.get_period_report("weekly", "2026-W33")
+
+            repository.upsert_period_report(
+                dict(base, finalized_at="2026-08-17T00:10:00+00:00")
+            )
+            session.commit()
+            frozen = repository.get_period_report("weekly", "2026-W33")
+
+            # 封版是单向的：后续 upsert 不带 finalized_at 也不能清掉它
+            repository.upsert_period_report(dict(base, summary_digest="def456"))
+            session.commit()
+            still_frozen = repository.get_period_report("weekly", "2026-W33")
+
+        self.assertEqual(live["summary_digest"], "abc123")
+        self.assertIsNone(live["finalized_at"])
+        self.assertIn("2026-08-17", str(frozen["finalized_at"]))
+        self.assertIn("2026-08-17", str(still_frozen["finalized_at"]))
+        self.assertEqual(still_frozen["summary_digest"], "def456")
+
     def test_regenerate_period_reports_only_includes_published_daily_entries(self):
         """A period report is a rollup of the days' actual daily reports, not
         an independent re-selection - an article that was scored/clustered
@@ -3232,6 +3276,62 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(len(weekly["entries"]), 1)
         self.assertEqual(weekly["entries"][0]["event_id"], "aa1")
         self.assertEqual(weekly["article_count"], 1)
+
+    def test_regenerate_finalizes_previous_period_then_never_rewrites_it(self):
+        """跨期后的第一批运行给上一期收尾并封版；封版之后即使 provider 挂了
+        也不会用 fallback 文案覆盖已定稿的报告——直接跳过。当期没有任何日报
+        时也不建空壳行。"""
+        import app.db.session as db_session_module
+        from app.repositories.radar_repository import RadarRepository
+        from app.services.ai_service import FakeAIProvider
+        from app.services.refresh_service import _regenerate_period_reports
+
+        # 2026-07-12 是周日，W28 的最后一天
+        report_date = date(2026, 7, 12)
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles(
+                [self._article(article_id="a1", title="周日事件", url_hash="u1")]
+            )
+            repository.upsert_processed_articles([self._processed("a1")])
+            repository.upsert_daily_report(self._report(report_date, article_count=1))
+            repository.replace_daily_report_entries(
+                report_date,
+                [{"event_id": "aa1", "raw_article_id": "a1", "reason": "入选理由", "final_score": 88.0}],
+            )
+            session.commit()
+
+        class BoomProvider(FakeAIProvider):
+            def summarize_period(self, items, kind, range_label):
+                raise RuntimeError("provider down")
+
+        original_build_session_factory = db_session_module.build_session_factory
+        db_session_module.build_session_factory = lambda url: self.Session
+        try:
+            # 周一（W29 第一天）的运行：W28 应被收尾并封版
+            _regenerate_period_reports("sqlite://unused", date(2026, 7, 13), FakeAIProvider())
+            with self.Session() as session:
+                repository = RadarRepository(session)
+                frozen = repository.get_period_report("weekly", "2026-W28")
+                next_week = repository.get_period_report("weekly", "2026-W29")
+
+            # 封版后再跑一次，即使 AI 全挂也不能碰已定稿的 W28
+            _regenerate_period_reports("sqlite://unused", date(2026, 7, 13), BoomProvider())
+            with self.Session() as session:
+                repository = RadarRepository(session)
+                after = repository.get_period_report("weekly", "2026-W28")
+        finally:
+            db_session_module.build_session_factory = original_build_session_factory
+
+        self.assertIsNotNone(frozen)
+        self.assertEqual(frozen["status"], "generated")
+        self.assertTrue(frozen["finalized_at"])
+        # W29 一天日报都没有：不建空壳行
+        self.assertIsNone(next_week)
+        self.assertEqual(after["status"], "generated")
+        self.assertEqual(after["mainline_body"], frozen["mainline_body"])
+        self.assertEqual(after["generated_at"], frozen["generated_at"])
 
     def test_list_daily_report_dates(self):
         from app.repositories.radar_repository import RadarRepository

@@ -1753,6 +1753,16 @@ class RadarRepository:
         model.entries = list(report.get("entries") or [])
         model.stats = dict(report.get("stats") or {})
         model.status = report.get("status") or "generated"
+        model.summary_digest = report.get("summary_digest")
+        # finalized_at is only ever set, never cleared: freezing is one-way,
+        # and callers skip finalized rows before getting anywhere near here
+        finalized_at = report.get("finalized_at")
+        if finalized_at:
+            model.finalized_at = (
+                datetime.fromisoformat(finalized_at)
+                if isinstance(finalized_at, str)
+                else finalized_at
+            )
         # generated_at only has a server_default, which fires on INSERT alone -
         # and period reports are re-generated on every refresh inside the live
         # period. Without this the timestamp froze at first insert: 2026-08's
@@ -3056,6 +3066,8 @@ def _period_report_payload(model: PeriodReportModel) -> dict[str, Any]:
         "stats": dict(model.stats or {}),
         "generated_at": model.generated_at.isoformat() if model.generated_at else None,
         "status": model.status,
+        "summary_digest": model.summary_digest,
+        "finalized_at": model.finalized_at.isoformat() if model.finalized_at else None,
     }
 
 

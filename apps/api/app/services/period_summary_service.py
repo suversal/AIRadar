@@ -9,9 +9,11 @@ fallback instead of blocking report generation.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from app.api.public import month_range, sort_period_items
@@ -69,6 +71,25 @@ def period_range_for_key(kind: str, key: str) -> tuple[date, date]:
     raise ValueError(f"unknown period kind: {kind}")
 
 
+def period_targets_for(kind: str, anchor_date: date) -> list[str]:
+    """Which period keys a refresh anchored on this date must consider:
+    the period the date falls in, plus the one just before it.
+
+    The previous period is what makes finalization actually happen. Its
+    last in-period refresh runs before its final day is fully settled
+    (late-evening runs can still amend that day's daily report), so the
+    closing pass has to come from the *next* period's refreshes - the first
+    run after rollover rebuilds the previous period from its days' settled
+    state and freezes it. Once frozen, later runs skip it on finalized_at,
+    so this costs one extra AI call per rollover, not one per run."""
+    current = period_key_for(kind, anchor_date)
+    current_start, _ = period_range_for_key(kind, current)
+    previous = period_key_for(kind, current_start - timedelta(days=1))
+    # previous first: give the closing pass its freeze before spending
+    # anything on the still-moving current period
+    return [previous, current]
+
+
 def parse_period_summary_payload(payload: dict[str, Any]) -> dict[str, Any]:
     title = str(payload.get("mainline_title") or "").strip()
     body = str(payload.get("mainline_body") or "").strip()
@@ -95,6 +116,14 @@ def _summary_input(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         }
         for item in ranked[:SUMMARY_ITEM_LIMIT]
     ]
+
+
+def summary_digest(summary_input: list[dict[str, Any]]) -> str:
+    """Fingerprint of the material the AI is shown. Equal digest -> the call
+    would see the same input, so the stored text is reused instead of paid
+    for again. Same contract as daily_summary_service.summary_digest."""
+    canonical = json.dumps(summary_input, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _fallback_summary(kind: str, items: list[dict[str, Any]]) -> dict[str, Any]:
@@ -161,44 +190,76 @@ def build_period_report(
     items: list[dict[str, Any]],
     report_dates: list[str],
     ai_provider: Any,
+    previous: dict[str, Any] | None = None,
+    finalize: bool = False,
 ) -> dict[str, Any]:
+    """Build the period's snapshot, buying new AI text only when needed.
+
+    previous is the stored report (if any). The entries/stats snapshot is
+    always rebuilt - it is a free database write and must track the newest
+    daily state - but the AI text is reused from previous when the summary
+    input's fingerprint is unchanged. This is what decouples "the page's
+    masthead is fresh" from "the prose was re-bought": before the digest,
+    summarize_period ran 23 times on 2026-08-18 against summarize_daily's 6.
+
+    finalize=True marks the report frozen (finalized_at) - but only when the
+    summary actually generated. Freezing a fallback row would make 「生成失败」
+    the period's permanent text; leaving it unfrozen lets the next rollover
+    run retry.
+    """
     key = period_key_for(kind, anchor)
     range_start, range_end = period_range_for_key(kind, key)
     range_label = f"{range_start.isoformat()} ~ {range_end.isoformat()}"
 
+    summary_input = _summary_input(items)
+    digest = summary_digest(summary_input)
+
     status = "generated"
     summary: dict[str, Any] | None = None
-    for attempt in range(1, SUMMARY_ATTEMPTS + 1):
-        try:
-            drafted = ai_provider.summarize_period(_summary_input(items), kind, range_label)
-            drafted = parse_period_summary_payload(drafted)
-        except Exception:
+    if (
+        previous
+        and previous.get("status") == "generated"
+        and previous.get("summary_digest") == digest
+    ):
+        # unchanged input, healthy stored text: reuse it. A fallback row never
+        # gets here (its digest is stored as None), so failures always retry.
+        summary = {
+            "mainline_title": previous.get("mainline_title") or "",
+            "mainline_body": previous.get("mainline_body") or "",
+            "theme_notes": list(previous.get("theme_notes") or []),
+        }
+    else:
+        for attempt in range(1, SUMMARY_ATTEMPTS + 1):
+            try:
+                drafted = ai_provider.summarize_period(summary_input, kind, range_label)
+                drafted = parse_period_summary_payload(drafted)
+            except Exception:
+                logger.warning(
+                    "period summary attempt %d/%d failed for %s %s",
+                    attempt,
+                    SUMMARY_ATTEMPTS,
+                    kind,
+                    key,
+                    exc_info=True,
+                )
+                continue
+            # keep the newest draft either way: a short summary is still worth
+            # publishing, so length only decides whether to spend another attempt
+            summary = drafted
+            if len(drafted["mainline_body"]) >= MAINLINE_BODY_MIN_CHARS:
+                break
             logger.warning(
-                "period summary attempt %d/%d failed for %s %s",
-                attempt,
-                SUMMARY_ATTEMPTS,
+                "period summary for %s %s is %d chars (min %d) on attempt %d/%d",
                 kind,
                 key,
-                exc_info=True,
+                len(drafted["mainline_body"]),
+                MAINLINE_BODY_MIN_CHARS,
+                attempt,
+                SUMMARY_ATTEMPTS,
             )
-            continue
-        # keep the newest draft either way: a short summary is still worth
-        # publishing, so length only decides whether to spend another attempt
-        summary = drafted
-        if len(drafted["mainline_body"]) >= MAINLINE_BODY_MIN_CHARS:
-            break
-        logger.warning(
-            "period summary for %s %s is %d chars (min %d) on attempt %d/%d",
-            kind,
-            key,
-            len(drafted["mainline_body"]),
-            MAINLINE_BODY_MIN_CHARS,
-            attempt,
-            SUMMARY_ATTEMPTS,
-        )
-    if summary is None:
-        summary = _fallback_summary(kind, items)
-        status = "fallback"
+        if summary is None:
+            summary = _fallback_summary(kind, items)
+            status = "fallback"
 
     return {
         "kind": kind,
@@ -214,4 +275,11 @@ def build_period_report(
         "stats": _stats_snapshot(items),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "status": status,
+        # digest only on generated: a fallback must not block the next retry
+        "summary_digest": digest if status == "generated" else None,
+        "finalized_at": (
+            datetime.now(timezone.utc).isoformat()
+            if finalize and status == "generated"
+            else None
+        ),
     }

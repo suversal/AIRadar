@@ -756,34 +756,52 @@ def _regenerate_period_reports(database_url: str, anchor_date: date, ai_provider
     fresh query over every scored event in the date range - a period report
     is a rollup of daily reports, not an independent re-selection. Otherwise
     events that were scored/clustered but never made any day's daily report
-    would leak into the weekly/monthly snapshot."""
+    would leak into the weekly/monthly snapshot.
+
+    Each refresh considers the current period *and the one before it*
+    (period_targets_for): the previous period's first post-rollover pass is
+    what finalizes it from its days' settled state. A finalized report is
+    skipped outright - its text and snapshot are frozen - and an unchanged
+    summary input reuses the stored text instead of re-buying it, so the
+    12-14 daily runs no longer rewrite the live period's prose each time."""
     from app.api.public import build_period_payload
     from app.db.session import build_session_factory
     from app.repositories.radar_repository import RadarRepository
     from app.services.period_summary_service import (
         build_period_report,
-        period_key_for,
         period_range_for_key,
+        period_targets_for,
     )
 
     session = build_session_factory(database_url)()
     try:
         repository = RadarRepository(session)
         for kind in ("weekly", "monthly"):
-            key = period_key_for(kind, anchor_date)
-            range_start, range_end = period_range_for_key(kind, key)
-            daily_payloads = repository.get_daily_report_payloads_between(range_start, range_end)
-            merged = build_period_payload(
-                daily_payloads, mode=kind, range_start=range_start, range_end=range_end
-            )
-            report = build_period_report(
-                kind=kind,
-                anchor=anchor_date,
-                items=merged["items"],
-                report_dates=sorted(merged["report_dates"]),
-                ai_provider=ai_provider,
-            )
-            repository.upsert_period_report(report)
+            for key in period_targets_for(kind, anchor_date):
+                stored = repository.get_period_report(kind, key)
+                if stored and stored.get("finalized_at"):
+                    continue
+                range_start, range_end = period_range_for_key(kind, key)
+                daily_payloads = repository.get_daily_report_payloads_between(
+                    range_start, range_end
+                )
+                if not daily_payloads and stored is None:
+                    # nothing was ever published in this period; a report row
+                    # here would be an empty shell with a made-up summary
+                    continue
+                merged = build_period_payload(
+                    daily_payloads, mode=kind, range_start=range_start, range_end=range_end
+                )
+                report = build_period_report(
+                    kind=kind,
+                    anchor=range_start,
+                    items=merged["items"],
+                    report_dates=sorted(merged["report_dates"]),
+                    ai_provider=ai_provider,
+                    previous=stored,
+                    finalize=anchor_date > range_end,
+                )
+                repository.upsert_period_report(report)
         session.commit()
     except Exception:
         session.rollback()
