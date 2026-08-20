@@ -332,9 +332,9 @@ export default function AgentPage() {
           </div>
         </div>
         <p className="mt-4">
-          接入失败、MCP 工具不可见、Skill 漏触发，或需要新端点？走{" "}
+          Skill 漏触发，或需要新端点？欢迎向我{" "}
           <a className="text-signal underline underline-offset-4 hover:text-signal-bright" href="/feedback">
-            反馈页
+            反馈
           </a>
           。
         </p>
