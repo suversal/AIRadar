@@ -127,7 +127,9 @@ function WeeklyRadarStrip({ payload }: { payload: TopicsPayload }) {
               <span className="font-semibold text-ink-mid">异动主题</span>
               <span className="text-right text-ink-dim">上周</span>
               <span aria-hidden />
-              <span className="text-right text-ink-dim">本周</span>
+              {/* 本周列左对齐:右对齐会在个位数时让数字远离箭头,
+                  两侧间距不对称(上周列右对齐后紧贴箭头) */}
+              <span className="text-left text-ink-dim">本周</span>
             </div>
             <ul className="mt-1.5 divide-y divide-line/60">
               {movers.map((topic) => (
@@ -144,7 +146,7 @@ function WeeklyRadarStrip({ payload }: { payload: TopicsPayload }) {
                     </span>
                     {/* 箭头独占两数之间的定宽小列——位数变化不影响对齐 */}
                     <span className="text-center text-xs font-semibold text-signal">↑</span>
-                    <span className="readout text-right text-xs font-semibold tabular-nums text-signal">
+                    <span className="readout text-left text-xs font-semibold tabular-nums text-signal">
                       {topic.week_count}
                     </span>
                   </a>
