@@ -21,6 +21,32 @@ type ChangelogEntry = { date: string; title: string; changes: Change[] };
 
 const entries: ChangelogEntry[] = [
   {
+    date: "2026-08-20",
+    title: "Agent 接入重做：四条路径，全部匿名只读",
+    changes: [
+      {
+        kind: "新增",
+        text: "Agent Skill：一句提示词装好，之后直接用中文问「过去 24 小时 AI 圈发生了什么」",
+      },
+      {
+        kind: "新增",
+        text: "MCP Server：支持远程 MCP 的工具加一个地址即可，六个工具覆盖最新动态、搜索、热点榜、事件时间线、日报与主题",
+      },
+      {
+        kind: "新增",
+        text: "RSS 订阅：精选、全部动态、日报与分类四类地址，主流阅读器和 n8n、Zapier 都能直接用",
+      },
+      {
+        kind: "新增",
+        text: "REST API：稳定的公开接口，支持条件请求，配套 OpenAPI 文档与 llms.txt",
+      },
+      {
+        kind: "修复",
+        text: "Agent 接入页此前列出的接口实际无法从外网访问，照着文档调用只会拿到 404；现在页面上的每个地址都是真实可用的",
+      },
+    ],
+  },
+  {
     date: "2026-08-18",
     title: "日报加上今日主线，月报不再漏掉近期内容",
     changes: [
