@@ -70,19 +70,19 @@ function sortByActivity(topics: TopicSummary[]): TopicSummary[] {
   );
 }
 
-/** 异动主题:周环比显著变化(升或降)的主题,给"本周雷达"条用。
- *  按变化倍数排,最多 4 个——它是信号灯不是排行榜,多了就没人看了。 */
-function moverMagnitude(topic: TopicSummary) {
-  const week = Math.max(topic.week_count, 1);
-  const prev = Math.max(topic.prev_week_count, 1);
-  return Math.max(week / prev, prev / week);
-}
-
+/** 异动主题:周环比显著上升的主题,给"本周雷达"条用。按上升倍数排,
+ *  最多 4 个——它是信号灯不是排行榜,多了就没人看了。
+ *  只收上升不收下降(2026-08-20 产品决策):这个位置回答"什么正在变热",
+ *  降温信息交给卡片上的周环比数字去体现。 */
 function pickMovers(groups: TopicsPayload["groups"]) {
   return groups
     .flatMap((group) => group.topics)
-    .filter((topic) => weekTrend(topic) !== null)
-    .sort((a, b) => moverMagnitude(b) - moverMagnitude(a))
+    .filter((topic) => weekTrend(topic) === "up")
+    .sort(
+      (a, b) =>
+        b.week_count / Math.max(b.prev_week_count, 1) -
+        a.week_count / Math.max(a.prev_week_count, 1),
+    )
     .slice(0, 4);
 }
 
@@ -143,13 +143,7 @@ function WeeklyRadarStrip({ payload }: { payload: TopicsPayload }) {
                     <span className="readout text-right text-xs tabular-nums text-ink-dim">
                       {topic.prev_week_count}
                     </span>
-                    {/* 方向只用颜色表达:升=signal(橙),降=cool(灰蓝)。
-                        不用箭头/符号——它们和变宽的数字永远对不齐 */}
-                    <span
-                      className={`readout text-right text-xs font-semibold tabular-nums ${
-                        weekTrend(topic) === "down" ? "text-cool" : "text-signal"
-                      }`}
-                    >
+                    <span className="readout text-right text-xs font-semibold tabular-nums text-signal">
                       {topic.week_count}
                     </span>
                   </a>
