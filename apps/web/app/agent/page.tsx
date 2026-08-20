@@ -328,13 +328,16 @@ export default function AgentPage() {
             <div>
               <h3 className="font-semibold text-ink">匿名访问不等于商业授权</h3>
               <p className="mt-1 text-sm leading-6 text-ink-mid">个人非商业、公益非商业和组织内部使用免费；面向外部的商业产品、收费服务、客户交付、代理接口、数据转售、公开镜像或批量再分发，需要先取得书面授权。</p>
-              <div className="mt-3 flex flex-wrap gap-3">
-                <a className="inline-flex min-h-10 items-center gap-2 rounded-md border border-signal/40 bg-signal/10 px-3 text-sm font-semibold text-signal hover:border-signal/60" href="/feedback?topic=commercial#feedback-form">申请商业授权<ArrowRight className="h-4 w-4" aria-hidden /></a>
-                <a className="inline-flex min-h-10 items-center px-1 text-sm text-ink-mid underline underline-offset-4 hover:text-signal" href="/feedback">接入失败或需要新端点</a>
-              </div>
             </div>
           </div>
         </div>
+        <p className="mt-4">
+          接入失败、MCP 工具不可见、Skill 漏触发，或需要新端点？走{" "}
+          <a className="text-signal underline underline-offset-4 hover:text-signal-bright" href="/feedback">
+            反馈页
+          </a>
+          。
+        </p>
       </section>
     </StaticPage>
   );

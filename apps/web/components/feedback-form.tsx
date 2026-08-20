@@ -6,8 +6,8 @@ const MAX_MESSAGE_LENGTH = 2000;
 
 type Status = "idle" | "submitting" | "sent" | "error";
 
-export function FeedbackForm({ initialMessage = "" }: { initialMessage?: string }) {
-  const [message, setMessage] = useState(initialMessage);
+export function FeedbackForm() {
+  const [message, setMessage] = useState("");
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [errorText, setErrorText] = useState("");
@@ -62,7 +62,7 @@ export function FeedbackForm({ initialMessage = "" }: { initialMessage?: string 
   }
 
   return (
-    <form id="feedback-form" onSubmit={handleSubmit} className="scroll-mt-4 space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4">
       <div>
         <label htmlFor="feedback-message" className="text-sm font-semibold text-ink">
           想说点什么？
