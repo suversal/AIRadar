@@ -70,18 +70,21 @@ function sortByActivity(topics: TopicSummary[]): TopicSummary[] {
   );
 }
 
-/** 异动主题:周环比显著上升的主题,给"本周雷达"条用。按上升倍数排,
- *  最多 4 个——它是信号灯不是排行榜,多了就没人看了。
- *  只收上升不收下降(2026-08-20 产品决策):这个位置回答"什么正在变热",
- *  降温信息交给卡片上的周环比数字去体现。 */
+/** 异动主题:周环比显著上升的主题,给"本周雷达"条用,最多 4 个——
+ *  它是信号灯不是排行榜,多了就没人看了。
+ *  三条产品决策(2026-08-20):
+ *  - 只收上升:这个位置回答"什么正在变热",降温交给卡片上的周环比;
+ *  - 只看"公司与模型"组:技术方向(Agent/多模态…)太抽象,变热了也
+ *    说不出是谁的事,实体异动才是可点进去看的新闻;
+ *  - 入围用倍数门槛(weekTrend 的 1.5 倍,滤掉正常波动),排序用
+ *    绝对增量——倍数排序会把 1→4 这种小基数噪声排到 6→20 前面。 */
 function pickMovers(groups: TopicsPayload["groups"]) {
   return groups
+    .filter((group) => group.id === "entities")
     .flatMap((group) => group.topics)
     .filter((topic) => weekTrend(topic) === "up")
     .sort(
-      (a, b) =>
-        b.week_count / Math.max(b.prev_week_count, 1) -
-        a.week_count / Math.max(a.prev_week_count, 1),
+      (a, b) => b.week_count - b.prev_week_count - (a.week_count - a.prev_week_count),
     )
     .slice(0, 4);
 }
