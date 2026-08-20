@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { siteUrl } from "@/lib/site";
+import { TOPIC_SLUGS } from "@/lib/topics";
 
 // 只收录公开的列表/内容入口。/admin 与 /api 由 robots.ts 拦掉，
 // /bookmarks 是浏览器本地收藏、每人不同，收录没有意义。
@@ -34,7 +35,16 @@ const routes: Array<{
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const lastModified = new Date();
-  return routes.map(({ path, changeFrequency, priority }) => ({
+  return [
+    ...routes,
+    // 主题详情页是全站的长尾搜索入口("Claude 最新动态"这类查询),
+    // slug 来自前端镜像注册表,不依赖构建期 API 可达
+    ...TOPIC_SLUGS.map((slug) => ({
+      path: `/topics/${slug}`,
+      changeFrequency: "daily" as const,
+      priority: 0.6,
+    })),
+  ].map(({ path, changeFrequency, priority }) => ({
     url: new URL(path, siteUrl).toString(),
     lastModified,
     changeFrequency,

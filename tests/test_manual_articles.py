@@ -73,6 +73,77 @@ class ManualArticleServiceTests(unittest.TestCase):
         self.assertEqual(processed.selection_origin, "admin")
         self.assertEqual(processed.status, "processed")
 
+    def test_publish_persists_ai_topic_ids_verdict_including_empty(self):
+        from app.db.models import ProcessedArticleModel
+        from app.repositories.radar_repository import RadarRepository
+        from app.services.ai_service import FakeAIProvider
+        from app.services.manual_articles import (
+            create_submission,
+            process_submission,
+            publish_submission,
+        )
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            submission = create_submission(
+                repository,
+                {
+                    "mode": "editor",
+                    "editor_document": self._document(
+                        "Claude 5 正式发布,Anthropic 公布了完整能力说明、使用方式、接口参数、评测结果、价格档位和面向开发者的分阶段上线计划。"
+                    ),
+                    "manual_fields": {"title": "Claude 5 发布"},
+                },
+            )
+            process_submission(repository, submission.id, ai_provider=FakeAIProvider())
+            # AI 判定"不属于任何主题"(空列表)必须原样落库——标题里明明有
+            # Claude,关键词兜底会推出 anthropic,只有尊重快照才能验证
+            # 发布路径没有偷偷走关键词
+            snapshot = dict(submission.ai_fields or {})
+            snapshot["topic_ids"] = []
+            submission.ai_fields = snapshot
+            session.flush()
+            publish_submission(repository, submission.id)
+            session.commit()
+            processed = session.query(ProcessedArticleModel).one()
+
+        self.assertEqual(processed.topic_ids, [])
+
+    def test_publish_derives_topic_ids_when_snapshot_lacks_field(self):
+        from app.db.models import ProcessedArticleModel
+        from app.repositories.radar_repository import RadarRepository
+        from app.services.ai_service import FakeAIProvider
+        from app.services.manual_articles import (
+            create_submission,
+            process_submission,
+            publish_submission,
+        )
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            submission = create_submission(
+                repository,
+                {
+                    "mode": "editor",
+                    "editor_document": self._document(
+                        "Claude 5 正式发布,Anthropic 公布了完整能力说明、使用方式、接口参数、评测结果、价格档位和面向开发者的分阶段上线计划。"
+                    ),
+                    "manual_fields": {"title": "Claude 5 发布"},
+                },
+            )
+            process_submission(repository, submission.id, ai_provider=FakeAIProvider())
+            # 老草稿的 ai 快照没有 topic_ids 字段 → 发布时关键词推导兜底
+            snapshot = dict(submission.ai_fields or {})
+            snapshot.pop("topic_ids", None)
+            submission.ai_fields = snapshot
+            session.flush()
+            publish_submission(repository, submission.id)
+            session.commit()
+            processed = session.query(ProcessedArticleModel).one()
+
+        self.assertIsNotNone(processed.topic_ids)
+        self.assertIn("anthropic", processed.topic_ids)
+
     def test_blank_draft_tags_fall_back_to_ai_tags(self):
         from app.db.models import EditorialOverrideModel
         from app.repositories.radar_repository import RadarRepository

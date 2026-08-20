@@ -207,6 +207,10 @@ class ProcessedArticleModel(Base):
     # The existing category column remains the eight-way scoring taxonomy.
     focus_category: Mapped[Optional[str]] = mapped_column(String, index=True)
     tags: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    # 主题归属(topics 注册表的 canonical id 列表)。入库时 AI 判定、缺失时
+    # 关键词推导;None 只出现在未回填的存量行,读取层对 None 回退关键词匹配
+    # (见 app.services.topics.item_matches_topic)。
+    topic_ids: Mapped[Optional[list]] = mapped_column(JSON)
     model_used: Mapped[Optional[str]] = mapped_column(String)
     # lineage: the pipeline run that last (re)generated this row
     pipeline_run_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pipeline_runs.id"))

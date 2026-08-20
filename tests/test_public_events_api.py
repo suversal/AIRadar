@@ -41,6 +41,7 @@ def make_item(event_id: str, **overrides):
         "category": "model_release",
         "tags": ["ai"],
         "final_score": 80.0,
+        "selected": True,
         "published_at": "2026-07-08T06:00:00+00:00",
         "main_source": {"name": "OpenAI Blog", "url": "https://example.com", "tier": "T1"},
     }
@@ -258,6 +259,8 @@ class PublicEventRouteTests(unittest.TestCase):
                 [
                     make_item("evt-1", title="OpenAI releases agent model"),
                     make_item("evt-2", title="Claude 5 launches"),
+                    # 未精选的条目不计入索引页(卡片写的是"精选 N 条")
+                    make_item("evt-3", title="Claude rumor roundup", selected=False),
                 ]
             )
         )
@@ -266,13 +269,93 @@ class PublicEventRouteTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
-        self.assertEqual(
-            [g["id"] for g in body["groups"]],
-            ["models", "products", "directions", "companies"],
+        self.assertEqual([g["id"] for g in body["groups"]], ["entities", "directions"])
+        entities = {t["id"]: t for t in body["groups"][0]["topics"]}
+        self.assertEqual(entities["openai"]["count"], 1)
+        self.assertEqual(entities["anthropic"]["count"], 1)
+        self.assertTrue(entities["anthropic"]["description"])
+        self.assertEqual(body["article_count"], 2)
+        # 没有故事线数据时字段也必须在,前端不做 undefined 分支
+        self.assertEqual(body["storylines"], [])
+        # 窗口随 payload 下发,前端文案从这里取
+        self.assertEqual(body["window_days"], 90)
+        self.assertEqual(body["storyline_window_days"], 14)
+
+    def test_topics_route_rejects_windows_shorter_than_trend_windows(self):
+        client, _ = self._client(self._current_payloads([make_item("evt-1")]))
+
+        # 周环比窗口固定 14 天:items 窗口比它短会让 prev_week_count
+        # 结构性为 0,把所有主题都判成"异动上升"
+        self.assertEqual(client.get("/api/public/topics?days=7").status_code, 400)
+        self.assertEqual(client.get("/api/public/topics?days=14").status_code, 200)
+
+    def test_topics_route_returns_shaped_storylines(self):
+        from datetime import datetime, timezone
+
+        client, repository = self._client(
+            self._current_payloads([make_item("evt-1", title="Claude 5 launches")])
         )
-        companies = {t["id"]: t["count"] for t in body["groups"][3]["topics"]}
-        self.assertEqual(companies["openai"], 1)
-        self.assertEqual(companies["anthropic"], 1)
+        repository.storylines = [
+            {
+                "event_id": "story-1",
+                "title": "某事件持续发酵",
+                "source_count": 4,
+                "first_seen_at": datetime(2026, 8, 17, 1, tzinfo=timezone.utc),
+                "last_seen_at": datetime(2026, 8, 19, 1, tzinfo=timezone.utc),
+            },
+            {
+                # 同一天 → 被跨天过滤挡掉
+                "event_id": "same-day",
+                "title": "单日热点",
+                "source_count": 9,
+                "first_seen_at": datetime(2026, 8, 19, 1, tzinfo=timezone.utc),
+                "last_seen_at": datetime(2026, 8, 19, 5, tzinfo=timezone.utc),
+            },
+        ]
+
+        response = client.get("/api/public/topics")
+
+        self.assertEqual(response.status_code, 200)
+        storylines = response.json()["storylines"]
+        self.assertEqual([s["event_id"] for s in storylines], ["story-1"])
+        self.assertEqual(storylines[0]["days"], 3)
+        self.assertEqual(storylines[0]["source_count"], 4)
+
+    def test_topic_detail_route_returns_header_and_timeline(self):
+        client, _ = self._client(
+            self._current_payloads(
+                [
+                    make_item("evt-1", title="Claude 5 launches"),
+                    make_item("evt-2", title="Claude rumor roundup", selected=False),
+                    make_item("evt-3", title="OpenAI releases agent model"),
+                ]
+            )
+        )
+
+        response = client.get("/api/public/topics/anthropic")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["topic"]["id"], "anthropic")
+        self.assertEqual(body["topic"]["group_id"], "entities")
+        # 收录含未精选,时间线只放精选
+        self.assertEqual(body["total_count"], 2)
+        self.assertEqual(body["selected_count"], 1)
+        self.assertEqual([item["event_id"] for item in body["items"]], ["evt-1"])
+        self.assertEqual(body["window_days"], 90)
+        self.assertEqual(body["focus_window_days"], 14)
+
+    def test_topic_detail_route_resolves_legacy_alias_and_rejects_unknown(self):
+        client, _ = self._client(
+            self._current_payloads([make_item("evt-1", title="Claude 5 launches")])
+        )
+
+        # 旧版四组时代的 id(claude)重定向到合并后的实体主题
+        response = client.get("/api/public/topics/claude")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["topic"]["id"], "anthropic")
+
+        self.assertEqual(client.get("/api/public/topics/nope").status_code, 404)
 
     def test_events_route_accepts_topic_param(self):
         client, _ = self._client(
@@ -652,13 +735,19 @@ class FakeRepository:
             if start_date <= report_date <= end_date
         ]
 
-    def get_all_event_items_between(self, start_date, end_date):
+    def get_all_event_items_between(self, start_date, end_date, *, selected_only=False):
         self.calls.append(f"all_items:{start_date.isoformat()}:{end_date.isoformat()}")
         items = []
         for report_date, payload in sorted(self.payloads.items()):
             if start_date <= report_date <= end_date:
                 items.extend(payload.get("items", []))
+        if selected_only:
+            items = [item for item in items if item.get("selected")]
         return items
+
+    def get_active_storylines(self, *, since, limit=20):
+        self.calls.append("storylines")
+        return list(getattr(self, "storylines", []))
 
     def count_and_get_all_event_items_between(
         self,

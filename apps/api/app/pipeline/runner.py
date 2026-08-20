@@ -405,6 +405,7 @@ def _build_processed_article(
         },
         focus_category=scoring.focus_category,
         model_used=model_used,
+        topic_ids=scoring.topic_ids,
     )
     aihot_summary_zh = article.metadata.get("aihot_summary_zh")
     if aihot_summary_zh:

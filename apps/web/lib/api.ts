@@ -552,7 +552,11 @@ export async function getPeriodReport(
 export type TopicSummary = {
   id: string;
   name: string;
+  description: string;
   count: number;
+  week_count: number;
+  prev_week_count: number;
+  latest_published_at: string | null;
 };
 
 export type TopicGroup = {
@@ -562,26 +566,123 @@ export type TopicGroup = {
   topics: TopicSummary[];
 };
 
+export type TopicStoryline = {
+  event_id: string;
+  title: string;
+  source_count: number;
+  /** 报道跨越的自然日数(上海时区),≥2 才算故事线 */
+  days: number;
+  last_seen_at: string;
+};
+
 export type TopicsPayload = {
   groups: TopicGroup[];
   article_count: number;
+  /** 本周雷达:正在发展的多日多源事件,后端已按热度排序、裁到 5 条 */
+  storylines: TopicStoryline[];
+  /** 计数窗口(天),页面文案从这里取,不写死 */
+  window_days: number;
+  storyline_window_days: number;
   error?: string | null;
 };
 
 export async function getTopics(): Promise<TopicsPayload> {
+  const empty = (error: string | null): TopicsPayload => ({
+    groups: [],
+    article_count: 0,
+    storylines: [],
+    window_days: 90,
+    storyline_window_days: 14,
+    error,
+  });
   try {
     const response = await fetch(`${getApiBaseUrl()}/api/public/topics`, cacheFor(600));
     if (!response.ok) {
-      return {
-        groups: [],
-        article_count: 0,
-        error: `API 服务暂时不可用：topics 接口返回 ${response.status}。`,
-      };
+      return empty(`API 服务暂时不可用：topics 接口返回 ${response.status}。`);
     }
     const payload = (await response.json()) as TopicsPayload;
-    return { ...payload, error: null };
+    // 逐字段兜底:web 与 api 分开部署,存在短暂的新页面配旧接口窗口。
+    // 少了兜底的话,排序比较器算出 NaN、卡片渲染 "本周 undefined"
+    return {
+      ...payload,
+      groups: (payload.groups ?? []).map((group) => ({
+        ...group,
+        topics: (group.topics ?? []).map((topic) => ({
+          ...topic,
+          description: topic.description ?? "",
+          count: topic.count ?? 0,
+          week_count: topic.week_count ?? 0,
+          prev_week_count: topic.prev_week_count ?? 0,
+          latest_published_at: topic.latest_published_at ?? null,
+        })),
+      })),
+      storylines: payload.storylines ?? [],
+      window_days: payload.window_days ?? 90,
+      storyline_window_days: payload.storyline_window_days ?? 14,
+      error: null,
+    };
   } catch (error) {
-    return { groups: [], article_count: 0, error: latestLoadErrorMessage(error) };
+    return empty(latestLoadErrorMessage(error));
+  }
+}
+
+export type TopicDetailPayload = {
+  topic: {
+    id: string;
+    name: string;
+    description: string;
+    group_id: string | null;
+    group_name: string | null;
+  };
+  total_count: number;
+  selected_count: number;
+  latest_published_at: string | null;
+  focus: LatestEvent[];
+  items: LatestEvent[];
+  limit: number;
+  offset: number;
+  /** 计数窗口(天),页面文案从这里取,不写死 */
+  window_days: number;
+  focus_window_days: number;
+  error?: string | null;
+};
+
+/** 主题详情。404(未知主题)返回 null 交给页面 notFound();
+ *  其余失败沿用全站惯例:降级 payload + error 文案,页面照常渲染骨架。 */
+export async function getTopicDetail(slug: string): Promise<TopicDetailPayload | null> {
+  const degraded = (error: string): TopicDetailPayload => ({
+    topic: { id: slug, name: slug, description: "", group_id: null, group_name: null },
+    total_count: 0,
+    selected_count: 0,
+    latest_published_at: null,
+    focus: [],
+    items: [],
+    limit: 0,
+    offset: 0,
+    window_days: 90,
+    focus_window_days: 14,
+    error,
+  });
+  try {
+    const response = await fetch(
+      `${getApiBaseUrl()}/api/public/topics/${encodeURIComponent(slug)}`,
+      cacheFor(600),
+    );
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      return degraded(`API 服务暂时不可用：topics 接口返回 ${response.status}。`);
+    }
+    const payload = (await response.json()) as TopicDetailPayload;
+    return {
+      ...payload,
+      window_days: payload.window_days ?? 90,
+      focus_window_days: payload.focus_window_days ?? 14,
+      error: null,
+    };
+  } catch (error) {
+    return degraded(latestLoadErrorMessage(error));
   }
 }
 

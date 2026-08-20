@@ -439,6 +439,8 @@ def parse_scoring_payload(payload: dict[str, Any]) -> ScoringResult:
             ]
         ),
     )
+    from app.services.topics import normalize_topic_ids
+
     return ScoringResult(
         ai_focus=ai_focus,
         dimensions=ContentValueDimensions(
@@ -454,6 +456,9 @@ def parse_scoring_payload(payload: dict[str, Any]) -> ScoringResult:
         reason_zh=str(payload["reason_zh"]),
         action_zh=str(payload["action_zh"]),
         focus_category=focus_category,
+        # 字段缺失/类型跑偏 → None,下游 select_processed_article 用关键词
+        # 兜底;合法列表(含空)按注册表清洗后原样传递
+        topic_ids=normalize_topic_ids(payload.get("topic_ids")),
     )
 
 
@@ -474,6 +479,7 @@ def _scoring_schema_hint() -> dict[str, Any]:
         "category": "model_release",
         "focus_category": "model",
         "tags": ["Agent"],
+        "topic_ids": ["anthropic", "agents"],
         "title_zh": "中文标题",
         "one_line_summary": "一句话摘要",
         "summary_zh": "按核心事件→关键细节→结果→限制组织的180-260字事实摘要",
@@ -633,6 +639,18 @@ def _focus_taxonomy_guide() -> str:
     )
 
 
+def _topic_ids_enum() -> str:
+    """topic_ids 的合法值清单,slug 后附中文名帮模型对号入座。
+    注册表(app.services.topics)是唯一权威,这里动态生成避免两处漂移。"""
+    from app.services.topics import TOPIC_GROUPS
+
+    return "、".join(
+        f"{topic['id']}({topic['name']})"
+        for group in TOPIC_GROUPS
+        for topic in group["topics"]
+    )
+
+
 def scoring_system_prompt() -> str:
     schema_hint = _scoring_schema_hint()
     return (
@@ -648,6 +666,10 @@ def scoring_system_prompt() -> str:
         "focus_category MUST be exactly one of: model, product, technology, industry, tutorial. "
         "tags: up to 5 short Chinese or product-name tags; prefer this vocabulary "
         f"when applicable: {', '.join(SUGGESTED_TAGS)}; add company/model names as needed. "
+        "topic_ids（0-4个）：文章**主要关于**哪些主题，从且仅从这个固定清单里选："
+        f"{_topic_ids_enum()}。"
+        "判断标准是文章的主体对象，不是提到过谁：评测里顺带对比了某模型、摘要里"
+        "顺嘴一句某公司，都不算。宁缺勿滥，一个都不属于就返回空数组[]。"
         "title_zh（中文标题，12-30字）：必须忠实于原文标题与正文事实，"
         "准确概括这篇文章报道的具体事件（谁、做了什么），"
         "须包含原文中出现的关键公司、产品或模型名称；"

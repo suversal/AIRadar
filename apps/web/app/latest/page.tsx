@@ -23,7 +23,7 @@ type LatestSearchParams = Promise<{
 }>;
 
 const PAGE_SIZE = 50;
-const HOTSPOT_LIMIT = 3;
+const HOTSPOT_LIMIT = 5;
 
 const categoryOptions = FOCUS_FILTER_OPTIONS;
 
