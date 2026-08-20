@@ -21,7 +21,7 @@ set -euo pipefail
 
 SKILL_NAME="ai-radar"
 BASE_URL="${AI_RADAR_SKILL_BASE:-https://radar.suversal.com/ai-radar-skill}"
-FILES=(SKILL.md VERSION)
+FILES=(SKILL.md VERSION install.sh SHA256SUMS)
 
 AGENTS_ROOT="$HOME/.agents/skills"
 CLAUDE_ROOT="$HOME/.claude/skills"
@@ -80,6 +80,7 @@ case "$TARGET" in
 esac
 
 command -v curl >/dev/null 2>&1 || die "需要 curl。"
+command -v shasum >/dev/null 2>&1 || die "需要 shasum 来校验下载文件。"
 
 # ---------- 1. 先看有没有重复副本 ----------
 # 各平台早期各自约定过 skills 目录。同时存在多份正文时，升级只会命中一份，
@@ -134,6 +135,9 @@ head -n 1 "$STAGING/SKILL.md" | grep -q '^---$' \
   || die "下载到的 SKILL.md 不是有效的 Skill 文件（缺少 frontmatter），可能拿到了错误页。已中止。"
 grep -q "^name: $SKILL_NAME\$" "$STAGING/SKILL.md" \
   || die "下载到的 SKILL.md 里的 name 不是 ${SKILL_NAME}，已中止。"
+if ! (cd "$STAGING" && shasum -a 256 -c SHA256SUMS >/dev/null); then
+  die "下载文件的 SHA-256 校验失败，已中止；本次没有改动任何安装目录。"
+fi
 
 VERSION="$(tr -d ' \t\n\r' < "$STAGING/VERSION")"
 [ -n "$VERSION" ] || die "VERSION 文件为空，已中止。"

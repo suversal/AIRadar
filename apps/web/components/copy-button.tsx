@@ -3,6 +3,8 @@
 import { Check, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
 
+type CopyStatus = "idle" | "copied" | "error";
+
 /**
  * 复制按钮。
  *
@@ -10,13 +12,13 @@ import { useEffect, useState } from "react";
  * JSON 是最容易出错的一步——漏一个花括号、多带一个行号，接入就失败。
  */
 export function CopyButton({ text, label = "复制" }: { text: string; label?: string }) {
-  const [copied, setCopied] = useState(false);
+  const [status, setStatus] = useState<CopyStatus>("idle");
 
   useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 2000);
+    if (status === "idle") return;
+    const timer = setTimeout(() => setStatus("idle"), status === "copied" ? 2000 : 3500);
     return () => clearTimeout(timer);
-  }, [copied]);
+  }, [status]);
 
   async function copy() {
     try {
@@ -31,24 +33,34 @@ export function CopyButton({ text, label = "复制" }: { text: string; label?: s
         area.style.opacity = "0";
         document.body.appendChild(area);
         area.select();
-        document.execCommand("copy");
+        const copied = document.execCommand("copy");
         document.body.removeChild(area);
+        if (!copied) {
+          throw new Error("copy command failed");
+        }
       }
-      setCopied(true);
+      setStatus("copied");
     } catch {
-      // 复制失败不做提示：内容本来就在屏幕上，手选即可
+      setStatus("error");
     }
   }
+
+  const message = status === "copied" ? "已复制" : status === "error" ? "复制失败" : label;
 
   return (
     <button
       type="button"
       onClick={copy}
-      aria-label={copied ? "已复制" : label}
-      className="inline-flex shrink-0 items-center gap-1 rounded border border-line bg-canvas px-2 py-1 text-xs text-ink-mid transition-colors hover:border-signal/50 hover:text-signal"
+      aria-label={status === "error" ? "复制失败，请手动选择文本" : message}
+      title={status === "error" ? "复制失败，请手动选择文本" : undefined}
+      className={`inline-flex shrink-0 items-center gap-1 rounded border bg-canvas px-2 py-1 text-xs transition-colors ${
+        status === "error"
+          ? "border-danger/50 text-danger"
+          : "border-line text-ink-mid hover:border-signal/50 hover:text-signal"
+      }`}
     >
-      {copied ? <Check className="h-3 w-3" aria-hidden /> : <Copy className="h-3 w-3" aria-hidden />}
-      {copied ? "已复制" : label}
+      {status === "copied" ? <Check className="h-3 w-3" aria-hidden /> : <Copy className="h-3 w-3" aria-hidden />}
+      <span aria-live="polite">{message}</span>
     </button>
   );
 }

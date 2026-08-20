@@ -35,6 +35,7 @@ function render(): string {
 匿名 GET，支持 CORS 与 ETag 条件请求，错误为 RFC 9457 Problem JSON。
 
 - [OpenAPI 3.1](${u("/openapi-v1.json")}): 字段、参数与错误码以此为准
+- [REST API 人类可读参考](${u("/agent/api")}): 端点、参数、字段、缓存与错误恢复
 - [/api/v1/items](${u("/api/v1/items")}): 精选或全部收录；支持 24h/7d 窗口、分类与关键词
 - [/api/v1/hot-topics](${u("/api/v1/hot-topics")}): 当前热点榜，按多信源热度排序
 - [/api/v1/stories/{id}](${u("/openapi-v1.json")}): 单个事件的详情与报道时间线。id 来自 items[].id，不要自行构造——链接指向它在 OpenAPI 里的定义
