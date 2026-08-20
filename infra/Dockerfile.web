@@ -27,6 +27,12 @@ WORKDIR /app
 
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+# standalone 产物**不含 public/**，必须单独复制（Next 官方部署文档如此要求）。
+# 漏掉这一行的后果是静默的：页面照常渲染，只有 public 下的静态文件 404。
+# 一直漏到 2026-08-20 才发现——在那之前 /brand/*.svg 线上全是 404，
+# 而站内 logo 走的是 brand-logo.tsx 的内联 SVG，视觉上完全看不出来。
+# Agent 接入的 Skill 包（/ai-radar-skill/）是第一个真正依赖它的功能。
+COPY --from=builder /app/public ./public
 
 EXPOSE 3000
 
