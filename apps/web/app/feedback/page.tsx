@@ -7,7 +7,17 @@ export const metadata = {
   alternates: { canonical: "/feedback" },
 };
 
-export default function FeedbackPage() {
+export default async function FeedbackPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ topic?: string }>;
+}) {
+  const { topic } = await searchParams;
+  const initialMessage =
+    topic === "commercial"
+      ? "商业授权咨询：\n\n使用场景：\n预计调用或分发方式：\n希望联系我的方式："
+      : "";
+
   return (
     <StaticPage
       activeNavId="feedback"
@@ -15,7 +25,7 @@ export default function FeedbackPage() {
       subtitle="打分不准、页面出错、想要的功能——写下来就好，每一条都会看到。"
     >
       <section className="rounded-md border border-line bg-panel p-6">
-        <FeedbackForm />
+        <FeedbackForm initialMessage={initialMessage} />
       </section>
 
       <section className="rounded-md border border-line bg-panel p-5 text-sm leading-7 text-ink-mid">

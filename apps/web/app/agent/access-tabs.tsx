@@ -5,7 +5,9 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 export type AccessTab = {
   id: string;
   name: string;
+  method: string;
   hint: string;
+  badge?: string;
   panel: ReactNode;
 };
 
@@ -46,10 +48,14 @@ export function AccessTabs({ tabs }: { tabs: AccessTab[] }) {
   }
 
   function onKeyDown(event: React.KeyboardEvent, index: number) {
-    const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-    if (step === 0) return;
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowRight") nextIndex = (index + 1) % tabs.length;
+    if (event.key === "ArrowLeft") nextIndex = (index - 1 + tabs.length) % tabs.length;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = tabs.length - 1;
+    if (nextIndex === null) return;
     event.preventDefault();
-    const next = tabs[(index + step + tabs.length) % tabs.length];
+    const next = tabs[nextIndex];
     select(next.id, { focus: true });
   }
 
@@ -95,13 +101,14 @@ export function AccessTabs({ tabs }: { tabs: AccessTab[] }) {
               onClick={() => select(tab.id)}
               onKeyDown={(event) => onKeyDown(event, index)}
               className={[
-                "flex flex-col gap-1 rounded-md border px-3 py-2.5 text-left transition-colors",
+                "flex min-h-[6.5rem] flex-col rounded-md border px-3 py-3 text-left transition-colors",
                 on
                   ? "border-signal/55 bg-signal/12 text-ink shadow-[inset_0_-2px_0_var(--color-signal)]"
                   : "border-line bg-panel text-ink-mid hover:border-signal/40 hover:text-ink",
               ].join(" ")}
             >
-              <span className="flex items-center gap-2">
+              <span className="flex items-start justify-between gap-2">
+                <span className="flex min-w-0 items-center gap-2">
                 <span
                   aria-hidden
                   className={[
@@ -109,9 +116,16 @@ export function AccessTabs({ tabs }: { tabs: AccessTab[] }) {
                     on ? "bg-signal" : "bg-line-strong",
                   ].join(" ")}
                 />
-                <span className="text-[13px] font-semibold">{tab.name}</span>
+                  <span className="text-sm font-semibold">{tab.name}</span>
+                </span>
+                {tab.badge ? (
+                  <span className="shrink-0 rounded border border-signal/35 px-1.5 py-0.5 text-[10px] text-signal">
+                    {tab.badge}
+                  </span>
+                ) : null}
               </span>
-              <span className={on ? "text-xs leading-4 text-ink-mid" : "text-xs leading-4 text-ink-dim"}>
+              <span className="mt-2 text-xs font-semibold text-signal">{tab.method}</span>
+              <span className={on ? "mt-1 text-xs leading-4 text-ink-mid" : "mt-1 text-xs leading-4 text-ink-dim"}>
                 {tab.hint}
               </span>
             </button>

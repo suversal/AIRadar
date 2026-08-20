@@ -24,6 +24,7 @@ const routes: Array<{
   { path: "/monthly", changeFrequency: "monthly", priority: 0.6 },
   { path: "/about", changeFrequency: "monthly", priority: 0.4 },
   { path: "/agent", changeFrequency: "monthly", priority: 0.4 },
+  { path: "/agent/api", changeFrequency: "monthly", priority: 0.3 },
   { path: "/changelog", changeFrequency: "weekly", priority: 0.3 },
   // 这里刻意**不放** /search 和 /feedback：
   //   /search  是工具页，已在 app/search/page.tsx 里设 noindex。
