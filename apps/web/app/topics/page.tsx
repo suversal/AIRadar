@@ -123,16 +123,17 @@ function WeeklyRadarStrip({ payload }: { payload: TopicsPayload }) {
           // 位数不同也不会左右跳;涨跌方向由列头语序 + 本周高亮承担,
           // 不再用箭头符号——它在数字位数变化时永远对不齐
           <div className={payload.storylines.length > 0 ? "lg:border-l lg:border-line lg:pl-5" : ""}>
-            <div className="grid grid-cols-[minmax(0,1fr)_2.5rem_2.5rem] items-baseline gap-x-3 text-xs">
+            <div className="grid grid-cols-[minmax(0,1fr)_2.5rem_2.5rem_0.875rem] items-baseline gap-x-3 text-xs">
               <span className="font-semibold text-ink-mid">异动主题</span>
               <span className="text-right text-ink-dim">上周</span>
               <span className="text-right text-ink-dim">本周</span>
+              <span aria-hidden />
             </div>
             <ul className="mt-1.5 divide-y divide-line/60">
               {movers.map((topic) => (
                 <li key={topic.id}>
                   <a
-                    className="group grid grid-cols-[minmax(0,1fr)_2.5rem_2.5rem] items-baseline gap-x-3 py-2 text-sm"
+                    className="group grid grid-cols-[minmax(0,1fr)_2.5rem_2.5rem_0.875rem] items-baseline gap-x-3 py-2 text-sm"
                     href={`/topics/${encodeURIComponent(topic.id)}`}
                   >
                     <span className="truncate font-medium text-ink group-hover:text-signal">
@@ -144,6 +145,8 @@ function WeeklyRadarStrip({ payload }: { payload: TopicsPayload }) {
                     <span className="readout text-right text-xs font-semibold tabular-nums text-signal">
                       {topic.week_count}
                     </span>
+                    {/* 箭头独占定宽小列,不挤进数字列——位数变化不影响对齐 */}
+                    <span className="text-xs font-semibold text-signal">↑</span>
                   </a>
                 </li>
               ))}
