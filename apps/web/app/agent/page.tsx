@@ -95,8 +95,8 @@ function SkillPanel() {
       <Code
         label="安装提示词"
         code={`请安装 AI·RADAR Skill：${siteUrl}/ai-radar-skill/SKILL.md
-安装器在 ${siteUrl}/ai-radar-skill/install.sh，请先读一遍并说明它会修改哪些目录，再执行。
-装完告诉我是否需要开启新会话。`}
+安装器在 ${siteUrl}/ai-radar-skill/install.sh
+请先读一遍并说明它会修改哪些目录，再执行。装完告诉我是否需要开启新会话`}
       />
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -319,7 +319,7 @@ export default function AgentPage() {
         <ul className="mt-3 list-disc space-y-2 pl-5">
           <li><strong className="text-ink">原生时间窗是过去 24 小时和最近 7 天。</strong>超过 7 天的历史检索暂不支持。</li>
           <li><strong className="text-ink">周报与月报目前仅提供网页。</strong>最近 7 天精选不等同于编辑完成的周报。</li>
-          <li><strong className="text-ink">重要事实请回原文核验。</strong>标题、摘要与翻译由 AI 基于第三方报道生成，引用数字、政策或原话前应打开原文。</li>
+          <li><strong className="text-ink">重要事实请回原文核验。</strong>标题、摘要与翻译由 AI 基于第三方报道生成，引用数字、政策或原话前应查看原文URL复核。</li>
           <li><strong className="text-ink">v1 保持向后兼容，但不承诺 SLA。</strong>关键链路请自行配置缓存、重试和降级。</li>
         </ul>
         <div className="mt-5 rounded-md border border-line bg-canvas p-4">
