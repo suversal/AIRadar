@@ -119,25 +119,30 @@ function WeeklyRadarStrip({ payload }: { payload: TopicsPayload }) {
           </ol>
         ) : null}
         {movers.length > 0 ? (
+          // 三列定宽表格:名称 | 上周 | 本周。数字各自在定宽列里右对齐,
+          // 位数不同也不会左右跳;涨跌方向由列头语序 + 本周高亮承担,
+          // 不再用箭头符号——它在数字位数变化时永远对不齐
           <div className={payload.storylines.length > 0 ? "lg:border-l lg:border-line lg:pl-5" : ""}>
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="text-xs font-semibold text-ink-mid">异动主题</span>
-              <span className="text-xs text-ink-dim">上周 → 本周</span>
+            <div className="grid grid-cols-[minmax(0,1fr)_2.5rem_2.5rem] items-baseline gap-x-3 text-xs">
+              <span className="font-semibold text-ink-mid">异动主题</span>
+              <span className="text-right text-ink-dim">上周</span>
+              <span className="text-right text-ink-dim">本周</span>
             </div>
-            <ul className="mt-2.5 divide-y divide-line/60">
+            <ul className="mt-1.5 divide-y divide-line/60">
               {movers.map((topic) => (
                 <li key={topic.id}>
                   <a
-                    className="group flex min-w-0 items-baseline justify-between gap-3 py-1.5 text-sm"
+                    className="group grid grid-cols-[minmax(0,1fr)_2.5rem_2.5rem] items-baseline gap-x-3 py-2 text-sm"
                     href={`/topics/${encodeURIComponent(topic.id)}`}
                   >
                     <span className="truncate font-medium text-ink group-hover:text-signal">
                       {topic.name}
                     </span>
-                    <span className="readout shrink-0 whitespace-nowrap text-xs tabular-nums">
-                      <span className="text-ink-dim">{topic.prev_week_count}</span>
-                      <span className="mx-1 text-ink-dim">→</span>
-                      <span className="font-semibold text-signal">{topic.week_count}</span>
+                    <span className="readout text-right text-xs tabular-nums text-ink-dim">
+                      {topic.prev_week_count}
+                    </span>
+                    <span className="readout text-right text-xs font-semibold tabular-nums text-signal">
+                      {topic.week_count}
                     </span>
                   </a>
                 </li>
