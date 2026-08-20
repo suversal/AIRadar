@@ -2328,9 +2328,6 @@ class RadarRepository:
         # 原文 block entirely (known unscrapable domain, e.g. WeChat) rather
         # than fall back to a synthesized summary-as-原文 paragraph
         "content_origin",
-        # SourcePilot 契约:time_basis="discovered" 的条目只有收录时间,
-        # 展示层必须写「收录于」,不得伪称原文发布时间
-        "time_basis",
     )
 
     def _all_events_query(
@@ -3336,6 +3333,14 @@ def _event_item(
         },
         "source_language": raw.language,
         "author": raw.author,
+        # SourcePilot 契约:time_basis="discovered" 的条目只有收录时间,展示层
+        # 必须写「收录于」,不得伪称原文发布时间。
+        #
+        # 无条件透传,不能放进下面 include_content 的内容类字段里:列表端点走的是
+        # include_content=False,而列表卡片同样在展示时间——放在那边等于这条契约
+        # 只对详情页生效,列表、/api/v1/items、MCP 与 RSS 全都拿不到标注。
+        # 它是一个短枚举,不是正文,本来就不该按"内容"归类。
+        **({"time_basis": metadata["time_basis"]} if metadata.get("time_basis") else {}),
         "one_line_summary": one_line_summary,
         "summary": summary_zh,
         "reason": processed.reason_zh,

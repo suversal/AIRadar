@@ -80,10 +80,18 @@ def parse_github_trending(
                 title=f"GitHub Trending: {title}",
                 content=description or f"{repo_path} is trending on GitHub.",
                 author=repo_path.split("/")[0],
+                # Trending 榜没有"发布时间"这个概念——它是一个此刻的排行快照，
+                # 所以这里只能用抓取时刻。必须同时标 time_basis=discovered:
+                # 不标的话这个时刻会一路透传到 /api/v1、MCP 与 RSS，被当成
+                # 原文发布时间对外呈现，正是 SourcePilot 契约要防的事。
                 published_at=datetime.now(timezone.utc),
                 language="en",
                 raw_score={},
-                metadata={"repo": repo_path, "source_type": "github_trending"},
+                metadata={
+                    "repo": repo_path,
+                    "source_type": "github_trending",
+                    "time_basis": "discovered",
+                },
             )
         )
         if limit is not None and len(articles) >= limit:

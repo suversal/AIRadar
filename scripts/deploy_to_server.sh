@@ -58,14 +58,35 @@ for target in "${TARGETS[@]}"; do
   #    2026-08-17 实测，CF 那边的 Cache Rule 缓存键**忽略查询字符串**，
   #    带随机参数请求 /latest /all /daily 拿到的仍然是 cf-cache-status: HIT。
   #    公网这一层没有便宜的办法穿透，别在这上面浪费时间。
-  for path in /latest /all /daily; do
-    if ssh_retry "${DOCKER} exec infra-nginx-1 wget -q -O /dev/null http://web:3000${path}"; then
+  # 检查清单按**服务机制**挑，不是按页面数量堆。同一机制通了，同机制的其它
+  # 路径基本也通；机制不同就必须各验一条：
+  #   /latest /all /daily        页面（SSR）
+  #   /api/v1/items              route handler + 内网取数
+  #   /feed.xml                  route handler + XML 出口
+  #   /llms.txt                  route handler，不依赖上游
+  #   /ai-radar-skill/VERSION    public/ 静态文件
+  #
+  # 最后那条是 2026-08-20 加的,它自己就是教训:Dockerfile 一直漏拷 public/,
+  # standalone 产物里根本没有这个目录,Skill 包线上全 404——而这份检查当时只看
+  # 三个页面,一路绿灯报"发布完成"。/brand/*.svg 更是早就 404 了没人发现,
+  # 因为站内 logo 走的是内联 SVG 组件,视觉上看不出来。
+  for path in /latest /all /daily '/api/v1/items?limit=1' /feed.xml /llms.txt /ai-radar-skill/VERSION; do
+    if ssh_retry "${DOCKER} exec infra-nginx-1 wget -q -O /dev/null 'http://web:3000${path}'"; then
       echo "  ${TARGET_NAME} 源站 ${path} -> OK"
     else
       echo "健康检查失败：${TARGET_NAME} 源站 ${path} 无法从 nginx 容器内取到"
       exit 1
     fi
   done
+
+  # MCP 是唯一的 POST 路由,GET 它会拿到 405,上面那个循环覆盖不到。
+  # 用 tools/list 探一次:它不碰上游数据,失败就说明路由本身没起来。
+  if ssh_retry "${DOCKER} exec infra-nginx-1 wget -q -O /dev/null --header='Content-Type: application/json' --post-data='{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}' http://web:3000/api/mcp"; then
+    echo "  ${TARGET_NAME} 源站 /api/mcp (POST) -> OK"
+  else
+    echo "健康检查失败：${TARGET_NAME} MCP 端点无法从 nginx 容器内调通"
+    exit 1
+  fi
 
   # 公网这一层只用来确认 DNS/CF/证书链没断。它**可能被 CF 缓存骗过**
   # （源站已死仍返回 200），所以放在最后、也不作为唯一依据——

@@ -1337,6 +1337,39 @@ via AI HOT · https://aihot.virxact.com/items/abc123]]></description>
         ])
         self.assertNotIn("GitHub Trending: trending / developers", [article.title for article in articles])
 
+    def test_github_trending_marks_its_timestamp_as_discovered(self):
+        """Trending 榜没有"发布时间"这个概念，条目必须标 time_basis=discovered。
+
+        published_at 用的是抓取时刻（榜单是此刻的排行快照，没有原文发布时间可用）。
+        不标注的话，这个时刻会一路透传到 /api/v1、MCP 与 RSS，被当成原文发布时间
+        对外呈现——正是 SourcePilot 契约要防的那种伪称。
+        """
+        source = Source(
+            id="github_trending_ai",
+            name="GitHub Trending AI",
+            source_role="signal",
+            tier="T2",
+            type="github",
+            category="community",
+            url="https://github.com/trending?since=daily",
+            homepage="https://github.com/trending",
+            allowed_domains=["github.com"],
+            affects_heat_score=True,
+            can_be_main_source=True,
+            config={},
+        )
+        html = """
+        <article class="Box-row">
+          <h2><a href="/openai/agent-kit">openai / agent-kit</a></h2>
+          <p>Tools for AI agents.</p>
+        </article>
+        """
+
+        articles = parse_github_trending(html, source, limit=10)
+
+        self.assertEqual(len(articles), 1)
+        self.assertEqual(articles[0].metadata["time_basis"], "discovered")
+
     def test_github_readme_helper_parses_repo_and_markdown_blocks(self):
         self.assertEqual(
             repo_path_from_github_url("https://github.com/MadsLorentzen/ai-job-search"),

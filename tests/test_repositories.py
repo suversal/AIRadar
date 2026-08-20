@@ -1157,6 +1157,86 @@ class RepositoryTests(unittest.TestCase):
         listed_counts = {item["event_id"]: item["source_count"] for item in listed}
         self.assertEqual(listed_counts["e-multi"], 2)
 
+    def test_time_basis_reaches_list_endpoints_not_just_detail(self):
+        """time_basis 必须在列表口径也透传，不能只在详情里有。
+
+        它曾经被归进 _EVENT_CONTENT_METADATA_KEYS，那批字段只在
+        include_content=True 时拼进 payload——而列表走的是 include_content=False。
+        后果是 SourcePilot 契约（discovered 必须写「收录于」）只对详情页生效：
+        列表卡片、/api/v1/items、MCP 与 RSS 全都拿不到标注，于是把收录时刻
+        当成原文发布时间展示。它是个短枚举，不是正文，不该按"内容"归类。
+        """
+        from dataclasses import replace as dc_replace
+
+        from app.models.domain import RawArticle
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            article = RawArticle(
+                id="a-discovered",
+                source_id="openai_blog",
+                source_name="OpenAI Blog",
+                source_role="authority",
+                source_tier="T1",
+                source_url="https://github.com/trending",
+                title="GitHub Trending: openai / agent-kit",
+                content="Tools for AI agents.",
+                author="openai",
+                published_at=datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+                language="en",
+                raw_score={"score": 1},
+                # 只有收录时刻可用的来源（GitHub Trending 就是这种）
+                metadata={"origin": "fixture", "time_basis": "discovered"},
+                title_hash="title-a-discovered",
+                url_hash="u-discovered",
+            )
+            repository.upsert_raw_articles([article])
+            repository.upsert_processed_articles(
+                [dc_replace(self._processed("a-discovered"), event_cluster_id="e-discovered")]
+            )
+            repository.upsert_event_clusters(
+                [self._cluster("e-discovered", main_article_id="a-discovered")]
+            )
+            session.commit()
+
+            detail = repository.get_event_item("e-discovered")
+            listed = repository.get_all_event_items_between(date(2026, 7, 1), date(2026, 7, 1))
+
+        self.assertEqual(detail["time_basis"], "discovered")
+        by_event = {item["event_id"]: item for item in listed}
+        self.assertEqual(by_event["e-discovered"]["time_basis"], "discovered")
+
+    def test_items_without_time_basis_do_not_carry_the_key(self):
+        """没有标注的条目不该凭空多出一个 time_basis 键。
+
+        v1 靠"缺失即 null"表达"未标注"，如果这里补一个空串或 "published"，
+        就等于对每条都声称时间可信。
+        """
+        from dataclasses import replace as dc_replace
+
+        from app.repositories.radar_repository import RadarRepository
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source()])
+            repository.upsert_raw_articles(
+                [self._article(article_id="a-plain", title="普通条目", url_hash="u-plain")]
+            )
+            repository.upsert_processed_articles(
+                [dc_replace(self._processed("a-plain"), event_cluster_id="e-plain")]
+            )
+            repository.upsert_event_clusters(
+                [self._cluster("e-plain", main_article_id="a-plain")]
+            )
+            session.commit()
+
+            listed = repository.get_all_event_items_between(date(2026, 7, 1), date(2026, 7, 1))
+
+        by_event = {item["event_id"]: item for item in listed}
+        self.assertNotIn("time_basis", by_event["e-plain"])
+
     def test_count_and_get_all_event_items_between_filters_sorts_and_paginates(self):
         # /all's SQL-pushdown fast path must match what the old full
         # materialize-then-filter-then-sort-then-slice path would have
