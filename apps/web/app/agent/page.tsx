@@ -17,6 +17,7 @@ import {
 import { CopyButton } from "@/components/copy-button";
 import { StaticPage } from "@/components/static-page";
 import { siteUrl } from "@/lib/site";
+import { DISPLAY_CATEGORIES } from "@/lib/taxonomy";
 
 import { AccessTabs } from "./access-tabs";
 import { Code, Note, PanelHead, ResourceLink } from "./agent-ui";
@@ -53,13 +54,10 @@ const FEEDS = [
   { name: "日报", path: "/feed/daily.xml", desc: "每天一期的精编日报，含 AI 主线综述，保留最近 10 期。" },
 ];
 
-const CATEGORY_FEEDS = [
-  ["模型", "model"],
-  ["产品", "product"],
-  ["产业", "industry"],
-  ["研究", "research"],
-  ["教程", "tutorial"],
-];
+// 直接引用 taxonomy 的权威定义，不要在这里手抄一份中文标签。
+// 手抄过一版「产业/研究/教程」，而 feed 频道标题与站内筛选用的是
+// 「行业/论文/技巧」——读者在这页订阅"研究"，阅读器里收到的却叫"论文"。
+const CATEGORY_FEEDS = DISPLAY_CATEGORIES.map(([slug, label]) => [label, slug] as const);
 
 function SkillPanel() {
   return (

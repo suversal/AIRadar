@@ -159,10 +159,21 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("MOBILE_NAV_OPEN_EVENT", mobile_nav)
         self.assertIn("window.addEventListener(MOBILE_NAV_OPEN_EVENT", mobile_nav)
         self.assertIn('aria-label="打开导航菜单"', mobile_nav)
-        self.assertNotIn("关闭导航菜单", mobile_nav)
         self.assertIn("onClick={() => setOpen(true)}", mobile_nav)
-        self.assertIn("w-[216px]", mobile_nav)
+        self.assertIn("w-[232px]", mobile_nav)
         self.assertNotIn("w-[240px]", mobile_nav)
+
+        # 抽屉是模态对话框，要有完整的键盘出口：一个显式的关闭按钮、Escape 关闭、
+        # Tab 在抽屉内循环、关闭后焦点回到触发它的菜单按钮。
+        #
+        # 这几条原先是反向断言（禁止出现"关闭导航菜单"），当时的设计是只靠点遮罩
+        # 关闭。那对鼠标够用，对键盘和读屏用户不够——没有可聚焦的关闭控件，
+        # 焦点还会漏到抽屉后面的页面上。2026-08-21 补齐无障碍后改成正向锁定。
+        self.assertIn('aria-label="关闭导航菜单"', mobile_nav)
+        self.assertIn('role="dialog"', mobile_nav)
+        self.assertIn('aria-modal="true"', mobile_nav)
+        self.assertIn('event.key === "Escape"', mobile_nav)
+        self.assertIn("menuButtonRef.current?.focus()", mobile_nav)
         self.assertIn("flex h-10 items-center", mobile_nav)
         self.assertIn("border-b border-line bg-canvas", mobile_nav)
         self.assertIn("sticky top-0", date_group)

@@ -150,12 +150,17 @@ class DocumentedEndpointsExistTests(unittest.TestCase):
     def test_feed_paths_are_implemented(self):
         implemented = route_patterns(WEB / "app" / "feed", "/feed") | {"/feed.xml"}
         for source in (AGENT_PAGE, LLMS_TXT):
+            text = read(source)
+            # 页面把分类 feed 写成模板字符串 `/feed/category/${slug}.xml`（为了展开成
+            # 5 个可复制的地址）。先把 ${...} 折成占位符，否则正则会在 ${ 处断掉，
+            # 抓出半截的 /feed/category 并误报成"端点不存在"。
+            text = re.sub(r"\$\{[^}]*\}", "{x}", text)
             documented = {
                 normalize(match)
                 for match in re.findall(
                     # 路径可能有多段：/feed/category/{model|...}.xml
                     r"/feed(?:\.xml|(?:/[A-Za-z0-9_\-{}|]+)+(?:\.xml)?)",
-                    read(source),
+                    text,
                 )
             }
             self.assertTrue(documented, f"{source} 里没提到任何 feed")
