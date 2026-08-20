@@ -70,17 +70,19 @@ function sortByActivity(topics: TopicSummary[]): TopicSummary[] {
   );
 }
 
-/** 异动主题:周环比显著上升的主题,给"本周雷达"条用。按上升倍数排,
- *  最多 4 个——它是信号灯不是排行榜,多了就没人看了。 */
+/** 异动主题:周环比显著变化(升或降)的主题,给"本周雷达"条用。
+ *  按变化倍数排,最多 4 个——它是信号灯不是排行榜,多了就没人看了。 */
+function moverMagnitude(topic: TopicSummary) {
+  const week = Math.max(topic.week_count, 1);
+  const prev = Math.max(topic.prev_week_count, 1);
+  return Math.max(week / prev, prev / week);
+}
+
 function pickMovers(groups: TopicsPayload["groups"]) {
   return groups
     .flatMap((group) => group.topics)
-    .filter((topic) => weekTrend(topic) === "up")
-    .sort(
-      (a, b) =>
-        b.week_count / Math.max(b.prev_week_count, 1) -
-        a.week_count / Math.max(a.prev_week_count, 1),
-    )
+    .filter((topic) => weekTrend(topic) !== null)
+    .sort((a, b) => moverMagnitude(b) - moverMagnitude(a))
     .slice(0, 4);
 }
 
@@ -123,19 +125,16 @@ function WeeklyRadarStrip({ payload }: { payload: TopicsPayload }) {
           // 位数不同也不会左右跳;涨跌方向由列头语序 + 本周高亮承担,
           // 不再用箭头符号——它在数字位数变化时永远对不齐
           <div className={payload.storylines.length > 0 ? "lg:border-l lg:border-line lg:pl-5" : ""}>
-            <div className="grid grid-cols-[minmax(0,1fr)_2.5rem_0.875rem_2.5rem] items-baseline gap-x-2.5 text-xs">
+            <div className="grid grid-cols-[minmax(0,1fr)_2.5rem_2.5rem] items-baseline gap-x-3 text-xs">
               <span className="font-semibold text-ink-mid">异动主题</span>
               <span className="text-right text-ink-dim">上周</span>
-              <span aria-hidden />
-              {/* 本周列左对齐:右对齐会在个位数时让数字远离箭头,
-                  两侧间距不对称(上周列右对齐后紧贴箭头) */}
-              <span className="text-left text-ink-dim">本周</span>
+              <span className="text-right text-ink-dim">本周</span>
             </div>
             <ul className="mt-1.5 divide-y divide-line/60">
               {movers.map((topic) => (
                 <li key={topic.id}>
                   <a
-                    className="group grid grid-cols-[minmax(0,1fr)_2.5rem_0.875rem_2.5rem] items-baseline gap-x-2.5 py-2 text-sm"
+                    className="group grid grid-cols-[minmax(0,1fr)_2.5rem_2.5rem] items-baseline gap-x-3 py-2 text-sm"
                     href={`/topics/${encodeURIComponent(topic.id)}`}
                   >
                     <span className="truncate font-medium text-ink group-hover:text-signal">
@@ -144,9 +143,13 @@ function WeeklyRadarStrip({ payload }: { payload: TopicsPayload }) {
                     <span className="readout text-right text-xs tabular-nums text-ink-dim">
                       {topic.prev_week_count}
                     </span>
-                    {/* 箭头独占两数之间的定宽小列——位数变化不影响对齐 */}
-                    <span className="text-center text-xs font-semibold text-signal">↑</span>
-                    <span className="readout text-left text-xs font-semibold tabular-nums text-signal">
+                    {/* 方向只用颜色表达:升=signal(橙),降=cool(灰蓝)。
+                        不用箭头/符号——它们和变宽的数字永远对不齐 */}
+                    <span
+                      className={`readout text-right text-xs font-semibold tabular-nums ${
+                        weekTrend(topic) === "down" ? "text-cool" : "text-signal"
+                      }`}
+                    >
                       {topic.week_count}
                     </span>
                   </a>
