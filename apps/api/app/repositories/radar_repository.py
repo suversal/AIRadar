@@ -2488,6 +2488,9 @@ class RadarRepository:
             .order_by(EventClusterModel.source_count.desc(), EventClusterModel.last_seen_at.desc())
             .limit(limit * 4)  # 跨天过滤在上层,多取一些避免裁剪后不够
         ).all()
+        # 把超采样到的候选全部交给上层:跨天过滤发生在 shape_storylines,
+        # 这里若提前按 limit 截断,单日热点多的日子会把真正的跨天故事线
+        # 挤出候选集,雷达条渲染成空——limit 只约束查询规模,不约束返回数
         storylines = []
         for cluster, override in rows:
             if override is not None and override.hidden:
@@ -2505,8 +2508,6 @@ class RadarRepository:
                     "last_seen_at": cluster.last_seen_at,
                 }
             )
-            if len(storylines) >= limit:
-                break
         return storylines
 
     def count_and_get_all_event_items_between(

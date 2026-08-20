@@ -277,6 +277,17 @@ class PublicEventRouteTests(unittest.TestCase):
         self.assertEqual(body["article_count"], 2)
         # 没有故事线数据时字段也必须在,前端不做 undefined 分支
         self.assertEqual(body["storylines"], [])
+        # 窗口随 payload 下发,前端文案从这里取
+        self.assertEqual(body["window_days"], 90)
+        self.assertEqual(body["storyline_window_days"], 14)
+
+    def test_topics_route_rejects_windows_shorter_than_trend_windows(self):
+        client, _ = self._client(self._current_payloads([make_item("evt-1")]))
+
+        # 周环比窗口固定 14 天:items 窗口比它短会让 prev_week_count
+        # 结构性为 0,把所有主题都判成"异动上升"
+        self.assertEqual(client.get("/api/public/topics?days=7").status_code, 400)
+        self.assertEqual(client.get("/api/public/topics?days=14").status_code, 200)
 
     def test_topics_route_returns_shaped_storylines(self):
         from datetime import datetime, timezone
@@ -331,6 +342,8 @@ class PublicEventRouteTests(unittest.TestCase):
         self.assertEqual(body["total_count"], 2)
         self.assertEqual(body["selected_count"], 1)
         self.assertEqual([item["event_id"] for item in body["items"]], ["evt-1"])
+        self.assertEqual(body["window_days"], 90)
+        self.assertEqual(body["focus_window_days"], 14)
 
     def test_topic_detail_route_resolves_legacy_alias_and_rejects_unknown(self):
         client, _ = self._client(

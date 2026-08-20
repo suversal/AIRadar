@@ -19,6 +19,7 @@ from app.services.manual_richtext import (
     normalize_editor_document,
 )
 from app.services.scoring_service import select_processed_article
+from app.services.topics import normalize_topic_ids
 
 
 MANUAL_SOURCE_ID = "hotai_manual"
@@ -209,6 +210,9 @@ def _serialize_scoring(
         "summary_zh": scoring.summary_zh,
         "reason_zh": scoring.reason_zh,
         "action_zh": scoring.action_zh,
+        # None 与空列表要原样保留:空列表是 AI"不属于任何主题"的权威结论,
+        # 丢掉这个字段会让发布路径退回关键词推导(见 select_processed_article)
+        "topic_ids": scoring.topic_ids,
         "embedding": embedding,
         "embedding_model": embedding_model,
     }
@@ -413,6 +417,9 @@ def publish_submission(repository: Any, submission_id: str) -> ArticleSubmission
             if ai.get("focus_category")
             else None
         ),
+        # normalize 再过一遍:老草稿的 ai 快照没有这个字段(→None,落回
+        # 关键词推导),新快照的合法列表(含空)原样传递
+        topic_ids=normalize_topic_ids(ai.get("topic_ids")),
     )
     if model.selection_mode == "force_selected":
         processed = replace(

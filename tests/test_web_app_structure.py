@@ -89,7 +89,7 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("/api/public/hotspots", api_source)
         self.assertIn("getHotspots", api_source)
         self.assertIn("getHotspots", latest_page)
-        self.assertIn("const HOTSPOT_LIMIT = 3", latest_page)
+        self.assertIn("const HOTSPOT_LIMIT = 5", latest_page)
         self.assertIn("limit: HOTSPOT_LIMIT", latest_page)
         # the board must rank by the hotspot rule, not slice the feed
         self.assertNotIn("filteredItems.slice(0, 5)", latest_page)

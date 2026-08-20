@@ -334,7 +334,9 @@ def item_matches_topic(item: dict[str, Any], topic: dict[str, Any] | None) -> bo
     # 只有迁移后未回填的存量行会走到这条路径。
     topic_ids = item.get("topic_ids")
     if topic_ids is not None:
-        return topic["id"] in {str(topic_id) for topic_id in topic_ids}
+        # 列表最多 4 个元素,直接线性扫;这个函数按 主题数×条目数 被调用
+        # (~34×4k/次),每对都建临时 set 是纯浪费
+        return any(str(topic_id) == topic["id"] for topic_id in topic_ids)
     return _keywords_match_item(item, topic)
 
 

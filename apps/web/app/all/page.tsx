@@ -1,6 +1,6 @@
 import { getAllEvents } from "@/lib/api";
 import { FOCUS_FILTER_OPTIONS, focusCategory } from "@/lib/taxonomy";
-import { topicLabel } from "@/lib/topics";
+import { resolveTopicId, TOPIC_NAMES, topicLabel } from "@/lib/topics";
 import { AllEventsFeed } from "@/components/all-events-feed";
 import { MobileCategoryNav, MobileSearchForm } from "@/components/mobile-discovery";
 import { MobileNav } from "@/components/mobile-nav";
@@ -249,12 +249,16 @@ export default async function AllEventsPage({
               >
                 清除
               </a>
-              <a
-                className="text-ink-mid hover:text-ink"
-                href={`/topics/${encodeURIComponent(selectedTopic)}`}
-              >
-                主题详情
-              </a>
+              {/* 旧链接可能带着已退役的主题 id(如 cn_models):详情页会 404,
+                  这种情况不给入口;别名 id 则跳到解析后的 canonical 路径 */}
+              {resolveTopicId(selectedTopic) in TOPIC_NAMES ? (
+                <a
+                  className="text-ink-mid hover:text-ink"
+                  href={`/topics/${encodeURIComponent(resolveTopicId(selectedTopic))}`}
+                >
+                  主题详情
+                </a>
+              ) : null}
               <a className="text-ink-mid hover:text-ink" href="/topics">
                 全部主题
               </a>

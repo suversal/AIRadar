@@ -2,66 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LatestEvent } from "@/lib/api";
-import { searchEvents } from "@/lib/events";
+import { formatTime, groupEventsByDate } from "@/lib/event-format";
+import { formatScore, searchEvents } from "@/lib/events";
 import { focusCategory } from "@/lib/taxonomy";
 import { DateGroupSection } from "@/components/date-group-section";
 import { EventCard, EventTimelineRow } from "@/components/event-card";
 
 const PAGE_SIZE = 50;
-
-function formatScore(score?: number) {
-  if (typeof score !== "number") {
-    return "--";
-  }
-  return Math.round(score).toString();
-}
-
-function formatDateKey(value?: string) {
-  if (!value) {
-    return "日期未知";
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value.slice(0, 10) || "日期未知";
-  }
-  return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(parsed);
-}
-
-function formatWeekday(value?: string) {
-  const parsed = value ? new Date(value) : null;
-  if (!parsed || Number.isNaN(parsed.getTime())) {
-    return "";
-  }
-  return new Intl.DateTimeFormat("zh-CN", { weekday: "long" }).format(parsed);
-}
-
-function formatTime(value?: string) {
-  if (!value) {
-    return "--:--";
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return "--:--";
-  }
-  return new Intl.DateTimeFormat("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(parsed);
-}
-
-function groupEventsByDate(items: LatestEvent[]) {
-  const groups = new Map<string, LatestEvent[]>();
-  for (const item of items) {
-    const key = formatDateKey(item.published_at);
-    groups.set(key, [...(groups.get(key) ?? []), item]);
-  }
-  return Array.from(groups.entries()).map(([dateLabel, events]) => ({
-    dateLabel,
-    weekday: formatWeekday(events[0]?.published_at),
-    events,
-  }));
-}
 
 function representativeImage(item: LatestEvent) {
   return item.original_images?.[0];

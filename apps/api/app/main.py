@@ -466,9 +466,11 @@ def create_app(
 
     @app.get("/api/public/topics")
     def topics(days: int = TOPICS_WINDOW_DAYS) -> dict:
-        if days < 1 or days > TOPICS_WINDOW_DAYS:
+        # 下限 14:周环比窗口固定是 今天-6 / 今天-13 两段,items 窗口比它
+        # 短的话 prev_week_count 会结构性为 0,每个主题都被判成"异动上升"
+        if days < 14 or days > TOPICS_WINDOW_DAYS:
             raise HTTPException(
-                status_code=400, detail=f"days must be between 1 and {TOPICS_WINDOW_DAYS}"
+                status_code=400, detail=f"days must be between 14 and {TOPICS_WINDOW_DAYS}"
             )
         from app.services.topics import build_topics_payload, shape_storylines
 
@@ -484,6 +486,10 @@ def create_app(
             )
         payload = build_topics_payload(items, today=today)
         payload["storylines"] = shape_storylines(storyline_clusters)
+        # 窗口随 payload 下发,前端文案从这里取——"近 90 天"写死在页面上,
+        # 改这边的常数就会出现文字与数字对不上的老毛病
+        payload["window_days"] = days
+        payload["storyline_window_days"] = STORYLINE_WINDOW_DAYS
         return payload
 
     @app.get("/api/public/topics/{slug}")
@@ -492,7 +498,11 @@ def create_app(
             raise HTTPException(status_code=400, detail="limit must be between 1 and 100")
         if offset < 0:
             raise HTTPException(status_code=400, detail="offset must be >= 0")
-        from app.services.topics import build_topic_detail_payload, topic_by_id
+        from app.services.topics import (
+            FOCUS_WINDOW_DAYS,
+            build_topic_detail_payload,
+            topic_by_id,
+        )
 
         if topic_by_id(slug) is None:
             raise HTTPException(status_code=404, detail="unknown topic")
@@ -505,6 +515,9 @@ def create_app(
             offset=offset,
         )
         assert payload is not None  # slug 已在上面验证过
+        # 同索引端点:窗口随 payload 下发,前端不写死"近 90 天/近 14 天"
+        payload["window_days"] = TOPICS_WINDOW_DAYS
+        payload["focus_window_days"] = FOCUS_WINDOW_DAYS
         return payload
 
     _TWEET_KINDS = {"repost", "article", "longform", "link", "quote", "brief"}

@@ -203,7 +203,9 @@ export default async function TopicsPage() {
             <h1 className="text-2xl font-semibold text-ink">主题</h1>
             <p className="mt-1.5 text-sm text-ink-mid">
               公司与模型、技术方向——每个主题一条持续更新的精选档案
-              {payload.article_count > 0 ? ` · 近 90 天覆盖 ${payload.article_count} 条精选` : ""}
+              {payload.article_count > 0
+                ? ` · 近 ${payload.window_days} 天覆盖 ${payload.article_count} 条精选`
+                : ""}
             </p>
           </header>
 

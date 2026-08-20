@@ -580,29 +580,49 @@ export type TopicsPayload = {
   article_count: number;
   /** 本周雷达:正在发展的多日多源事件,后端已按热度排序、裁到 5 条 */
   storylines: TopicStoryline[];
+  /** 计数窗口(天),页面文案从这里取,不写死 */
+  window_days: number;
+  storyline_window_days: number;
   error?: string | null;
 };
 
 export async function getTopics(): Promise<TopicsPayload> {
+  const empty = (error: string | null): TopicsPayload => ({
+    groups: [],
+    article_count: 0,
+    storylines: [],
+    window_days: 90,
+    storyline_window_days: 14,
+    error,
+  });
   try {
     const response = await fetch(`${getApiBaseUrl()}/api/public/topics`, cacheFor(600));
     if (!response.ok) {
-      return {
-        groups: [],
-        article_count: 0,
-        storylines: [],
-        error: `API 服务暂时不可用：topics 接口返回 ${response.status}。`,
-      };
+      return empty(`API 服务暂时不可用：topics 接口返回 ${response.status}。`);
     }
     const payload = (await response.json()) as TopicsPayload;
-    return { ...payload, storylines: payload.storylines ?? [], error: null };
-  } catch (error) {
+    // 逐字段兜底:web 与 api 分开部署,存在短暂的新页面配旧接口窗口。
+    // 少了兜底的话,排序比较器算出 NaN、卡片渲染 "本周 undefined"
     return {
-      groups: [],
-      article_count: 0,
-      storylines: [],
-      error: latestLoadErrorMessage(error),
+      ...payload,
+      groups: (payload.groups ?? []).map((group) => ({
+        ...group,
+        topics: (group.topics ?? []).map((topic) => ({
+          ...topic,
+          description: topic.description ?? "",
+          count: topic.count ?? 0,
+          week_count: topic.week_count ?? 0,
+          prev_week_count: topic.prev_week_count ?? 0,
+          latest_published_at: topic.latest_published_at ?? null,
+        })),
+      })),
+      storylines: payload.storylines ?? [],
+      window_days: payload.window_days ?? 90,
+      storyline_window_days: payload.storyline_window_days ?? 14,
+      error: null,
     };
+  } catch (error) {
+    return empty(latestLoadErrorMessage(error));
   }
 }
 
@@ -621,6 +641,9 @@ export type TopicDetailPayload = {
   items: LatestEvent[];
   limit: number;
   offset: number;
+  /** 计数窗口(天),页面文案从这里取,不写死 */
+  window_days: number;
+  focus_window_days: number;
   error?: string | null;
 };
 
@@ -636,6 +659,8 @@ export async function getTopicDetail(slug: string): Promise<TopicDetailPayload |
     items: [],
     limit: 0,
     offset: 0,
+    window_days: 90,
+    focus_window_days: 14,
     error,
   });
   try {
@@ -650,7 +675,12 @@ export async function getTopicDetail(slug: string): Promise<TopicDetailPayload |
       return degraded(`API 服务暂时不可用：topics 接口返回 ${response.status}。`);
     }
     const payload = (await response.json()) as TopicDetailPayload;
-    return { ...payload, error: null };
+    return {
+      ...payload,
+      window_days: payload.window_days ?? 90,
+      focus_window_days: payload.focus_window_days ?? 14,
+      error: null,
+    };
   } catch (error) {
     return degraded(latestLoadErrorMessage(error));
   }
