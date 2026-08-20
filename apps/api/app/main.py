@@ -461,18 +461,30 @@ def create_app(
     # count_and_get_all_event_items_between 注释)。
     TOPICS_WINDOW_DAYS = 90
 
+    # 本周雷达的故事线回看窗口:近 14 天仍有动静的多日多源事件
+    STORYLINE_WINDOW_DAYS = 14
+
     @app.get("/api/public/topics")
     def topics(days: int = TOPICS_WINDOW_DAYS) -> dict:
         if days < 1 or days > TOPICS_WINDOW_DAYS:
             raise HTTPException(
                 status_code=400, detail=f"days must be between 1 and {TOPICS_WINDOW_DAYS}"
             )
-        from app.services.topics import build_topics_payload
+        from app.services.topics import build_topics_payload, shape_storylines
 
-        # 索引页只展示精选口径的计数,直接按精选加载,省一半物化量
-        return build_topics_payload(
-            load_event_items(days, selected_only=True), today=date.today()
-        )
+        today = date.today()
+        start_date = today - timedelta(days=days - 1)
+        with report_repository_context() as repository:
+            # 索引页只展示精选口径的计数,直接按精选加载,省一半物化量
+            items = repository.get_all_event_items_between(
+                start_date, today, selected_only=True
+            )
+            storyline_clusters = repository.get_active_storylines(
+                since=datetime.now(timezone.utc) - timedelta(days=STORYLINE_WINDOW_DAYS)
+            )
+        payload = build_topics_payload(items, today=today)
+        payload["storylines"] = shape_storylines(storyline_clusters)
+        return payload
 
     @app.get("/api/public/topics/{slug}")
     def topic_detail(slug: str, limit: int = 60, offset: int = 0) -> dict:

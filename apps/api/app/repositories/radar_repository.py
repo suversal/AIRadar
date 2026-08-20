@@ -2468,6 +2468,47 @@ class RadarRepository:
         rows = self.session.execute(query).all()
         return self._event_items_from_all_events_rows(rows)
 
+    def get_active_storylines(self, *, since: datetime, limit: int = 20) -> list[dict[str, Any]]:
+        """本周雷达的故事线候选:多源(≥2)且近期仍有动静的事件簇,
+        排除事件级隐藏。first/last_seen 是跨度权威——选中条目每事件通常
+        只留一条,items 层推不出"报道了几天"(2026-08-20 实测全为 1)。
+        跨天过滤(≥2 个自然日)在 topics.shape_storylines 里做:自然日
+        要按上海时区切,SQL 里做时区日期数学不值得。标题采用事件级
+        编辑覆盖(存在时),与详情页展示一致。"""
+        rows = self.session.execute(
+            select(EventClusterModel, EventEditorialOverrideModel)
+            .outerjoin(
+                EventEditorialOverrideModel,
+                EventEditorialOverrideModel.event_cluster_id == EventClusterModel.id,
+            )
+            .where(
+                EventClusterModel.source_count >= 2,
+                EventClusterModel.last_seen_at >= since,
+            )
+            .order_by(EventClusterModel.source_count.desc(), EventClusterModel.last_seen_at.desc())
+            .limit(limit * 4)  # 跨天过滤在上层,多取一些避免裁剪后不够
+        ).all()
+        storylines = []
+        for cluster, override in rows:
+            if override is not None and override.hidden:
+                continue
+            storylines.append(
+                {
+                    "event_id": cluster.id,
+                    "title": (
+                        override.title_zh
+                        if override is not None and override.title_zh
+                        else cluster.event_title
+                    ),
+                    "source_count": cluster.source_count,
+                    "first_seen_at": cluster.first_seen_at,
+                    "last_seen_at": cluster.last_seen_at,
+                }
+            )
+            if len(storylines) >= limit:
+                break
+        return storylines
+
     def count_and_get_all_event_items_between(
         self,
         start_date: date,
@@ -3270,6 +3311,8 @@ def _event_item(
         "scoring_category": category,
         "scoring_category_label": scoring_category_label(category),
         "tags": tags,
+        # None = 未回填的存量行,topics.item_matches_topic 对 None 回退关键词
+        "topic_ids": processed.topic_ids,
         "final_score": processed.final_score,
         # 打出这个分的模型。分数只在同一个模型内部可比,周月报靠它把
         # 跨模型的条目分组后再排名 - 见 public.py 的 sort_period_items。
@@ -3386,6 +3429,9 @@ def _apply_processed_article(model: ProcessedArticleModel, processed: ProcessedA
     model.category = processed.category
     model.focus_category = processed.focus_category
     model.tags = list(processed.tags)
+    # select_processed_article 保证新数据恒非 None(AI 缺字段时关键词推导),
+    # 这里不做 None 保护——真出现 None 说明上游破约,盖掉旧值让问题可见
+    model.topic_ids = list(processed.topic_ids) if processed.topic_ids is not None else None
     model.status = processed.status
     model.rejection_reason = processed.rejection_reason
     model.selection_origin = processed.selection_origin

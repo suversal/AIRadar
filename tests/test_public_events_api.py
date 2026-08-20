@@ -275,6 +275,40 @@ class PublicEventRouteTests(unittest.TestCase):
         self.assertEqual(entities["anthropic"]["count"], 1)
         self.assertTrue(entities["anthropic"]["description"])
         self.assertEqual(body["article_count"], 2)
+        # 没有故事线数据时字段也必须在,前端不做 undefined 分支
+        self.assertEqual(body["storylines"], [])
+
+    def test_topics_route_returns_shaped_storylines(self):
+        from datetime import datetime, timezone
+
+        client, repository = self._client(
+            self._current_payloads([make_item("evt-1", title="Claude 5 launches")])
+        )
+        repository.storylines = [
+            {
+                "event_id": "story-1",
+                "title": "某事件持续发酵",
+                "source_count": 4,
+                "first_seen_at": datetime(2026, 8, 17, 1, tzinfo=timezone.utc),
+                "last_seen_at": datetime(2026, 8, 19, 1, tzinfo=timezone.utc),
+            },
+            {
+                # 同一天 → 被跨天过滤挡掉
+                "event_id": "same-day",
+                "title": "单日热点",
+                "source_count": 9,
+                "first_seen_at": datetime(2026, 8, 19, 1, tzinfo=timezone.utc),
+                "last_seen_at": datetime(2026, 8, 19, 5, tzinfo=timezone.utc),
+            },
+        ]
+
+        response = client.get("/api/public/topics")
+
+        self.assertEqual(response.status_code, 200)
+        storylines = response.json()["storylines"]
+        self.assertEqual([s["event_id"] for s in storylines], ["story-1"])
+        self.assertEqual(storylines[0]["days"], 3)
+        self.assertEqual(storylines[0]["source_count"], 4)
 
     def test_topic_detail_route_returns_header_and_timeline(self):
         client, _ = self._client(
@@ -697,6 +731,10 @@ class FakeRepository:
         if selected_only:
             items = [item for item in items if item.get("selected")]
         return items
+
+    def get_active_storylines(self, *, since, limit=20):
+        self.calls.append("storylines")
+        return list(getattr(self, "storylines", []))
 
     def count_and_get_all_event_items_between(
         self,

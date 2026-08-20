@@ -566,9 +566,20 @@ export type TopicGroup = {
   topics: TopicSummary[];
 };
 
+export type TopicStoryline = {
+  event_id: string;
+  title: string;
+  source_count: number;
+  /** 报道跨越的自然日数(上海时区),≥2 才算故事线 */
+  days: number;
+  last_seen_at: string;
+};
+
 export type TopicsPayload = {
   groups: TopicGroup[];
   article_count: number;
+  /** 本周雷达:正在发展的多日多源事件,后端已按热度排序、裁到 5 条 */
+  storylines: TopicStoryline[];
   error?: string | null;
 };
 
@@ -579,13 +590,19 @@ export async function getTopics(): Promise<TopicsPayload> {
       return {
         groups: [],
         article_count: 0,
+        storylines: [],
         error: `API 服务暂时不可用：topics 接口返回 ${response.status}。`,
       };
     }
     const payload = (await response.json()) as TopicsPayload;
-    return { ...payload, error: null };
+    return { ...payload, storylines: payload.storylines ?? [], error: null };
   } catch (error) {
-    return { groups: [], article_count: 0, error: latestLoadErrorMessage(error) };
+    return {
+      groups: [],
+      article_count: 0,
+      storylines: [],
+      error: latestLoadErrorMessage(error),
+    };
   }
 }
 

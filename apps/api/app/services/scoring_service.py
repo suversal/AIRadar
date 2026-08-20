@@ -4,6 +4,7 @@ from typing import Any
 
 from app.models.domain import AIFocus, ContentValueDimensions, ProcessedArticle, RawArticle, Source
 from app.services.taxonomy import resolve_focus_category
+from app.services.topics import derive_topic_ids
 
 # 内容价值分(value_score, 0-100)的三维权重。ai_focus不参与这个加权求和——
 # 是否为AI内容由独立的分类层决定(select_processed_article只有在ai_focus属于
@@ -72,8 +73,20 @@ def select_processed_article(
     generated_fields: dict[str, Any],
     focus_category: str | None = None,
     model_used: str | None = None,
+    topic_ids: list[str] | None = None,
 ) -> ProcessedArticle:
     final_score = compute_final_score(dimensions, source.tier)
+
+    # 主题归属:AI 给了(含空列表)就用 AI 的;没给(旧缓存、离线兜底、
+    # 模型漏字段)用关键词推导——保证新写入的行恒有值,读取层不用兜底
+    if topic_ids is None:
+        topic_ids = derive_topic_ids(
+            {
+                "title": generated_fields.get("title_zh", ""),
+                "one_line_summary": generated_fields.get("one_line_summary", ""),
+                "tags": tags,
+            }
+        )
 
     is_ai_content = ai_focus in SELECTABLE_AI_FOCUS
     meets_value_bar = final_score >= VALUE_SCORE_THRESHOLD
@@ -120,4 +133,5 @@ def select_processed_article(
             ),
         ),
         model_used=model_used,
+        topic_ids=topic_ids,
     )

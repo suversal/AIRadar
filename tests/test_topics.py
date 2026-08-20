@@ -7,12 +7,17 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
+from datetime import datetime, timezone
+
 from app.services.topics import (
     TOPIC_GROUPS,
     build_topic_detail_payload,
     build_topics_payload,
+    derive_topic_ids,
     group_of_topic,
     item_matches_topic,
+    normalize_topic_ids,
+    shape_storylines,
     topic_by_id,
 )
 
@@ -93,6 +98,95 @@ class TopicRegistryTests(unittest.TestCase):
                 make_item(title="新模型发布", one_line_summary="Claude 5 上线"), anthropic
             )
         )
+
+
+class TopicIdsAuthorityTests(unittest.TestCase):
+    def test_stored_topic_ids_win_over_keywords(self):
+        anthropic = topic_by_id("anthropic")
+
+        # 标题明明写着 Claude,但入库判定说它不属于任何主题 → 尊重入库判定
+        self.assertFalse(
+            item_matches_topic(make_item(title="Claude 5 发布", topic_ids=[]), anthropic)
+        )
+        # 标题没有关键词,但入库判定归给 anthropic → 命中
+        self.assertTrue(
+            item_matches_topic(
+                make_item(title="某实验室发布新模型", topic_ids=["anthropic"]), anthropic
+            )
+        )
+        # None(未回填的存量行)回退关键词
+        self.assertTrue(
+            item_matches_topic(make_item(title="Claude 5 发布", topic_ids=None), anthropic)
+        )
+
+    def test_derive_topic_ids_uses_keywords_in_registry_order(self):
+        derived = derive_topic_ids(
+            make_item(title="Anthropic 发布 Claude Agent 框架", tags=["Agent"])
+        )
+
+        self.assertIn("anthropic", derived)
+        self.assertIn("agents", derived)
+        self.assertNotIn("openai", derived)
+
+    def test_normalize_topic_ids_resolves_aliases_and_drops_unknown(self):
+        # 别名解析 + 未知丢弃 + 去重保序;空列表原样保留;非列表 → None
+        self.assertEqual(
+            normalize_topic_ids(["claude", "anthropic", "nope", "AGENTS"]),
+            ["anthropic", "agents"],
+        )
+        self.assertEqual(normalize_topic_ids([]), [])
+        self.assertIsNone(normalize_topic_ids("anthropic"))
+        self.assertIsNone(normalize_topic_ids(None))
+
+
+class StorylineShapingTests(unittest.TestCase):
+    def _cluster(self, event_id, sources, first, last, title="事件"):
+        return {
+            "event_id": event_id,
+            "title": title,
+            "source_count": sources,
+            "first_seen_at": datetime.fromisoformat(first).replace(tzinfo=timezone.utc),
+            "last_seen_at": datetime.fromisoformat(last).replace(tzinfo=timezone.utc),
+        }
+
+    def test_requires_multi_day_span_and_sorts_by_heat(self):
+        clusters = [
+            # 同一天多源(上海 09:00→18:00)→ 不是故事线,是单日热点
+            self._cluster("same-day", 5, "2026-08-19T01:00:00", "2026-08-19T10:00:00"),
+            self._cluster("hot", 6, "2026-08-17T01:00:00", "2026-08-19T01:00:00"),
+            self._cluster("long", 3, "2026-08-10T01:00:00", "2026-08-19T01:00:00"),
+            self._cluster("small", 2, "2026-08-18T01:00:00", "2026-08-19T01:00:00"),
+        ]
+
+        shaped = shape_storylines(clusters)
+
+        self.assertEqual([s["event_id"] for s in shaped], ["hot", "long", "small"])
+        self.assertEqual(shaped[0]["days"], 3)
+        self.assertEqual(shaped[0]["source_count"], 6)
+        self.assertEqual(shaped[1]["days"], 10)
+
+    def test_span_uses_shanghai_calendar_days(self):
+        # UTC 16:00 = 上海次日 00:00:UTC 看是同一天,上海已跨天 → 算故事线
+        clusters = [
+            self._cluster("cross", 2, "2026-08-19T01:00:00", "2026-08-19T17:00:00"),
+        ]
+
+        shaped = shape_storylines(clusters)
+
+        self.assertEqual([s["event_id"] for s in shaped], ["cross"])
+        self.assertEqual(shaped[0]["days"], 2)
+
+    def test_caps_at_limit(self):
+        clusters = [
+            self._cluster(f"e{n}", 2 + n, "2026-08-17T01:00:00", "2026-08-19T01:00:00")
+            for n in range(8)
+        ]
+
+        shaped = shape_storylines(clusters)
+
+        self.assertEqual(len(shaped), 5)
+        # 信源多的排前面
+        self.assertEqual(shaped[0]["event_id"], "e7")
 
 
 class TopicsPayloadTests(unittest.TestCase):

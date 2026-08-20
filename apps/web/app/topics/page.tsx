@@ -1,4 +1,4 @@
-import { getTopics, type TopicSummary } from "@/lib/api";
+import { getTopics, type TopicsPayload, type TopicSummary } from "@/lib/api";
 import { MobileNav } from "@/components/mobile-nav";
 import { Sidebar } from "@/components/sidebar";
 
@@ -70,6 +70,82 @@ function sortByActivity(topics: TopicSummary[]): TopicSummary[] {
   );
 }
 
+/** 异动主题:周环比显著上升的主题,给"本周雷达"条用。按上升倍数排,
+ *  最多 4 个——它是信号灯不是排行榜,多了就没人看了。 */
+function pickMovers(groups: TopicsPayload["groups"]) {
+  return groups
+    .flatMap((group) => group.topics)
+    .filter((topic) => weekTrend(topic) === "up")
+    .sort(
+      (a, b) =>
+        b.week_count / Math.max(b.prev_week_count, 1) -
+        a.week_count / Math.max(a.prev_week_count, 1),
+    )
+    .slice(0, 4);
+}
+
+function WeeklyRadarStrip({ payload }: { payload: TopicsPayload }) {
+  const movers = pickMovers(payload.groups);
+  if (payload.storylines.length === 0 && movers.length === 0) {
+    return null;
+  }
+  return (
+    <section className="mt-4 rounded-md border border-line bg-panel p-5">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="text-base font-semibold text-ink">本周雷达</h2>
+        <span className="text-xs text-ink-dim">正在发展的事件与异动主题 · 自动生成</span>
+      </div>
+      <div className="mt-3 grid gap-5 lg:grid-cols-[1fr_260px]">
+        {payload.storylines.length > 0 ? (
+          <ol className="space-y-2.5">
+            {payload.storylines.map((story, index) => (
+              <li key={story.event_id} className="flex items-baseline gap-3">
+                <span className="readout w-4 shrink-0 text-sm font-semibold text-signal">
+                  {index + 1}
+                </span>
+                <div className="min-w-0">
+                  <a
+                    className="title-link text-sm font-medium leading-6 text-ink"
+                    href={`/event/${encodeURIComponent(story.event_id)}`}
+                  >
+                    {story.title}
+                  </a>
+                  <span className="ml-2 whitespace-nowrap text-xs tabular-nums text-ink-dim">
+                    跨 {story.days} 天 · {story.source_count} 家信源
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ol>
+        ) : null}
+        {movers.length > 0 ? (
+          <div className={payload.storylines.length > 0 ? "lg:border-l lg:border-line lg:pl-5" : ""}>
+            <div className="text-xs font-semibold text-ink-mid">异动主题</div>
+            <ul className="mt-2 space-y-2">
+              {movers.map((topic) => (
+                <li key={topic.id}>
+                  <a
+                    className="group flex items-baseline justify-between gap-3 text-sm"
+                    href={`/topics/${encodeURIComponent(topic.id)}`}
+                  >
+                    <span className="font-medium text-ink group-hover:text-signal">
+                      {topic.name}
+                    </span>
+                    <span className="whitespace-nowrap text-xs tabular-nums text-signal">
+                      ↑ 本周 {topic.week_count}
+                      <span className="text-ink-dim">（上周 {topic.prev_week_count}）</span>
+                    </span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 function TopicCard({ topic }: { topic: TopicSummary }) {
   const trend = weekTrend(topic);
   return (
@@ -122,6 +198,8 @@ export default async function TopicsPage() {
               {payload.error}
             </div>
           ) : null}
+
+          <WeeklyRadarStrip payload={payload} />
 
           <div className="mt-6 space-y-8">
             {payload.groups.map((group) => {

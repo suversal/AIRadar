@@ -83,6 +83,10 @@ class ScoringResult:
     reason_zh: str
     action_zh: str
     focus_category: str | None = None
+    # AI 判定的主题归属(topics 注册表的 canonical id)。None 表示模型没给
+    # 这个字段(旧缓存/离线兜底),下游会用关键词兜底推导;空列表是模型
+    # 明确判定"不属于任何主题",同样是权威结论,不触发兜底。
+    topic_ids: list[str] | None = None
 
 
 @dataclass
@@ -118,6 +122,10 @@ class ProcessedArticle:
     # every later story was excluded on the model change alone. Nothing recorded
     # which model scored what, so that went unnoticed for days.
     model_used: str | None = None
+    # 主题归属(canonical id)。入库时由 AI 判定,AI 缺字段时用关键词推导,
+    # 所以新写入的行恒非 None;None 只出现在迁移后未回填的存量行,读取层
+    # (topics.item_matches_topic)对 None 回退关键词匹配。
+    topic_ids: list[str] | None = None
 
 
 @dataclass

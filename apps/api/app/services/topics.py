@@ -262,11 +262,48 @@ def _item_text(item: dict[str, Any]) -> str:
     return " ".join(parts).lower()
 
 
+def _keywords_match_item(item: dict[str, Any], topic: dict[str, Any]) -> bool:
+    text = _item_text(item)
+    return any(_keyword_matches(text, keyword) for keyword in topic["keywords"])
+
+
 def item_matches_topic(item: dict[str, Any], topic: dict[str, Any] | None) -> bool:
     if topic is None:
         return False
-    text = _item_text(item)
-    return any(_keyword_matches(text, keyword) for keyword in topic["keywords"])
+    # 入库时的判定(AI 或回填)是权威:非 None 就按成员表查,包括空列表
+    # ("不属于任何主题"也是结论)。None 才回退到读取时关键词匹配——
+    # 只有迁移后未回填的存量行会走到这条路径。
+    topic_ids = item.get("topic_ids")
+    if topic_ids is not None:
+        return topic["id"] in {str(topic_id) for topic_id in topic_ids}
+    return _keywords_match_item(item, topic)
+
+
+def derive_topic_ids(item: dict[str, Any]) -> list[str]:
+    """关键词推导主题归属,产出 canonical id 列表(注册表顺序)。
+
+    两处使用:入库时 AI 没给 topic_ids 的兜底,和存量数据回填脚本。
+    刻意不读 item 里已有的 topic_ids——这是"重新推导",不是"沿用"。"""
+    return [
+        topic["id"]
+        for group in TOPIC_GROUPS
+        for topic in group["topics"]
+        if _keywords_match_item(item, topic)
+    ]
+
+
+def normalize_topic_ids(values: Any) -> list[str] | None:
+    """把 AI 输出的 topic_ids 清洗成 canonical id 列表:解析别名、丢掉
+    注册表外的值、去重保序。输入不是列表(字段缺失/类型跑偏)返回 None,
+    交给关键词兜底;空列表原样保留——那是"不属于任何主题"的权威结论。"""
+    if not isinstance(values, list):
+        return None
+    seen: list[str] = []
+    for value in values:
+        topic = topic_by_id(str(value).strip().lower())
+        if topic is not None and topic["id"] not in seen:
+            seen.append(topic["id"])
+    return seen
 
 
 def _item_date(item: dict[str, Any]) -> date | None:
@@ -338,6 +375,41 @@ def build_topics_payload(items: list[dict[str, Any]], *, today: date) -> dict[st
             }
         )
     return {"groups": groups, "article_count": len(selected_items)}
+
+
+STORYLINE_LIMIT = 5
+
+
+def shape_storylines(clusters: list[dict[str, Any]], *, limit: int = STORYLINE_LIMIT) -> list[dict[str, Any]]:
+    """本周雷达的故事线条目。输入是 repository.get_active_storylines 的
+    候选(已过滤 多源+近14天+未隐藏),这里算报道跨度、排热度、裁条数。
+
+    跨度用上海时区的自然日差:first/last_seen 是事件簇的权威时间戳——
+    选中条目每个事件通常只留一条,items 层根本推不出跨度(2026-08-20
+    实测:多源事件的选中成员数全是 1)。"""
+    shaped = []
+    for cluster in clusters:
+        first = _item_date({"published_at": cluster.get("first_seen_at")})
+        last = _item_date({"published_at": cluster.get("last_seen_at")})
+        if first is None or last is None:
+            continue
+        days = (last - first).days + 1
+        if days < 2:
+            continue
+        shaped.append(
+            {
+                "event_id": cluster["event_id"],
+                "title": cluster["title"],
+                "source_count": cluster.get("source_count") or 1,
+                "days": days,
+                "last_seen_at": last.isoformat(),
+            }
+        )
+    shaped.sort(
+        key=lambda s: (s["source_count"], s["days"], s["last_seen_at"]),
+        reverse=True,
+    )
+    return shaped[:limit]
 
 
 FOCUS_WINDOW_DAYS = 14
