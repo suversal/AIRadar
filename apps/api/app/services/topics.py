@@ -16,6 +16,11 @@ Claude 不代表这条"关于" Claude——旧版扫摘要导致 Agent 主题吞
 届时这里的关键词只服务无标签的存量数据。
 
 ASCII 关键词按词边界匹配(避免 "meta" 命中 "metadata"),CJK 按子串。
+
+⚠️ 新增/改关键词后要跑 `python scripts/backfill_topic_ids.py --force`:
+存量行的 topic_ids 是入库时定死的,注册表变更不会自动反映到已存数据,
+不重算的话新主题在存量上永远是 0 条。前端镜像 apps/web/lib/topics.ts
+的 TOPIC_NAMES 也要同步。
 """
 
 from __future__ import annotations
@@ -139,6 +144,60 @@ TOPIC_GROUPS: list[dict[str, Any]] = [
                 "Cursor",
                 "Cursor 编辑器的产品迭代与生态动态——AI 编码工具竞争中最受关注的玩家之一。",
                 ["cursor"],
+            ),
+            _topic(
+                "amazon",
+                "Amazon / AWS",
+                "亚马逊的 AI 布局：AWS Bedrock 平台、自研芯片与深度绑定 Anthropic 的云生态。",
+                ["amazon", "aws", "亚马逊", "bedrock", "trainium"],
+            ),
+            _topic(
+                "apple",
+                "Apple 苹果",
+                "苹果的 AI 动态：Apple Intelligence、Siri 改造与端侧模型的克制路线。",
+                ["apple", "苹果", "siri"],
+            ),
+            _topic(
+                "huawei",
+                "华为 / 昇腾",
+                "华为的 AI 动态：昇腾算力生态、盘古大模型与国产算力替代的进展。",
+                ["huawei", "华为", "昇腾", "盘古", "ascend"],
+            ),
+            _topic(
+                "openrouter",
+                "OpenRouter",
+                "OpenRouter 模型路由平台动态：新模型上架与用量排行——开发者选型的真实市场信号。",
+                ["openrouter"],
+            ),
+            _topic(
+                "perplexity",
+                "Perplexity",
+                "Perplexity 的产品与商业动态——AI 搜索赛道最受关注的头部玩家。",
+                ["perplexity"],
+            ),
+            _topic(
+                "mistral",
+                "Mistral",
+                "欧洲 AI 旗手 Mistral 的模型发布、开源权重与商业化动态。",
+                ["mistral"],
+            ),
+            _topic(
+                "iflytek",
+                "讯飞 星火",
+                "科大讯飞的 AI 动态：星火大模型与教育、办公场景的落地进展。",
+                ["iflytek", "讯飞", "星火"],
+            ),
+            _topic(
+                "stepfun",
+                "阶跃星辰",
+                "阶跃星辰的模型与多模态能力进展。",
+                ["stepfun", "阶跃"],
+            ),
+            _topic(
+                "midjourney",
+                "Midjourney",
+                "Midjourney 的图像生成模型迭代与产品动态。",
+                ["midjourney"],
             ),
         ],
     },

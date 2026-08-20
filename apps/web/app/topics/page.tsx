@@ -120,20 +120,24 @@ function WeeklyRadarStrip({ payload }: { payload: TopicsPayload }) {
         ) : null}
         {movers.length > 0 ? (
           <div className={payload.storylines.length > 0 ? "lg:border-l lg:border-line lg:pl-5" : ""}>
-            <div className="text-xs font-semibold text-ink-mid">异动主题</div>
-            <ul className="mt-2 space-y-2">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-xs font-semibold text-ink-mid">异动主题</span>
+              <span className="text-xs text-ink-dim">上周 → 本周</span>
+            </div>
+            <ul className="mt-2.5 divide-y divide-line/60">
               {movers.map((topic) => (
                 <li key={topic.id}>
                   <a
-                    className="group flex items-baseline justify-between gap-3 text-sm"
+                    className="group flex min-w-0 items-baseline justify-between gap-3 py-1.5 text-sm"
                     href={`/topics/${encodeURIComponent(topic.id)}`}
                   >
-                    <span className="font-medium text-ink group-hover:text-signal">
+                    <span className="truncate font-medium text-ink group-hover:text-signal">
                       {topic.name}
                     </span>
-                    <span className="whitespace-nowrap text-xs tabular-nums text-signal">
-                      ↑ 本周 {topic.week_count}
-                      <span className="text-ink-dim">（上周 {topic.prev_week_count}）</span>
+                    <span className="readout shrink-0 whitespace-nowrap text-xs tabular-nums">
+                      <span className="text-ink-dim">{topic.prev_week_count}</span>
+                      <span className="mx-1 text-ink-dim">→</span>
+                      <span className="font-semibold text-signal">{topic.week_count}</span>
                     </span>
                   </a>
                 </li>
