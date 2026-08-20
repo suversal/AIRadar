@@ -552,7 +552,11 @@ export async function getPeriodReport(
 export type TopicSummary = {
   id: string;
   name: string;
+  description: string;
   count: number;
+  week_count: number;
+  prev_week_count: number;
+  latest_published_at: string | null;
 };
 
 export type TopicGroup = {
@@ -582,6 +586,56 @@ export async function getTopics(): Promise<TopicsPayload> {
     return { ...payload, error: null };
   } catch (error) {
     return { groups: [], article_count: 0, error: latestLoadErrorMessage(error) };
+  }
+}
+
+export type TopicDetailPayload = {
+  topic: {
+    id: string;
+    name: string;
+    description: string;
+    group_id: string | null;
+    group_name: string | null;
+  };
+  total_count: number;
+  selected_count: number;
+  latest_published_at: string | null;
+  focus: LatestEvent[];
+  items: LatestEvent[];
+  limit: number;
+  offset: number;
+  error?: string | null;
+};
+
+/** 主题详情。404(未知主题)返回 null 交给页面 notFound();
+ *  其余失败沿用全站惯例:降级 payload + error 文案,页面照常渲染骨架。 */
+export async function getTopicDetail(slug: string): Promise<TopicDetailPayload | null> {
+  const degraded = (error: string): TopicDetailPayload => ({
+    topic: { id: slug, name: slug, description: "", group_id: null, group_name: null },
+    total_count: 0,
+    selected_count: 0,
+    latest_published_at: null,
+    focus: [],
+    items: [],
+    limit: 0,
+    offset: 0,
+    error,
+  });
+  try {
+    const response = await fetch(
+      `${getApiBaseUrl()}/api/public/topics/${encodeURIComponent(slug)}`,
+      cacheFor(600),
+    );
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      return degraded(`API 服务暂时不可用：topics 接口返回 ${response.status}。`);
+    }
+    const payload = (await response.json()) as TopicDetailPayload;
+    return { ...payload, error: null };
+  } catch (error) {
+    return degraded(latestLoadErrorMessage(error));
   }
 }
 

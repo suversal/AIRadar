@@ -1,4 +1,4 @@
-import { getTopics } from "@/lib/api";
+import { getTopics, type TopicSummary } from "@/lib/api";
 import { MobileNav } from "@/components/mobile-nav";
 import { Sidebar } from "@/components/sidebar";
 
@@ -19,12 +19,84 @@ export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "主题",
-  description: "按模型、产品工具、技术方向和公司行业浏览近 30 天的 AI 动态。",
+  description: "按公司与模型、技术方向追踪 AI 精选动态：每个主题一条持续更新的档案流。",
   alternates: { canonical: "/topics" },
 };
 
-function topicHref(topicId: string) {
-  return `/all?topic=${encodeURIComponent(topicId)}`;
+// 组内活跃/沉寂的分界：近 90 天精选不足这个数的主题折叠成小字行,
+// 不和活跃主题平起平坐——点进去几乎是空页的入口摆在大卡位置会损耗可信度
+const DORMANT_THRESHOLD = 5;
+
+function daysAgo(dateStr: string | null): number | null {
+  if (!dateStr) {
+    return null;
+  }
+  const parsed = new Date(`${dateStr}T00:00:00+08:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return Math.max(0, Math.floor((Date.now() - parsed.getTime()) / 86_400_000));
+}
+
+function freshnessLabel(dateStr: string | null): string {
+  const days = daysAgo(dateStr);
+  if (days === null) {
+    return "暂无动态";
+  }
+  if (days <= 0) {
+    return "今天更新";
+  }
+  if (days === 1) {
+    return "昨天更新";
+  }
+  return `${days} 天前更新`;
+}
+
+/** 周环比信号。只在变化够大时给箭头,平稳就安静——满屏箭头等于没有箭头。 */
+function weekTrend(topic: TopicSummary): "up" | "down" | null {
+  const { week_count: week, prev_week_count: prev } = topic;
+  if (week >= 3 && week >= prev * 1.5 && week > prev) {
+    return "up";
+  }
+  if (prev >= 3 && prev >= week * 1.5 && prev > week) {
+    return "down";
+  }
+  return null;
+}
+
+function sortByActivity(topics: TopicSummary[]): TopicSummary[] {
+  return [...topics].sort(
+    (a, b) => b.week_count - a.week_count || b.count - a.count || a.id.localeCompare(b.id),
+  );
+}
+
+function TopicCard({ topic }: { topic: TopicSummary }) {
+  const trend = weekTrend(topic);
+  return (
+    <a
+      className="group card-hover flex flex-col rounded-md border border-line bg-panel p-4"
+      href={`/topics/${encodeURIComponent(topic.id)}`}
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-sm font-semibold text-ink group-hover:text-signal">
+          {topic.name}
+        </span>
+        <span
+          className={`shrink-0 text-xs tabular-nums ${
+            trend === "up" ? "font-semibold text-signal" : "text-ink-mid"
+          }`}
+        >
+          {trend === "up" ? "↑ " : trend === "down" ? "↓ " : ""}本周 {topic.week_count}
+        </span>
+      </div>
+      <p className="mt-1.5 line-clamp-2 flex-1 text-xs leading-5 text-ink-dim">
+        {topic.description}
+      </p>
+      <div className="mt-2.5 text-xs text-ink-mid">
+        精选 {topic.count} 条 · {freshnessLabel(topic.latest_published_at)}
+      </div>
+    </a>
+  );
 }
 
 export default async function TopicsPage() {
@@ -40,8 +112,8 @@ export default async function TopicsPage() {
           <header className="rounded-md border border-line bg-panel p-5">
             <h1 className="text-2xl font-semibold text-ink">主题</h1>
             <p className="mt-1.5 text-sm text-ink-mid">
-              按模型、产品工具、技术方向和公司行业浏览近 30 天的 AI 动态
-              {payload.article_count > 0 ? ` · 覆盖 ${payload.article_count} 条` : ""}
+              公司与模型、技术方向——每个主题一条持续更新的精选档案
+              {payload.article_count > 0 ? ` · 近 90 天覆盖 ${payload.article_count} 条精选` : ""}
             </p>
           </header>
 
@@ -52,31 +124,40 @@ export default async function TopicsPage() {
           ) : null}
 
           <div className="mt-6 space-y-8">
-            {payload.groups.map((group) => (
-              <section key={group.id}>
-                <div className="flex items-end justify-between gap-4">
-                  <h2 className="text-lg font-semibold text-ink">{group.name}</h2>
-                  <span className="text-sm text-ink-dim">{group.description}</span>
-                </div>
-                <div className="mt-3 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                  {group.topics.map((topic) => (
-                    <a
-                      key={topic.id}
-                      className="group card-hover rounded-md border border-line bg-panel p-4"
-                      href={topicHref(topic.id)}
-                    >
-                      <div className="flex items-baseline justify-between gap-3">
-                        <span className="text-sm font-semibold text-ink group-hover:text-signal">
-                          {topic.name}
-                        </span>
-                        <span className="text-xs tabular-nums text-ink-mid">{topic.count}</span>
-                      </div>
-                      <div className="mt-1.5 text-xs text-ink-dim">查看 {topic.count} 条动态</div>
-                    </a>
-                  ))}
-                </div>
-              </section>
-            ))}
+            {payload.groups.map((group) => {
+              const sorted = sortByActivity(group.topics);
+              const active = sorted.filter((topic) => topic.count >= DORMANT_THRESHOLD);
+              const dormant = sorted.filter((topic) => topic.count < DORMANT_THRESHOLD);
+              return (
+                <section key={group.id}>
+                  <div className="flex items-end justify-between gap-4">
+                    <h2 className="text-lg font-semibold text-ink">{group.name}</h2>
+                    <span className="hidden text-sm text-ink-dim sm:block">
+                      {group.description}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    {active.map((topic) => (
+                      <TopicCard key={topic.id} topic={topic} />
+                    ))}
+                  </div>
+                  {dormant.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-ink-dim">
+                      <span>近期沉寂：</span>
+                      {dormant.map((topic) => (
+                        <a
+                          key={topic.id}
+                          className="text-ink-mid underline-offset-2 hover:text-signal hover:underline"
+                          href={`/topics/${encodeURIComponent(topic.id)}`}
+                        >
+                          {topic.name}（{topic.count}）
+                        </a>
+                      ))}
+                    </div>
+                  ) : null}
+                </section>
+              );
+            })}
             {payload.groups.length === 0 && !payload.error ? (
               <div className="rounded-md border border-line bg-panel p-8 text-sm text-ink-mid">
                 主题数据正在积累中，稍后再来看看。

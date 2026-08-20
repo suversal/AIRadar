@@ -1,5 +1,6 @@
 import { getAllEvents } from "@/lib/api";
 import { FOCUS_FILTER_OPTIONS, focusCategory } from "@/lib/taxonomy";
+import { topicLabel } from "@/lib/topics";
 import { AllEventsFeed } from "@/components/all-events-feed";
 import { MobileCategoryNav, MobileSearchForm } from "@/components/mobile-discovery";
 import { MobileNav } from "@/components/mobile-nav";
@@ -235,7 +236,7 @@ export default async function AllEventsPage({
           {selectedTopic ? (
             <div className="mt-4 flex items-center gap-3 text-sm">
               <span className="rounded-full border border-signal/40 bg-signal/10 px-3 py-1.5 font-medium text-signal">
-                主题筛选：{selectedTopic} · {report.total} 条
+                主题筛选：{topicLabel(selectedTopic)} · {report.total} 条
               </span>
               <a
                 className="text-ink-mid hover:text-ink"
@@ -248,8 +249,14 @@ export default async function AllEventsPage({
               >
                 清除
               </a>
+              <a
+                className="text-ink-mid hover:text-ink"
+                href={`/topics/${encodeURIComponent(selectedTopic)}`}
+              >
+                主题详情
+              </a>
               <a className="text-ink-mid hover:text-ink" href="/topics">
-                返回主题
+                全部主题
               </a>
             </div>
           ) : null}
