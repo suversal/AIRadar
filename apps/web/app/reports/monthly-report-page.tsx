@@ -42,7 +42,7 @@ export async function MonthlyReportPage({ periodKey }: { periodKey?: string }) {
   if (period.error) {
     return (
       <ReportShell activeMode="monthly" secondary={archiveList}>
-        <div className="mx-auto max-w-4xl">
+        <div className="mx-auto min-w-0 max-w-4xl">
           {header}
           <div className="rounded-md border border-danger/40 bg-danger/10 p-4 text-sm leading-6 text-danger">
             {period.error}
@@ -54,7 +54,7 @@ export async function MonthlyReportPage({ periodKey }: { periodKey?: string }) {
 
   return (
     <ReportShell activeMode="monthly" secondary={archiveList}>
-      <div className="mx-auto max-w-4xl">
+      <div className="mx-auto min-w-0 max-w-4xl">
         {header}
 
         <SealBanner seal={digest.seal} />
@@ -108,7 +108,7 @@ export async function MonthlyReportPage({ periodKey }: { periodKey?: string }) {
                 {/* 证据事件：后端已按入选名单校验 event_ids，这里只解析不补位。
                     空列表就只显示论述——宁缺毋假。 */}
                 {trend.items.length > 0 ? (
-                  <div className="mt-4 grid gap-3">
+                  <div className="mt-4 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3">
                     {trend.items.map((item) => (
                       <PeriodEventCard key={item.event_id} item={item} />
                     ))}
@@ -132,7 +132,7 @@ export async function MonthlyReportPage({ periodKey }: { periodKey?: string }) {
                 </a>
               </span>
             </div>
-            <div className="mt-4 grid gap-3">
+            <div className="mt-4 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3">
               {digest.ranked.map((item, index) => (
                 <PeriodEventCard key={item.event_id} item={item} rank={index + 1} />
               ))}

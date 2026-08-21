@@ -100,7 +100,7 @@ export function ThemeToggle() {
   return (
     <div
       ref={toggleRef}
-      className="theme-toggle fixed top-0.5 right-16 z-30 flex items-center gap-1 rounded-full border border-line-strong bg-panel/90 p-0.5 shadow-[0_6px_18px_rgba(0,0,0,0.24)] backdrop-blur-md md:top-auto md:right-auto md:bottom-6 md:left-5 md:z-20 md:p-1 md:shadow-[0_8px_24px_rgba(0,0,0,0.3)]"
+      className="theme-toggle fixed bottom-6 left-5 z-20 flex items-center gap-1 rounded-full border border-line-strong bg-panel/85 p-1 shadow-[0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-md"
     >
       <div
         aria-label="主题"
@@ -139,9 +139,9 @@ export function ThemeToggle() {
               style={{
                 transitionDelay: `${motionDelay}ms, ${motionDelay}ms, ${motionDelay}ms, 0ms, 0ms`,
               }}
-              className={`mobile-theme-option flex h-8 shrink-0 items-center justify-center overflow-hidden rounded-full ${
+              className={`mobile-theme-option flex h-10 shrink-0 items-center justify-center overflow-hidden rounded-full ${
                 visible
-                  ? "w-8 scale-100 opacity-100"
+                  ? "w-10 scale-100 opacity-100"
                   : "pointer-events-none w-0 scale-90 opacity-0"
               } ${active ? "bg-signal text-canvas" : "text-ink-mid hover:text-ink"}`}
             >

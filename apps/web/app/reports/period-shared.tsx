@@ -144,7 +144,7 @@ export function MainlineSection({
  *  这是它们独有的持续度信号。 */
 export function PeriodEventCard({ item, rank }: { item: LatestEvent; rank?: number }) {
   return (
-    <article className="card-hover rounded-md border border-line bg-panel p-4">
+    <article className="card-hover min-w-0 rounded-md border border-line bg-panel p-4 [overflow-wrap:anywhere]">
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2 truncate text-xs leading-5 text-signal-bright">
           {rank !== undefined ? (

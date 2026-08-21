@@ -46,7 +46,7 @@ export function ReportShell({
 }) {
   return (
     <main className="min-h-screen bg-canvas text-ink">
-      <div className="grid min-h-screen grid-cols-1 content-start lg:grid-cols-[224px_200px_1fr]">
+      <div className="grid min-h-screen min-w-0 grid-cols-1 content-start lg:grid-cols-[224px_200px_minmax(0,1fr)]">
         {/* 周报/月报没有独立侧栏入口，统一从「AI 日报」进入并保持其高亮 */}
         <Sidebar activeNavId="daily" />
         <MobileNav activeNavId="daily" />
@@ -66,7 +66,7 @@ export function ReportShell({
           {secondary}
         </aside>
 
-        <section className="px-5 py-8 md:px-10 xl:px-16">{children}</section>
+        <section className="min-w-0 px-5 py-8 md:px-10 xl:px-16">{children}</section>
       </div>
     </main>
   );

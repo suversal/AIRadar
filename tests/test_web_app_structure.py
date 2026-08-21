@@ -143,6 +143,8 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("setMobileExpanded(false)", theme_toggle)
         self.assertIn("mobile-theme-option", theme_toggle)
         self.assertIn("transitionDelay", theme_toggle)
+        self.assertIn("fixed bottom-6 left-5", theme_toggle)
+        self.assertNotIn("fixed top-0.5 right-16", theme_toggle)
         self.assertIn("width 0.46s", global_css)
         self.assertIn(":not(.mobile-theme-options):not(.mobile-theme-option)", global_css)
         self.assertIn("prefers-reduced-motion: reduce", global_css)
@@ -673,6 +675,8 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("本月总述", monthly_report)
         self.assertIn("本月榜单", monthly_report)
         self.assertIn("trends", monthly_report)
+        self.assertIn("grid-cols-[minmax(0,1fr)]", monthly_report)
+        self.assertIn("[overflow-wrap:anywhere]", (WEB / "app" / "reports" / "period-shared.tsx").read_text(encoding="utf-8"))
         self.assertNotIn("slice(0, 3)", monthly_report)
 
         # 进行中的期次要明示会变，两页都挂封版横幅
