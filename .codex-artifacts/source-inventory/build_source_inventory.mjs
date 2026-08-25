@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { SpreadsheetFile, Workbook } from "@oai/artifact-tool";
 
-const repoRoot = "/Users/sue/Documents/HotAI";
+const repoRoot = "/Users/sue/Developer/HotAI";
 const outputDir = `${repoRoot}/outputs/019f60b5-b92c-70a3-86bf-4d1f873e5ee2`;
 const outputPath = `${outputDir}/HotAI_信源清单_含补充地址_2026-07-15.xlsx`;
 const previewPath = `${outputDir}/HotAI_信源清单_预览.png`;
@@ -13,7 +13,7 @@ import json, os
 from pathlib import Path
 from sqlalchemy import create_engine, text
 
-root = Path('/Users/sue/Documents/HotAI')
+root = Path('/Users/sue/Developer/HotAI')
 for p in (root / '.env', root / 'apps/api/.env'):
     if p.exists():
         for line in p.read_text().splitlines():

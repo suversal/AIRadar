@@ -7,7 +7,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/zsh</string>
-    <string>/Users/sue/Documents/HotAI/scripts/backup_local_db.sh</string>
+    <string>/Users/sue/Developer/HotAI/scripts/backup_local_db.sh</string>
   </array>
   <key>StartCalendarInterval</key>
   <dict>
@@ -19,11 +19,11 @@
   <key>RunAtLoad</key>
   <false/>
   <key>StandardOutPath</key>
-  <string>/Users/sue/Documents/HotAI/data/logs/backup.launchd.log</string>
+  <string>/Users/sue/Developer/HotAI/data/logs/backup.launchd.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/sue/Documents/HotAI/data/logs/backup.launchd.log</string>
+  <string>/Users/sue/Developer/HotAI/data/logs/backup.launchd.log</string>
   <key>WorkingDirectory</key>
-  <string>/Users/sue/Documents/HotAI</string>
+  <string>/Users/sue/Developer/HotAI</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
