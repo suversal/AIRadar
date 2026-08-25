@@ -110,6 +110,11 @@ class WebAppStructureTests(unittest.TestCase):
 
         self.assertIn("移动端主题切换的展开与收起动画更加平滑", changelog)
         self.assertIn("来源名称 · N 个来源", changelog)
+        for date in ["2026-08-21", "2026-08-25", "2026-08-26"]:
+            self.assertIn(f'date: "{date}"', changelog)
+        self.assertIn("中文译文会逐段核对原文结构", changelog)
+        self.assertIn("信号绿、经典橙、雷达蓝和墨靛紫四套配色", changelog)
+        self.assertIn("周报、月报在窄屏下不再被长标题和事件卡片撑出页面", changelog)
         for implementation_detail in ["六维加权", "三层判断", "T1/T1.5/T2/T3", "独立的入选分数线"]:
             self.assertNotIn(implementation_detail, changelog)
 
