@@ -58,7 +58,6 @@ const THEME_INIT_SCRIPT = `
     meta.removeAttribute("media");
     meta.setAttribute("content", color);
     document.documentElement.style.backgroundColor = color;
-    if (document.body) document.body.style.backgroundColor = color;
     if (editorial) {
       document.documentElement.style.setProperty("--color-canvas", color);
     } else {

@@ -155,11 +155,30 @@ summary {
     color 0.18s ease;
 }
 
+/* Desktop uses the same compact-to-expanded motion as the drawer, but starts
+   as a two-control floating capsule. Keeping these selectors separate means a
+   mobile drawer change can never force the desktop picker open again. */
+.desktop-theme-options {
+  transition: gap 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.desktop-theme-option {
+  will-change: width, opacity, transform;
+  transition:
+    width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.24s ease-out,
+    transform 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.18s ease,
+    color 0.18s ease;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .theme-transition,
   .theme-transition *,
   .drawer-theme-options,
-  .drawer-theme-option {
+  .drawer-theme-option,
+  .desktop-theme-options,
+  .desktop-theme-option {
     transition-duration: 0.01ms;
     transition-delay: 0ms !important;
   }
