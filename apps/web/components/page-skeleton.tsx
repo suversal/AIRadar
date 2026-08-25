@@ -11,10 +11,16 @@ function SkeletonCard() {
   );
 }
 
-export function PageSkeleton({ activeNavId }: { activeNavId: string }) {
+export function PageSkeleton({
+  activeNavId,
+  editorial = true,
+}: {
+  activeNavId: string;
+  editorial?: boolean;
+}) {
   return (
-    <main className="min-h-screen bg-canvas text-ink">
-      <div className="grid min-h-screen grid-cols-1 content-start lg:grid-cols-[224px_1fr]">
+    <main className={`${editorial ? "editorial-page" : ""} min-h-screen bg-canvas text-ink`}>
+      <div className={`grid min-h-screen grid-cols-1 content-start ${editorial ? "lg:grid-cols-[248px_1fr]" : "lg:grid-cols-[224px_1fr]"}`}>
         <Sidebar activeNavId={activeNavId} />
 
         <section className="px-5 py-6 md:px-9">

@@ -56,7 +56,7 @@ export async function WeeklyReportPage({ periodKey }: { periodKey?: string }) {
 
         <MainlineSection label="本周主线" mainline={digest.mainline} />
 
-        <section className="mt-5 rounded-md border border-line bg-panel p-4">
+        <section className="editorial-surface mt-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-base font-semibold text-ink">本周看点</h2>
             <div className="text-sm text-ink-dim">{period.items.length} 篇入选</div>
@@ -88,11 +88,11 @@ export async function WeeklyReportPage({ periodKey }: { periodKey?: string }) {
           </div>
         </section>
 
-        <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="mt-5 grid grid-cols-4 divide-x divide-line md:mt-8">
           {digest.stats.map((stat) => (
-            <div key={stat.label} className="rounded-md border border-line bg-panel p-3 text-center">
-              <div className="text-xl font-semibold text-ink">{stat.value}</div>
-              <div className="mt-1 text-xs text-ink-dim">{stat.label}</div>
+            <div key={stat.label} className="min-w-0 px-1 py-2.5 text-center md:px-3 md:py-4">
+              <div className="whitespace-nowrap text-base font-semibold text-ink md:text-xl">{stat.value}</div>
+              <div className="mt-1 text-[10px] leading-4 text-ink-dim md:text-xs">{stat.label}</div>
             </div>
           ))}
         </div>
@@ -107,7 +107,7 @@ export async function WeeklyReportPage({ periodKey }: { periodKey?: string }) {
               className="group scroll-mt-20"
             >
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4 border-b border-line pb-3 transition hover:border-signal/40 [&::-webkit-details-marker]:hidden">
-                <h2 className="text-xl font-semibold text-ink">
+                <h2 className="editorial-rule-title text-2xl font-medium text-ink">
                   <span className="mr-3 text-3xl text-signal">
                     {String(categoryIndex + 1).padStart(2, "0")}
                   </span>

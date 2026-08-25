@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Moon, Monitor, Sun } from "lucide-react";
+import { syncThemeChrome, type ResolvedTheme } from "./theme-chrome";
 
 type ThemePreference = "dark" | "system" | "light";
 
@@ -30,12 +31,14 @@ function applyResolvedTheme(preference: ThemePreference, { withTransition = fals
     root.classList.add("theme-transition");
     window.setTimeout(() => root.classList.remove("theme-transition"), TRANSITION_MS);
   }
-  const resolved = preference === "system" ? (systemPrefersLight() ? "light" : "dark") : preference;
+  const resolved: ResolvedTheme =
+    preference === "system" ? (systemPrefersLight() ? "light" : "dark") : preference;
   if (resolved === "light") {
     root.setAttribute("data-theme", "light");
   } else {
     root.removeAttribute("data-theme");
   }
+  syncThemeChrome(resolved);
 }
 
 export function ThemeToggle() {

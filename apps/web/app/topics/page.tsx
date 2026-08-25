@@ -95,7 +95,7 @@ function WeeklyRadarStrip({ payload }: { payload: TopicsPayload }) {
     return null;
   }
   return (
-    <section className="mt-4 rounded-md border border-line bg-panel p-5">
+    <section className="mt-4 rounded-md border border-line bg-panel-soft/40 p-5">
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-base font-semibold text-ink">本周雷达</h2>
         <span className="text-xs text-ink-dim">正在发展的事件与异动主题 · 自动生成</span>
@@ -164,7 +164,7 @@ function TopicCard({ topic }: { topic: TopicSummary }) {
   const trend = weekTrend(topic);
   return (
     <a
-      className="group card-hover flex flex-col rounded-md border border-line bg-panel p-4"
+      className="group card-hover editorial-feed-hover flex flex-col rounded-md border border-line bg-panel p-4"
       href={`/topics/${encodeURIComponent(topic.id)}`}
     >
       <div className="flex items-baseline justify-between gap-3">
@@ -193,14 +193,15 @@ export default async function TopicsPage() {
   const payload = await getTopics();
 
   return (
-    <main className="min-h-screen bg-canvas text-ink">
-      <div className="grid min-h-screen grid-cols-1 content-start lg:grid-cols-[224px_1fr]">
+    <main className="editorial-page min-h-screen bg-canvas text-ink">
+      <div className="grid min-h-screen grid-cols-1 content-start lg:grid-cols-[248px_1fr]">
         <Sidebar activeNavId="topics" />
         <MobileNav activeNavId="topics" />
 
-        <section className="px-5 py-6 md:px-9">
-          <header className="rounded-md border border-line bg-panel p-5">
-            <h1 className="text-2xl font-semibold text-ink">主题</h1>
+        <section className="w-full min-w-0 max-w-[1320px] justify-self-center px-4 py-8 md:px-8 xl:px-12">
+          <header className="border-b border-line-strong pb-7">
+            <p className="readout text-[11px] uppercase tracking-[0.16em] text-signal">LIVING INDEX / TOPICS</p>
+            <h1 className="editorial-rule-title mt-4 text-4xl font-medium leading-none text-ink md:text-6xl">主题</h1>
             <p className="mt-1.5 text-sm text-ink-mid">
               公司与模型、技术方向——每个主题一条持续更新的精选档案
               {payload.article_count > 0
@@ -225,7 +226,7 @@ export default async function TopicsPage() {
               return (
                 <section key={group.id}>
                   <div className="flex items-end justify-between gap-4">
-                    <h2 className="text-lg font-semibold text-ink">{group.name}</h2>
+                    <h2 className="editorial-rule-title text-2xl font-medium text-ink">{group.name}</h2>
                     <span className="hidden text-sm text-ink-dim sm:block">
                       {group.description}
                     </span>

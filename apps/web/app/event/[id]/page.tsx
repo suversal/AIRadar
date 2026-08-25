@@ -9,6 +9,7 @@ import { renderOriginalBlock } from "@/components/original-block";
 import { BookmarkButton } from "@/components/bookmark-button";
 import { MobileNav } from "@/components/mobile-nav";
 import { Sidebar } from "@/components/sidebar";
+import { GridBackground } from "@/components/ui/grid-background";
 import { adminFetch } from "@/lib/admin-api";
 
 type EventParams = Promise<{
@@ -270,13 +271,13 @@ export default async function EventDetailPage({
   const translatedBlocks = translatedBlocksFor(event);
 
   return (
-    <main className="min-h-screen bg-canvas text-ink">
-      <div className="grid min-h-screen grid-cols-[minmax(0,1fr)] content-start lg:grid-cols-[224px_minmax(0,1fr)]">
+    <main className="editorial-page min-h-screen bg-canvas text-ink">
+      <div className="grid min-h-screen grid-cols-[minmax(0,1fr)] content-start lg:grid-cols-[248px_minmax(0,1fr)]">
         <Sidebar activeNavId="latest" />
         <MobileNav activeNavId="latest" />
 
-        <section className="min-w-0 px-5 pt-4 pb-8 md:py-12">
-          <div className="mx-auto max-w-3xl">
+        <section className="min-w-0 px-4 pb-10 pt-4 md:px-8 md:py-12 xl:px-12">
+          <div className="mx-auto max-w-5xl">
             {adminPreview === "1" && event.hidden ? (
               <aside className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
                 <span>管理员预览：该文章当前处于隐藏状态，公开页面仍不可访问。</span>
@@ -288,21 +289,22 @@ export default async function EventDetailPage({
                 </a>
               </aside>
             ) : null}
-            <header>
-              <div className="flex items-start justify-between gap-3 md:items-center">
+            <header className="relative overflow-hidden border-b border-line-strong pb-7 md:pb-9">
+              <GridBackground className="opacity-35" />
+              <div className="relative flex items-start justify-between gap-3 md:items-center">
                 <div className="min-w-0 flex-1">
                   <div className="flex h-5 min-w-0 items-center gap-x-3 text-sm text-ink-mid md:h-6">
                     <span className="min-w-0 truncate font-semibold text-ink">
                       {event.main_source?.name ?? "未知来源"}
                     </span>
-                    <span className="hidden md:inline">
+                    <span className="readout hidden text-xs uppercase tracking-[0.08em] md:inline">
                       {formatDateTime(event.published_at, event.content_origin, event.time_basis)}
                     </span>
-                    <span className="hidden md:inline">
+                    <span className="readout hidden text-xs uppercase tracking-[0.08em] md:inline">
                       {event.category_label ?? event.category ?? "未分类"}
                     </span>
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-mid md:hidden">
+                  <div className="readout mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] uppercase tracking-[0.08em] text-ink-mid md:hidden">
                     <span>{formatDateTime(event.published_at, event.content_origin, event.time_basis)}</span>
                     <span>{event.category_label ?? event.category ?? "未分类"}</span>
                   </div>
@@ -310,23 +312,23 @@ export default async function EventDetailPage({
 
                 <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
                   {event.selected ? (
-                    <span className="inline-flex h-5 items-center justify-center rounded-full border border-signal/60 bg-signal/15 px-1.5 text-[11px] font-semibold leading-none text-signal-bright md:h-6 md:px-2 md:text-xs">
-                      精选
+                    <span className="readout border-b border-signal pb-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-signal md:text-xs">
+                      Selected
                     </span>
                   ) : null}
-                  <span className="readout inline-flex h-5 items-center justify-center rounded-full border border-signal/40 px-1.5 text-[11px] font-semibold leading-none text-signal md:h-6 md:px-2 md:text-xs">
-                    {formatScore(event.final_score)}
+                  <span className="readout text-[10px] font-semibold uppercase tracking-[0.12em] text-signal md:text-xs">
+                    Score {formatScore(event.final_score)}
                   </span>
                   <BookmarkButton eventId={event.event_id} labelOnDesktop />
                 </div>
               </div>
 
-              <h1 className="mt-3 text-2xl font-semibold leading-tight tracking-normal text-ink md:text-3xl">
+              <h1 className="editorial-rule-title relative mt-5 max-w-4xl text-[clamp(2.25rem,5vw,3.5rem)] font-medium leading-[1.1] tracking-[-0.035em] text-ink">
                 {event.title}
               </h1>
               {originalUrl ? (
                 <a
-                  className="mt-4 flex w-fit items-center gap-2 text-sm font-medium text-signal hover:text-signal-bright"
+                  className="relative mt-5 flex w-fit items-center gap-2 text-sm font-medium text-signal hover:text-signal-bright"
                   href={originalUrl}
                   rel="noopener noreferrer"
                   target="_blank"
@@ -338,16 +340,23 @@ export default async function EventDetailPage({
               ) : null}
             </header>
 
-            <section className="mt-4 rounded-md border border-signal/30 bg-signal/5 p-4">
-              <h2 className="text-xs font-semibold text-signal-bright">推荐理由</h2>
-              <p className="mt-2 text-sm leading-6 text-ink-mid">{event.reason ?? "暂无推荐理由。"}</p>
-            </section>
-
-            <section className="mt-4 rounded-md border border-line-strong bg-panel p-4">
-              <h2 className="text-xs font-semibold text-signal">AI 摘要</h2>
-              <p className="mt-2 text-sm leading-6 text-ink-mid">
-                {event.summary ?? event.one_line_summary ?? "暂无摘要。"}
-              </p>
+            <section className="mt-7 space-y-8">
+              <aside className="border-l-2 border-signal pl-4">
+                <h2 className="readout text-[10px] font-semibold uppercase tracking-[0.14em] text-signal">
+                  Index / 01 · 推荐理由
+                </h2>
+                <p className="mt-3 w-full text-sm leading-6 text-ink-mid">
+                  {event.reason ?? "暂无推荐理由。"}
+                </p>
+              </aside>
+              <div>
+                <h2 className="readout text-[10px] font-semibold uppercase tracking-[0.14em] text-signal">
+                  Index / 02 · AI 摘要
+                </h2>
+                <p className="mt-3 w-full text-[15px] leading-7 text-ink-mid md:text-base md:leading-8">
+                  {event.summary ?? event.one_line_summary ?? "暂无摘要。"}
+                </p>
+              </div>
             </section>
 
             {event.content_origin === "aihot_item_page_link_only" ? null : translatedBlocks.length ||
@@ -358,21 +367,23 @@ export default async function EventDetailPage({
                 translatedBlocks={translatedBlocks}
               />
             ) : (
-              <article className="mt-4 border-t border-line pt-4">
-                <h2 className="text-sm font-semibold text-ink-mid">原文</h2>
-                <div className="mt-4 space-y-4">{originalBlocks.map(renderOriginalBlock)}</div>
+              <article className="mx-auto mt-10 max-w-[760px]">
+                <h2 className="readout text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-mid">
+                  Index / 03 · 原文
+                </h2>
+                <div className="mt-6 space-y-5">{originalBlocks.map(renderOriginalBlock)}</div>
               </article>
             )}
 
             {event.tags?.length ? (
-              <section className="mt-8 flex flex-wrap gap-2" aria-label="标签">
+              <section className="mx-auto mt-8 flex max-w-[760px] flex-wrap gap-x-5 gap-y-2" aria-label="标签">
                 {event.tags.map((tag) => (
                   <a
                     key={tag}
                     href={tagHref(tag)}
-                    className="rounded-md bg-panel-soft px-3 py-1.5 text-xs text-ink-mid transition hover:bg-line hover:text-signal-bright"
+                    className="text-xs text-ink-dim underline decoration-line-strong underline-offset-4 transition hover:text-signal"
                   >
-                    {tag}
+                    #{tag}
                   </a>
                 ))}
               </section>
@@ -380,7 +391,7 @@ export default async function EventDetailPage({
 
             {originalUrl ? (
               <a
-                className="mt-8 inline-flex items-center gap-2 rounded-md border border-signal/50 bg-panel px-4 py-2.5 text-sm font-semibold text-signal transition hover:border-signal hover:text-signal-bright"
+                className="mx-auto mt-7 flex w-fit max-w-[760px] items-center gap-2 bg-signal/10 px-4 py-2.5 text-sm font-semibold text-signal transition hover:bg-signal/15 hover:text-signal-bright"
                 href={originalUrl}
                 rel="noopener noreferrer"
                 target="_blank"
@@ -392,7 +403,7 @@ export default async function EventDetailPage({
             ) : null}
 
             {event.coverage && event.coverage.length > 1 ? (
-              <section className="mt-8 rounded-md border border-line bg-panel p-4">
+              <section className="editorial-surface mt-10 bg-panel/45 px-5 py-5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h2 className="text-base font-semibold text-signal">
                     同一事件 · {event.source_count ?? 1} 个信源 ·{" "}

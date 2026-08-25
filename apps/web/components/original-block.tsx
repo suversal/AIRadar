@@ -41,7 +41,7 @@ export function readmeImageClassName(options: { src?: string; width?: unknown; h
   if (isReadmeInlineImage(options)) {
     return "inline-block h-auto w-auto max-w-full align-middle";
   }
-  return "mx-auto my-8 block h-auto w-auto max-w-full rounded-md border border-line object-contain";
+  return "mx-auto my-8 block h-auto max-h-[70vh] w-auto max-w-full border-y border-line object-contain";
 }
 
 function renderHeading(block: Extract<OriginalBlock, { type: "heading" }>, index: number) {

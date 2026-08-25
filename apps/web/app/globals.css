@@ -29,6 +29,8 @@
     "Microsoft YaHei", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono",
     Menlo, monospace;
+  --font-editorial: "Songti SC", "STSong", "Noto Serif CJK SC", Georgia,
+    "Times New Roman", serif;
 }
 
 /* Day-reading theme. Same token names as the dark palette above, so every
@@ -59,6 +61,8 @@
   --color-warning: #a16207;
   --color-danger: #dc2626;
   --color-info: #0369a1;
+
+  color-scheme: light;
 }
 
 /* Applied to <html> for ~350ms by theme-toggle.tsx around an actual theme
@@ -89,6 +93,14 @@
    actually meant to be visible extends past the screen edge. */
 html {
   overflow-x: clip;
+  background: var(--color-canvas);
+  color-scheme: dark;
+}
+
+/* iOS browser chrome cannot take part in the page's theme fade. Keep the
+   adjacent mobile header instant so the two surfaces change as one plane. */
+.theme-transition .mobile-app-chrome {
+  transition: none !important;
 }
 
 body {
@@ -189,6 +201,42 @@ button:disabled,
   letter-spacing: 0.02em;
 }
 
+/* The selected feed is art-directed like an independent intelligence journal:
+   ink, paper and one vermilion editorial mark. These overrides are scoped so
+   admin screens and the rest of the product retain their existing contract. */
+.editorial-page {
+  --color-canvas: #181815;
+  --color-panel: #22221e;
+  --color-panel-soft: #2b2a25;
+  --color-line: #424038;
+  --color-line-strong: #625e52;
+  --color-signal: #dc704b;
+  --color-signal-bright: #ef9a79;
+  --color-signal-dim: #a74c31;
+  --color-ink: #f1eddf;
+  --color-ink-mid: #b9b3a3;
+  --color-ink-dim: #858075;
+}
+
+:root[data-theme="light"] .editorial-page {
+  --color-canvas: #eee9dc;
+  --color-panel: #f7f3e8;
+  --color-panel-soft: #e5decd;
+  --color-line: #cdc3aa;
+  --color-line-strong: #9f947b;
+  --color-signal: #b94f2f;
+  --color-signal-bright: #97391f;
+  --color-signal-dim: #7c2f1b;
+  --color-ink: #24221e;
+  --color-ink-mid: #625d53;
+  --color-ink-dim: #81796b;
+}
+
+.editorial-display,
+.editorial-card-title {
+  font-family: var(--font-editorial);
+}
+
 /* hoverable content cards: coral edge glow, no lift */
 .card-hover {
   transition:
@@ -204,6 +252,90 @@ button:disabled,
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--color-signal) 16%, transparent),
     0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Public pages use an open editorial composition rather than a stack of
+   interchangeable SaaS cards. Keep this scoped to the public editorial shell:
+   search and admin retain their existing interaction contracts. */
+.editorial-page .rounded-md {
+  border-radius: 0;
+}
+
+.editorial-page .bg-gradient-to-br {
+  background-image: none;
+}
+
+.editorial-page .card-hover {
+  border-radius: 0;
+  border-right-color: transparent;
+  border-bottom-color: transparent;
+  border-left-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.editorial-page .card-hover:hover {
+  border-top-color: var(--color-line-strong);
+  border-right-color: transparent;
+  border-bottom-color: transparent;
+  border-left-color: transparent;
+  box-shadow: inset 3px 0 0 var(--color-signal);
+}
+
+/* 推文与收藏保留内容卡的 hover 反馈，但竖线不与上下分隔线相撞。
+   上下各收 12px，让它在两条横线之间视觉居中。 */
+.editorial-page .editorial-feed-hover {
+  position: relative;
+  border-top-color: var(--color-line);
+  border-right-color: transparent;
+  border-bottom-color: var(--color-line);
+  border-left-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.editorial-page .editorial-feed-hover::before {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 0;
+  width: 3px;
+  background: var(--color-signal);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.editorial-page .editorial-feed-hover:hover {
+  border-top-color: var(--color-line-strong);
+  border-right-color: transparent;
+  border-bottom-color: var(--color-line-strong);
+  border-left-color: transparent;
+  box-shadow: none;
+}
+
+.editorial-page .editorial-feed-hover:hover::before {
+  opacity: 1;
+}
+
+.editorial-page .editorial-surface {
+  border-right-color: transparent;
+  border-left-color: transparent;
+  border-radius: 0;
+  background: transparent;
+}
+
+.editorial-page .editorial-static .border.border-line.bg-panel {
+  border-right-color: transparent;
+  border-left-color: transparent;
+  border-radius: 0;
+  background: transparent;
+}
+
+.editorial-page .editorial-rule-title {
+  font-family: var(--font-editorial);
+  letter-spacing: -0.025em;
 }
 
 /* 文章标题链接：移动端没有 hover，从按下到页面跳转之间那一拍如果毫无反馈，

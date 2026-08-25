@@ -459,41 +459,43 @@ export default function ChangelogPage() {
       title="更新日志"
       subtitle="AI·RADAR 一路加了什么、改了什么，都记录在这里"
     >
-      {entries.map((entry) => {
-        const grouped = KIND_ORDER.map((kind) => ({
-          kind,
-          items: entry.changes.filter((change) => change.kind === kind),
-        })).filter((group) => group.items.length > 0);
+      <div className="divide-y divide-line/70">
+        {entries.map((entry) => {
+          const grouped = KIND_ORDER.map((kind) => ({
+            kind,
+            items: entry.changes.filter((change) => change.kind === kind),
+          })).filter((group) => group.items.length > 0);
 
-        return (
-          <section key={entry.date} className="rounded-md border border-line bg-panel p-5">
-            <div className="flex flex-wrap items-baseline gap-3">
-              <span className="readout text-sm text-signal">{entry.date}</span>
-              <h2 className="text-lg font-semibold text-ink">{entry.title}</h2>
-            </div>
-            <div className="mt-4 space-y-4">
-              {grouped.map((group) => (
-                <div key={group.kind}>
-                  <div className="flex items-center gap-2">
-                    <span
-                      aria-hidden
-                      className={`h-1.5 w-1.5 rounded-full ${KIND_STYLES[group.kind].dot}`}
-                    />
-                    <span className={`text-xs font-semibold ${KIND_STYLES[group.kind].label}`}>
-                      {group.kind}
-                    </span>
+          return (
+            <section key={entry.date} className="py-6 first:pt-0 last:pb-0 md:py-7">
+              <div className="flex flex-wrap items-baseline gap-3">
+                <span className="readout text-sm text-signal">{entry.date}</span>
+                <h2 className="text-lg font-semibold text-ink">{entry.title}</h2>
+              </div>
+              <div className="mt-4 space-y-4">
+                {grouped.map((group) => (
+                  <div key={group.kind}>
+                    <div className="flex items-center gap-2">
+                      <span
+                        aria-hidden
+                        className={`h-1.5 w-1.5 rounded-full ${KIND_STYLES[group.kind].dot}`}
+                      />
+                      <span className={`text-xs font-semibold ${KIND_STYLES[group.kind].label}`}>
+                        {group.kind}
+                      </span>
+                    </div>
+                    <ul className="mt-2 list-disc space-y-2 pl-6 text-sm leading-6 text-ink-mid">
+                      {group.items.map((item) => (
+                        <li key={item.text}>{item.text}</li>
+                      ))}
+                    </ul>
                   </div>
-                  <ul className="mt-2 list-disc space-y-2 pl-6 text-sm leading-6 text-ink-mid">
-                    {group.items.map((item) => (
-                      <li key={item.text}>{item.text}</li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          </section>
-        );
-      })}
+                ))}
+              </div>
+            </section>
+          );
+        })}
+      </div>
     </StaticPage>
   );
 }

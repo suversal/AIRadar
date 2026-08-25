@@ -195,6 +195,7 @@ export function AllEventsFeed({
                   maxTags={5}
                   showReason={false}
                   hideImageOnMobile
+                  openArticle
                 />
               </EventTimelineRow>
             ))}

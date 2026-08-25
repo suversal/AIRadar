@@ -65,15 +65,16 @@ export default function BookmarksPage() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-canvas text-ink">
-      <div className="grid min-h-screen grid-cols-1 content-start lg:grid-cols-[224px_1fr]">
+    <main className="editorial-page min-h-screen bg-canvas text-ink">
+      <div className="grid min-h-screen grid-cols-1 content-start lg:grid-cols-[248px_1fr]">
         <Sidebar activeNavId="bookmarks" />
         <MobileNav activeNavId="bookmarks" />
 
-        <section className="px-5 py-8 md:px-10 xl:px-16">
-          <div className="mx-auto max-w-4xl">
-            <header className="rounded-md border border-line bg-panel p-5">
-              <h1 className="text-2xl font-semibold text-ink">收藏</h1>
+        <section className="px-4 py-8 md:px-8 xl:px-12">
+          <div className="mx-auto max-w-5xl">
+            <header className="border-b border-line-strong pb-7">
+              <p className="readout text-[11px] uppercase tracking-[0.16em] text-signal">PERSONAL ARCHIVE</p>
+              <h1 className="editorial-rule-title mt-4 text-4xl font-medium leading-none text-ink md:text-6xl">收藏</h1>
               <p className="mt-1.5 text-sm text-ink-mid">
                 收藏过的内容都在这里。收藏保存在本设备的浏览器里，换设备或清除浏览器数据后需要重新收藏。
               </p>
@@ -88,38 +89,43 @@ export default function BookmarksPage() {
                 还没有收藏任何内容。在动态旁点击收藏图标即可保存到这里。
               </div>
             ) : (
-              <div className="mt-6 space-y-4">
+              <div className="mt-6">
                 {prunedCount > 0 ? (
                   <p className="text-xs text-ink-dim">
                     有 {prunedCount} 条收藏内容已下线或找不到了，已自动清理。
                   </p>
                 ) : null}
-                {events.map((item) => (
-                  <article key={item.event_id} className="card-hover rounded-md border border-line bg-panel p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-xs text-ink-mid">{sourceLine(item)}</div>
-                        <h3 className="mt-1.5 text-base font-semibold leading-6 text-ink">
-                          <a className="title-link" href={eventHref(item)}>
-                            {item.title}
-                          </a>
-                        </h3>
+                <div className={prunedCount > 0 ? "mt-3" : ""}>
+                  {events.map((item) => (
+                    <article
+                      key={item.event_id}
+                      className="card-hover editorial-feed-hover -mt-px border-x-0 border-y border-line bg-panel p-4 first:mt-0 hover:z-10"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-xs text-ink-mid">{sourceLine(item)}</div>
+                          <h3 className="mt-1.5 text-base font-semibold leading-6 text-ink">
+                            <a className="title-link" href={eventHref(item)}>
+                              {item.title}
+                            </a>
+                          </h3>
+                        </div>
+                        <BookmarkButton
+                          eventId={item.event_id}
+                          labeled
+                          onChange={(bookmarked) => {
+                            if (!bookmarked) {
+                              setEvents((current) => current.filter((event) => event.event_id !== item.event_id));
+                            }
+                          }}
+                        />
                       </div>
-                      <BookmarkButton
-                        eventId={item.event_id}
-                        labeled
-                        onChange={(bookmarked) => {
-                          if (!bookmarked) {
-                            setEvents((current) => current.filter((event) => event.event_id !== item.event_id));
-                          }
-                        }}
-                      />
-                    </div>
-                    <p className="mt-2.5 line-clamp-2 text-sm leading-6 text-ink-mid">
-                      {item.summary ?? item.one_line_summary ?? "暂无摘要。"}
-                    </p>
-                  </article>
-                ))}
+                      <p className="mt-2.5 line-clamp-2 text-sm leading-6 text-ink-mid">
+                        {item.summary ?? item.one_line_summary ?? "暂无摘要。"}
+                      </p>
+                    </article>
+                  ))}
+                </div>
               </div>
             )}
           </div>

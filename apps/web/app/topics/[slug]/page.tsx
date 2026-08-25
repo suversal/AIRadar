@@ -50,20 +50,20 @@ export default async function TopicDetailPage({
   const shownCount = payload.offset + payload.items.length;
 
   return (
-    <main className="min-h-screen bg-canvas text-ink">
-      <div className="grid min-h-screen grid-cols-1 content-start lg:grid-cols-[224px_1fr]">
+    <main className="editorial-page min-h-screen bg-canvas text-ink">
+      <div className="grid min-h-screen grid-cols-1 content-start lg:grid-cols-[248px_1fr]">
         <Sidebar activeNavId="topics" />
         <MobileNav activeNavId="topics" />
 
-        <section className="px-5 py-6 md:px-9">
-          <header className="rounded-md border border-line bg-panel p-5">
+        <section className="w-full min-w-0 max-w-[1180px] justify-self-center px-4 py-8 md:px-8 xl:px-12">
+          <header className="border-b border-line-strong pb-7">
             <nav className="text-xs text-ink-dim">
               <a className="hover:text-signal" href="/topics">
                 主题
               </a>
               {topic.group_name ? <span> / {topic.group_name}</span> : null}
             </nav>
-            <h1 className="mt-2 text-2xl font-semibold text-ink">{topic.name}</h1>
+            <h1 className="editorial-rule-title mt-4 text-4xl font-medium leading-none text-ink md:text-6xl">{topic.name}</h1>
             {topic.description ? (
               <p className="mt-1.5 text-sm leading-6 text-ink-mid">{topic.description}</p>
             ) : null}
@@ -88,7 +88,7 @@ export default async function TopicDetailPage({
           ) : null}
 
           {payload.focus.length > 0 ? (
-            <section className="mt-4 rounded-md border border-line bg-panel p-5">
+            <section className="editorial-surface mt-8 bg-panel/35 px-5 py-5">
               <div className="flex items-baseline justify-between gap-3">
                 <h2 className="text-base font-semibold text-ink">近期焦点</h2>
                 <span className="text-xs text-ink-dim">
@@ -131,7 +131,7 @@ export default async function TopicDetailPage({
                       image={item.original_images?.[0]}
                       tagHref={(tag) => `/all?${new URLSearchParams({ tag })}`}
                       maxTags={4}
-                      clampSummary
+                      openArticle
                     />
                   </EventTimelineRow>
                 ))}

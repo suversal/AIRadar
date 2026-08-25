@@ -2,6 +2,11 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AnalyticsScript } from "@/components/analytics-script";
 import { ScrollToTopButton } from "@/components/scroll-to-top-button";
+import {
+  EDITORIAL_DARK_CHROME_COLOR,
+  EDITORIAL_LIGHT_CHROME_COLOR,
+  THEME_COLOR_META_ID,
+} from "@/components/theme-chrome";
 import { ThemeInitScript } from "@/components/theme-init-script";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { siteDescription, siteTitle, siteUrl } from "@/lib/site";
@@ -46,6 +51,19 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN" className="scroll-smooth" suppressHydrationWarning>
+      <head>
+        <meta
+          id={THEME_COLOR_META_ID}
+          name="theme-color"
+          content={EDITORIAL_LIGHT_CHROME_COLOR}
+          media="(prefers-color-scheme: light)"
+        />
+        <meta
+          name="theme-color"
+          content={EDITORIAL_DARK_CHROME_COLOR}
+          media="(prefers-color-scheme: dark)"
+        />
+      </head>
       <body>
         <ThemeInitScript />
         {children}

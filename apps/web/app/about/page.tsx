@@ -13,21 +13,21 @@ export default function AboutPage() {
       title="关于 AI·RADAR"
       subtitle="为创作者和开发者准备的 AI 情报雷达"
     >
-      <section className="rounded-md border border-signal/25 bg-gradient-to-br from-signal/10 via-panel to-panel p-6 text-center">
+      <section className="py-1">
         <p className="text-xs uppercase tracking-[0.3em] text-signal-dim">WHY AI·RADAR</p>
-        <h2 className="mt-4 text-xl font-semibold leading-relaxed text-ink md:text-2xl">
+        <h2 className="editorial-rule-title mt-4 text-3xl font-medium leading-snug text-ink md:text-4xl">
           AI 圈子每天都在发生什么，
           <br />
           不该靠反复刷十几个信源才知道。
         </h2>
-        <p className="mx-auto mt-5 max-w-xl text-sm leading-6 text-ink-mid">
+        <p className="mt-5 max-w-2xl text-sm leading-7 text-ink-mid">
           AI·RADAR 持续监听多个高信噪比信源——各大实验室官方博客、热门社区、X账号、微信公众号与中英文科技媒体。用 AI
           做相关性筛选、六维评分和同事件聚类，把同一件事在多个信源里的重复报道折叠成一条，
           每天沉淀为一期精选日报。
         </p>
       </section>
 
-      <section className="rounded-md border-l-4 border-signal bg-signal/10 p-5 text-sm leading-7 text-ink-mid">
+      <section className="border-l-2 border-signal py-1 pl-5 text-sm leading-7 text-ink-mid">
         <h2 className="text-base font-semibold text-signal-bright">评分与筛选口径</h2>
         <p className="mt-2">
           评分综合 AI 相关度、新颖性、影响力、信息密度、可操作性与创作者价值六个维度，
@@ -36,16 +36,16 @@ export default function AboutPage() {
         </p>
       </section>
 
-      <section className="rounded-md border border-line bg-panel p-5">
+      <section className="py-2">
         <h2 className="text-base font-semibold text-ink">数据口径</h2>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div className="mt-5 grid grid-cols-2 gap-y-6 sm:grid-cols-4 sm:divide-x sm:divide-line">
           {[
             { label: "抓取频率", value: "每 2 小时一轮" },
             { label: "精选标准", value: "评分过线即入选" },
             { label: "全量视野", value: "相关即收录，可查可搜" },
             { label: "主题体系", value: "公司模型 / 技术方向 / 内容形态" },
           ].map((stat) => (
-            <div key={stat.label} className="rounded-md border border-line bg-canvas p-3 text-center">
+            <div key={stat.label} className="px-3 py-4 text-center">
               <div className="readout text-sm font-semibold text-signal">{stat.value}</div>
               <div className="mt-1 text-xs text-ink-dim">{stat.label}</div>
             </div>
@@ -53,7 +53,7 @@ export default function AboutPage() {
         </div>
       </section>
 
-      <section className="rounded-md border border-signal/30 bg-signal/5 p-5 text-sm leading-7 text-ink-mid">
+      <section className="bg-panel/45 px-5 py-5 text-sm leading-7 text-ink-mid">
         <h2 className="text-base font-semibold text-signal-bright">免责声明</h2>
         <ul className="mt-3 list-disc space-y-2 pl-5">
           <li>

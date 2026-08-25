@@ -7,7 +7,7 @@
 docs/2026-08-13-hardening-plan.md 第 1.2 节：把 guard 编译成 JS，
 在 greenvps 上用 node:22-alpine 容器跑 25 条用例。
 之所以必须去服务器上跑：这台 Mac 的代理软件开了 DNS 覆写，
-会把所有域名解析成 198.18.x.x（RFC 2544 基准测试网段），
+会把域名解析成 198.18.x.x 或 fdfe:dcba:9876::/48 的 fake-IP，
 本地和 Docker Desktop 里都拿不到真实解析结果。
 """
 
@@ -61,14 +61,18 @@ class ImageProxyGuardTests(unittest.TestCase):
         self.assertIn("received > MAX_IMAGE_BYTES", self.route)
 
     def test_fake_ip_escape_hatch_is_opt_in_and_narrow(self):
-        # 开发机的代理软件把域名解析成 198.18.x.x，撞上"基准测试网段"这一条，
-        # 本地推文图片会全白。开发口子必须满足两点：显式打开、且只松这一段。
+        # 开发机代理会返回 IPv4 或 IPv6 fake-IP。本地口子必须显式打开，
+        # 且只能放行这两个精确的本地代理地址池。
         self.assertIn("IMAGE_PROXY_ALLOW_FAKE_IP", self.guard)
         self.assertIn('=== "1"', self.guard)
         self.assertIn(
             "(a === 198 && (b === 18 || b === 19) && !allowsFakeIpRange())",
             self.guard,
         )
+        self.assertIn("groups[0] === 0xfdfe", self.guard)
+        self.assertIn("groups[1] === 0xdcba", self.guard)
+        self.assertIn("groups[2] === 0x9876", self.guard)
+        self.assertIn("allowsFakeIpRange() && isLocalFakeIp", self.guard)
         # 其余内网段不受这个开关影响——尤其是云元数据所在的 169.254/16
         for line in self.guard.splitlines():
             if "allowsFakeIpRange()" in line and "a === 198" not in line:

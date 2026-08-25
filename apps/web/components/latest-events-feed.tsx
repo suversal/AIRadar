@@ -123,7 +123,10 @@ export function LatestEventsFeed({
   }, [hasMore, loadMore]);
 
   return (
-    <section className="mt-3 md:mt-6">
+    <section
+      className="mt-2 md:mt-5"
+      aria-label={`精选文章列表，共 ${filteredItems.length} 条可见`}
+    >
       {dateGroups.length > 0 ? (
         dateGroups.map((group) => (
           <DateGroupSection
@@ -140,14 +143,14 @@ export function LatestEventsFeed({
                   image={representativeImage(item)}
                   tagHref={tagHref}
                   maxTags={4}
-                  clampSummary
+                  openArticle
                 />
               </EventTimelineRow>
             ))}
           </DateGroupSection>
         ))
       ) : (
-        <div className="rounded-md border border-line bg-panel p-8 text-sm text-ink-mid">
+        <div className="border border-line bg-panel p-8 text-sm text-ink-mid">
           当前分类没有精选内容。
         </div>
       )}
@@ -160,7 +163,7 @@ export function LatestEventsFeed({
               <button
                 type="button"
                 onClick={loadMore}
-                className="min-h-10 rounded-md border border-line bg-panel px-6 text-sm font-medium text-ink-mid transition hover:border-signal/40 hover:text-signal"
+                className="min-h-10 border border-line bg-panel px-6 text-sm font-medium text-ink-mid transition hover:border-signal/40 hover:text-signal"
               >
                 重试
               </button>

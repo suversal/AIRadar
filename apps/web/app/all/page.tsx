@@ -113,21 +113,21 @@ export default async function AllEventsPage({
   }));
 
   return (
-    <main className="min-h-screen bg-canvas text-ink">
-      <div className="grid min-h-screen grid-cols-1 content-start lg:grid-cols-[224px_1fr]">
+    <main className="editorial-page min-h-screen bg-canvas text-ink">
+      <div className="grid min-h-screen grid-cols-1 content-start lg:grid-cols-[248px_1fr]">
         <Sidebar activeNavId="all" />
         <MobileNav activeNavId="all" />
 
-        <section className="px-4 pt-2 pb-4 md:px-9 md:py-6">
-          <header className="rounded-md border border-line bg-panel p-4 md:p-5">
+        <section className="w-full min-w-0 max-w-[1320px] justify-self-center px-4 pb-8 pt-3 md:px-8 md:py-8 xl:px-12">
+          <header className="editorial-surface py-1 md:py-2">
             <RadarStatus
               compactScope={`${DAYS}天`}
               updatedAt={report.updated_at}
               eventCount={report.total}
               scope={`ALL DYNAMICS · ${DAYS}D`}
             />
-            <div className="mt-3 md:mt-4 md:border-b md:border-line md:pb-4">
-              <h1 className="text-2xl font-semibold text-ink">全部 AI 动态</h1>
+            <div className="mt-3 md:mt-4 md:pb-2">
+              <h1 className="editorial-rule-title text-4xl font-medium leading-none text-ink md:text-5xl">全部 AI 动态</h1>
               <p className="mt-1.5 text-sm text-ink-mid">
                 近 {DAYS} 天的全部 AI 资讯——没进精选的动态也都在这里
               </p>
@@ -160,65 +160,80 @@ export default async function AllEventsPage({
               }))}
             />
 
-            <div className="mt-4 hidden gap-3 md:grid xl:grid-cols-[1fr_1fr_320px]">
-              <div className="flex flex-wrap gap-1.5 rounded-md border border-line bg-canvas p-1.5">
-                {categoryOptions.map(([category, label]) => (
-                  <a
-                    key={category || "all-category"}
-                    className={`flex min-h-10 items-center rounded-md px-4 py-1.5 text-sm font-medium ${
-                      selectedCategory === category
-                        ? "bg-signal/15 text-signal"
-                        : "text-ink-mid hover:bg-panel-soft hover:text-ink"
-                    }`}
-                    href={allHref({
-                      source: selectedSource,
-                      focus: category,
-                      tag: selectedTag,
-                      topic: selectedTopic,
-                      q: query,
-                    })}
-                  >
-                    {label}
-                  </a>
-                ))}
+            <div className="mt-5 hidden border-y border-line md:grid xl:grid-cols-[minmax(0,1fr)_360px]">
+              <div className="min-w-0 py-2.5 xl:pr-5">
+                <nav aria-label="内容分类" className="flex min-w-0 items-start gap-4">
+                  <span className="readout w-10 shrink-0 py-2 text-[10px] uppercase tracking-[0.12em] text-ink-dim">
+                    分类
+                  </span>
+                  <div className="flex min-w-0 flex-wrap gap-x-5 gap-y-0.5">
+                    {categoryOptions.map(([category, label]) => (
+                      <a
+                        key={category || "all-category"}
+                        className={`flex min-h-8 items-center border-b px-0.5 text-sm font-medium transition-colors ${
+                          selectedCategory === category
+                            ? "border-signal text-signal"
+                            : "border-transparent text-ink-mid hover:border-line-strong hover:text-ink"
+                        }`}
+                        href={allHref({
+                          source: selectedSource,
+                          focus: category,
+                          tag: selectedTag,
+                          topic: selectedTopic,
+                          q: query,
+                        })}
+                      >
+                        {label}
+                      </a>
+                    ))}
+                  </div>
+                </nav>
+
+                <nav aria-label="内容来源" className="mt-1 flex min-w-0 items-start gap-4">
+                  <span className="readout w-10 shrink-0 py-2 text-[10px] uppercase tracking-[0.12em] text-ink-dim">
+                    来源
+                  </span>
+                  <div className="flex min-w-0 flex-wrap gap-x-5 gap-y-0.5">
+                    {sourceOptions.map(([source, label]) => (
+                      <a
+                        key={source || "all-source"}
+                        className={`flex min-h-8 items-center border-b px-0.5 text-sm font-medium transition-colors ${
+                          selectedSource === source
+                            ? "border-signal text-signal"
+                            : "border-transparent text-ink-mid hover:border-line-strong hover:text-ink"
+                        }`}
+                        href={allHref({
+                          source,
+                          focus: selectedCategory,
+                          tag: selectedTag,
+                          topic: selectedTopic,
+                          q: query,
+                        })}
+                      >
+                        {label}
+                      </a>
+                    ))}
+                  </div>
+                </nav>
               </div>
 
-              <div className="flex flex-wrap gap-1.5 rounded-md border border-line bg-canvas p-1.5">
-                {sourceOptions.map(([source, label]) => (
-                  <a
-                    key={source || "all-source"}
-                    className={`flex min-h-10 items-center rounded-md px-4 py-1.5 text-sm font-medium ${
-                      selectedSource === source
-                        ? "bg-signal/15 text-signal"
-                        : "text-ink-mid hover:bg-panel-soft hover:text-ink"
-                    }`}
-                    href={allHref({
-                      source,
-                      focus: selectedCategory,
-                      tag: selectedTag,
-                      topic: selectedTopic,
-                      q: query,
-                    })}
-                  >
-                    {label}
-                  </a>
-                ))}
-              </div>
-
-              <form action="/all" className="grid grid-cols-[1fr_auto] gap-2">
+              <form
+                action="/all"
+                className="grid min-w-0 grid-cols-[1fr_auto] border-t border-line xl:border-l xl:border-t-0"
+              >
                 {selectedSource ? <input name="source" type="hidden" value={selectedSource} /> : null}
                 {selectedCategory ? <input name="focus" type="hidden" value={selectedCategory} /> : null}
                 {selectedTag ? <input name="tag" type="hidden" value={selectedTag} /> : null}
                 {selectedTopic ? <input name="topic" type="hidden" value={selectedTopic} /> : null}
                 <input
-                  className="min-h-10 min-w-0 rounded-md border border-line bg-canvas px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-dim focus:border-signal/60"
+                  className="min-h-12 min-w-0 bg-transparent px-4 py-2 text-sm text-ink outline-none placeholder:text-ink-dim focus:bg-panel-soft/35"
                   defaultValue={query}
                   name="q"
                   placeholder="搜索标题/摘要/正文..."
                   type="search"
                 />
                 <button
-                  className="min-h-10 rounded-md border border-signal/40 bg-signal/10 px-4 py-2 text-sm font-medium text-signal transition hover:border-signal/60 hover:text-signal-bright"
+                  className="min-h-12 border-l border-line px-5 py-2 text-sm font-medium text-signal transition-colors hover:bg-signal/10 hover:text-signal-bright"
                   type="submit"
                 >
                   搜索

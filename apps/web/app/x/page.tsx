@@ -125,22 +125,22 @@ export default async function TweetsPage({ searchParams }: { searchParams: XSear
   ];
 
   return (
-    <main className="min-h-screen bg-canvas text-ink">
-      <div className="grid min-h-screen grid-cols-1 content-start lg:grid-cols-[224px_1fr]">
+    <main className="editorial-page min-h-screen bg-canvas text-ink">
+      <div className="grid min-h-screen grid-cols-1 content-start lg:grid-cols-[248px_1fr]">
         <Sidebar activeNavId="x" />
         <MobileNav activeNavId="x" />
 
-        <section className="px-4 pt-2 pb-4 md:px-9 md:py-6">
-          <header className="rounded-md border border-line bg-panel p-4 md:p-5">
+        <section className="w-full min-w-0 max-w-[1120px] justify-self-center px-4 pb-8 pt-3 md:px-8 md:py-8 xl:px-12">
+          <header className="editorial-surface py-1 md:py-2">
             <RadarStatus
               compactScope="X"
               updatedAt={payload.updated_at}
               eventCount={payload.total}
               scope="X TWEETS"
             />
-            <div className="mt-3 md:mt-4 md:flex md:items-end md:justify-between md:border-b md:border-line md:pb-4">
+            <div className="mt-3 md:mt-4 md:flex md:items-end md:justify-between md:pb-2">
               <div>
-                <h1 className="text-2xl font-semibold text-ink">推文</h1>
+                <h1 className="editorial-rule-title text-4xl font-medium leading-none text-ink md:text-5xl">推文</h1>
                 <p className="mt-1.5 text-sm text-ink-mid">
                   AI·RADAR 跟踪的 X 账号与话题，推文原样呈现，不经 AI 筛选
                 </p>

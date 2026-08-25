@@ -28,7 +28,7 @@ export function MobileSearchForm({
   trailingControl?: ReactNode;
 }) {
   return (
-    <form action={action} aria-label="搜索内容" className="mt-4 flex gap-2 md:hidden">
+    <form action={action} aria-label="搜索内容" className="mt-2.5 flex gap-2 md:hidden">
       {hiddenFields.map((field) => (
         <input key={field.name} name={field.name} type="hidden" value={field.value} />
       ))}
@@ -41,7 +41,7 @@ export function MobileSearchForm({
           <Search aria-hidden className="h-4.5 w-4.5" strokeWidth={1.75} />
         </button>
         <input
-          className="min-h-11 w-full rounded-md border border-line bg-canvas py-2 pl-11 pr-3 text-sm text-ink outline-none placeholder:text-ink-dim focus:border-signal/60"
+          className="min-h-11 w-full border border-line bg-canvas py-2 pl-11 pr-3 text-sm text-ink outline-none placeholder:text-ink-dim focus:border-signal/60"
           defaultValue={defaultValue}
           name="q"
           placeholder={placeholder}
@@ -68,20 +68,20 @@ export function MobileCategoryNav({
   }, [selectedHref]);
 
   return (
-    <div className="relative mt-3 md:hidden">
+    <div className="relative mt-1.5 md:hidden">
       <nav
         aria-label={label}
-        className="flex gap-2 overflow-x-auto pb-1 pr-8 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex gap-1 overflow-x-auto pr-8 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {options.map((option) => (
           <a
             key={option.href}
             aria-current={option.selected ? "true" : undefined}
             ref={option.selected ? activeOptionRef : undefined}
-            className={`flex min-h-10 shrink-0 items-center rounded-md border px-3.5 py-1.5 text-sm font-medium ${
+            className={`flex min-h-10 shrink-0 items-center border-b px-2 py-1 text-sm font-medium ${
               option.selected
-                ? "border-signal/55 bg-signal/15 text-signal"
-                : "border-line/70 bg-canvas/45 text-ink-mid hover:border-line-strong hover:bg-panel-soft hover:text-ink"
+                ? "border-signal text-signal"
+                : "border-transparent text-ink-mid hover:border-line-strong hover:text-ink"
             }`}
             href={option.href}
           >
@@ -91,7 +91,7 @@ export function MobileCategoryNav({
       </nav>
       <span
         aria-hidden
-        className="pointer-events-none absolute inset-y-0 right-0 flex w-7 items-center justify-end bg-panel text-ink-dim"
+        className="pointer-events-none absolute inset-y-0 right-0 flex w-10 items-center justify-end bg-gradient-to-l from-canvas via-canvas/95 to-transparent text-ink-dim"
       >
         <ChevronRight className="h-4 w-4" strokeWidth={1.75} />
       </span>

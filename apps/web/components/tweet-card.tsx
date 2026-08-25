@@ -486,7 +486,7 @@ export function TweetCard({ tweet, detail = false }: { tweet: XTweet; detail?: b
     : { text: bodyText, media: [] as ExtractedMedia[] };
 
   return (
-    <article className="card-hover rounded-md border border-line bg-panel p-3 md:p-4">
+    <article className="card-hover editorial-feed-hover rounded-md border border-line bg-panel p-3 md:p-4">
       <TweetHeader
         onToggleOriginal={
           translation?.display_text_zh
@@ -547,7 +547,7 @@ export function TweetCard({ tweet, detail = false }: { tweet: XTweet; detail?: b
         </div>
       ) : null}
 
-      <footer className="mt-4 border-t border-line pt-3">
+      <footer className="mt-3 pt-1">
         <EngagementBar tweet={tweet} />
       </footer>
     </article>

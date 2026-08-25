@@ -3,27 +3,33 @@ import { navGroupItems } from "./nav";
 
 export function Sidebar({ activeNavId }: { activeNavId: string }) {
   return (
-    <aside className="hidden min-w-0 bg-panel px-3 py-2 lg:sticky lg:top-0 lg:block lg:h-screen lg:border-r lg:border-line">
-      <a
-        aria-label="AI·RADAR 首页"
-        className="-mx-3 flex items-center justify-center py-2"
-        href="/latest"
-      >
-        <BrandLogo className="h-auto w-[200px]" />
-      </a>
+    <aside className="hidden min-w-0 bg-canvas px-5 pb-24 pt-5 lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:overflow-y-auto lg:border-r lg:border-line">
+      <div className="border-b-2 border-ink pb-5">
+        <p className="readout text-[9px] uppercase tracking-[0.22em] text-ink-dim">Independent AI Intelligence</p>
+        <a
+          aria-label="AI·RADAR 首页"
+          className="mt-3 flex items-center"
+          href="/latest"
+        >
+          <BrandLogo className="h-auto w-[190px]" />
+        </a>
+      </div>
 
-      <nav className="mt-2 space-y-5" aria-label="主导航">
-        {(["内容", "接入", "更多"] as const).map((group) => (
+      <nav className="mt-6 space-y-6" aria-label="主导航">
+        {(["内容", "接入", "更多"] as const).map((group, groupIndex) => (
           <section key={group}>
-            <div className="px-3 text-[11px] font-semibold text-ink-dim">{group}</div>
-            <div className="mt-1.5 space-y-0.5">
+            <div className="readout flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.18em] text-ink-dim">
+              <span className="text-signal">0{groupIndex + 1}</span>
+              {group}
+            </div>
+            <div className="mt-2 space-y-1">
               {navGroupItems(group).map((item) => {
                 const active = item.id === activeNavId;
                 const Icon = item.icon;
-                const className = `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium ${
+                const className = `flex min-h-10 items-center gap-2.5 border-l-2 px-3 py-2 text-sm font-medium ${
                   active
-                    ? "border border-signal/40 bg-signal/10 text-signal"
-                    : "text-ink-mid hover:bg-panel-soft hover:text-ink"
+                    ? "border-signal bg-panel text-signal"
+                    : "border-transparent text-ink-mid hover:border-line-strong hover:bg-panel hover:text-ink"
                 }`;
                 const content = (
                   <>
@@ -50,6 +56,10 @@ export function Sidebar({ activeNavId }: { activeNavId: string }) {
           </section>
         ))}
       </nav>
+
+      <p className="mt-auto border-t border-line pt-4 text-[11px] leading-5 text-ink-dim">
+        不追逐每一条消息。<br />只标记真正的信号。
+      </p>
     </aside>
   );
 }

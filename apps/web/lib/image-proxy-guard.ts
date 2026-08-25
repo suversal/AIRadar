@@ -65,15 +65,13 @@ export function shouldEnforceKnownHosts(): boolean {
 }
 
 /** 开发机的口子：本地代理软件（Clash/Surge 的 TUN 模式）开着 DNS 覆写，
- *  把所有走代理的域名统统解析成 198.18.0.0/16 的 fake-IP，正好落在下面
- *  "基准测试网段"这一条里——于是 pbs.twimg.com 这类图床在本地一律被判成
- *  内网地址，推文图片全白。这个坑在 tests/test_image_proxy_guard.py 的
- *  docstring 里记过（25 条用例要去服务器上跑就是因为它），但当时只当成
- *  "测不了"，没意识到它会让本地页面直接不可用。
+ *  会把域名解析成 198.18.0.0/15，开启 IPv6 时还会使用
+ *  fdfe:dcba:9876::/48。这两段 fake-IP 都会被下面的私网规则拦截，导致
+ *  本地文章图片全白。
  *
  *  生产环境不存在 fake-IP，所以只在 apps/web/.env.local 里开这一个变量，
- *  默认关闭。⚠ 别把它写进任何会上线的 env 文件：打开之后 198.18/15 就不再
- *  拦截了。其余内网段（127/10/172.16/192.168/169.254）不受影响，
+ *  默认关闭。⚠ 别把它写进任何会上线的 env 文件：打开之后只放行上述两段
+ *  fake-IP。其余内网段（127/10/172.16/192.168/169.254、其它 ULA）不受影响，
  *  真正的 SSRF 目标——尤其是云元数据服务——照旧挡着。 */
 function allowsFakeIpRange(): boolean {
   return process.env.IMAGE_PROXY_ALLOW_FAKE_IP === "1";
@@ -151,7 +149,9 @@ function ipv6IsPrivate(ip: string): boolean {
     const v4 = [groups[6] >> 8, groups[6] & 0xff, groups[7] >> 8, groups[7] & 0xff].join(".");
     return ipv4IsPrivate(v4);
   }
-  if ((groups[0] & 0xfe00) === 0xfc00) {
+  const isLocalFakeIp =
+    groups[0] === 0xfdfe && groups[1] === 0xdcba && groups[2] === 0x9876;
+  if ((groups[0] & 0xfe00) === 0xfc00 && !(allowsFakeIpRange() && isLocalFakeIp)) {
     return true; // fc00::/7 唯一本地地址
   }
   if ((groups[0] & 0xffc0) === 0xfe80) {

@@ -66,19 +66,19 @@ export function PeriodHeader({
   tagline: string;
 }) {
   return (
-    <header className="pb-8">
-      <div className="flex items-center gap-4 text-xs font-semibold uppercase tracking-[0.35em] text-ink-dim">
-        <span className="h-px w-12 bg-signal" />
+    <header className="pb-5 md:pb-8">
+      <div className="flex items-center gap-3 text-[10px] font-semibold uppercase tracking-[0.25em] text-ink-dim md:gap-4 md:text-xs md:tracking-[0.35em]">
+        <span className="h-px w-8 bg-signal md:w-12" />
         <span>{issueMeta}</span>
       </div>
       <h1
         aria-label={`AI·RADAR ${periodLabel(mode)}`}
-        className="mt-6 text-[26px] font-semibold leading-tight tracking-tight text-ink md:text-4xl md:leading-none lg:text-5xl"
+        className="editorial-rule-title mt-4 text-[34px] font-medium leading-tight text-ink md:mt-6 md:text-5xl md:leading-none lg:text-6xl"
       >
         <span className="text-ink">AI</span>
         <span className="text-signal">·RADAR</span> {periodLabel(mode)}
       </h1>
-      <div className="mt-6 grid items-center gap-4 text-sm text-ink-mid md:grid-cols-[auto_1fr_auto]">
+      <div className="mt-5 grid items-center gap-2 border-b border-line-strong pb-4 text-sm text-ink-mid md:mt-7 md:grid-cols-[auto_1fr_auto] md:gap-4 md:pb-6">
         <span>{range}</span>
         <span className="hidden h-px bg-panel-soft md:block" />
         <span>{tagline}</span>
@@ -101,7 +101,7 @@ export function SealBanner({
     return null;
   }
   return (
-    <div className="mb-5 rounded-md border border-signal/40 bg-signal/10 px-4 py-3 text-sm text-signal-bright">
+    <div className="mb-6 bg-signal/5 px-4 py-3 text-sm text-signal-bright">
       本期进行中，内容随日报每日更新{seal.sealDate ? `，${seal.sealDate} 定稿` : ""}。
     </div>
   );
@@ -116,7 +116,7 @@ export function MainlineSection({
   mainline: { title: string; body: string; ai: boolean };
 }) {
   return (
-    <section className="rounded-md border-l-4 border-signal bg-signal/10 p-4">
+    <section className="border-l-2 border-signal py-1 pl-5 pr-2">
       <div className="flex items-center gap-3 text-sm font-semibold text-signal-bright">
         {label}
         {mainline.ai ? (
@@ -125,7 +125,7 @@ export function MainlineSection({
           </span>
         ) : null}
       </div>
-      <h2 className="mt-2.5 text-2xl font-semibold leading-tight text-ink">{mainline.title}</h2>
+      <h2 className="editorial-rule-title mt-2.5 text-3xl font-medium leading-tight text-ink">{mainline.title}</h2>
       <div className="mt-3 space-y-2.5 text-sm leading-6 text-ink-mid">
         {mainline.body
           .split(/\n+/)

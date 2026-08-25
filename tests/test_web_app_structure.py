@@ -78,7 +78,8 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("当前热点", latest_page)
         self.assertIn("groupEventsByDate", latest_feed)
         self.assertIn("DateGroupSection", latest_feed)
-        self.assertIn("<details", date_group)
+        self.assertIn('aria-expanded={open}', date_group)
+        self.assertIn("setOpen((value) => !value)", date_group)
         self.assertIn('name="q"', latest_page)
         self.assertIn("搜索标题/摘要", latest_page)
 
@@ -89,7 +90,7 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("/api/public/hotspots", api_source)
         self.assertIn("getHotspots", api_source)
         self.assertIn("getHotspots", latest_page)
-        self.assertIn("const HOTSPOT_LIMIT = 5", latest_page)
+        self.assertIn("const HOTSPOT_LIMIT = 10", latest_page)
         self.assertIn("limit: HOTSPOT_LIMIT", latest_page)
         # the board must rank by the hotspot rule, not slice the feed
         self.assertNotIn("filteredItems.slice(0, 5)", latest_page)
@@ -149,6 +150,34 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn(":not(.mobile-theme-options):not(.mobile-theme-option)", global_css)
         self.assertIn("prefers-reduced-motion: reduce", global_css)
 
+    def test_mobile_browser_chrome_matches_editorial_surface(self):
+        layout = (WEB / "app" / "layout.tsx").read_text(encoding="utf-8")
+        globals_css = (WEB / "app" / "globals.css").read_text(encoding="utf-8")
+        theme_chrome = (WEB / "components" / "theme-chrome.ts").read_text(encoding="utf-8")
+        theme_init = (WEB / "components" / "theme-init-script.tsx").read_text(encoding="utf-8")
+        theme_toggle = (WEB / "components" / "theme-toggle.tsx").read_text(encoding="utf-8")
+        mobile_nav = (WEB / "components" / "mobile-nav.tsx").read_text(encoding="utf-8")
+
+        self.assertIn('name="theme-color"', layout)
+        self.assertIn('media="(prefers-color-scheme: light)"', layout)
+        self.assertIn('media="(prefers-color-scheme: dark)"', layout)
+        self.assertIn("EDITORIAL_LIGHT_CHROME_COLOR", layout)
+        self.assertIn("EDITORIAL_DARK_CHROME_COLOR", layout)
+        self.assertIn("syncThemeChrome(resolved)", theme_toggle)
+        self.assertIn("#eee9dc", theme_chrome)
+        self.assertIn("#181815", theme_chrome)
+        self.assertIn("EDITORIAL_THEME_PATHS", theme_init)
+        for path in ('"/about"', '"/agent"', '"/changelog"', '"/feedback"'):
+            self.assertIn(path, theme_chrome)
+        self.assertIn('meta.removeAttribute("media")', theme_init)
+        self.assertIn('meta.removeAttribute("media")', theme_chrome)
+        self.assertIn('style.setProperty("--color-canvas", color)', theme_init)
+        self.assertIn('root.style.setProperty("--color-canvas", color)', theme_chrome)
+        self.assertIn("root.style.backgroundColor = color", theme_chrome)
+        self.assertIn("root.style.colorScheme = theme", theme_chrome)
+        self.assertIn("mobile-app-chrome", mobile_nav)
+        self.assertIn(".theme-transition .mobile-app-chrome", globals_css)
+
     def test_mobile_nav_buttons_follow_brand_and_sticky_summary(self):
         mobile_nav = (WEB / "components" / "mobile-nav.tsx").read_text(encoding="utf-8")
         date_group = (WEB / "components" / "date-group-section.tsx").read_text(encoding="utf-8")
@@ -161,9 +190,17 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("MOBILE_NAV_OPEN_EVENT", mobile_nav)
         self.assertIn("window.addEventListener(MOBILE_NAV_OPEN_EVENT", mobile_nav)
         self.assertIn('aria-label="打开导航菜单"', mobile_nav)
-        self.assertIn("onClick={() => setOpen(true)}", mobile_nav)
-        self.assertIn("w-[232px]", mobile_nav)
-        self.assertNotIn("w-[240px]", mobile_nav)
+        self.assertIn("onClick={openDrawer}", mobile_nav)
+        self.assertIn("const [mounted, setMounted]", mobile_nav)
+        self.assertIn("DRAWER_TRANSITION_MS = 300", mobile_nav)
+        self.assertIn("setMounted(false)", mobile_nav)
+        self.assertIn("syncThemeChrome(resolved)", mobile_nav)
+        self.assertIn("w-[min(76vw,248px)]", mobile_nav)
+        self.assertIn("transition-transform duration-300", mobile_nav)
+        self.assertIn("translate-x-full ease-in", mobile_nav)
+        self.assertIn("transition-opacity duration-200", mobile_nav)
+        self.assertIn("motion-reduce:transition-none", mobile_nav)
+        self.assertIn("inert={!open}", mobile_nav)
 
         # 抽屉是模态对话框，要有完整的键盘出口：一个显式的关闭按钮、Escape 关闭、
         # Tab 在抽屉内循环、关闭后焦点回到触发它的菜单按钮。
@@ -176,11 +213,11 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn('aria-modal="true"', mobile_nav)
         self.assertIn('event.key === "Escape"', mobile_nav)
         self.assertIn("menuButtonRef.current?.focus()", mobile_nav)
-        self.assertIn("flex h-10 items-center", mobile_nav)
-        self.assertIn("border-b border-line bg-canvas", mobile_nav)
+        self.assertIn("flex h-14 items-center", mobile_nav)
+        self.assertIn("border-b-2 border-ink bg-canvas", mobile_nav)
         self.assertIn("sticky top-0", date_group)
-        self.assertIn("flex h-10 min-w-0 items-center", date_group)
-        self.assertIn("md:h-12", date_group)
+        self.assertIn("flex min-h-11 min-w-0 items-center", date_group)
+        self.assertIn("md:min-h-12", date_group)
         self.assertIn("entry.boundingClientRect.top <= 0", date_group)
         self.assertIn("MOBILE_NAV_OPEN_EVENT", date_group)
         self.assertIn("stuck ? 0 : -1", date_group)
@@ -198,32 +235,169 @@ class WebAppStructureTests(unittest.TestCase):
         latest_feed = (WEB / "components" / "latest-events-feed.tsx").read_text(encoding="utf-8")
         date_group = (WEB / "components" / "date-group-section.tsx").read_text(encoding="utf-8")
         event_card = (WEB / "components" / "event-card.tsx").read_text(encoding="utf-8")
+        mobile_discovery = (WEB / "components" / "mobile-discovery.tsx").read_text(encoding="utf-8")
 
-        compact_page_spacing = "px-4 pt-2 pb-4 md:px-9 md:py-6"
-        self.assertIn(compact_page_spacing, all_page)
-        self.assertIn(compact_page_spacing, latest_page)
+        self.assertIn("max-w-[1320px] justify-self-center px-4 pb-8 pt-3", all_page)
+        self.assertIn("px-4 pb-8 pt-3 md:px-8 md:py-8", latest_page)
         self.assertIn('className="mt-3 md:mt-6"', all_feed)
-        self.assertIn('className="mt-3 md:mt-6"', latest_feed)
-        self.assertIn("relative mt-2 grid gap-2 md:mt-3 md:gap-3", date_group)
-        self.assertIn("grid grid-cols-1 gap-2 md:grid-cols-[64px_1fr]", event_card)
-        self.assertIn("bg-panel p-3 md:p-4", event_card)
+        self.assertIn('className="mt-2 md:mt-5"', latest_feed)
+        self.assertNotIn("SELECTED / 7 DAYS", latest_feed)
+        self.assertNotIn("近 7 天精选", latest_feed)
+        self.assertIn("relative mt-1.5 grid gap-2 md:mt-2", date_group)
+        self.assertNotIn("md:gap-4", date_group)
+        self.assertIn("grid grid-cols-1 gap-1 md:grid-cols-[72px_1fr] md:gap-2", event_card)
+        self.assertIn("md:block md:pt-3 md:text-sm", event_card)
+        self.assertNotIn("md:block md:pt-1 md:text-sm", event_card)
+        self.assertIn("md:-left-[25px] md:top-[21px] md:w-5", event_card)
+        self.assertNotIn("md:-left-[25px] md:top-3 md:w-5", event_card)
+        self.assertIn("openArticle", event_card)
+        self.assertIn("group/event border-t border-line-strong pb-1 pt-3", event_card)
         self.assertNotIn("评分 {score}", event_card)
-        self.assertIn("h-5 items-center justify-center rounded-full", event_card)
-        self.assertIn("text-xs leading-5 text-ink-mid", event_card)
+        self.assertIn("Score {score}", event_card)
+        self.assertIn("text-sm leading-6 text-ink-mid", event_card)
         self.assertIn("<BookmarkButton eventId={item.event_id} compact />", event_card)
-        self.assertIn("mt-1.5 text-base font-semibold leading-6 text-ink md:mt-2", event_card)
-        self.assertIn("relative -top-px mr-1.5 inline-flex h-5 items-center justify-center", event_card)
-        self.assertIn("px-1.5 align-middle text-[11px]", event_card)
+        self.assertIn("editorial-card-title", event_card)
+        self.assertIn("<Sparkles", event_card)
+        self.assertIn("relative -top-0.5 mr-2 inline-flex h-5 items-center gap-1", event_card)
+        self.assertIn("精选", event_card)
+        self.assertNotIn("Selected", event_card)
+        self.assertIn("aspect-[2/1]", event_card)
+        self.assertIn("max-w-[460px]", event_card)
+        self.assertIn("md:w-2/5", event_card)
+        self.assertIn("mr-auto", event_card)
+        self.assertIn("object-cover object-center", event_card)
+        self.assertNotIn("max-h-[640px]", event_card)
+        self.assertIn('className="mt-2.5 flex gap-2 md:hidden"', mobile_discovery)
+        self.assertIn('className="relative mt-1.5 md:hidden"', mobile_discovery)
+        self.assertIn("flex gap-1 overflow-x-auto", mobile_discovery)
         self.assertIn('compact ? "h-5 w-5"', (WEB / "components" / "bookmark-button.tsx").read_text(encoding="utf-8"))
+
+    def test_public_pages_share_editorial_shell_except_search(self):
+        direct_pages = [
+            WEB / "app" / "latest" / "page.tsx",
+            WEB / "app" / "all" / "page.tsx",
+            WEB / "app" / "x" / "page.tsx",
+            WEB / "app" / "x" / "[id]" / "page.tsx",
+            WEB / "app" / "telegram" / "page.tsx",
+            WEB / "app" / "bookmarks" / "page.tsx",
+            WEB / "app" / "topics" / "page.tsx",
+            WEB / "app" / "topics" / "[slug]" / "page.tsx",
+            WEB / "app" / "event" / "[id]" / "page.tsx",
+        ]
+        for page in direct_pages:
+            source = page.read_text(encoding="utf-8")
+            self.assertIn("editorial-page min-h-screen", source, str(page))
+            self.assertIn("lg:grid-cols-[248px", source, str(page))
+
+        static_shell = (WEB / "components" / "static-page.tsx").read_text(encoding="utf-8")
+        report_shell = (WEB / "app" / "reports" / "report-shell.tsx").read_text(encoding="utf-8")
+        search_page = (WEB / "app" / "search" / "page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("editorial-page min-h-screen", static_shell)
+        self.assertIn("lg:grid-cols-[248px_1fr]", static_shell)
+        self.assertIn("editorial-page min-h-screen", report_shell)
+        self.assertIn("lg:grid-cols-[248px_216px_minmax(0,1fr)]", report_shell)
+        self.assertNotIn("editorial-page", search_page)
+
+    def test_static_content_pages_use_whitespace_instead_of_stacked_rules(self):
+        static_shell = (WEB / "components" / "static-page.tsx").read_text(encoding="utf-8")
+        about_page = (WEB / "app" / "about" / "page.tsx").read_text(encoding="utf-8")
+        feedback_page = (WEB / "app" / "feedback" / "page.tsx").read_text(encoding="utf-8")
+        agent_page = (WEB / "app" / "agent" / "page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("border-b border-line-strong", static_shell)
+        self.assertNotIn("border-b-2 border-ink", static_shell)
+        self.assertIn("space-y-10", static_shell)
+
+        for source in (about_page, feedback_page, agent_page):
+            self.assertNotIn("border-y border-line", source)
+            self.assertNotIn("border-y border-signal/30", source)
+
+        self.assertNotIn("rounded-md border border-line bg-panel p-6", feedback_page)
+        self.assertIn("bg-panel/45", about_page)
+        self.assertIn("bg-panel/45", feedback_page)
+        self.assertIn("bg-panel/45", agent_page)
+
+    def test_public_editorial_pages_do_not_stack_decorative_horizontal_rules(self):
+        latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
+        latest_feed = (WEB / "components" / "latest-events-feed.tsx").read_text(encoding="utf-8")
+        date_group = (WEB / "components" / "date-group-section.tsx").read_text(encoding="utf-8")
+        all_page = (WEB / "app" / "all" / "page.tsx").read_text(encoding="utf-8")
+        telegram_page = (WEB / "app" / "telegram" / "page.tsx").read_text(encoding="utf-8")
+        x_page = (WEB / "app" / "x" / "page.tsx").read_text(encoding="utf-8")
+        daily_page = (WEB / "app" / "daily" / "page.tsx").read_text(encoding="utf-8")
+        period_shared = (WEB / "app" / "reports" / "period-shared.tsx").read_text(encoding="utf-8")
+        weekly_report = (WEB / "app" / "reports" / "weekly-report-page.tsx").read_text(encoding="utf-8")
+        monthly_report = (WEB / "app" / "reports" / "monthly-report-page.tsx").read_text(encoding="utf-8")
+        report_shell = (WEB / "app" / "reports" / "report-shell.tsx").read_text(encoding="utf-8")
+        bookmarks_page = (WEB / "app" / "bookmarks" / "page.tsx").read_text(encoding="utf-8")
+        topics_page = (WEB / "app" / "topics" / "page.tsx").read_text(encoding="utf-8")
+        topic_page = (WEB / "app" / "topics" / "[slug]" / "page.tsx").read_text(encoding="utf-8")
+        event_page = (WEB / "app" / "event" / "[id]" / "page.tsx").read_text(encoding="utf-8")
+        reading_toggle = (WEB / "app" / "event" / "[id]" / "article-reading-toggle.tsx").read_text(encoding="utf-8")
+
+        self.assertNotIn("border-b-2 border-ink pb-5", latest_page)
+        self.assertNotIn("border-b-2 border-ink pb-3", latest_feed)
+        self.assertIn('stuck ? "border-line', date_group)
+        self.assertIn(': "border-transparent"', date_group)
+
+        for source in (all_page, telegram_page, x_page):
+            self.assertNotIn("editorial-surface border-y border-line", source)
+
+        for source in (daily_page, period_shared):
+            self.assertNotIn("border-y border-line border-l-4", source)
+            self.assertNotIn("border-y border-signal/40", source)
+
+        for source in (daily_page, weekly_report, monthly_report):
+            self.assertNotIn("grid grid-cols-2 gap-x-6 border-y border-line", source)
+
+        self.assertIn("grid grid-cols-3 border-b border-line", report_shell)
+        self.assertNotIn("grid grid-cols-3 border-y border-line", report_shell)
+
+        for source in (bookmarks_page, topics_page, topic_page, event_page):
+            self.assertNotIn("border-b-2 border-ink", source)
+
+        self.assertNotIn("max-w-[760px] border-t border-line", reading_toggle)
 
     def test_mobile_hotspots_use_compact_spacing(self):
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
 
-        self.assertIn("mt-2 rounded-md border border-signal/25 bg-panel p-3 md:mt-4 md:p-4", latest_page)
-        self.assertIn("mt-2 grid gap-0.5 md:mt-3 md:gap-1", latest_page)
-        self.assertIn("gap-1.5 rounded-md px-1 py-1 text-sm leading-5", latest_page)
-        self.assertIn("md:gap-2 md:px-2 md:py-1.5", latest_page)
-        self.assertIn('className="block text-ink-dim md:text-right"', latest_page)
+        self.assertNotIn("<BentoGridItem", latest_page)
+        self.assertIn("divide-y divide-line/70", latest_page)
+        self.assertIn("grid grid-cols-[28px_1fr_auto]", latest_page)
+        self.assertIn("py-2.5 text-sm md:py-3", latest_page)
+        self.assertIn("{item.source_count ?? 1} 个信源", latest_page)
+        self.assertIn('index > 2 ? "hidden 2xl:block"', latest_page)
+
+    def test_latest_page_uses_aceternity_background_without_bento_cards(self):
+        latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
+        grid_background = (WEB / "components" / "ui" / "grid-background.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("GridBackground", latest_page)
+        self.assertNotIn("BentoGrid", latest_page)
+        self.assertIn("background-image:linear-gradient", grid_background)
+        self.assertNotIn("framer-motion", latest_page + grid_background)
+        self.assertNotIn("🔥", latest_page)
+
+    def test_latest_editorial_entries_preserve_summary_and_use_fixed_media_crop(self):
+        latest_feed = (WEB / "components" / "latest-events-feed.tsx").read_text(encoding="utf-8")
+        event_card = (WEB / "components" / "event-card.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("openArticle", latest_feed)
+        self.assertNotIn("clampSummary\n", latest_feed)
+        self.assertIn("line-clamp-3 md:line-clamp-none", event_card)
+        self.assertIn("aspect-[2/1]", event_card)
+        self.assertIn("max-w-[460px]", event_card)
+        self.assertIn("md:w-2/5", event_card)
+        self.assertIn("mr-auto", event_card)
+        self.assertIn("object-cover object-center", event_card)
+        self.assertNotIn("max-h-[640px]", event_card)
+        self.assertLess(event_card.index("{image && openArticle ?"), event_card.index("{showReason && item.reason ?"))
+        self.assertIn('openArticle ? ""', event_card)
+        self.assertIn('openArticle\n              ? "min-w-0"', event_card)
+        self.assertIn('? "w-full line-clamp-3 md:line-clamp-none"', event_card)
+        self.assertNotIn("xl:grid-cols-[minmax(0,1fr)_280px]", event_card)
+        self.assertNotIn("xl:col-start-2 xl:row-span-2 xl:row-start-3", event_card)
 
     def test_latest_page_degrades_when_backend_api_is_unavailable(self):
         api_source = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
@@ -605,6 +779,8 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("href: \"/weekly\"", shell_source)
         self.assertIn("href: \"/monthly\"", shell_source)
         self.assertIn("activeNavId", shell_source)
+        self.assertIn("px-4 pt-2 lg:hidden", shell_source)
+        self.assertIn("px-4 pb-6 pt-4 md:px-8 md:py-8", shell_source)
         self.assertIn("buildDailyDigest", data_source)
         self.assertIn("buildWeeklyDigest", data_source)
         self.assertIn("buildMonthlyDigest", data_source)
@@ -624,6 +800,8 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("category.note", daily_page)
         self.assertIn("mainline", data_source)
         self.assertIn("category_notes", data_source)
+        self.assertIn("mt-5 grid grid-cols-4 divide-x divide-line", daily_page)
+        self.assertIn("whitespace-nowrap text-base", daily_page)
 
     def test_daily_cards_no_longer_render_the_why_it_matters_block(self):
         """「为什么重要」按 2026-08-18 的改版从日报卡片移除。
@@ -715,19 +893,25 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("ArticleReadingToggle", event_page)
         self.assertIn("translatedBlocksFor", event_page)
         self.assertIn("Sidebar", event_page)
-        self.assertIn("lg:grid-cols-[224px_minmax(0,1fr)]", event_page)
-        self.assertIn("px-5 pt-4 pb-8 md:py-12", event_page)
-        self.assertIn("flex items-start justify-between gap-3 md:items-center", event_page)
+        self.assertIn("GridBackground", event_page)
+        self.assertIn("lg:grid-cols-[248px_minmax(0,1fr)]", event_page)
+        self.assertIn("px-4 pb-10 pt-4 md:px-8 md:py-12", event_page)
+        self.assertIn("mx-auto max-w-5xl", event_page)
+        self.assertIn("relative flex items-start justify-between gap-3 md:items-center", event_page)
         self.assertIn("flex h-5 min-w-0 items-center", event_page)
-        self.assertIn("md:h-6 md:px-2 md:text-xs", event_page)
-        self.assertIn("hidden md:inline", event_page)
-        self.assertIn("text-xs text-ink-mid md:hidden", event_page)
+        self.assertIn("Score {formatScore(event.final_score)}", event_page)
+        self.assertIn("readout hidden text-xs uppercase tracking-[0.08em] md:inline", event_page)
+        self.assertIn("text-[10px] uppercase tracking-[0.08em] text-ink-mid md:hidden", event_page)
         self.assertIn("<BookmarkButton eventId={event.event_id} labelOnDesktop />", event_page)
-        self.assertIn("mt-4 flex w-fit items-center gap-2 text-sm", event_page)
-        self.assertIn("mt-4 rounded-md border border-signal/30 bg-signal/5 p-4", event_page)
-        self.assertIn("mt-4 rounded-md border border-line-strong bg-panel p-4", event_page)
-        self.assertIn('article className="mt-4 border-t border-line pt-4"', event_page)
-        self.assertIn('div className="mt-4 space-y-4"', event_page)
+        self.assertIn("relative mt-5 flex w-fit items-center gap-2 text-sm", event_page)
+        self.assertIn('section className="mt-7 space-y-8"', event_page)
+        self.assertIn("Index / 01 · 推荐理由", event_page)
+        self.assertIn("Index / 02 · AI 摘要", event_page)
+        self.assertIn('className="mt-3 w-full text-sm leading-6 text-ink-mid"', event_page)
+        self.assertIn('className="mt-3 w-full text-[15px] leading-7 text-ink-mid', event_page)
+        self.assertNotIn("md:grid-cols-[minmax(0,1fr)_260px]", event_page)
+        self.assertIn('article className="mx-auto mt-10 max-w-[760px]"', event_page)
+        self.assertIn('div className="mt-6 space-y-5"', event_page)
         self.assertNotIn("flex flex-wrap items-center justify-end gap-2", event_page)
         self.assertNotIn('<div className="mt-8">', event_page)
         bookmark_button = (WEB / "components" / "bookmark-button.tsx").read_text(encoding="utf-8")
@@ -737,9 +921,9 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("显示原文", reading_toggle)
         self.assertIn("显示译文", reading_toggle)
         self.assertIn("AI 翻译 · 中文", reading_toggle)
-        self.assertIn('article className="mt-4 border-t border-line pt-4"', reading_toggle)
-        self.assertIn("border-b border-line pb-4", reading_toggle)
-        self.assertIn('div className="mt-4 space-y-4"', reading_toggle)
+        self.assertIn('article className="mx-auto mt-10 max-w-[760px]"', reading_toggle)
+        self.assertNotIn("border-b border-line pb-4", reading_toggle)
+        self.assertIn('div className="mt-6 space-y-5"', reading_toggle)
         self.assertIn("ReactMarkdown", reading_toggle)
         self.assertIn("remarkGfm", reading_toggle)
         # known unscrapable read-original domains (WeChat) - backend

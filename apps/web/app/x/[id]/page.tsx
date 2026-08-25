@@ -23,13 +23,13 @@ export default async function TweetDetailPage({
   }
 
   return (
-    <main className="min-h-screen bg-canvas text-ink">
-      <div className="grid min-h-screen grid-cols-1 content-start lg:grid-cols-[224px_1fr]">
+    <main className="editorial-page min-h-screen bg-canvas text-ink">
+      <div className="grid min-h-screen grid-cols-1 content-start lg:grid-cols-[248px_1fr]">
         <Sidebar activeNavId="x" />
         <MobileNav activeNavId="x" />
 
-        <section className="px-4 pt-2 pb-4 md:px-9 md:py-6">
-          <div className="mx-auto max-w-3xl">
+        <section className="px-4 pb-8 pt-4 md:px-8 md:py-10 xl:px-12">
+          <div className="mx-auto max-w-4xl">
             <a
               className="mb-3 inline-block text-sm font-medium text-signal hover:text-signal-bright"
               href="/x"

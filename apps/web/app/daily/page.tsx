@@ -146,21 +146,21 @@ export default async function DailyPage({
       }
     >
       <div className="mx-auto max-w-4xl">
-        <header className="pb-8">
-          <div className="flex items-center gap-4 text-xs font-semibold uppercase tracking-[0.35em] text-ink-dim">
-            <span className="h-px w-12 bg-signal" />
+        <header className="pb-5 md:pb-8">
+          <div className="flex items-center gap-3 text-[10px] font-semibold uppercase tracking-[0.25em] text-ink-dim md:gap-4 md:text-xs md:tracking-[0.35em]">
+            <span className="h-px w-8 bg-signal md:w-12" />
             <span>
               {digest ? digest.issueMeta : `VOL.${activeDate.replaceAll("-", ".")} · NO REPORT`}
             </span>
           </div>
           <h1
             aria-label="AI·RADAR 日报"
-            className="mt-6 text-[26px] font-semibold leading-tight tracking-tight text-ink md:text-4xl md:leading-none lg:text-5xl"
+            className="editorial-rule-title mt-4 text-[34px] font-medium leading-tight text-ink md:mt-6 md:text-5xl md:leading-none lg:text-6xl"
           >
             <span className="text-ink">AI</span>
             <span className="text-signal">·RADAR</span> 日报
           </h1>
-          <div className="mt-6 grid items-center gap-4 text-sm text-ink-mid md:grid-cols-[auto_1fr_auto]">
+          <div className="mt-5 grid items-center gap-2 border-b border-line-strong pb-4 text-sm text-ink-mid md:mt-7 md:grid-cols-[auto_1fr_auto] md:gap-4 md:pb-6">
             <span>{formatChineseDate(activeDate)}</span>
             <span className="hidden h-px bg-panel-soft md:block" />
             <span>DAILY · 全天滚动更新，次日定稿</span>
@@ -187,7 +187,7 @@ export default async function DailyPage({
             );
           })()}
           {loaded.kind === "pending" ? (
-            <div className="mt-5 rounded-md border border-signal/40 bg-signal/10 px-4 py-3 text-sm text-signal-bright">
+            <div className="mt-5 bg-signal/5 px-4 py-3 text-sm text-signal-bright">
               今日日报还在生成中，先展示近期精选内容，稍后刷新即可查看正式版本。
             </div>
           ) : null}
@@ -203,14 +203,14 @@ export default async function DailyPage({
         ) : (
           <>
             {digest!.mainline ? (
-              <section className="rounded-md border-l-4 border-signal bg-signal/10 p-4">
+              <section className="border-l-2 border-signal py-1 pl-5 pr-2">
                 <div className="flex items-center gap-3 text-sm font-semibold text-signal-bright">
                   今日主线
                   <span className="readout rounded border border-signal/40 px-2 py-0.5 text-[10px] uppercase tracking-wider">
                     AI 综述
                   </span>
                 </div>
-                <h2 className="mt-2.5 text-2xl font-semibold leading-tight text-ink">
+                <h2 className="editorial-rule-title mt-2.5 text-3xl font-medium leading-tight text-ink">
                   {digest!.mainline.title}
                 </h2>
                 <div className="mt-3 space-y-2.5 text-sm leading-6 text-ink-mid">
@@ -221,7 +221,7 @@ export default async function DailyPage({
               </section>
             ) : null}
 
-            <section className="mt-5 rounded-md border border-line bg-panel p-4">
+            <section className="editorial-surface mt-8">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h2 className="text-base font-semibold text-ink">今日看点</h2>
                 <div className="text-sm text-ink-dim">{loaded.report.article_count} 篇报道</div>
@@ -252,11 +252,11 @@ export default async function DailyPage({
               </div>
             </section>
 
-            <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+            <div className="mt-5 grid grid-cols-4 divide-x divide-line md:mt-8">
               {digest!.stats.map((stat) => (
-                <div key={stat.label} className="rounded-md border border-line bg-panel p-3 text-center">
-                  <div className="text-xl font-semibold text-ink">{stat.value}</div>
-                  <div className="mt-1 text-xs text-ink-dim">{stat.label}</div>
+                <div key={stat.label} className="min-w-0 px-1 py-2.5 text-center md:px-3 md:py-4">
+                  <div className="whitespace-nowrap text-base font-semibold text-ink md:text-xl">{stat.value}</div>
+                  <div className="mt-1 text-[10px] leading-4 text-ink-dim md:text-xs">{stat.label}</div>
                 </div>
               ))}
             </div>
@@ -274,7 +274,7 @@ export default async function DailyPage({
                 >
                   {/* list-none 去掉默认三角，Safari 还要单独关掉 webkit 的那个 */}
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-4 border-b border-line pb-3 transition hover:border-signal/40 [&::-webkit-details-marker]:hidden">
-                    <h2 className="text-xl font-semibold text-ink">
+                    <h2 className="editorial-rule-title text-2xl font-medium text-ink">
                       <span className="mr-3 text-3xl text-signal">
                         {String(categoryIndex + 1).padStart(2, "0")}
                       </span>
@@ -305,7 +305,7 @@ export default async function DailyPage({
                       里把同一段话读两遍。看点那行的锚点直接跳到这里。 */}
                   <div className="mt-4 grid gap-3">
                     {category.items.map((item) => (
-                      <article key={item.event_id} className="card-hover rounded-md border border-line bg-panel p-4">
+                      <article key={item.event_id} className="card-hover editorial-feed-hover rounded-md border border-line bg-panel p-4">
                         {/* 评分徽章与收藏按钮的样式、位置、compact 档位都照
                             components/event-card.tsx 来——精选页用的就是它，
                             同一条内容在两个页面上必须长得一样。 */}

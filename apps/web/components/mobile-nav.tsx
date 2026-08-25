@@ -5,25 +5,54 @@ import { Menu, X } from "lucide-react";
 import { BrandLogo } from "./brand-logo";
 import { MOBILE_NAV_OPEN_EVENT } from "./mobile-nav-events";
 import { navGroupItems } from "./nav";
+import { syncThemeChrome, type ResolvedTheme } from "./theme-chrome";
+
+const DRAWER_TRANSITION_MS = 300;
 
 export function MobileNav({ activeNavId }: { activeNavId: string }) {
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const closeTimerRef = useRef<number | null>(null);
+
+  const openDrawer = useCallback(() => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    setMounted(true);
+    window.requestAnimationFrame(() => setOpen(true));
+  }, []);
 
   const close = useCallback(() => {
     setOpen(false);
-    window.requestAnimationFrame(() => menuButtonRef.current?.focus());
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    closeTimerRef.current = window.setTimeout(() => {
+      setMounted(false);
+      closeTimerRef.current = null;
+      window.requestAnimationFrame(() => {
+        const resolved: ResolvedTheme =
+          document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+        syncThemeChrome(resolved);
+        menuButtonRef.current?.focus();
+      });
+    }, reduceMotion ? 0 : DRAWER_TRANSITION_MS);
   }, []);
 
   useEffect(() => {
     function openMobileNav() {
-      setOpen(true);
+      openDrawer();
     }
 
     window.addEventListener(MOBILE_NAV_OPEN_EVENT, openMobileNav);
     return () => window.removeEventListener(MOBILE_NAV_OPEN_EVENT, openMobileNav);
+  }, [openDrawer]);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
   }, []);
 
   useEffect(() => {
@@ -69,9 +98,9 @@ export function MobileNav({ activeNavId }: { activeNavId: string }) {
 
   return (
     <>
-      <div className="relative z-30 flex h-10 items-center justify-between border-b border-line bg-canvas px-4 lg:hidden">
+      <div className="mobile-app-chrome relative z-30 flex h-14 items-center justify-between border-b-2 border-ink bg-canvas px-4 lg:hidden">
         <a aria-label="AI·RADAR 首页" className="inline-flex" href="/latest">
-          <BrandLogo className="h-8 w-auto" />
+          <BrandLogo className="h-9 w-auto" />
         </a>
         <button
           ref={menuButtonRef}
@@ -79,33 +108,48 @@ export function MobileNav({ activeNavId }: { activeNavId: string }) {
           aria-expanded={open}
           aria-controls="mobile-nav-drawer"
           aria-label="打开导航菜单"
-          onClick={() => setOpen(true)}
-          className="flex h-10 w-10 items-center justify-center text-ink-mid transition-colors hover:text-signal"
+          onClick={openDrawer}
+          className="flex h-10 w-10 items-center justify-center border-l border-line text-ink-mid transition-colors hover:bg-panel hover:text-signal"
         >
           <Menu aria-hidden className="h-5 w-5" strokeWidth={1.75} />
         </button>
       </div>
 
-      {open ? (
+      {mounted ? (
         <>
-          <div aria-hidden="true" onClick={close} className="fixed inset-0 z-40 bg-black/50 lg:hidden" />
+          <div
+            aria-hidden="true"
+            onClick={close}
+            className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-200 ease-out motion-reduce:transition-none lg:hidden ${
+              open ? "opacity-100" : "pointer-events-none opacity-0"
+            }`}
+          />
           <aside
             id="mobile-nav-drawer"
             ref={drawerRef}
             tabIndex={-1}
             role="dialog"
             aria-modal="true"
+            aria-hidden={!open}
+            inert={!open}
             aria-label="站内导航"
-            className="fixed inset-y-0 right-0 z-50 w-[232px] overflow-y-auto border-l border-line bg-panel px-4 py-4 outline-none lg:hidden"
+            className={`fixed inset-y-0 right-0 z-50 w-[min(76vw,248px)] overflow-y-auto border-l border-line bg-canvas px-4 py-4 outline-none will-change-transform transition-transform duration-300 motion-reduce:transition-none lg:hidden ${
+              open
+                ? "translate-x-0 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                : "pointer-events-none translate-x-full ease-in"
+            }`}
           >
-            <div className="mb-3 flex items-center justify-between border-b border-line pb-3">
-              <span className="text-sm font-semibold text-ink">站内导航</span>
+            <div className="mb-4 flex items-center justify-between border-b-2 border-ink pb-3">
+              <div>
+                <span className="readout block text-[9px] uppercase tracking-[0.2em] text-signal">AI·RADAR</span>
+                <span className="mt-1 block text-sm font-semibold text-ink">站内索引</span>
+              </div>
               <button
                 ref={closeButtonRef}
                 type="button"
                 aria-label="关闭导航菜单"
                 onClick={close}
-                className="flex h-10 w-10 items-center justify-center rounded-md text-ink-mid hover:bg-panel-soft hover:text-signal"
+                className="flex h-10 w-10 items-center justify-center border border-line text-ink-mid hover:bg-panel hover:text-signal"
               >
                 <X aria-hidden className="h-5 w-5" strokeWidth={1.75} />
               </button>
@@ -113,15 +157,15 @@ export function MobileNav({ activeNavId }: { activeNavId: string }) {
             <nav aria-label="主导航">
           {(["内容", "接入", "更多"] as const).map((group) => (
             <section key={group} className="mb-4">
-              <div className="px-1 text-[11px] font-semibold text-ink-dim">{group}</div>
+              <div className="readout px-1 text-[9px] font-semibold uppercase tracking-[0.16em] text-ink-dim">{group}</div>
               <div className="mt-1 space-y-0.5">
                 {navGroupItems(group).map((item) => {
                   const active = item.id === activeNavId;
                   const Icon = item.icon;
-                  const className = `flex min-h-10 items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium ${
+                  const className = `flex min-h-10 items-center gap-2.5 border-l-2 px-3 py-2 text-sm font-medium ${
                     active
-                      ? "border border-signal/40 bg-signal/10 text-signal"
-                      : "text-ink-mid hover:bg-panel-soft hover:text-ink"
+                      ? "border-signal bg-panel text-signal"
+                      : "border-transparent text-ink-mid hover:border-line-strong hover:bg-panel hover:text-ink"
                   }`;
                   const content = (
                     <>
