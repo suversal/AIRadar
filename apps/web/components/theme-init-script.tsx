@@ -6,6 +6,12 @@ import {
   EDITORIAL_THEME_PATHS,
   THEME_COLOR_META_ID,
 } from "./theme-chrome";
+import {
+  COLOR_PALETTES,
+  DEFAULT_COLOR_PALETTE,
+  PALETTE_CANVAS_COLORS,
+  PALETTE_STORAGE_KEY,
+} from "./theme-config";
 
 // Runs synchronously before the rest of <body> paints, so a visitor who
 // already chose "light" (or whose system is light and preference is
@@ -15,6 +21,12 @@ const THEME_INIT_SCRIPT = `
 (function () {
   try {
     var pref = localStorage.getItem("ai-radar-theme");
+    var storedPalette = localStorage.getItem(${JSON.stringify(PALETTE_STORAGE_KEY)});
+    var palettes = ${JSON.stringify(COLOR_PALETTES.map((option) => option.value))};
+    var palette = palettes.indexOf(storedPalette) !== -1
+      ? storedPalette
+      : ${JSON.stringify(DEFAULT_COLOR_PALETTE)};
+    document.documentElement.setAttribute("data-palette", palette);
     var light = pref === "light" || (pref !== "dark" && window.matchMedia("(prefers-color-scheme: light)").matches);
     if (light) {
       document.documentElement.setAttribute("data-theme", "light");
@@ -25,9 +37,13 @@ const THEME_INIT_SCRIPT = `
       return pathname === path || pathname.indexOf(path + "/") === 0;
     });
     var theme = light ? "light" : "dark";
-    var color = light
-      ? (editorial ? ${JSON.stringify(EDITORIAL_LIGHT_CHROME_COLOR)} : ${JSON.stringify(DEFAULT_LIGHT_CHROME_COLOR)})
-      : (editorial ? ${JSON.stringify(EDITORIAL_DARK_CHROME_COLOR)} : ${JSON.stringify(DEFAULT_DARK_CHROME_COLOR)});
+    var paletteCanvasColors = ${JSON.stringify(PALETTE_CANVAS_COLORS)};
+    var paletteCanvas = palette && paletteCanvasColors[palette];
+    var color = paletteCanvas
+      ? paletteCanvas[theme]
+      : (light
+        ? (editorial ? ${JSON.stringify(EDITORIAL_LIGHT_CHROME_COLOR)} : ${JSON.stringify(DEFAULT_LIGHT_CHROME_COLOR)})
+        : (editorial ? ${JSON.stringify(EDITORIAL_DARK_CHROME_COLOR)} : ${JSON.stringify(DEFAULT_DARK_CHROME_COLOR)}));
     var metas = document.querySelectorAll('meta[name="theme-color"]');
     var meta = document.getElementById(${JSON.stringify(THEME_COLOR_META_ID)});
     if (!meta) {
@@ -42,6 +58,7 @@ const THEME_INIT_SCRIPT = `
     meta.removeAttribute("media");
     meta.setAttribute("content", color);
     document.documentElement.style.backgroundColor = color;
+    if (document.body) document.body.style.backgroundColor = color;
     if (editorial) {
       document.documentElement.style.setProperty("--color-canvas", color);
     } else {

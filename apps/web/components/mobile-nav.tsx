@@ -5,6 +5,7 @@ import { Menu, X } from "lucide-react";
 import { BrandLogo } from "./brand-logo";
 import { MOBILE_NAV_OPEN_EVENT } from "./mobile-nav-events";
 import { navGroupItems } from "./nav";
+import { MobileThemeSettings } from "./theme-toggle";
 import { syncThemeChrome, type ResolvedTheme } from "./theme-chrome";
 
 const DRAWER_TRANSITION_MS = 300;
@@ -193,6 +194,7 @@ export function MobileNav({ activeNavId }: { activeNavId: string }) {
             </section>
           ))}
             </nav>
+            <MobileThemeSettings />
           </aside>
         </>
       ) : null}

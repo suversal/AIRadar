@@ -72,7 +72,7 @@
    elements already carry their own transition shorthand (see the a/button/
    summary rule below) that would otherwise win and skip this. */
 .theme-transition,
-.theme-transition *:not(.mobile-theme-options):not(.mobile-theme-option) {
+.theme-transition * {
   transition:
     background-color 0.35s ease,
     border-color 0.35s ease,
@@ -114,14 +114,6 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Keep floating page controls from visually bleeding through the mobile
-   source sheet (backdrop-filter creates a separate composited layer on
-   Safari/Chromium even when the sheet has the higher z-index). */
-body.mobile-source-filter-open .theme-toggle {
-  opacity: 0;
-  pointer-events: none;
-}
-
 /* unlayered CSS always outranks Tailwind's utility layer regardless of
    selector order/specificity, so this reset must live in @layer base -
    otherwise no `underline` utility on any <a> anywhere can ever take
@@ -146,28 +138,28 @@ summary {
     transform 0.2s ease;
 }
 
-/* The compact mobile theme control changes its intrinsic width as options
-   enter and leave. A dedicated rule is required here: the generic button
-   transition above otherwise wins over Tailwind's layered utilities and
-   shortens the motion to 200ms. The stagger is supplied per option so the
-   control opens and closes as one composed movement rather than a snap. */
-.mobile-theme-options {
-  transition: gap 0.46s cubic-bezier(0.22, 1, 0.36, 1);
+/* The drawer keeps only the active appearance choices visible. Tapping either
+   compact control reveals its siblings with the same composed width/fade
+   motion as the former floating picker, without occupying page space. */
+.drawer-theme-options {
+  transition: gap 0.38s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.mobile-theme-option {
+.drawer-theme-option {
   will-change: width, opacity, transform;
   transition:
-    width 0.46s cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 0.3s ease-out,
-    transform 0.46s cubic-bezier(0.22, 1, 0.36, 1),
-    background-color 0.22s ease,
-    color 0.22s ease;
+    width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.24s ease-out,
+    transform 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.18s ease,
+    color 0.18s ease;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mobile-theme-options,
-  .mobile-theme-option {
+  .theme-transition,
+  .theme-transition *,
+  .drawer-theme-options,
+  .drawer-theme-option {
     transition-duration: 0.01ms;
     transition-delay: 0ms !important;
   }
@@ -230,6 +222,106 @@ button:disabled,
   --color-ink: #24221e;
   --color-ink-mid: #625d53;
   --color-ink-dim: #81796b;
+}
+
+/* User-selectable full color systems. Semantic status colors stay stable, but
+   the reading surface, panels, rules, ink hierarchy and editorial signal all
+   move together. Each rule covers both the general shell and the scoped
+   editorial surface so a page cannot silently fall back to the legacy theme. */
+:root[data-palette="radar"],
+:root[data-palette="radar"] .editorial-page {
+  --color-canvas: #171923;
+  --color-panel: #202331;
+  --color-panel-soft: #292d3d;
+  --color-line: #3b4156;
+  --color-line-strong: #59627e;
+  --color-signal: #7187ee;
+  --color-signal-bright: #9aabff;
+  --color-signal-dim: #485db8;
+  --color-cool: #a7b2d5;
+  --color-ink: #eef0f8;
+  --color-ink-mid: #b4b9ca;
+  --color-ink-dim: #7e8498;
+}
+
+:root[data-theme="light"][data-palette="radar"],
+:root[data-theme="light"][data-palette="radar"] .editorial-page {
+  --color-canvas: #eef0f6;
+  --color-panel: #f8f9fc;
+  --color-panel-soft: #e1e5f0;
+  --color-line: #c7cede;
+  --color-line-strong: #8f9bb5;
+  --color-signal: #3157c8;
+  --color-signal-bright: #24429e;
+  --color-signal-dim: #1c347e;
+  --color-cool: #52617c;
+  --color-ink: #202534;
+  --color-ink-mid: #596174;
+  --color-ink-dim: #7e879a;
+}
+
+:root[data-palette="instrument"],
+:root[data-palette="instrument"] .editorial-page {
+  --color-canvas: #181b1a;
+  --color-panel: #212422;
+  --color-panel-soft: #2a2e2b;
+  --color-line: #3d423f;
+  --color-line-strong: #5b625d;
+  --color-signal: #55c6b7;
+  --color-signal-bright: #86ddd2;
+  --color-signal-dim: #2f8b81;
+  --color-cool: #9fa9a4;
+  --color-ink: #f0f1ef;
+  --color-ink-mid: #b6bab7;
+  --color-ink-dim: #7d8580;
+}
+
+:root[data-theme="light"][data-palette="instrument"],
+:root[data-theme="light"][data-palette="instrument"] .editorial-page {
+  --color-canvas: #efeee8;
+  --color-panel: #f8f7f2;
+  --color-panel-soft: #e4e4dc;
+  --color-line: #cbc9bd;
+  --color-line-strong: #969487;
+  --color-signal: #0e746d;
+  --color-signal-bright: #095b56;
+  --color-signal-dim: #074743;
+  --color-cool: #59645f;
+  --color-ink: #252723;
+  --color-ink-mid: #5c615b;
+  --color-ink-dim: #7f847d;
+}
+
+:root[data-palette="indigo"],
+:root[data-palette="indigo"] .editorial-page {
+  --color-canvas: #19191d;
+  --color-panel: #222227;
+  --color-panel-soft: #2b2b31;
+  --color-line: #404047;
+  --color-line-strong: #5d5d68;
+  --color-signal: #968bee;
+  --color-signal-bright: #bbb4ff;
+  --color-signal-dim: #6358b4;
+  --color-cool: #aaa8b8;
+  --color-ink: #f1f0f4;
+  --color-ink-mid: #b9b7c0;
+  --color-ink-dim: #817f89;
+}
+
+:root[data-theme="light"][data-palette="indigo"],
+:root[data-theme="light"][data-palette="indigo"] .editorial-page {
+  --color-canvas: #efedf6;
+  --color-panel: #f8f6fc;
+  --color-panel-soft: #e2deee;
+  --color-line: #c8c1dc;
+  --color-line-strong: #9086ae;
+  --color-signal: #514596;
+  --color-signal-bright: #3d3476;
+  --color-signal-dim: #2f285d;
+  --color-cool: #655d7d;
+  --color-ink: #252131;
+  --color-ink-mid: #5e586d;
+  --color-ink-dim: #847d91;
 }
 
 .editorial-display,
