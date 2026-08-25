@@ -336,12 +336,18 @@ function hostOf(url: string): string {
 }
 
 function ExternalLinks({ urls }: { urls?: string[] }) {
-  if (!urls || urls.length === 0) {
+  // SourcePilot can return the same expanded URL more than once when multiple
+  // t.co entries resolve to one article. Rendering those values directly uses
+  // duplicate hrefs as React keys and also shows duplicate link chips.
+  const uniqueUrls = Array.from(
+    new Set((urls ?? []).map((url) => url.trim()).filter(Boolean)),
+  );
+  if (uniqueUrls.length === 0) {
     return null;
   }
   return (
     <div className="flex flex-wrap gap-2">
-      {urls.map((url) => (
+      {uniqueUrls.map((url) => (
         <a
           className="inline-flex max-w-full items-center gap-1 truncate rounded-md border border-line bg-panel-soft px-3 py-1.5 text-xs font-medium text-signal hover:text-signal-bright"
           href={url}

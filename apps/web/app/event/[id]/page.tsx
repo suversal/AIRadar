@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Sparkles } from "lucide-react";
 import type { LatestEvent, OriginalBlock } from "@/lib/api";
 import { getEventDetail, getLatestReport } from "@/lib/api";
 import { findEventById } from "@/lib/events";
@@ -215,20 +215,79 @@ function originalBlocksFor(event: LatestEvent): OriginalBlock[] {
   ];
 }
 
-function translatedBlocksFor(event: LatestEvent): OriginalBlock[] {
-  if (event.translated_blocks?.length) {
-    return event.translated_blocks;
+type TextBearingBlock = {
+  type: "paragraph" | "heading" | "code";
+  text: string;
+};
+
+function textBearingBlocks(blocks: OriginalBlock[]): TextBearingBlock[] {
+  const result: TextBearingBlock[] = [];
+  for (const block of blocks) {
+    if (block.type === "paragraph" || block.type === "heading" || block.type === "code") {
+      result.push({ type: block.type, text: block.text });
+    } else if (block.type === "quote" || block.type === "callout") {
+      result.push(...textBearingBlocks(block.children));
+    } else if (block.type === "list") {
+      result.push(...block.items.map((item) => ({ type: "paragraph" as const, text: item.text })));
+    } else if (block.type === "table") {
+      result.push(
+        ...[block.headers, ...block.rows]
+          .flat()
+          .map((cell) => ({ type: "paragraph" as const, text: cell.text })),
+      );
+    }
   }
-  if (event.translated_paragraphs?.length) {
-    return event.translated_paragraphs.map((paragraph) => ({
+  return result;
+}
+
+function translationLooksAligned(
+  originalBlocks: OriginalBlock[],
+  translatedBlocks: OriginalBlock[],
+) {
+  const originalText = textBearingBlocks(originalBlocks);
+  const translatedText = textBearingBlocks(translatedBlocks);
+  // Positional translation is only safe when every source text slot has one
+  // translated counterpart. Accepting a shorter result shifts all later text
+  // into the wrong heading/code/list slots even if the block shell survives.
+  if (!translatedText.length || translatedText.length !== originalText.length) {
+    return false;
+  }
+
+  return translatedText.every((translated, index) => {
+    const original = originalText[index];
+    if (!original || original.type !== translated.type) {
+      return false;
+    }
+    // A real heading remains a heading after translation. A short source
+    // heading receiving an entire body paragraph is the strongest signal that
+    // one provider output went missing and shifted all following positions.
+    if (
+      original.type === "heading" &&
+      original.text.length <= 100 &&
+      translated.text.length > Math.max(100, original.text.length * 6)
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function translatedBlocksFor(
+  event: LatestEvent,
+  originalBlocks: OriginalBlock[],
+): OriginalBlock[] {
+  let blocks: OriginalBlock[] = [];
+  if (event.translated_blocks?.length) {
+    blocks = event.translated_blocks;
+  } else if (event.translated_paragraphs?.length) {
+    blocks = event.translated_paragraphs.map((paragraph) => ({
       type: "paragraph",
       text: paragraph,
     }));
+  } else if (event.translated_content) {
+    blocks = [{ type: "paragraph", text: event.translated_content }];
   }
-  if (event.translated_content) {
-    return [{ type: "paragraph", text: event.translated_content }];
-  }
-  return [];
+  return translationLooksAligned(originalBlocks, blocks) ? blocks : [];
 }
 
 export default async function EventDetailPage({
@@ -268,7 +327,7 @@ export default async function EventDetailPage({
   const originalHost = hostFromUrl(originalUrl);
   const isTelegramRss = event.content_origin === "telegram_rss_description";
   const originalBlocks = originalBlocksFor(event);
-  const translatedBlocks = translatedBlocksFor(event);
+  const translatedBlocks = translatedBlocksFor(event, originalBlocks);
 
   return (
     <main className="editorial-page min-h-screen bg-canvas text-ink">
@@ -276,8 +335,8 @@ export default async function EventDetailPage({
         <Sidebar activeNavId="latest" />
         <MobileNav activeNavId="latest" />
 
-        <section className="min-w-0 px-4 pb-10 pt-4 md:px-8 md:py-12 xl:px-12">
-          <div className="mx-auto max-w-5xl">
+        <section className="min-w-0 px-4 pb-16 pt-5 md:px-8 md:py-14 xl:px-16">
+          <div className="mx-auto max-w-[1120px]">
             {adminPreview === "1" && event.hidden ? (
               <aside className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
                 <span>管理员预览：该文章当前处于隐藏状态，公开页面仍不可访问。</span>
@@ -289,9 +348,9 @@ export default async function EventDetailPage({
                 </a>
               </aside>
             ) : null}
-            <header className="relative overflow-hidden border-b border-line-strong pb-7 md:pb-9">
+            <header className="relative mx-auto max-w-[760px] overflow-hidden pb-2 md:pb-3">
               <GridBackground className="opacity-35" />
-              <div className="relative flex items-start justify-between gap-3 md:items-center">
+              <div className="relative flex items-start justify-between gap-4 md:items-center">
                 <div className="min-w-0 flex-1">
                   <div className="flex h-5 min-w-0 items-center gap-x-3 text-sm text-ink-mid md:h-6">
                     <span className="min-w-0 truncate font-semibold text-ink">
@@ -312,8 +371,13 @@ export default async function EventDetailPage({
 
                 <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
                   {event.selected ? (
-                    <span className="readout border-b border-signal pb-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-signal md:text-xs">
-                      Selected
+                    <span
+                      aria-label="精选"
+                      className="readout inline-flex h-5 items-center gap-1 border border-signal/45 bg-signal/10 px-1.5 text-[9px] font-semibold tracking-[0.12em] text-signal"
+                      title="精选"
+                    >
+                      <Sparkles aria-hidden className="h-3 w-3 shrink-0" strokeWidth={1.8} />
+                      精选
                     </span>
                   ) : null}
                   <span className="readout text-[10px] font-semibold uppercase tracking-[0.12em] text-signal md:text-xs">
@@ -323,12 +387,12 @@ export default async function EventDetailPage({
                 </div>
               </div>
 
-              <h1 className="editorial-rule-title relative mt-5 max-w-4xl text-[clamp(2.25rem,5vw,3.5rem)] font-medium leading-[1.1] tracking-[-0.035em] text-ink">
+              <h1 className="editorial-rule-title relative mt-6 text-[clamp(1.9rem,2.6vw,2.8rem)] font-medium leading-[1.12] tracking-[-0.03em] text-ink">
                 {event.title}
               </h1>
               {originalUrl ? (
                 <a
-                  className="relative mt-5 flex w-fit items-center gap-2 text-sm font-medium text-signal hover:text-signal-bright"
+                  className="relative mt-4 flex w-fit items-center gap-2 text-sm font-medium text-signal hover:text-signal-bright"
                   href={originalUrl}
                   rel="noopener noreferrer"
                   target="_blank"
@@ -340,20 +404,20 @@ export default async function EventDetailPage({
               ) : null}
             </header>
 
-            <section className="mt-7 space-y-8">
+            <section className="mx-auto mt-7 max-w-[760px] space-y-7 md:mt-9">
               <aside className="border-l-2 border-signal pl-4">
-                <h2 className="readout text-[10px] font-semibold uppercase tracking-[0.14em] text-signal">
-                  Index / 01 · 推荐理由
+                <h2 className="readout text-[10px] font-semibold tracking-[0.14em] text-signal">
+                  推荐理由
                 </h2>
-                <p className="mt-3 w-full text-sm leading-6 text-ink-mid">
+                <p className="mt-2.5 text-sm leading-6 text-ink-mid">
                   {event.reason ?? "暂无推荐理由。"}
                 </p>
               </aside>
               <div>
-                <h2 className="readout text-[10px] font-semibold uppercase tracking-[0.14em] text-signal">
-                  Index / 02 · AI 摘要
+                <h2 className="readout text-[10px] font-semibold tracking-[0.14em] text-signal">
+                  AI 摘要
                 </h2>
-                <p className="mt-3 w-full text-[15px] leading-7 text-ink-mid md:text-base md:leading-8">
+                <p className="mt-2.5 text-[15px] leading-7 text-ink-mid md:text-base md:leading-8">
                   {event.summary ?? event.one_line_summary ?? "暂无摘要。"}
                 </p>
               </div>
@@ -367,11 +431,11 @@ export default async function EventDetailPage({
                 translatedBlocks={translatedBlocks}
               />
             ) : (
-              <article className="mx-auto mt-10 max-w-[760px]">
-                <h2 className="readout text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-mid">
-                  Index / 03 · 原文
+              <article className="mx-auto mt-6 max-w-[760px] border-t border-line-strong pt-5 md:mt-7">
+                <h2 className="text-xs font-semibold tracking-[0.08em] text-ink-mid">
+                  原文正文
                 </h2>
-                <div className="mt-6 space-y-5">{originalBlocks.map(renderOriginalBlock)}</div>
+                <div className="mt-5 space-y-4">{originalBlocks.map(renderOriginalBlock)}</div>
               </article>
             )}
 
@@ -391,7 +455,7 @@ export default async function EventDetailPage({
 
             {originalUrl ? (
               <a
-                className="mx-auto mt-7 flex w-fit max-w-[760px] items-center gap-2 bg-signal/10 px-4 py-2.5 text-sm font-semibold text-signal transition hover:bg-signal/15 hover:text-signal-bright"
+                className="mx-auto mt-7 flex w-fit max-w-[760px] items-center gap-2 border border-line-strong px-4 py-2.5 text-sm font-semibold text-signal transition hover:border-signal/50 hover:bg-signal/10 hover:text-signal-bright"
                 href={originalUrl}
                 rel="noopener noreferrer"
                 target="_blank"
@@ -403,7 +467,7 @@ export default async function EventDetailPage({
             ) : null}
 
             {event.coverage && event.coverage.length > 1 ? (
-              <section className="editorial-surface mt-10 bg-panel/45 px-5 py-5">
+              <section className="editorial-surface mx-auto mt-12 max-w-[960px] border-y border-line-strong bg-panel/45 px-5 py-5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h2 className="text-base font-semibold text-signal">
                     同一事件 · {event.source_count ?? 1} 个信源 ·{" "}

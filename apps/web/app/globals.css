@@ -286,9 +286,9 @@ button:disabled,
   --color-panel-soft: #2a2e2b;
   --color-line: #3d423f;
   --color-line-strong: #5b625d;
-  --color-signal: #55c6b7;
-  --color-signal-bright: #86ddd2;
-  --color-signal-dim: #2f8b81;
+  --color-signal: #55c98d;
+  --color-signal-bright: #88e3ae;
+  --color-signal-dim: #2f925d;
   --color-cool: #9fa9a4;
   --color-ink: #f0f1ef;
   --color-ink-mid: #b6bab7;
@@ -302,9 +302,9 @@ button:disabled,
   --color-panel-soft: #e4e4dc;
   --color-line: #cbc9bd;
   --color-line-strong: #969487;
-  --color-signal: #0e746d;
-  --color-signal-bright: #095b56;
-  --color-signal-dim: #074743;
+  --color-signal: #147a4a;
+  --color-signal-bright: #0e6038;
+  --color-signal-dim: #0a482a;
   --color-cool: #59645f;
   --color-ink: #252723;
   --color-ink-mid: #5c615b;

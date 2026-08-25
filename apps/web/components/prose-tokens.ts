@@ -6,24 +6,24 @@
 // this file has no imports of its own to avoid a cycle between the two
 // component modules that both need these values.
 //
-// 15px/24px on phones+tablets, 18px/30px at lg (desktop, matches the site's
-// existing lg:1024px layout breakpoint). HEADING_CLASSNAMES' lg: sizes are
-// bumped in lockstep so h3~h6 don't collide with the 18px desktop body text.
+// Use the site's CJK-optimized sans stack for body copy and the editorial
+// serif only for article headings. Body ink is softened slightly from pure
+// display ink so long dark-mode passages remain clear without glowing.
 
 export const HEADING_CLASSNAMES: Record<1 | 2 | 3 | 4 | 5 | 6, string> = {
-  1: "mt-8 text-2xl lg:text-[28px] font-semibold leading-tight text-ink",
-  2: "mt-7 border-b border-line pb-2 text-xl lg:text-[22px] font-semibold text-ink",
-  3: "mt-6 text-lg lg:text-[20px] font-semibold text-ink",
-  4: "mt-6 text-lg lg:text-[20px] font-semibold text-ink",
-  5: "mt-6 text-lg lg:text-[20px] font-semibold text-ink",
-  6: "mt-6 text-lg lg:text-[20px] font-semibold text-ink",
+  1: "editorial-rule-title mt-10 text-[26px] lg:text-[30px] font-semibold leading-tight text-ink",
+  2: "editorial-rule-title mt-9 border-b border-line pb-2.5 text-[22px] lg:text-[25px] font-semibold leading-tight text-ink",
+  3: "editorial-rule-title mt-8 text-xl lg:text-[22px] font-semibold leading-snug text-ink",
+  4: "editorial-rule-title mt-7 text-lg lg:text-[20px] font-semibold leading-snug text-ink",
+  5: "editorial-rule-title mt-7 text-lg lg:text-[20px] font-semibold leading-snug text-ink",
+  6: "editorial-rule-title mt-7 text-lg lg:text-[20px] font-semibold leading-snug text-ink",
 };
 
 export const PROSE_P_CLASSNAME =
-  "break-words text-[15px] leading-[24px] lg:text-[18px] lg:leading-[30px] text-ink [overflow-wrap:anywhere]";
+  "break-words font-sans text-[15px] font-normal leading-7 tracking-[0.005em] text-ink/90 lg:text-[16px] lg:leading-[29px] [overflow-wrap:anywhere]";
 export const PROSE_LIST_CLASSNAME =
-  "ml-6 space-y-2 text-[15px] leading-[24px] lg:text-[18px] lg:leading-[30px] text-ink";
+  "ml-6 my-5 space-y-2 font-sans text-[15px] font-normal leading-7 tracking-[0.005em] text-ink/90 lg:text-[16px] lg:leading-[29px] marker:text-signal";
 export const PROSE_CODE_INLINE_CLASSNAME =
-  "rounded border border-line-strong bg-panel-soft px-1.5 py-0.5 text-[15px] lg:text-[16px] text-signal-bright";
+  "rounded border border-line-strong bg-panel-soft px-1.5 py-0.5 text-[14px] lg:text-[15px] text-signal-bright";
 export const PROSE_CODE_BLOCK_CLASSNAME =
-  "max-w-full overflow-x-auto rounded-md border border-line-strong bg-panel-soft p-4 text-sm leading-6 text-ink";
+  "my-7 max-w-full overflow-x-auto rounded-md border border-line-strong bg-panel-soft p-4 text-sm leading-6 text-ink";

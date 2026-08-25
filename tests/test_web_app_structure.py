@@ -147,6 +147,7 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("COLOR_PALETTES", theme_toggle)
         self.assertIn("PALETTE_STORAGE_KEY", theme_toggle)
         self.assertIn('DEFAULT_COLOR_PALETTE: ColorPalette = "instrument"', theme_config)
+        self.assertIn('{ value: "instrument", label: "信号绿", swatch: "#147a4a" }', theme_config)
         self.assertLess(
             theme_config.index('{ value: "instrument"'),
             theme_config.index('{ value: "original"'),
@@ -191,6 +192,10 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("syncThemeChrome(resolved)", theme_toggle)
         for canvas in ("#eef0f6", "#efeee8", "#efedf6"):
             self.assertIn(canvas, global_css)
+        self.assertIn("--color-signal: #55c98d", global_css)
+        favicon = (WEB / "app" / "icon.svg").read_text(encoding="utf-8")
+        self.assertEqual(favicon.count('#55c98d'), 2)
+        self.assertNotIn('#d97757', favicon)
 
     def test_mobile_browser_chrome_matches_editorial_surface(self):
         layout = (WEB / "app" / "layout.tsx").read_text(encoding="utf-8")
@@ -402,7 +407,7 @@ class WebAppStructureTests(unittest.TestCase):
         for source in (bookmarks_page, topics_page, topic_page, event_page):
             self.assertNotIn("border-b-2 border-ink", source)
 
-        self.assertNotIn("max-w-[760px] border-t border-line", reading_toggle)
+        self.assertNotIn("max-w-[720px]", reading_toggle)
 
     def test_mobile_hotspots_use_compact_spacing(self):
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
@@ -918,6 +923,7 @@ class WebAppStructureTests(unittest.TestCase):
             WEB / "app" / "event" / "[id]" / "article-reading-toggle.tsx"
         ).read_text(encoding="utf-8")
         original_block = (WEB / "components" / "original-block.tsx").read_text(encoding="utf-8")
+        prose_tokens = (WEB / "components" / "prose-tokens.ts").read_text(encoding="utf-8")
         event_helpers = (WEB / "lib" / "events.ts").read_text(encoding="utf-8")
         api_source = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
 
@@ -936,27 +942,39 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("original_markdown?: string", api_source)
         self.assertIn("translated_blocks", api_source)
         self.assertIn("ArticleReadingToggle", event_page)
-        self.assertIn("translatedBlocksFor", event_page)
+        self.assertIn("translatedBlocksFor(event, originalBlocks)", event_page)
+        self.assertIn("translationLooksAligned", event_page)
+        self.assertIn(
+            "translatedText.length !== originalText.length",
+            event_page,
+        )
         self.assertIn("Sidebar", event_page)
         self.assertIn("GridBackground", event_page)
         self.assertIn("lg:grid-cols-[248px_minmax(0,1fr)]", event_page)
-        self.assertIn("px-4 pb-10 pt-4 md:px-8 md:py-12", event_page)
-        self.assertIn("mx-auto max-w-5xl", event_page)
-        self.assertIn("relative flex items-start justify-between gap-3 md:items-center", event_page)
+        self.assertIn("px-4 pb-16 pt-5 md:px-8 md:py-14", event_page)
+        self.assertIn("mx-auto max-w-[1120px]", event_page)
+        self.assertIn("relative flex items-start justify-between gap-4 md:items-center", event_page)
         self.assertIn("flex h-5 min-w-0 items-center", event_page)
         self.assertIn("Score {formatScore(event.final_score)}", event_page)
         self.assertIn("readout hidden text-xs uppercase tracking-[0.08em] md:inline", event_page)
         self.assertIn("text-[10px] uppercase tracking-[0.08em] text-ink-mid md:hidden", event_page)
         self.assertIn("<BookmarkButton eventId={event.event_id} labelOnDesktop />", event_page)
-        self.assertIn("relative mt-5 flex w-fit items-center gap-2 text-sm", event_page)
-        self.assertIn('section className="mt-7 space-y-8"', event_page)
-        self.assertIn("Index / 01 · 推荐理由", event_page)
-        self.assertIn("Index / 02 · AI 摘要", event_page)
-        self.assertIn('className="mt-3 w-full text-sm leading-6 text-ink-mid"', event_page)
-        self.assertIn('className="mt-3 w-full text-[15px] leading-7 text-ink-mid', event_page)
+        self.assertIn("relative mt-4 flex w-fit items-center gap-2 text-sm", event_page)
+        self.assertIn('section className="mx-auto mt-7 max-w-[760px] space-y-7', event_page)
+        self.assertNotIn("Index /", event_page)
+        self.assertIn('text-[15px] leading-7 text-ink-mid md:text-base', event_page)
+        self.assertIn('border-l-2 border-signal pl-4', event_page)
+        self.assertIn('header className="relative mx-auto max-w-[760px]', event_page)
+        self.assertIn('text-[clamp(1.9rem,2.6vw,2.8rem)]', event_page)
+        self.assertNotIn('overflow-hidden border-b border-line-strong', event_page)
+        self.assertNotIn('mt-7 border-t border-line pt-5', event_page)
+        self.assertNotIn('md:grid-cols-[112px_minmax(0,1fr)]', event_page)
         self.assertNotIn("md:grid-cols-[minmax(0,1fr)_260px]", event_page)
-        self.assertIn('article className="mx-auto mt-10 max-w-[760px]"', event_page)
-        self.assertIn('div className="mt-6 space-y-5"', event_page)
+        self.assertIn('article className="mx-auto mt-6 max-w-[760px]', event_page)
+        self.assertIn('div className="mt-5 space-y-4"', event_page)
+        self.assertIn('aria-label="精选"', event_page)
+        self.assertIn("<Sparkles aria-hidden", event_page)
+        self.assertIn("精选\n                    </span>", event_page)
         self.assertNotIn("flex flex-wrap items-center justify-end gap-2", event_page)
         self.assertNotIn('<div className="mt-8">', event_page)
         bookmark_button = (WEB / "components" / "bookmark-button.tsx").read_text(encoding="utf-8")
@@ -965,10 +983,13 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("lg:sticky", (WEB / "components" / "sidebar.tsx").read_text(encoding="utf-8"))
         self.assertIn("显示原文", reading_toggle)
         self.assertIn("显示译文", reading_toggle)
-        self.assertIn("AI 翻译 · 中文", reading_toggle)
-        self.assertIn('article className="mx-auto mt-10 max-w-[760px]"', reading_toggle)
-        self.assertNotIn("border-b border-line pb-4", reading_toggle)
-        self.assertIn('div className="mt-6 space-y-5"', reading_toggle)
+        self.assertIn("AI 中文译文", reading_toggle)
+        self.assertNotIn("Index /", reading_toggle)
+        self.assertIn('article className="mx-auto mt-6 max-w-[760px]', reading_toggle)
+        self.assertIn("border-t border-line-strong pt-5", reading_toggle)
+        self.assertIn('div className="mt-5 space-y-4 font-sans"', reading_toggle)
+        self.assertIn('text-[15px] font-normal leading-7', prose_tokens)
+        self.assertIn('lg:text-[16px] lg:leading-[29px]', prose_tokens)
         self.assertIn("ReactMarkdown", reading_toggle)
         self.assertIn("remarkGfm", reading_toggle)
         # known unscrapable read-original domains (WeChat) - backend
@@ -1117,6 +1138,16 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("document.body", tweet_card)
         # 弹层本身仍靠 fixed inset-0 占满视口
         self.assertIn("fixed inset-0 z-50 flex items-center justify-center", tweet_card)
+
+    def test_tweet_external_links_are_deduplicated_before_render(self):
+        """SP may emit the same expanded URL more than once. The card must
+        deduplicate before mapping because href is also the React key."""
+        tweet_card = (WEB / "components" / "tweet-card.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("const uniqueUrls = Array.from(", tweet_card)
+        self.assertIn("new Set((urls ?? []).map((url) => url.trim()).filter(Boolean))", tweet_card)
+        self.assertIn("{uniqueUrls.map((url) => (", tweet_card)
+        self.assertNotIn("{urls.map((url) => (", tweet_card)
 
 
 if __name__ == "__main__":

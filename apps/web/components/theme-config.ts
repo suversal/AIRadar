@@ -19,7 +19,9 @@ export const COLOR_PALETTES: ReadonlyArray<{
   label: string;
   swatch: string;
 }> = [
-  { value: "instrument", label: "仪器青", swatch: "#0e746d" },
+  // Keep the stable `instrument` value for existing localStorage entries,
+  // while presenting the refreshed green system as the product default.
+  { value: "instrument", label: "信号绿", swatch: "#147a4a" },
   { value: "original", label: "经典橙", swatch: "#b94f2f" },
   { value: "radar", label: "雷达蓝", swatch: "#3157c8" },
   { value: "indigo", label: "墨靛紫", swatch: "#514596" },

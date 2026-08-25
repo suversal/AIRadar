@@ -234,7 +234,7 @@ export function ThemeToggle() {
                 expanded === "palette"
                   ? label
                   : `当前主题色：${
-                      COLOR_PALETTES.find((option) => option.value === palette)?.label ?? "仪器青"
+                      COLOR_PALETTES.find((option) => option.value === palette)?.label ?? "信号绿"
                     }，展开外观设置`
               }
               title={label}

@@ -41,7 +41,7 @@ export function readmeImageClassName(options: { src?: string; width?: unknown; h
   if (isReadmeInlineImage(options)) {
     return "inline-block h-auto w-auto max-w-full align-middle";
   }
-  return "mx-auto my-8 block h-auto max-h-[70vh] w-auto max-w-full border-y border-line object-contain";
+  return "mx-auto my-10 block h-auto max-h-[72vh] w-auto max-w-full border-y border-line object-contain";
 }
 
 function renderHeading(block: Extract<OriginalBlock, { type: "heading" }>, index: number) {
@@ -103,7 +103,7 @@ export function renderOriginalBlock(block: OriginalBlock, index: number) {
       );
     }
     return (
-      <figure key={`${block.url}-${index}`} className="my-8">
+      <figure key={`${block.url}-${index}`} className="my-10">
         <ArticleImage
           src={proxiedImageUrl(block.url)}
           alt={block.alt ?? ""}
@@ -114,7 +114,7 @@ export function renderOriginalBlock(block: OriginalBlock, index: number) {
           style={imageStyle}
         />
         {block.caption ? (
-          <figcaption className="mt-2 text-center text-sm text-ink-mid">{block.caption}</figcaption>
+          <figcaption className="mx-auto mt-3 max-w-2xl text-center text-xs leading-5 text-ink-mid">{block.caption}</figcaption>
         ) : null}
       </figure>
     );
@@ -281,7 +281,7 @@ export function renderOriginalBlock(block: OriginalBlock, index: number) {
   }
   if (block.type === "callout") {
     return (
-      <aside key={`callout-${index}`} className={`rounded-md border px-5 py-4 ${block.kind === "lead" ? "border-signal/30 bg-signal/5" : "border-line-strong bg-panel-soft"}`}>
+      <aside key={`callout-${index}`} className={`my-7 rounded-md border px-5 py-4 ${block.kind === "lead" ? "border-signal/30 bg-signal/5" : "border-line-strong bg-panel-soft"}`}>
         <div className="space-y-3">{block.children.map(renderOriginalBlock)}</div>
       </aside>
     );
@@ -299,7 +299,7 @@ export function renderOriginalBlock(block: OriginalBlock, index: number) {
   }
   if (block.type === "table") {
     return (
-      <div key={`table-${index}`} className="max-w-full overflow-x-auto rounded-md border border-line-strong">
+      <div key={`table-${index}`} className="my-7 max-w-full overflow-x-auto rounded-md border border-line-strong">
         <table className="min-w-full border-collapse text-left text-sm text-ink">
           {block.headers.length ? <thead className="bg-panel-soft"><tr>{block.headers.map((cell, cellIndex) => <th key={cellIndex} className="border-b border-line-strong px-4 py-3 font-semibold"><RichParagraph text={cell.text} html={cell.html} /></th>)}</tr></thead> : null}
           <tbody>{block.rows.map((row, rowIndex) => <tr key={rowIndex} className="border-b border-line last:border-b-0">{row.map((cell, cellIndex) => <td key={cellIndex} className="min-w-36 px-4 py-3 align-top"><RichParagraph text={cell.text} html={cell.html} /></td>)}</tr>)}</tbody>
@@ -308,13 +308,13 @@ export function renderOriginalBlock(block: OriginalBlock, index: number) {
     );
   }
   if (block.type === "divider") {
-    return <hr key={`divider-${index}`} className="border-0 border-t border-line-strong" />;
+    return <hr key={`divider-${index}`} className="my-10 border-0 border-t border-line-strong" />;
   }
   if (block.type === "source_list") {
     return (
       <section
         key={`sources-${index}`}
-        className="rounded-md border border-line-strong bg-panel p-4"
+        className="my-7 rounded-md border border-line-strong bg-panel p-4"
         aria-label="文章来源"
       >
         <div className="readout text-xs font-semibold uppercase tracking-wide text-ink-dim">文章来源</div>
@@ -343,7 +343,7 @@ export function renderOriginalBlock(block: OriginalBlock, index: number) {
           ? "border-signal bg-panel"
           : "border-line-strong bg-panel-soft";
     return (
-      <aside key={`${block.kind}-${index}`} className={`border-l-2 p-4 ${tone}`}>
+      <aside key={`${block.kind}-${index}`} className={`my-7 border-l-2 p-4 ${tone}`}>
         {(block.label || label || block.source_url || block.author) ? <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
           {block.label || label ? <span className="font-semibold text-signal-bright">{block.label ?? label}</span> : <span />}
           {block.source_url ? (

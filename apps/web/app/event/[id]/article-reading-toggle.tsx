@@ -142,7 +142,7 @@ const markdownComponents: Components = {
 
 function MarkdownArticle({ markdown }: { markdown: string }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <ReactMarkdown
         components={markdownComponents}
         rehypePlugins={[rehypeRaw, [rehypeSanitize, articleSanitizeSchema]]}
@@ -170,22 +170,22 @@ export function ArticleReadingToggle({
   const blocks = isOriginal ? originalBlocks : translatedBlocks;
 
   return (
-    <article className="mx-auto mt-10 max-w-[760px]">
+    <article className="mx-auto mt-6 max-w-[760px] border-t border-line-strong pt-5 md:mt-7">
       <div className="flex items-center justify-between gap-4">
-        <div className="readout text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-mid">
-          Index / 03 · {isOriginal ? "原文" : "AI 翻译 · 中文"}
-        </div>
+        <h2 className="text-xs font-semibold tracking-[0.08em] text-ink-mid">
+          {isOriginal ? "原文正文" : "AI 中文译文"}
+        </h2>
         {hasTranslation ? (
           <button
             type="button"
-            className="cursor-pointer border-b border-signal/45 px-1 pb-1 text-xs font-semibold text-signal transition-colors duration-200 hover:border-signal hover:text-signal-bright"
+            className="inline-flex min-h-9 cursor-pointer items-center border border-line-strong px-3 py-1.5 text-xs font-semibold text-signal transition-colors duration-200 hover:border-signal/60 hover:bg-signal/10 hover:text-signal-bright"
             onClick={() => setMode(isOriginal ? "translated" : "original")}
           >
             {isOriginal ? "显示译文" : "显示原文"}
           </button>
         ) : null}
       </div>
-      <div className="mt-6 space-y-5">
+      <div className="mt-5 space-y-4 font-sans">
         {isOriginal && markdown ? <MarkdownArticle markdown={markdown} /> : blocks.map(renderOriginalBlock)}
       </div>
     </article>
