@@ -56,6 +56,38 @@ class XTweetRepositoryTests(unittest.TestCase):
 
         return RadarRepository(session)
 
+    def test_default_subscriptions_match_sourcepilot_x_config(self):
+        from app.services.x_tweets_sync import DEFAULT_X_HANDLES, DEFAULT_X_TOPICS
+
+        self.assertEqual(
+            DEFAULT_X_HANDLES,
+            [
+                "OpenAI",
+                "AnthropicAI",
+                "claudeai",
+                "ClaudeDevs",
+                "GoogleAI",
+                "GoogleDeepMind",
+                "xai",
+                "grok",
+                "AIatMeta",
+                "MicrosoftAI",
+                "MistralAI",
+                "huggingface",
+                "nvidia",
+                "deepseek_ai",
+                "Alibaba_Qwen",
+                "Kimi_Moonshot",
+                "Zai_org",
+                "TencentHunyuan",
+                "ManusAI",
+                "thsottiaux",
+                "xiaohu",
+                "dotey",
+            ],
+        )
+        self.assertEqual(DEFAULT_X_TOPICS, ["AI热点", "U卡推荐", "eSIM推荐"])
+
     def test_upsert_inserts_then_updates_by_tweet_id(self):
         with self.Session() as session:
             repository = self._repository(session)
@@ -274,22 +306,22 @@ class TopicSyncTests(unittest.TestCase):
             repository = RadarRepository(session)
             repository.upsert_x_tweets(
                 [
-                    make_tweet("1", topics=["gpt-5.6"], author_handle="rando1"),
-                    make_tweet("2", topics=["gpt-5.6", "claude-fable-5"], author_handle="rando2"),
+                    make_tweet("1", topics=["AI热点"], author_handle="rando1"),
+                    make_tweet("2", topics=["AI热点", "U卡推荐"], author_handle="rando2"),
                     make_tweet("3"),  # 无话题（订阅账号时间线来的）
                 ]
             )
             session.commit()
 
-            items, total, _ = repository.query_x_tweets(topic="gpt-5.6")
+            items, total, _ = repository.query_x_tweets(topic="AI热点")
             self.assertEqual(total, 2)
-            items, total, _ = repository.query_x_tweets(topic="claude-fable-5")
+            items, total, _ = repository.query_x_tweets(topic="U卡推荐")
             self.assertEqual([i["tweet_id"] for i in items], ["2"])
             # 话题标识是子串也不误中（包裹逗号格式的意义）
-            _, total, _ = repository.query_x_tweets(topic="gpt-5")
+            _, total, _ = repository.query_x_tweets(topic="AI")
             self.assertEqual(total, 0)
             self.assertEqual(
-                repository.list_x_tweet_topics(), ["claude-fable-5", "gpt-5.6"]
+                repository.list_x_tweet_topics(), ["AI热点", "U卡推荐"]
             )
 
     def test_topic_watermark_is_per_topic(self):
@@ -297,16 +329,16 @@ class TopicSyncTests(unittest.TestCase):
 
         with self.Session() as session:
             repository = RadarRepository(session)
-            self.assertIsNone(repository.latest_x_tweet_created_at(topic="gpt-5.6"))
+            self.assertIsNone(repository.latest_x_tweet_created_at(topic="AI热点"))
             repository.upsert_x_tweets(
                 [
-                    make_tweet("1", topics=["gpt-5.6"], created_at="2026-08-05T00:00:00Z"),
+                    make_tweet("1", topics=["AI热点"], created_at="2026-08-05T00:00:00Z"),
                     make_tweet("2", created_at="2026-08-07T00:00:00Z"),
                 ]
             )
             session.commit()
             self.assertEqual(
-                repository.latest_x_tweet_created_at(topic="gpt-5.6"),
+                repository.latest_x_tweet_created_at(topic="AI热点"),
                 datetime(2026, 8, 5, tzinfo=timezone.utc),
             )
 
@@ -325,12 +357,12 @@ class TopicSyncTests(unittest.TestCase):
             with patch.object(module, "fetch_handle_tweets", side_effect=fake_handle_fetch), \
                  patch.object(module, "fetch_topic_tweets", side_effect=fake_topic_fetch):
                 report = module.sync_x_tweets(
-                    repository, ["OpenAI"], topics=["gpt-5.6"]
+                    repository, ["OpenAI"], topics=["AI热点"]
                 )
             session.commit()
 
         self.assertEqual(report["inserted"], 2)
-        self.assertEqual(report["topics"]["gpt-5.6"]["inserted"], 1)
+        self.assertEqual(report["topics"]["AI热点"]["inserted"], 1)
 
     def test_topic_failure_does_not_block_handles(self):
         from app.repositories.radar_repository import RadarRepository
@@ -343,11 +375,11 @@ class TopicSyncTests(unittest.TestCase):
             repository = RadarRepository(session)
             with patch.object(module, "fetch_handle_tweets", return_value=[make_tweet("h1")]), \
                  patch.object(module, "fetch_topic_tweets", side_effect=fake_topic_fetch):
-                report = module.sync_x_tweets(repository, ["OpenAI"], topics=["gpt-5.6"])
+                report = module.sync_x_tweets(repository, ["OpenAI"], topics=["AI热点"])
             session.commit()
 
         self.assertEqual(report["handles"]["OpenAI"]["inserted"], 1)
-        self.assertIn("UPSTREAM_DOWN", report["topics"]["gpt-5.6"]["error"])
+        self.assertIn("UPSTREAM_DOWN", report["topics"]["AI热点"]["error"])
 
 
 @unittest.skipIf(create_engine is None, "SQLAlchemy is not installed in this environment")

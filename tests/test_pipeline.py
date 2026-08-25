@@ -1519,6 +1519,30 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(attempts[:2], [paragraphs, paragraphs])
         self.assertEqual(attempts[2:], [[paragraphs[0]], [paragraphs[1]]])
 
+    def test_translate_in_chunks_repairs_missing_batch_item_before_alignment_shifts(self):
+        attempts: list[list[str]] = []
+
+        def translate(paragraphs):
+            attempts.append(paragraphs)
+            if len(paragraphs) > 1:
+                # Real provider failure: valid JSON, but one translated item is
+                # silently missing. Accepting this would shift every later
+                # paragraph into the wrong heading/list/code block.
+                return [f"译:{paragraph}" for paragraph in paragraphs[:-1]]
+            return [f"译:{paragraphs[0]}"]
+
+        paragraphs = ["heading", "body", "next heading"]
+        from unittest.mock import patch as mock_patch
+
+        with mock_patch("app.pipeline.runner.time.sleep"):
+            translated = _translate_in_chunks(
+                translate, paragraphs, chunk_char_limit=1600
+            )
+
+        self.assertEqual(translated, [f"译:{paragraph}" for paragraph in paragraphs])
+        self.assertEqual(attempts[:2], [paragraphs, paragraphs])
+        self.assertEqual(attempts[2:], [[paragraph] for paragraph in paragraphs])
+
     def test_translate_in_chunks_backs_off_before_retrying(self):
         # 真实案例：一次刷新里 3 篇长文章的翻译全都撞上同一个
         # "Chat response content is empty"，说明大概率是短时间内大量顺序
@@ -2046,6 +2070,61 @@ class PipelineTests(unittest.TestCase):
                 {"type": "paragraph", "text": "缓存译文三"},
             ],
         )
+
+    def test_cached_translation_with_matching_hash_but_missing_item_is_regenerated(self):
+        article = RawArticle(
+            id="raw-misaligned",
+            source_id="openai_blog",
+            source_name="OpenAI Blog",
+            source_role="authority",
+            source_tier="T1",
+            source_url="https://openai.com/index/misaligned",
+            title="OpenAI ships a model",
+            content="Body",
+            author="OpenAI",
+            published_at=datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+            language="en",
+            raw_score={},
+            metadata={
+                "original_blocks": [
+                    {"type": "heading", "level": 2, "text": "Overview"},
+                    {"type": "paragraph", "text": "First paragraph."},
+                    {"type": "paragraph", "text": "Second paragraph."},
+                ],
+                "translated_paragraphs": ["概览", "第一段。"],
+                "translated_blocks": [
+                    {"type": "heading", "level": 2, "text": "概览"},
+                    {"type": "paragraph", "text": "第一段。"},
+                ],
+            },
+            title_hash="misaligned-title",
+            url_hash="misaligned-url",
+        )
+        source_paragraphs = _translation_paragraphs_for(article)
+        from app.pipeline.runner import _translate_one_article, translation_source_hash
+
+        article.metadata["translation_source_hash"] = translation_source_hash(
+            source_paragraphs
+        )
+        calls: list[list[str]] = []
+
+        def translate(paragraphs):
+            calls.append(paragraphs)
+            return [f"新译:{paragraph}" for paragraph in paragraphs]
+
+        with self.assertLogs("app.pipeline.runner", level="WARNING") as logs:
+            _translate_one_article(article, translate)
+
+        self.assertEqual(calls, [source_paragraphs])
+        self.assertEqual(
+            article.metadata["translated_paragraphs"],
+            [f"新译:{paragraph}" for paragraph in source_paragraphs],
+        )
+        self.assertEqual(
+            [block["type"] for block in article.metadata["translated_blocks"]],
+            ["heading", "paragraph", "paragraph"],
+        )
+        self.assertTrue(any("alignment mismatch" in message for message in logs.output))
 
     def test_pipeline_isolates_single_article_ai_failures(self):
         source = Source(

@@ -533,7 +533,7 @@ class XTweetModel(Base):
     tweet_type: Mapped[str] = mapped_column(String, nullable=False, default="original")
     content_kind: Mapped[str] = mapped_column(String, nullable=False, default="brief", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
-    # 命中的订阅话题，包裹逗号格式（",gpt-5.6,claude-fable-5,"，空 = ""）。
+    # 命中的订阅话题，包裹逗号格式（",U卡推荐,eSIM推荐,"，空 = ""）。
     # 不用 JSON 列做过滤是为了方言中立：LIKE '%,x,%' 在 SQLite（测试）与
     # Postgres（生产）行为一致。原始数组仍在 payload.topics 里。
     topics: Mapped[str] = mapped_column(String, nullable=False, default="", server_default="")

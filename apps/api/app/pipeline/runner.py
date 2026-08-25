@@ -92,6 +92,15 @@ def _translate_in_chunks(
     chunk_chars = 0
 
     def translate_with_retry(batch: list[str]) -> list[str]:
+        def checked_translation() -> list[str]:
+            result = translate(batch)
+            if len(result) != len(batch):
+                raise ValueError(
+                    "translation paragraph count mismatch: "
+                    f"expected {len(batch)}, got {len(result)}"
+                )
+            return result
+
         # long articles now split into many chunks; one transient provider
         # hiccup ("Chat response content is empty" and similar) should not
         # void translation of the entire article. Real-world evidence: 3
@@ -100,10 +109,10 @@ def _translate_in_chunks(
         # a bare immediate retry would likely hit the same limit window, so
         # back off briefly first.
         try:
-            return translate(batch)
+            return checked_translation()
         except Exception:
             time.sleep(2.0)
-            return translate(batch)
+            return checked_translation()
 
     def translate_with_fallback(batch: list[str]) -> list[str]:
         try:
@@ -962,16 +971,32 @@ def _translate_one_article(article: RawArticle, translate: Any) -> None:
             for paragraph in article.metadata.get("translated_paragraphs") or []
             if str(paragraph).strip()
         ]
-        if cached_paragraphs:
+        if len(cached_paragraphs) == len(paragraphs):
             article.metadata["translated_blocks"] = _translated_blocks_for(
                 article,
                 cached_paragraphs,
             )
-        return
+            return
+        logger.warning(
+            "cached translation alignment mismatch for article id=%s: expected %d paragraphs, got %d; regenerating",
+            article.id,
+            len(paragraphs),
+            len(cached_paragraphs),
+        )
 
     try:
         translated_paragraphs = _translate_in_chunks(translate, paragraphs)
     except Exception as exc:
+        # Never keep a positional translation that no longer lines up with the
+        # source blocks. One missing item shifts every following paragraph into
+        # the wrong heading/list/code slot and is much worse than temporarily
+        # showing only the original article.
+        for key in (
+            "translated_paragraphs",
+            "translated_blocks",
+            "translation_source_hash",
+        ):
+            article.metadata.pop(key, None)
         article.metadata["translation_status"] = "failed"
         article.metadata["translation_error"] = str(exc)[:200]
         # silent otherwise: has_translation stays False so this article is
@@ -993,6 +1018,8 @@ def _translate_one_article(article: RawArticle, translate: Any) -> None:
     article.metadata["translation_source_language"] = article.language
     article.metadata["translation_target_language"] = "zh"
     article.metadata["translation_source_hash"] = source_hash
+    article.metadata.pop("translation_status", None)
+    article.metadata.pop("translation_error", None)
 
 
 def _translate_processed_english_articles(

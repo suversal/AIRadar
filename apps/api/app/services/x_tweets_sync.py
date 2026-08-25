@@ -47,8 +47,23 @@ DEFAULT_X_HANDLES = [
     "OpenAI",
     "AnthropicAI",
     "claudeai",
-    "thsottiaux",
+    "ClaudeDevs",
+    "GoogleAI",
+    "GoogleDeepMind",
+    "xai",
     "grok",
+    "AIatMeta",
+    "MicrosoftAI",
+    "MistralAI",
+    "huggingface",
+    "nvidia",
+    "deepseek_ai",
+    "Alibaba_Qwen",
+    "Kimi_Moonshot",
+    "Zai_org",
+    "TencentHunyuan",
+    "ManusAI",
+    "thsottiaux",
     "xiaohu",
     "dotey",
 ]
@@ -56,7 +71,7 @@ DEFAULT_X_HANDLES = [
 #: 与 SP x.yaml 的 topics[].name 保持一致（SP 契约 §5.5 话题订阅）。
 #: 话题推文的作者不在订阅账号列表里，逐 handle 拉取覆盖不到它们，
 #: 必须按话题单独拉。环境变量 SOURCEPILOT_X_TOPICS 覆盖。
-DEFAULT_X_TOPICS = ["u-card", "esim"]
+DEFAULT_X_TOPICS = ["AI热点", "U卡推荐", "eSIM推荐"]
 
 _PAGE_LIMIT = 200  # /x/tweets 的 limit 上限
 _REFRESH_MARGIN = timedelta(days=3)

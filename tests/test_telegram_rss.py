@@ -32,6 +32,29 @@ def telegram_source(**config):
 
 
 class TelegramDescriptionParserTests(unittest.TestCase):
+    def test_trailing_break_inside_bold_title_still_separates_and_dedupes_title(self):
+        parsed = TelegramDescriptionParser(
+            base_url="https://t.me/testchannel/31602",
+            title="苹果发布新款Mac Mini 搭载M6/M5 Pro芯片",
+        ).parse(
+            "<p><b>苹果发布新款Mac Mini 搭载M6/M5 Pro芯片<br></b><br>"
+            "苹果公司发布新款Mac Mini。<br><br>第二段。</p>"
+        )
+
+        self.assertEqual(
+            [block.get("text") for block in parsed["original_blocks"]],
+            ["苹果公司发布新款Mac Mini。", "第二段。"],
+        )
+        self.assertEqual(parsed["original_text"], "苹果公司发布新款Mac Mini。\n\n第二段。")
+
+    def test_legacy_merged_strong_title_prefix_is_removed(self):
+        parsed = TelegramDescriptionParser(
+            base_url="https://t.me/testchannel/31602",
+            title="测试标题",
+        ).parse("<p><b>测试标题</b> 正文内容。</p>")
+
+        self.assertEqual(parsed["original_blocks"], [{"type": "paragraph", "text": "正文内容。"}])
+
     def test_preserves_reply_sources_updates_and_hero_image_without_signatures(self):
         html = """
         <div class="rsshub-quote"><blockquote>
@@ -265,7 +288,7 @@ class TelegramRSSCrawlerTests(unittest.TestCase):
     XML = """<?xml version="1.0" encoding="UTF-8"?>
     <rss version="2.0"><channel><title>测试</title><item>
       <title>🖼 测试标题</title>
-      <description><![CDATA[<p><b>🖼 测试标题</b><br><br>正文</p>]]></description>
+      <description><![CDATA[<p><b>🖼 测试标题<br></b><br>正文</p>]]></description>
       <link>https://t.me/testchannel/42</link>
       <guid isPermaLink="false">https://t.me/testchannel/42</guid>
     </item></channel></rss>"""

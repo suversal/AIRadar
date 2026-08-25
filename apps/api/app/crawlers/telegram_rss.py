@@ -253,10 +253,38 @@ class TelegramDescriptionParser:
                         nested[0] = first
                 blocks.extend(nested)
                 continue
+            inline_value, trailing_breaks = self._extract_trailing_inline_breaks(value)
+            if trailing_breaks:
+                if inline_value.children:
+                    segment.append(inline_value)
+                # RSSHub sometimes emits `<b>title<br></b><br>body`. The first
+                # break belongs to the inline node and the second is its
+                # sibling; counting them together is what preserves the blank
+                # line between the duplicated feed title and the real body.
+                br_count += trailing_breaks
+                continue
             segment.append(value)
         flush_breaks()
         flush_segment()
         return self._finalize_level(blocks)
+
+    @staticmethod
+    def _extract_trailing_inline_breaks(node: _HtmlNode) -> tuple[_HtmlNode, int]:
+        if node.tag not in SAFE_INLINE_TAGS | TRANSPARENT_INLINE_TAGS | {"a", "span", "font"}:
+            return node, 0
+        children = list(node.children)
+        cursor = len(children)
+        while cursor and isinstance(children[cursor - 1], str) and not children[cursor - 1].strip():
+            cursor -= 1
+        break_count = 0
+        while cursor and isinstance(children[cursor - 1], _HtmlNode) and children[cursor - 1].tag == "br":
+            break_count += 1
+            cursor -= 1
+            while cursor and isinstance(children[cursor - 1], str) and not children[cursor - 1].strip():
+                cursor -= 1
+        if not break_count:
+            return node, 0
+        return _HtmlNode(node.tag, dict(node.attrs), children[:cursor]), break_count
 
     def _segment_block(self, values: list[str | _HtmlNode]) -> dict[str, Any] | None:
         if not values:
@@ -420,6 +448,32 @@ class TelegramDescriptionParser:
             actual = self._normalize_for_comparison(str(block.get("text") or ""))
             if expected and actual == expected:
                 return blocks[:index] + blocks[index + 1 :]
+            # Legacy rows parsed `<b>title<br></b><br>body` as one paragraph.
+            # Strip that proven duplicate only when both the plain text and
+            # generated rich HTML confirm an exact leading strong-title run;
+            # a body that merely starts with similar words must stay intact.
+            text = str(block.get("text") or "")
+            title = self.title.strip()
+            suffix = text[len(title) :] if title and text.startswith(title) else ""
+            if suffix and suffix[0].isspace():
+                html = str(block.get("html") or "")
+                escaped_title = html_module.escape(title, quote=False)
+                match = re.match(
+                    rf"^\s*<strong>\s*{re.escape(escaped_title)}\s*</strong>\s*",
+                    html,
+                    re.IGNORECASE,
+                )
+                if match:
+                    repaired = dict(block)
+                    repaired["text"] = suffix.lstrip()
+                    repaired_html = html[match.end() :].lstrip()
+                    if repaired_html and repaired_html != html_module.escape(
+                        repaired["text"], quote=False
+                    ):
+                        repaired["html"] = repaired_html
+                    else:
+                        repaired.pop("html", None)
+                    return blocks[:index] + [repaired] + blocks[index + 1 :]
             break
         return blocks
 
