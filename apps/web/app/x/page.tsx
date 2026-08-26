@@ -226,7 +226,7 @@ export default async function TweetsPage({ searchParams }: { searchParams: XSear
             </p>
           ) : null}
 
-          <div className="mt-2 space-y-2 md:mt-4 md:space-y-3">
+          <div className="mt-2 md:mt-4">
             {tweets.map((tweet) => (
               <TweetCard key={tweet.tweet_id} tweet={tweet} />
             ))}

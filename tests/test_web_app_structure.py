@@ -134,6 +134,12 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn('name: "topic"', all_page)
         self.assertIn("MobileSourceFilter", all_page)
         self.assertIn("overflow-x-auto", mobile_discovery)
+        self.assertIn("const [hasOverflow, setHasOverflow] = useState(false)", mobile_discovery)
+        self.assertIn("lastOption.offsetLeft + lastOption.offsetWidth - firstOption.offsetLeft", mobile_discovery)
+        self.assertIn("contentWidth > nav.clientWidth + 1", mobile_discovery)
+        self.assertIn("new ResizeObserver(updateOverflow)", mobile_discovery)
+        self.assertIn('hasOverflow ? "pr-8" : ""', mobile_discovery)
+        self.assertIn("{hasOverflow ? (", mobile_discovery)
         self.assertIn('aria-label="提交搜索"', mobile_discovery)
         self.assertIn('role="dialog"', source_filter)
         self.assertIn("全部来源", all_page)
@@ -1143,6 +1149,18 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("document.body", tweet_card)
         # 弹层本身仍靠 fixed inset-0 占满视口
         self.assertIn("fixed inset-0 z-50 flex items-center justify-center", tweet_card)
+
+    def test_tweet_list_collapses_adjacent_card_borders(self):
+        x_page = (WEB / "app" / "x" / "page.tsx").read_text(encoding="utf-8")
+        tweet_card = (WEB / "components" / "tweet-card.tsx").read_text(encoding="utf-8")
+
+        self.assertIn('<div className="mt-2 md:mt-4">', x_page)
+        self.assertNotIn("space-y-2 md:mt-4 md:space-y-3", x_page)
+        self.assertIn(
+            '"-mt-px border-x-0 border-y border-line first:mt-0 hover:z-10"',
+            tweet_card,
+        )
+        self.assertIn('? "rounded-md border border-line"', tweet_card)
 
     def test_tweet_external_links_are_deduplicated_before_render(self):
         """SP may emit the same expanded URL more than once. The card must

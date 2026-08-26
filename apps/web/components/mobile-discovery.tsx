@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronRight, Search } from "lucide-react";
 
 type HiddenField = {
@@ -60,18 +60,50 @@ export function MobileCategoryNav({
   label: string;
   options: FilterOption[];
 }) {
+  const navRef = useRef<HTMLElement>(null);
   const activeOptionRef = useRef<HTMLAnchorElement>(null);
+  const [hasOverflow, setHasOverflow] = useState(false);
   const selectedHref = options.find((option) => option.selected)?.href;
+  const optionLabels = options.map((option) => option.label).join("\u0000");
 
-  useEffect(() => {
+  const updateOverflow = useCallback(() => {
+    const nav = navRef.current;
+    const firstOption = nav?.firstElementChild as HTMLAnchorElement | null;
+    const lastOption = nav?.lastElementChild as HTMLAnchorElement | null;
+
+    if (!nav || !firstOption || !lastOption) {
+      setHasOverflow(false);
+      return;
+    }
+
+    // Measure only the options, excluding the conditional padding reserved for
+    // the overlay, so the indicator itself can never create a false overflow.
+    const contentWidth = lastOption.offsetLeft + lastOption.offsetWidth - firstOption.offsetLeft;
+    setHasOverflow(contentWidth > nav.clientWidth + 1);
+  }, []);
+
+  useLayoutEffect(() => {
     activeOptionRef.current?.scrollIntoView({ block: "nearest", inline: "center" });
-  }, [selectedHref]);
+    updateOverflow();
+
+    const nav = navRef.current;
+    if (!nav) return;
+
+    const resizeObserver = new ResizeObserver(updateOverflow);
+    resizeObserver.observe(nav);
+    Array.from(nav.children).forEach((option) => resizeObserver.observe(option));
+
+    return () => resizeObserver.disconnect();
+  }, [hasOverflow, optionLabels, selectedHref, updateOverflow]);
 
   return (
     <div className="relative mt-1.5 md:hidden">
       <nav
+        ref={navRef}
         aria-label={label}
-        className="flex gap-1 overflow-x-auto pr-8 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className={`flex gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+          hasOverflow ? "pr-8" : ""
+        }`}
       >
         {options.map((option) => (
           <a
@@ -89,12 +121,14 @@ export function MobileCategoryNav({
           </a>
         ))}
       </nav>
-      <span
-        aria-hidden
-        className="pointer-events-none absolute inset-y-0 right-0 flex w-10 items-center justify-end bg-gradient-to-l from-canvas via-canvas/95 to-transparent text-ink-dim"
-      >
-        <ChevronRight className="h-4 w-4" strokeWidth={1.75} />
-      </span>
+      {hasOverflow ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 right-0 flex w-10 items-center justify-end bg-gradient-to-l from-canvas via-canvas/95 to-transparent text-ink-dim"
+        >
+          <ChevronRight className="h-4 w-4" strokeWidth={1.75} />
+        </span>
+      ) : null}
     </div>
   );
 }

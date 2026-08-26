@@ -492,7 +492,13 @@ export function TweetCard({ tweet, detail = false }: { tweet: XTweet; detail?: b
     : { text: bodyText, media: [] as ExtractedMedia[] };
 
   return (
-    <article className="card-hover editorial-feed-hover rounded-md border border-line bg-panel p-3 md:p-4">
+    <article
+      className={`card-hover editorial-feed-hover bg-panel p-3 md:p-4 ${
+        detail
+          ? "rounded-md border border-line"
+          : "-mt-px border-x-0 border-y border-line first:mt-0 hover:z-10"
+      }`}
+    >
       <TweetHeader
         onToggleOriginal={
           translation?.display_text_zh
