@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { ExternalLink, Sparkles } from "lucide-react";
 import type { LatestEvent, OriginalBlock } from "@/lib/api";
-import { getEventDetail, getLatestReport } from "@/lib/api";
+import { getEventDetailResult, getLatestReport } from "@/lib/api";
 import { findEventById } from "@/lib/events";
 import { formatRelativeTime } from "@/lib/time";
 import { ArticleReadingToggle } from "./article-reading-toggle";
@@ -92,12 +92,24 @@ export async function generateMetadata({
 }) {
   const { id } = await params;
   const { admin_preview: adminPreview } = await searchParams;
-  const event = await getEventDetail(id);
-  if (!event) {
-    // 这个分支下页面会走 notFound()，但 metadata 仍会被渲染。
-    // 标 noindex 是为了兜住"后端临时不可用导致内容取不到"的情况：
-    // 那时页面结构还在，不标就有被当成一个真实薄页面收录的风险。
+  const detail = await getEventDetailResult(id);
+  if (detail.status === "not_found") {
     return { title: "内容详情", robots: { index: false, follow: false } };
+  }
+
+  // 上游临时失败不能伪装成"页面不存在"并发出 noindex。先用精选列表里
+  // 同一事件的轻量缓存生成稳定 metadata；旧事件不在缓存里时直接抛错，
+  // 让搜索引擎收到可重试的 5xx，而不是永久移除信号。
+  let event: LatestEvent;
+  if (detail.status === "ok") {
+    event = detail.event;
+  } else {
+    const report = await getLatestReport({ limit: 200 });
+    const cachedEvent = findEventById(report.items, id);
+    if (!cachedEvent) {
+      throw new Error(`Event metadata temporarily unavailable: ${detail.error}`);
+    }
+    event = cachedEvent;
   }
 
   // 用后端返回的 event_id 而不是 URL 里的 id 做 canonical：
@@ -308,13 +320,19 @@ export default async function EventDetailPage({
       adminEvent = (await response.json()) as LatestEvent;
     }
   }
-  const report = await getLatestReport();
-  // getEventDetail is the only path that resolves full article content and
+  const report = await getLatestReport({ limit: 200 });
+  // getEventDetailResult is the only path that resolves full article content and
   // per-source coverage (report.items is a lightweight list-view payload) -
   // it must win whenever it resolves; the list match is just a fallback for
   // when there's no database repository configured at all.
+  const detail = adminEvent ? null : await getEventDetailResult(id);
+  if (detail?.status === "upstream_error" && !findEventById(report.items, id)) {
+    throw new Error(`Event detail temporarily unavailable: ${detail.error}`);
+  }
   const event =
-    adminEvent ?? (await getEventDetail(id)) ?? findEventById(report.items, id);
+    adminEvent ??
+    (detail?.status === "ok" ? detail.event : null) ??
+    (detail?.status === "upstream_error" ? findEventById(report.items, id) : null);
 
   if (!event) {
     notFound();

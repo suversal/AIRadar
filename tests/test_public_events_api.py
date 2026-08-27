@@ -9,6 +9,7 @@ from types import SimpleNamespace
 sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 
 from app.api.public import (
+    build_event_sitemap_payload,
     build_latest_selected_payload_from_repository,
     build_period_payload,
     month_range,
@@ -61,6 +62,36 @@ class RangeHelperTests(unittest.TestCase):
 
         self.assertEqual(start, date(2026, 7, 1))
         self.assertEqual(end, date(2026, 7, 31))
+
+
+class EventSitemapPayloadTests(unittest.TestCase):
+    def test_keeps_only_public_canonical_events_with_meaningful_content(self):
+        payload = build_event_sitemap_payload(
+            [
+                make_item(
+                    "evt-main",
+                    is_main=True,
+                    summary="完整摘要",
+                    last_seen_at="2026-07-09T08:00:00+00:00",
+                ),
+                make_item("evt-member", is_main=False, summary="成员摘要"),
+                make_item("evt-hidden", is_main=True, hidden=True, summary="隐藏摘要"),
+                make_item("evt-thin", is_main=True, summary=""),
+            ]
+        )
+
+        self.assertEqual(
+            payload,
+            {
+                "updated_at": "2026-07-09T08:00:00+00:00",
+                "items": [
+                    {
+                        "event_id": "evt-main",
+                        "last_modified": "2026-07-09T08:00:00+00:00",
+                    }
+                ],
+            },
+        )
 
 
 class SlimPeriodItemsTests(unittest.TestCase):
@@ -208,6 +239,31 @@ class PublicEventRouteTests(unittest.TestCase):
         self.assertEqual(found.status_code, 200)
         self.assertEqual(found.json()["event_id"], "evt-known")
         self.assertEqual(missing.status_code, 404)
+
+    def test_event_sitemap_route_returns_selected_main_events(self):
+        client, _ = self._client(
+            self._current_payloads(
+                [
+                    make_item("evt-main", is_main=True, summary="完整摘要"),
+                    make_item("evt-member", is_main=False, summary="成员摘要"),
+                ]
+            )
+        )
+
+        response = client.get("/api/public/sitemap/events")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [item["event_id"] for item in response.json()["items"]],
+            ["evt-main"],
+        )
+
+    def test_event_sitemap_route_validates_days(self):
+        client, _ = self._client({})
+
+        response = client.get("/api/public/sitemap/events?days=0")
+
+        self.assertEqual(response.status_code, 400)
 
     def test_events_route_validates_days(self):
         client, _ = self._client({})

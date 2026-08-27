@@ -411,6 +411,21 @@ export type PeriodArchiveEntry = {
   article_count: number;
 };
 
+export type SitemapEvent = {
+  event_id: string;
+  last_modified: string;
+};
+
+export type SitemapEventsPayload = {
+  updated_at: string | null;
+  items: SitemapEvent[];
+};
+
+export type EventDetailResult =
+  | { status: "ok"; event: LatestEvent }
+  | { status: "not_found" }
+  | { status: "upstream_error"; error: string };
+
 function emptyAllEvents(error: string): AllEventsPayload {
   return {
     report_dates: [],
@@ -712,19 +727,45 @@ export async function getDailyArchive(): Promise<string[]> {
   }
 }
 
-export async function getEventDetail(eventId: string): Promise<LatestEvent | null> {
+export async function getSitemapEvents(): Promise<SitemapEventsPayload | null> {
+  try {
+    const response = await fetch(
+      `${getApiBaseUrl()}/api/public/sitemap/events?days=90`,
+      cacheFor(900),
+    );
+    if (!response.ok) {
+      return null;
+    }
+    return (await response.json()) as SitemapEventsPayload;
+  } catch {
+    return null;
+  }
+}
+
+export async function getEventDetailResult(eventId: string): Promise<EventDetailResult> {
   try {
     const response = await fetch(
       `${getApiBaseUrl()}/api/public/events/${encodeURIComponent(eventId)}`,
       cacheFor(300),
     );
-    if (!response.ok) {
-      return null;
+    if (response.status === 404) {
+      return { status: "not_found" };
     }
-    return (await response.json()) as LatestEvent;
-  } catch {
-    return null;
+    if (!response.ok) {
+      return {
+        status: "upstream_error",
+        error: `events detail 接口返回 ${response.status}`,
+      };
+    }
+    return { status: "ok", event: (await response.json()) as LatestEvent };
+  } catch (error) {
+    return { status: "upstream_error", error: latestLoadErrorMessage(error) };
   }
+}
+
+export async function getEventDetail(eventId: string): Promise<LatestEvent | null> {
+  const result = await getEventDetailResult(eventId);
+  return result.status === "ok" ? result.event : null;
 }
 
 export async function getDailyReport(reportDate: string): Promise<DailyReport> {

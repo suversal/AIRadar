@@ -19,6 +19,7 @@ except ModuleNotFoundError:  # pragma: no cover - lightweight dependency guard
 
 from app.api.public import (
     build_daily_payload_from_repository,
+    build_event_sitemap_payload,
     build_events_payload_from_items,
     build_hotspots_payload,
     build_latest_selected_payload_from_repository,
@@ -360,6 +361,14 @@ def create_app(
             topic=topic,
             limit=limit,
             offset=offset,
+        )
+
+    @app.get("/api/public/sitemap/events")
+    def public_event_sitemap(days: int = 90) -> dict:
+        if days < 1 or days > 365:
+            raise HTTPException(status_code=400, detail="days must be between 1 and 365")
+        return build_event_sitemap_payload(
+            load_event_items(days, selected_only=True)
         )
 
     @app.get("/api/public/telegram")

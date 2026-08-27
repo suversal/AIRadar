@@ -18,6 +18,7 @@ export const dynamic = "force-dynamic";
 export const metadata = {
   title: "AI 月报",
   description: "当月趋势提炼：AI 总述定调，2-3 条趋势线以代表事件为证，附完整榜单。",
+  alternates: { canonical: "/monthly" },
 };
 
 export default function MonthlyPage() {

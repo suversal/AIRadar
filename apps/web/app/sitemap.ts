@@ -1,12 +1,15 @@
 import type { MetadataRoute } from "next";
 import { siteUrl } from "@/lib/site";
 import { TOPIC_SLUGS } from "@/lib/topics";
+import {
+  getDailyArchive,
+  getPeriodArchive,
+  getSitemapEvents,
+} from "@/lib/api";
 
 // 只收录公开的列表/内容入口。/admin 与 /api 由 robots.ts 拦掉，
 // /bookmarks 是浏览器本地收藏、每人不同，收录没有意义。
 //
-// 事件详情页（/event/[id]）暂未纳入：那需要在构建期把全量 id 拉出来，
-// 会让 web 构建依赖 API 可用。列表页已经能把爬虫带到详情页。
 const routes: Array<{
   path: string;
   changeFrequency: MetadataRoute.Sitemap[number]["changeFrequency"];
@@ -34,21 +37,61 @@ const routes: Array<{
   // 两个页面本身照常可访问、照常能从侧栏点到，只是不主动请求收录。
 ];
 
-export default function sitemap(): MetadataRoute.Sitemap {
-  const lastModified = new Date();
-  return [
-    ...routes,
+export const revalidate = 900;
+
+function validLastModified(value?: string | null): string | undefined {
+  if (!value || Number.isNaN(Date.parse(value))) {
+    return undefined;
+  }
+  return value;
+}
+
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const [eventPayload, dailyDates, weeklyArchive, monthlyArchive] = await Promise.all([
+    getSitemapEvents(),
+    getDailyArchive(),
+    getPeriodArchive("weekly"),
+    getPeriodArchive("monthly"),
+  ]);
+
+  const entries: MetadataRoute.Sitemap = [
+    ...routes.map(({ path, changeFrequency, priority }) => ({
+      url: new URL(path, siteUrl).toString(),
+      changeFrequency,
+      priority,
+    })),
     // 主题详情页是全站的长尾搜索入口("Claude 最新动态"这类查询),
     // slug 来自前端镜像注册表,不依赖构建期 API 可达
     ...TOPIC_SLUGS.map((slug) => ({
-      path: `/topics/${slug}`,
+      url: new URL(`/topics/${slug}`, siteUrl).toString(),
       changeFrequency: "daily" as const,
       priority: 0.6,
     })),
-  ].map(({ path, changeFrequency, priority }) => ({
-    url: new URL(path, siteUrl).toString(),
-    lastModified,
-    changeFrequency,
-    priority,
-  }));
+    ...(eventPayload?.items ?? []).map((item) => ({
+      url: new URL(`/event/${item.event_id}`, siteUrl).toString(),
+      lastModified: validLastModified(item.last_modified),
+      changeFrequency: "weekly" as const,
+      priority: 0.7,
+    })),
+    ...dailyDates.map((date) => ({
+      url: new URL(`/daily?date=${encodeURIComponent(date)}`, siteUrl).toString(),
+      lastModified: validLastModified(date),
+      changeFrequency: "never" as const,
+      priority: 0.6,
+    })),
+    ...weeklyArchive.map((entry) => ({
+      url: new URL(`/weekly/${entry.period_key}`, siteUrl).toString(),
+      lastModified: validLastModified(entry.range_end),
+      changeFrequency: "never" as const,
+      priority: 0.6,
+    })),
+    ...monthlyArchive.map((entry) => ({
+      url: new URL(`/monthly/${entry.period_key}`, siteUrl).toString(),
+      lastModified: validLastModified(entry.range_end),
+      changeFrequency: "never" as const,
+      priority: 0.6,
+    })),
+  ];
+
+  return Array.from(new Map(entries.map((entry) => [entry.url, entry])).values());
 }

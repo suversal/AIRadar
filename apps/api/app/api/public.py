@@ -14,6 +14,48 @@ from app.services.topics import item_matches_topic, topic_by_id
 WEEK_DAYS = 7
 
 
+def build_event_sitemap_payload(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return one stable, public URL entry per index-worthy event.
+
+    The public events repository already removes hidden rows. Keep the explicit
+    hidden check here as a second line of defence because tests and alternative
+    repository implementations may provide a less filtered list.
+
+    A sitemap is an indexing recommendation, not a dump of every database row:
+    only canonical main items with a title and a meaningful summary qualify.
+    """
+
+    entries_by_id: dict[str, dict[str, str]] = {}
+    for item in items:
+        if item.get("hidden") or not item.get("is_main", True):
+            continue
+        event_id = str(item.get("event_id") or "").strip()
+        title = str(item.get("title") or "").strip()
+        summary = str(
+            item.get("summary") or item.get("one_line_summary") or ""
+        ).strip()
+        if not event_id or not title or not summary:
+            continue
+
+        last_modified = str(
+            item.get("last_seen_at") or item.get("published_at") or ""
+        ).strip()
+        candidate = {"event_id": event_id, "last_modified": last_modified}
+        existing = entries_by_id.get(event_id)
+        if existing is None or last_modified > existing["last_modified"]:
+            entries_by_id[event_id] = candidate
+
+    entries = sorted(
+        entries_by_id.values(),
+        key=lambda entry: (entry["last_modified"], entry["event_id"]),
+        reverse=True,
+    )
+    return {
+        "updated_at": entries[0]["last_modified"] if entries else None,
+        "items": entries,
+    }
+
+
 def week_range(anchor: date) -> tuple[date, date]:
     return anchor - timedelta(days=WEEK_DAYS - 1), anchor
 

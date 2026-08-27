@@ -18,6 +18,7 @@ export const dynamic = "force-dynamic";
 export const metadata = {
   title: "AI 周报",
   description: "本周日报的汇总提炼：AI 主线综述与各栏目概述，入选名单全量露出。",
+  alternates: { canonical: "/weekly" },
 };
 
 export default function WeeklyPage() {
