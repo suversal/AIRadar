@@ -11,6 +11,14 @@ import { ThemeInitScript } from "@/components/theme-init-script";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { siteDescription, siteTitle, siteUrl } from "@/lib/site";
 
+const websiteStructuredData = JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: "AI·RADAR",
+  alternateName: ["AI RADAR", "AIRADAR"],
+  url: `${siteUrl.replace(/\/$/, "")}/`,
+}).replace(/</g, "\\u003c");
+
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
@@ -52,6 +60,10 @@ export default function RootLayout({
   return (
     <html lang="zh-CN" className="scroll-smooth" suppressHydrationWarning>
       <head>
+        <script
+          dangerouslySetInnerHTML={{ __html: websiteStructuredData }}
+          type="application/ld+json"
+        />
         <meta
           id={THEME_COLOR_META_ID}
           name="theme-color"

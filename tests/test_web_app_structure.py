@@ -239,6 +239,16 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("mobile-app-chrome", mobile_nav)
         self.assertIn(".theme-transition .mobile-app-chrome", globals_css)
 
+    def test_layout_declares_preferred_google_site_name(self):
+        layout = (WEB / "app" / "layout.tsx").read_text(encoding="utf-8")
+
+        self.assertIn('"@type": "WebSite"', layout)
+        self.assertIn('name: "AI·RADAR"', layout)
+        self.assertIn('alternateName: ["AI RADAR", "AIRADAR"]', layout)
+        self.assertIn('type="application/ld+json"', layout)
+        self.assertIn('url: `${siteUrl.replace(/\\/$/, "")}/`', layout)
+        self.assertIn('.replace(/</g, "\\\\u003c")', layout)
+
     def test_mobile_nav_buttons_follow_brand_and_sticky_summary(self):
         mobile_nav = (WEB / "components" / "mobile-nav.tsx").read_text(encoding="utf-8")
         date_group = (WEB / "components" / "date-group-section.tsx").read_text(encoding="utf-8")
