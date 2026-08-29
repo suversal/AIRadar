@@ -3,6 +3,10 @@ from __future__ import annotations
 from urllib.parse import quote
 
 from app.models.domain import Source
+from app.services.x_tweet_articles import (
+    X_TWEET_ACCOUNT_SOURCE_ID,
+    X_TWEET_TOPIC_SOURCE_ID,
+)
 
 # SourcePilot 公众号信源(Phase 1 接入,2026-08-04)。
 # 每行: (id 后缀, 公众号名, tier, source_role, category, 跳预筛, recent_days)
@@ -36,6 +40,42 @@ _SP_WECHAT_ACCOUNTS: list[tuple[str, str, str, str, str, bool, int]] = [
     ("qbitai", "量子位", "T2", "context", "media", False, 3),
     ("jiqizhixin", "机器之心", "T2", "context", "media", False, 3),
 ]
+
+
+def _internal_x_tweet_sources() -> list[Source]:
+    """Pipeline identities for mirrored tweets, never network crawlers."""
+    return [
+        Source(
+            id=X_TWEET_ACCOUNT_SOURCE_ID,
+            name="X 推文 · 订阅账号",
+            source_role="signal",
+            tier="T2",
+            type="internal",
+            category="community",
+            url="internal://x/account",
+            homepage="https://x.com",
+            allowed_domains=["x.com"],
+            fetch_interval_min=0,
+            can_be_main_source=True,
+            is_active=False,
+            config={"internal_only": True, "recent_days": 7},
+        ),
+        Source(
+            id=X_TWEET_TOPIC_SOURCE_ID,
+            name="X 推文 · AI热点",
+            source_role="signal",
+            tier="T3",
+            type="internal",
+            category="community",
+            url="internal://x/topic",
+            homepage="https://x.com",
+            allowed_domains=["x.com"],
+            fetch_interval_min=0,
+            can_be_main_source=True,
+            is_active=False,
+            config={"internal_only": True, "recent_days": 7},
+        ),
+    ]
 
 
 def _sourcepilot_wechat_sources() -> list[Source]:
@@ -708,4 +748,5 @@ def default_sources() -> list[Source]:
             config={"use_curl": True},
         ),
         *_sourcepilot_wechat_sources(),
+        *_internal_x_tweet_sources(),
     ]

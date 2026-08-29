@@ -3,6 +3,7 @@ from __future__ import annotations
 import calendar
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.services.taxonomy import (
     display_category,
@@ -12,6 +13,30 @@ from app.services.taxonomy import (
 from app.services.topics import item_matches_topic, topic_by_id
 
 WEEK_DAYS = 7
+HOTSPOT_TIMEZONE = ZoneInfo("Asia/Shanghai")
+
+
+def hotspot_window_start(anchor: datetime, hours: int) -> datetime:
+    """Resolve hotspot windows using the product's calendar-day semantics.
+
+    Whole-day windows follow the relative day labels shown in the UI. For
+    example, ``hours=48`` includes today and yesterday in Asia/Shanghai.
+    Non-day durations retain rolling-hour behavior.
+    """
+    if anchor.tzinfo is None:
+        anchor = anchor.replace(tzinfo=timezone.utc)
+    if hours % 24:
+        return anchor - timedelta(hours=hours)
+
+    local_anchor = anchor.astimezone(HOTSPOT_TIMEZONE)
+    day_count = max(hours // 24, 1)
+    start_date = local_anchor.date() - timedelta(days=day_count - 1)
+    local_start = datetime.combine(
+        start_date,
+        datetime.min.time(),
+        tzinfo=HOTSPOT_TIMEZONE,
+    )
+    return local_start.astimezone(timezone.utc)
 
 
 def build_event_sitemap_payload(items: list[dict[str, Any]]) -> dict[str, Any]:
@@ -236,10 +261,15 @@ def build_hotspots_payload(
     limit: int = 5,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """多信源优先热点榜:窗口内 source_count >= 2 的事件按 (信源数, 评分)
-    降序排在前,剩余名额用其余事件按评分补足。"""
+    """Calendar-window hotspot board.
+
+    Multi-source events lead, ranked by reports published inside the window,
+    then distinct window sources and score. Lifetime event coverage never
+    contributes to these window metrics. Remaining slots use the same ranking
+    without the multi-source requirement.
+    """
     anchor = now or datetime.now(timezone.utc)
-    window_start = anchor - timedelta(hours=hours)
+    window_start = hotspot_window_start(anchor, hours)
     eligible: list[dict[str, Any]] = []
     for item in items:
         if item.get("hidden"):
@@ -262,19 +292,38 @@ def build_hotspots_payload(
         except (TypeError, ValueError):
             return 0.0
 
-    def _sources(item: dict[str, Any]) -> int:
+    def _count(item: dict[str, Any], window_key: str, fallback_key: str) -> int:
+        raw = item.get(window_key) if window_key in item else item.get(fallback_key)
         try:
-            return max(int(item.get("source_count") or 1), 1)
+            return max(int(raw or 0), 0)
         except (TypeError, ValueError):
-            return 1
+            return 0
+
+    def _reports(item: dict[str, Any]) -> int:
+        return _count(item, "window_report_count", "source_count")
+
+    def _sources(item: dict[str, Any]) -> int:
+        return _count(item, "window_source_count", "source_count")
+
+    def _seen_timestamp(item: dict[str, Any]) -> float:
+        seen_at = _hotspot_seen_at(item)
+        return seen_at.timestamp() if seen_at is not None else 0.0
+
+    def _rank(item: dict[str, Any]) -> tuple[int, int, float, float, str]:
+        return (
+            -_reports(item),
+            -_sources(item),
+            -_score(item),
+            -_seen_timestamp(item),
+            str(item.get("event_id") or ""),
+        )
 
     multi = sorted(
         (item for item in eligible if _sources(item) >= 2),
-        key=lambda item: (-_sources(item), -_score(item)),
+        key=_rank,
     )
     rest = sorted(
-        (item for item in eligible if _sources(item) < 2),
-        key=lambda item: -_score(item),
+        (item for item in eligible if _sources(item) < 2), key=_rank
     )
     board = (multi + rest)[:limit]
     return {

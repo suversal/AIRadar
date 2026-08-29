@@ -1,5 +1,5 @@
 import { getTweets, type XTweet } from "@/lib/api";
-import { MobileCategoryNav } from "@/components/mobile-discovery";
+import { MobileCategoryNav, MobileSearchForm } from "@/components/mobile-discovery";
 import { MobileNav } from "@/components/mobile-nav";
 import { RadarStatus } from "@/components/radar-status";
 import { Sidebar } from "@/components/sidebar";
@@ -20,6 +20,7 @@ type XSearchParams = Promise<{
   kind?: string | string[];
   handle?: string | string[];
   topic?: string | string[];
+  q?: string | string[];
   offset?: string | string[];
 }>;
 
@@ -72,11 +73,13 @@ function xHref({
   kind,
   handle,
   topic,
+  q,
   offset,
 }: {
   kind?: string;
   handle?: string;
   topic?: string;
+  q?: string;
   offset?: number;
 }) {
   const params = new URLSearchParams();
@@ -88,6 +91,9 @@ function xHref({
   }
   if (topic) {
     params.set("topic", topic);
+  }
+  if (q) {
+    params.set("q", q);
   }
   if (offset && offset > 0) {
     params.set("offset", String(offset));
@@ -102,12 +108,14 @@ export default async function TweetsPage({ searchParams }: { searchParams: XSear
   const selectedKind = VALID_KINDS.has(rawKind) ? rawKind : "";
   const selectedHandle = firstQueryValue(resolved.handle)?.trim() ?? "";
   const selectedTopic = firstQueryValue(resolved.topic)?.trim() ?? "";
+  const query = firstQueryValue(resolved.q)?.trim() ?? "";
   const offset = Math.max(0, Number.parseInt(firstQueryValue(resolved.offset) ?? "0", 10) || 0);
 
   const payload = await getTweets({
     kind: selectedKind || undefined,
     handle: selectedHandle || undefined,
     topic: selectedTopic || undefined,
+    q: query || undefined,
     limit: PAGE_SIZE,
     offset,
   });
@@ -116,9 +124,9 @@ export default async function TweetsPage({ searchParams }: { searchParams: XSear
   const hasNext = offset + tweets.length < payload.total;
 
   const topicOptions = [
-    { href: xHref({ kind: selectedKind, handle: selectedHandle }), label: "全部话题", selected: !selectedTopic },
+    { href: xHref({ kind: selectedKind, handle: selectedHandle, q: query }), label: "全部话题", selected: !selectedTopic },
     ...payload.topics.map((topic) => ({
-      href: xHref({ kind: selectedKind, handle: selectedHandle, topic }),
+      href: xHref({ kind: selectedKind, handle: selectedHandle, topic, q: query }),
       label: topic,
       selected: selectedTopic === topic,
     })),
@@ -130,7 +138,7 @@ export default async function TweetsPage({ searchParams }: { searchParams: XSear
         <Sidebar activeNavId="x" />
         <MobileNav activeNavId="x" />
 
-        <section className="w-full min-w-0 max-w-[1120px] justify-self-center px-4 pb-8 pt-3 md:px-8 md:py-8 xl:px-12">
+        <section className="w-full min-w-0 max-w-[1320px] justify-self-center px-4 pb-8 pt-3 md:px-8 md:py-8 xl:px-12">
           <header className="editorial-surface py-1 md:py-2">
             <RadarStatus
               compactScope="X"
@@ -150,10 +158,20 @@ export default async function TweetsPage({ searchParams }: { searchParams: XSear
               </div>
             </div>
 
+            <MobileSearchForm
+              action="/x"
+              defaultValue={query}
+              hiddenFields={[
+                ...(selectedKind ? [{ name: "kind", value: selectedKind }] : []),
+                ...(selectedHandle ? [{ name: "handle", value: selectedHandle }] : []),
+                ...(selectedTopic ? [{ name: "topic", value: selectedTopic }] : []),
+              ]}
+              placeholder="搜索推文内容或作者"
+            />
             <MobileCategoryNav
               label="推文形态"
               options={kindOptions.map(([kind, label]) => ({
-                href: xHref({ kind, handle: selectedHandle, topic: selectedTopic }),
+                href: xHref({ kind, handle: selectedHandle, topic: selectedTopic, q: query }),
                 label: kind === "" ? "全部类型" : label,
                 selected: selectedKind === kind,
               }))}
@@ -162,41 +180,79 @@ export default async function TweetsPage({ searchParams }: { searchParams: XSear
               <MobileCategoryNav label="订阅话题" options={topicOptions} />
             ) : null}
 
-            <div className="mt-4 hidden gap-3 md:grid xl:grid-cols-[1fr_minmax(280px,auto)]">
-              <div className="flex flex-wrap gap-1.5 rounded-md border border-line bg-canvas p-1.5">
-                {kindOptions.map(([kind, label]) => (
-                  <a
-                    className={`flex min-h-10 items-center rounded-md px-4 py-1.5 text-sm font-medium ${
-                      selectedKind === kind
-                        ? "bg-signal/15 text-signal"
-                        : "text-ink-mid hover:bg-panel-soft hover:text-ink"
-                    }`}
-                    href={xHref({ kind, handle: selectedHandle, topic: selectedTopic })}
-                    key={kind || "all"}
-                    title={kindHints[kind]}
-                  >
-                    {label}
-                  </a>
-                ))}
+            <div className="mt-5 hidden border-y border-line md:grid xl:grid-cols-[minmax(0,1fr)_360px]">
+              <div className="min-w-0 py-2.5 xl:pr-5">
+                <nav aria-label="推文类型" className="flex min-w-0 items-start gap-4">
+                  <span className="readout w-10 shrink-0 py-2 text-[10px] uppercase tracking-[0.12em] text-ink-dim">
+                    类型
+                  </span>
+                  <div className="flex min-w-0 flex-wrap gap-x-5 gap-y-0.5">
+                    {kindOptions.map(([kind, label]) => (
+                      <a
+                        aria-current={selectedKind === kind ? "page" : undefined}
+                        className={`flex min-h-8 items-center border-b px-0.5 text-sm font-medium transition-colors ${
+                          selectedKind === kind
+                            ? "border-signal text-signal"
+                            : "border-transparent text-ink-mid hover:border-line-strong hover:text-ink"
+                        }`}
+                        href={xHref({ kind, handle: selectedHandle, topic: selectedTopic, q: query })}
+                        key={kind || "all"}
+                        title={kindHints[kind]}
+                      >
+                        {label}
+                      </a>
+                    ))}
+                  </div>
+                </nav>
+                {payload.topics.length > 0 ? (
+                  <nav aria-label="订阅话题" className="mt-0.5 flex min-w-0 items-start gap-4">
+                    <span className="readout w-10 shrink-0 py-2 text-[10px] uppercase tracking-[0.12em] text-ink-dim">
+                      话题
+                    </span>
+                    <div className="flex min-w-0 flex-wrap gap-x-5 gap-y-0.5">
+                      {topicOptions.map((option) => (
+                        <a
+                          aria-current={option.selected ? "page" : undefined}
+                          className={`flex min-h-8 items-center border-b px-0.5 text-sm font-medium transition-colors ${
+                            option.selected
+                              ? "border-signal text-signal"
+                              : "border-transparent text-ink-mid hover:border-line-strong hover:text-ink"
+                          }`}
+                          href={option.href}
+                          key={option.href}
+                        >
+                          {option.label}
+                        </a>
+                      ))}
+                    </div>
+                  </nav>
+                ) : null}
               </div>
 
-              {payload.topics.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5 rounded-md border border-line bg-canvas p-1.5">
-                  {topicOptions.map((option) => (
-                    <a
-                      className={`flex min-h-10 items-center rounded-md px-4 py-1.5 text-sm font-medium ${
-                        option.selected
-                          ? "bg-signal/15 text-signal"
-                          : "text-ink-mid hover:bg-panel-soft hover:text-ink"
-                      }`}
-                      href={option.href}
-                      key={option.href}
-                    >
-                      {option.label}
-                    </a>
-                  ))}
-                </div>
-              ) : null}
+              <form
+                action="/x"
+                aria-label="搜索推文"
+                className="grid min-w-0 grid-cols-[1fr_auto] border-t border-line xl:border-l xl:border-t-0"
+              >
+                {selectedKind ? <input name="kind" type="hidden" value={selectedKind} /> : null}
+                {selectedHandle ? <input name="handle" type="hidden" value={selectedHandle} /> : null}
+                {selectedTopic ? <input name="topic" type="hidden" value={selectedTopic} /> : null}
+                <label className="sr-only" htmlFor="x-search">搜索推文内容或作者</label>
+                <input
+                  id="x-search"
+                  className="relative z-0 min-h-12 min-w-0 bg-transparent px-4 py-2 text-sm text-ink outline-none placeholder:text-ink-dim focus:bg-panel-soft/35 focus-visible:z-10"
+                  defaultValue={query}
+                  name="q"
+                  placeholder="搜索推文内容/标题/作者..."
+                  type="search"
+                />
+                <button
+                  className="min-h-12 cursor-pointer border-l border-line px-5 py-2 text-sm font-medium text-signal transition-colors hover:bg-signal/10 hover:text-signal-bright focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal"
+                  type="submit"
+                >
+                  搜索
+                </button>
+              </form>
             </div>
           </header>
 
@@ -213,7 +269,7 @@ export default async function TweetsPage({ searchParams }: { searchParams: XSear
               </span>
               <a
                 className="text-ink-mid hover:text-ink"
-                href={xHref({ kind: selectedKind, topic: selectedTopic })}
+                href={xHref({ kind: selectedKind, topic: selectedTopic, q: query })}
               >
                 清除
               </a>
@@ -222,7 +278,7 @@ export default async function TweetsPage({ searchParams }: { searchParams: XSear
 
           {!payload.error && tweets.length === 0 ? (
             <p className="mt-4 rounded-md border border-line bg-panel p-4 text-sm text-ink-mid">
-              这个筛选下还没有推文。
+              {query ? `没有找到包含“${query}”的推文。` : "这个筛选下还没有推文。"}
             </p>
           ) : null}
 
@@ -241,6 +297,7 @@ export default async function TweetsPage({ searchParams }: { searchParams: XSear
                     kind: selectedKind,
                     handle: selectedHandle,
                     topic: selectedTopic,
+                    q: query,
                     offset: Math.max(0, offset - PAGE_SIZE),
                   })}
                 >
@@ -256,6 +313,7 @@ export default async function TweetsPage({ searchParams }: { searchParams: XSear
                     kind: selectedKind,
                     handle: selectedHandle,
                     topic: selectedTopic,
+                    q: query,
                     offset: offset + PAGE_SIZE,
                   })}
                 >

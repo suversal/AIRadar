@@ -515,8 +515,8 @@ class RefreshScheduleModel(Base):
 class XTweetModel(Base):
     """SourcePilot `/api/v1/x/tweets` 的本地镜像（Phase 4）。
 
-    推文不进 LLM 管线（接入方案决策 4），独立于 raw_articles 存一份、随整库
-    同步上云。`payload` 存 SP 返回的整条推文原样——渲染所需字段（display_text、
+    推文先独立于 raw_articles 存一份、随整库同步上云；符合资格的新原创推文
+    可从镜像转换后进入既有 LLM 管线。`payload` 存 SP 返回的整条推文原样——渲染所需字段（display_text、
     互动数、external_urls、引用/转发链）全在里面，SP 契约 minor 升级加字段时
     这边零迁移；单列拎出来的只有过滤与排序要用的几个。
 
@@ -544,6 +544,13 @@ class XTweetModel(Base):
     # 或 {skipped: "zh", source_hash}（原文已是中文）。source_hash 对齐原文，
     # 长文正文后补导致 display_text 变了会触发重翻。
     translation: Mapped[Optional[dict]] = mapped_column(JSON)
+    # Historical rows stay in the standalone /x mirror.  Only rows first
+    # inserted after the article-pipeline migration can be opted in; later
+    # payload refreshes must never turn old history into a backfill.
+    article_pipeline_eligible: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false", index=True
+    )
+    article_pipeline_source_id: Mapped[Optional[str]] = mapped_column(String)
     first_synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

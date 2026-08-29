@@ -32,6 +32,8 @@ AUTO_SEEDED_SOURCE_IDS = {
     "telegram_zaihuapd",
     "telegram_xhqcankao",
     "telegram_dnspodt",
+    "x_tweet_account",
+    "x_tweet_topic",
 }
 
 
@@ -396,11 +398,12 @@ def _run_refresh(
     sources = _load_sources(database_url, sources_path)
 
     raw_articles, crawl_report = crawl_sources(sources)
+    x_article_report: dict[str, Any] | None = None
 
     # X 推文镜像同步（SourcePilot Phase 4）。挂在应用内定时 refresh 里，而不是
     # run_scheduled_refresh.sh——后者早已不是活跃入口（实测停在 2026-08-06），
-    # 真正在跑的是这条 refresh_latest_report 链路。推文走独立同步表、不进 LLM
-    # 管线，所以放在 crawl 之后、pipeline 之前，与 raw_articles 互不相干。
+    # 真正在跑的是这条 refresh_latest_report 链路。推文先走独立同步表；开启
+    # 精选接入后，仅合格原创会在下方转换成 RawArticle，仍不发生第二次抓取。
     # best-effort：SP 不在线不该拦住 AR 出日报。
     if database_url:
         try:
@@ -440,6 +443,34 @@ def _run_refresh(
         except Exception:
             logger.warning("X tweets translation failed during refresh", exc_info=True)
 
+        # Eligible originals join the ordinary pipeline only after SP mirror
+        # sync + translation.  This is a database-to-domain conversion: no
+        # crawler, no second SP request and no attempt to fetch the X page.
+        if os.getenv("X_TWEET_ARTICLE_PIPELINE_ENABLED", "false").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            try:
+                from app.db.session import build_session_factory, session_scope
+                from app.repositories.radar_repository import RadarRepository
+                from app.services.x_tweet_articles import load_x_tweet_articles
+
+                session_factory = build_session_factory(database_url)
+                with session_scope(session_factory) as session:
+                    x_articles, x_article_report = load_x_tweet_articles(
+                        RadarRepository(session),
+                        sources,
+                        now=generated_at,
+                        recent_days=_env_int("X_TWEET_ARTICLE_PIPELINE_RECENT_DAYS", 7),
+                        limit=_env_int("X_TWEET_ARTICLE_PIPELINE_BATCH_LIMIT", 100),
+                    )
+                raw_articles.extend(x_articles)
+                logger.info("X tweet article pipeline candidates: %s", x_article_report)
+            except Exception:
+                logger.warning("X tweet article conversion failed during refresh", exc_info=True)
+
     # 只处理最近 N 天发布(上海时区,2026-07-12 深夜决策,2026-07-15 从固定
     # "仅当天"改为按信源 config.recent_days 配置):feed 的陈年存量在
     # intake 之前出局,不入库、不进任何统计;标记 ingest_all_dates 的源
@@ -455,6 +486,20 @@ def _run_refresh(
         recent_days_by_source={source.id: source_recent_days(source) for source in sources},
     )
     _persist_source_health(database_url, crawl_report.get("per_source", {}))
+    # Internal X identities are observable like sources in this run, but they
+    # are deliberately added only after real crawler health is persisted.
+    if x_article_report is not None:
+        for source_id, count in x_article_report.get("by_source", {}).items():
+            crawl_report.setdefault("per_source", {})[source_id] = {
+                "status": "ok",
+                "article_count": count,
+                "fetched_count": count,
+                "duration_ms": 0,
+                "error": None,
+                "pipeline_candidates": x_article_report.get("candidates", 0),
+                "conversion_failed": x_article_report.get("failed", 0),
+            }
+        crawl_report["x_article_pipeline"] = x_article_report
     # 紧跟在健康写入之后：此时 error_count 已经是本轮更新后的值
     _alert_persistently_failing_sources(database_url)
     # 缓存快照必须在 intake 之前拍:它代表"本轮开始前库里已有什么",
@@ -631,6 +676,7 @@ def _run_refresh(
         "article_count": result.daily_report.article_count,
         "skipped_reasons": result.skipped_reasons,
         "crawl_skipped_reasons": crawl_report.get("skipped_reasons", {}),
+        "x_article_pipeline": x_article_report,
         "persisted": persistence_summary is not None,
         "raw_path": str(raw_path),
         "crawl_report_path": str(crawl_report_path),

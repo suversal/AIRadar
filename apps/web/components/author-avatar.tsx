@@ -22,9 +22,15 @@ export function AuthorAvatar({
       </span>
     );
   }
+  // X avatars are already restricted to Twitter's image CDN by the upstream
+  // contract. Loading this one host in the browser also avoids local proxy
+  // fake-IP DNS (198.18/15), while every other remote avatar stays proxied.
+  const imageUrl = /^https:\/\/pbs\.twimg\.com\//i.test(src)
+    ? src
+    : proxiedImageUrl(src);
   return (
     <img
-      src={proxiedImageUrl(src)}
+      src={imageUrl}
       alt={`${name}头像`}
       className={`${sizeClassName} shrink-0 rounded-full border border-line-strong object-cover`}
       loading="lazy"

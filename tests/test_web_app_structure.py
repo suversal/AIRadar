@@ -92,15 +92,35 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("getHotspots", latest_page)
         self.assertIn("const HOTSPOT_LIMIT = 10", latest_page)
         self.assertIn("limit: HOTSPOT_LIMIT", latest_page)
+        self.assertIn("近 2 日热点", latest_page)
+        self.assertIn("近 2 个自然日", latest_page)
+        self.assertNotIn("48 小时热点", latest_page)
         # the board must rank by the hotspot rule, not slice the feed
         self.assertNotIn("filteredItems.slice(0, 5)", latest_page)
 
-    def test_latest_and_all_event_cards_share_the_same_source_line(self):
+    def test_desktop_search_inputs_keep_the_right_focus_edge_visible(self):
+        for path in ["all", "x", "telegram"]:
+            page = (WEB / "app" / path / "page.tsx").read_text(encoding="utf-8")
+            self.assertIn("relative z-0", page)
+            self.assertIn("focus-visible:z-10", page)
+
+    def test_x_identity_is_compact_in_lists_and_expanded_on_detail(self):
         event_card = (WEB / "components" / "event-card.tsx").read_text(encoding="utf-8")
+        event_detail = (WEB / "app" / "event" / "[id]" / "page.tsx").read_text(encoding="utf-8")
         latest_feed = (WEB / "components" / "latest-events-feed.tsx").read_text(encoding="utf-8")
         all_feed = (WEB / "components" / "all-events-feed.tsx").read_text(encoding="utf-8")
 
         self.assertIn('{item.main_source?.name ?? "未知来源"} · {item.source_count ?? 1} 个来源', event_card)
+        self.assertIn("item.main_source?.handle", event_card)
+        self.assertIn("item.main_source.display_name", event_card)
+        self.assertIn(">X ·</span>", event_card)
+        self.assertNotIn("item.main_source.avatar_url", event_card)
+        self.assertNotIn("<AuthorAvatar", event_card)
+        self.assertIn("event.main_source.display_name", event_detail)
+        self.assertIn("event.main_source.avatar_url", event_detail)
+        self.assertIn("<AuthorAvatar", event_detail)
+        self.assertIn('sizeClassName="size-5 md:size-6"', event_detail)
+        self.assertIn("pbs\\.twimg\\.com", (WEB / "components" / "author-avatar.tsx").read_text(encoding="utf-8"))
         for feed in [latest_feed, all_feed]:
             self.assertNotIn("function sourceLine", feed)
             self.assertNotIn("sourceLine=", feed)
@@ -437,7 +457,8 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("divide-y divide-line/70", latest_page)
         self.assertIn("grid grid-cols-[28px_1fr_auto]", latest_page)
         self.assertIn("py-2.5 text-sm md:py-3", latest_page)
-        self.assertIn("{item.source_count ?? 1} 个信源", latest_page)
+        self.assertIn("item.window_report_count ?? item.source_count ?? 1", latest_page)
+        self.assertIn("item.window_source_count ?? item.source_count ?? 1", latest_page)
         self.assertIn('index > 2 ? "hidden 2xl:block"', latest_page)
 
     def test_latest_page_uses_aceternity_background_without_bento_cards(self):
@@ -503,8 +524,26 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("getTelegramEvents", telegram_page)
         self.assertIn('activeNavId="telegram"', telegram_page)
         self.assertIn("payload.channels.map", telegram_page)
+        self.assertIn("MobileSearchForm", telegram_page)
+        self.assertIn('name="q"', telegram_page)
+        self.assertIn("q: query || undefined", telegram_page)
+        self.assertIn("xl:grid-cols-[minmax(0,1fr)_360px]", telegram_page)
+        self.assertIn("xl:border-l xl:border-t-0", telegram_page)
+        self.assertIn("url.searchParams.get(\"q\")", (WEB / "app" / "api" / "telegram-events" / "route.ts").read_text(encoding="utf-8"))
         self.assertLess(nav.index('label: "推文"'), nav.index('label: "电报"'))
         self.assertLess(nav.index('label: "电报"'), nav.index('label: "全部"'))
+
+    def test_x_page_search_preserves_kind_topic_and_paging_filters(self):
+        x_page = (WEB / "app" / "x" / "page.tsx").read_text(encoding="utf-8")
+        api_source = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
+
+        self.assertIn("MobileSearchForm", x_page)
+        self.assertIn('name="q"', x_page)
+        self.assertIn("q: query || undefined", x_page)
+        self.assertIn("q: query,", x_page)
+        self.assertIn("xl:grid-cols-[minmax(0,1fr)_360px]", x_page)
+        self.assertIn("xl:border-l xl:border-t-0", x_page)
+        self.assertIn('search.set("q", params.q)', api_source)
 
     def test_admin_dashboard_exposes_refresh_report_button(self):
         button_source = (WEB / "app" / "admin" / "refresh-report-button.tsx").read_text(encoding="utf-8")
@@ -574,12 +613,14 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("event.source_count ?? 1", event_page)
         self.assertIn("event.coverage.length", event_page)
 
-    def test_hotspot_list_displays_source_count_without_report_count(self):
+    def test_hotspot_list_displays_exact_window_report_and_source_counts(self):
         latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn("{item.source_count ?? 1} 个信源", latest_page)
+        self.assertIn("item.window_report_count ?? item.source_count ?? 1", latest_page)
+        self.assertIn("item.window_source_count ?? item.source_count ?? 1", latest_page)
+        self.assertIn("篇报道", latest_page)
         self.assertNotIn("item.coverage.length", latest_page)
 
     def test_hover_card_stays_open_for_copying(self):
@@ -986,8 +1027,8 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("relative flex items-start justify-between gap-4 md:items-center", event_page)
         self.assertIn("flex h-5 min-w-0 items-center", event_page)
         self.assertIn("Score {formatScore(event.final_score)}", event_page)
-        self.assertIn("readout hidden text-xs uppercase tracking-[0.08em] md:inline", event_page)
-        self.assertIn("text-[10px] uppercase tracking-[0.08em] text-ink-mid md:hidden", event_page)
+        self.assertIn("readout shrink-0 text-[10px] uppercase tracking-[0.08em] md:text-xs", event_page)
+        self.assertNotIn("text-ink-mid md:hidden", event_page)
         self.assertIn("<BookmarkButton eventId={event.event_id} labelOnDesktop />", event_page)
         self.assertIn("relative mt-4 flex w-fit items-center gap-2 text-sm", event_page)
         self.assertIn('section className="mx-auto mt-7 max-w-[760px] space-y-7', event_page)

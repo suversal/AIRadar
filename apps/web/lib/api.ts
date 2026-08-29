@@ -3,6 +3,11 @@ export type RadarSource = {
   name: string;
   url: string;
   tier: string;
+  // X virtual sources expose the original account identity without changing
+  // the generic source contract used by RSS articles.
+  display_name?: string;
+  handle?: string;
+  avatar_url?: string;
   // Source category powers /all's 官方原文/媒体报道/社区讨论 filter.
   category?: string;
 };
@@ -135,6 +140,9 @@ export type LatestEvent = {
   selection_reason?: string | null;
   hidden?: boolean;
   source_count?: number;
+  /** Exact hotspot-window coverage; unlike source_count these exclude older reports. */
+  window_report_count?: number;
+  window_source_count?: number;
   /** 周月报专属：进过几天的日报。合并层的产物，只在周月报条目上出现 */
   days_covered?: number;
   main_source?: RadarSource;
@@ -505,6 +513,7 @@ export async function getTelegramEvents(
   params: {
     days?: number;
     channel?: string;
+    q?: string;
     limit?: number;
     offset?: number;
   } = {},
@@ -514,6 +523,9 @@ export async function getTelegramEvents(
   search.set("limit", String(params.limit ?? 50));
   if (params.channel) {
     search.set("channel", params.channel);
+  }
+  if (params.q) {
+    search.set("q", params.q);
   }
   if (typeof params.offset === "number") {
     search.set("offset", String(params.offset));
@@ -866,6 +878,7 @@ export async function getTweets(
     kind?: string;
     handle?: string;
     topic?: string;
+    q?: string;
     limit?: number;
     offset?: number;
   } = {},
@@ -883,6 +896,9 @@ export async function getTweets(
   }
   if (params.topic) {
     search.set("topic", params.topic);
+  }
+  if (params.q) {
+    search.set("q", params.q);
   }
   try {
     const response = await fetch(`${getApiBaseUrl()}/api/public/tweets?${search}`, cacheFor(60));

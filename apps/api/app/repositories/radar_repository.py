@@ -38,8 +38,11 @@ from app.services.clustering_service import (
     GRAY_ZONE_FLOOR,
     ROLE_PRIORITY,
     TIER_PRIORITY,
+    X_TEXT_RECALL_CANDIDATE_LIMIT,
+    X_TEXT_RECALL_FLOOR,
     centroid,
     cosine_similarity,
+    event_text_affinity,
     reference_keys_for_article,
 )
 from app.services.daily_report_service import (
@@ -56,6 +59,11 @@ from app.services.taxonomy import (
     resolve_focus_category,
     scoring_categories_for_focus,
     scoring_category_label,
+)
+from app.services.x_tweet_articles import (
+    display_source_name,
+    display_source_profile,
+    evidence_source_key,
 )
 
 
@@ -134,9 +142,14 @@ class RadarRepository:
                 updated += 1
         return WriteResult(inserted=inserted, updated=updated)
 
-    # ── X 推文（SourcePilot Phase 4，不进 LLM 管线，独立于 raw_articles） ──
+    # ── X 推文（SourcePilot Phase 4；先独立镜像，合格原创再转 RawArticle） ──
 
-    def upsert_x_tweets(self, tweets: list[dict[str, Any]]) -> WriteResult:
+    def upsert_x_tweets(
+        self,
+        tweets: list[dict[str, Any]],
+        *,
+        article_pipeline_sources: dict[str, str] | None = None,
+    ) -> WriteResult:
         """按 tweet_id 幂等入库。已有行整体覆盖 payload——SP 侧互动数会随重抓
         刷新、长文正文（article_markdown）是后补的，冻结首轮快照就拿不到这些
         更新。select-then-update 与 upsert_raw_articles 同款，方言中立
@@ -165,7 +178,15 @@ class RadarRepository:
             }
             existing = self.session.get(XTweetModel, tweet_id)
             if existing is None:
-                self.session.add(XTweetModel(tweet_id=tweet_id, **columns))
+                pipeline_source_id = (article_pipeline_sources or {}).get(tweet_id)
+                self.session.add(
+                    XTweetModel(
+                        tweet_id=tweet_id,
+                        article_pipeline_eligible=bool(pipeline_source_id),
+                        article_pipeline_source_id=pipeline_source_id,
+                        **columns,
+                    )
+                )
                 inserted += 1
             else:
                 for key, value in columns.items():
@@ -232,6 +253,30 @@ class RadarRepository:
             ).all()
         )
 
+    def x_tweets_for_article_pipeline(
+        self, *, since: datetime, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        """Eligible recent originals in first-seen order.
+
+        Eligibility and provenance are immutable insertion-time decisions so
+        a later SP refresh cannot accidentally backfill pre-feature history.
+        """
+        rows = self.session.scalars(
+            select(XTweetModel)
+            .where(
+                XTweetModel.article_pipeline_eligible.is_(True),
+                XTweetModel.created_at >= since,
+            )
+            .order_by(XTweetModel.first_synced_at.asc(), XTweetModel.tweet_id.asc())
+            .limit(max(1, limit))
+        ).all()
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            item = self._tweet_with_translation(row)
+            item["article_pipeline_source_id"] = row.article_pipeline_source_id
+            items.append(item)
+        return items
+
     def save_x_tweet_translation(self, tweet_id: str, translation: dict[str, Any]) -> None:
         row = self.session.get(XTweetModel, tweet_id)
         if row is not None:
@@ -243,6 +288,7 @@ class RadarRepository:
         kind: Optional[str] = None,
         handle: Optional[str] = None,
         topic: Optional[str] = None,
+        q: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[dict[str, Any]], int, Optional[str]]:
@@ -254,22 +300,55 @@ class RadarRepository:
             conditions.append(func.lower(XTweetModel.author_handle) == handle.lower())
         if topic:
             conditions.append(XTweetModel.topics.like(f"%,{topic},%"))
-        total = (
-            self.session.scalar(
-                select(func.count()).select_from(XTweetModel).where(*conditions)
-            )
-            or 0
-        )
-        rows = self.session.scalars(
+        query = (
             select(XTweetModel)
             .where(*conditions)
             .order_by(XTweetModel.created_at.desc(), XTweetModel.tweet_id.desc())
-            .limit(limit)
-            .offset(offset)
-        ).all()
-        latest = self.session.scalar(
-            select(func.max(XTweetModel.synced_at)).where(*conditions)
         )
+        terms = [term.casefold() for term in (q or "").split() if term.strip()]
+        if terms:
+            candidates = list(self.session.scalars(query).all())
+
+            def matches(row: XTweetModel) -> bool:
+                payload = dict(row.payload or {})
+                translation = dict(row.translation or {})
+                haystack = " ".join(
+                    str(value)
+                    for value in [
+                        payload.get("author_handle"),
+                        payload.get("author_name"),
+                        payload.get("text"),
+                        payload.get("display_title"),
+                        payload.get("display_text"),
+                        payload.get("article_title"),
+                        payload.get("article_summary"),
+                        payload.get("article_ai_summary"),
+                        payload.get("article_markdown"),
+                        payload.get("quoted_text"),
+                        payload.get("retweeted_text"),
+                        " ".join(payload.get("external_urls") or []),
+                        translation.get("display_text_zh"),
+                        translation.get("quoted_text_zh"),
+                    ]
+                    if value
+                ).casefold()
+                return all(term in haystack for term in terms)
+
+            matching = [row for row in candidates if matches(row)]
+            total = len(matching)
+            rows = matching[offset : offset + limit]
+            latest = max((row.synced_at for row in matching), default=None)
+        else:
+            total = (
+                self.session.scalar(
+                    select(func.count()).select_from(XTweetModel).where(*conditions)
+                )
+                or 0
+            )
+            rows = self.session.scalars(query.limit(limit).offset(offset)).all()
+            latest = self.session.scalar(
+                select(func.max(XTweetModel.synced_at)).where(*conditions)
+            )
         updated_at = None
         if latest is not None:
             if isinstance(latest, datetime):
@@ -309,6 +388,14 @@ class RadarRepository:
             previous_extraction_version = int(previous_metadata.get("content_extraction_version") or 0)
             incoming_extraction_version = int(article.metadata.get("content_extraction_version") or 0)
             extraction_upgraded = incoming_extraction_version > previous_extraction_version
+            incoming_x_hash = str(article.metadata.get("x_content_hash") or "")
+            previous_x_hash = str(previous_metadata.get("x_content_hash") or "")
+            x_content_changed = bool(
+                article.metadata.get("source_type") == "x_tweet"
+                and previous_metadata.get("source_type") == "x_tweet"
+                and incoming_x_hash
+                and incoming_x_hash != previous_x_hash
+            )
             merged = dict(existing.raw_metadata or {})
             merged.update({"raw_score": article.raw_score, **_crawl_metadata(article.metadata)})
             # content-structure fields regress silently if a later crawl only
@@ -323,7 +410,12 @@ class RadarRepository:
                     merged[key] = previous_metadata[key]
             existing.raw_metadata = merged
             manual_content_locked = bool(previous_metadata.get("manual_content_locked"))
-            if not manual_content_locked and (
+            if x_content_changed and not manual_content_locked:
+                existing.title = article.title
+                existing.title_hash = article.title_hash
+                existing.author = article.author
+                existing.content = article.content
+            elif not manual_content_locked and (
                 extraction_upgraded or len(article.content) > len(existing.content or "")
             ):
                 existing.content = article.content
@@ -1355,17 +1447,144 @@ class RadarRepository:
                 self._merge_event_cluster(source_id, target_id, redirects)
         return redirects
 
+    def _event_summary_match_document(self, event_id: str) -> Optional[dict[str, Any]]:
+        row = self.session.execute(
+            select(EventClusterModel, RawArticleModel, SourceModel)
+            .join(
+                RawArticleModel,
+                RawArticleModel.id == EventClusterModel.main_article_id,
+            )
+            .join(SourceModel, SourceModel.id == RawArticleModel.source_id)
+            .where(EventClusterModel.id == event_id)
+        ).one_or_none()
+        if row is None:
+            return None
+        event, raw, source = row
+        return {
+            "id": raw.id,
+            "source": source.name,
+            "published_at": raw.published_at.isoformat(),
+            "title": event.event_title or raw.title,
+            "content": event.event_summary or raw.content,
+        }
+
+    def reconcile_recent_x_events_by_text(
+        self,
+        *,
+        touched_article_ids: set[str],
+        since: datetime,
+        same_event_verifier: Callable[[dict[str, Any], dict[str, Any]], bool]
+        | None,
+        max_event_span_hours: float | None = None,
+    ) -> dict[str, str]:
+        """Recover split recent X events without weakening the vector gate.
+
+        Normalized Chinese titles and summaries only nominate candidates. The
+        existing fail-closed AI verifier remains the sole merge authority.
+        """
+        if not touched_article_ids or same_event_verifier is None:
+            return {}
+        touched_rows = self.session.execute(
+            select(
+                EventClusterArticleModel.event_cluster_id,
+                RawArticleModel.raw_metadata,
+            )
+            .join(
+                RawArticleModel,
+                RawArticleModel.id == EventClusterArticleModel.raw_article_id,
+            )
+            .where(EventClusterArticleModel.raw_article_id.in_(touched_article_ids))
+        ).all()
+        touched_x_event_ids = {
+            event_id
+            for event_id, metadata in touched_rows
+            if (metadata or {}).get("source_type") == "x_tweet"
+        }
+        if not touched_x_event_ids:
+            return {}
+
+        recent_events = self.session.scalars(
+            select(EventClusterModel).where(
+                EventClusterModel.last_seen_at >= _ensure_utc(since)
+            )
+        ).all()
+        events_by_id = {event.id: event for event in recent_events}
+        redirects: dict[str, str] = {}
+        verified_pairs: set[tuple[str, str]] = set()
+
+        for original_x_id in sorted(touched_x_event_ids):
+            x_id = self._follow_redirects(original_x_id, redirects)
+            x_event = self.session.get(EventClusterModel, x_id)
+            if x_event is None:
+                continue
+            candidates: list[tuple[float, str]] = []
+            for original_candidate_id in events_by_id:
+                candidate_id = self._follow_redirects(
+                    original_candidate_id, redirects
+                )
+                if candidate_id == x_id:
+                    continue
+                candidate = self.session.get(EventClusterModel, candidate_id)
+                if candidate is None:
+                    continue
+                if (
+                    max_event_span_hours is not None
+                    and not _event_spans_fit_window(
+                        x_event.first_seen_at,
+                        x_event.last_seen_at,
+                        candidate.first_seen_at,
+                        candidate.last_seen_at,
+                        max_event_span_hours=max_event_span_hours,
+                    )
+                ):
+                    continue
+                affinity = event_text_affinity(
+                    x_event.event_title,
+                    candidate.event_title,
+                    left_summary=x_event.event_summary,
+                    right_summary=candidate.event_summary,
+                )
+                if affinity >= X_TEXT_RECALL_FLOOR:
+                    candidates.append((affinity, candidate_id))
+
+            for _affinity, candidate_id in sorted(
+                candidates, key=lambda item: (-item[0], item[1])
+            )[:X_TEXT_RECALL_CANDIDATE_LIMIT]:
+                x_id = self._follow_redirects(x_id, redirects)
+                candidate_id = self._follow_redirects(candidate_id, redirects)
+                if x_id == candidate_id:
+                    break
+                pair = tuple(sorted((x_id, candidate_id)))
+                if pair in verified_pairs:
+                    continue
+                verified_pairs.add(pair)
+                left = self._event_summary_match_document(x_id)
+                right = self._event_summary_match_document(candidate_id)
+                if left is None or right is None:
+                    continue
+                if not same_event_verifier(left, right):
+                    continue
+                target_id = max((x_id, candidate_id), key=self._event_merge_rank)
+                source_id = candidate_id if target_id == x_id else x_id
+                self._merge_event_cluster(source_id, target_id, redirects)
+                break
+        return redirects
+
     def _count_distinct_sources(self, event_cluster_id: str) -> int:
         rows = self.session.execute(
-            select(RawArticleModel.source_id)
+            select(RawArticleModel.source_id, RawArticleModel.raw_metadata)
             .join(
                 EventClusterArticleModel,
                 EventClusterArticleModel.raw_article_id == RawArticleModel.id,
             )
             .where(EventClusterArticleModel.event_cluster_id == event_cluster_id)
-            .distinct()
         ).all()
-        return len(rows)
+        return len(
+            {
+                evidence_source_key(source_id, metadata)
+                for source_id, metadata in rows
+            }
+        )
 
     def _refresh_event_similarity_scores(self, event_cluster_id: str) -> None:
         cluster = self.session.get(EventClusterModel, event_cluster_id)
@@ -1601,6 +1820,15 @@ class RadarRepository:
                 max_event_span_hours=cluster_window_hours,
             )
             redirects.update(reference_redirects)
+            text_redirects = self.reconcile_recent_x_events_by_text(
+                touched_article_ids={
+                    article_id for cluster in clusters for article_id in cluster.article_ids
+                },
+                since=since,
+                same_event_verifier=same_event_verifier,
+                max_event_span_hours=cluster_window_hours,
+            )
+            redirects.update(text_redirects)
             for original_id, target_id in list(redirects.items()):
                 redirects[original_id] = self._follow_redirects(target_id, redirects)
         self.session.flush()
@@ -2465,6 +2693,52 @@ class RadarRepository:
         rows = self.session.execute(query).all()
         return self._event_items_from_all_events_rows(rows)
 
+    def get_event_window_coverage_counts(
+        self,
+        event_ids: set[str],
+        *,
+        since: datetime,
+        until: datetime,
+    ) -> dict[str, dict[str, int]]:
+        """Count reports and distinct evidence sources inside one exact window.
+
+        EventCluster.source_count is intentionally lifetime-wide because the
+        detail page describes the whole event. Hotspot ranking needs a separate
+        windowed fact so an old burst cannot inflate an event that only gained
+        one recent follow-up.
+        """
+        if not event_ids:
+            return {}
+        rows = self.session.execute(
+            select(
+                EventClusterArticleModel.event_cluster_id,
+                RawArticleModel.id,
+                RawArticleModel.source_id,
+                RawArticleModel.raw_metadata,
+            )
+            .join(
+                RawArticleModel,
+                RawArticleModel.id == EventClusterArticleModel.raw_article_id,
+            )
+            .where(EventClusterArticleModel.event_cluster_id.in_(event_ids))
+            .where(RawArticleModel.published_at >= _ensure_utc(since))
+            .where(RawArticleModel.published_at <= _ensure_utc(until))
+        ).all()
+        report_ids: dict[str, set[str]] = {}
+        source_keys: dict[str, set[str]] = {}
+        for event_id, raw_article_id, source_id, metadata in rows:
+            report_ids.setdefault(event_id, set()).add(raw_article_id)
+            source_keys.setdefault(event_id, set()).add(
+                evidence_source_key(source_id, metadata)
+            )
+        return {
+            event_id: {
+                "window_report_count": len(report_ids.get(event_id, set())),
+                "window_source_count": len(source_keys.get(event_id, set())),
+            }
+            for event_id in event_ids
+        }
+
     def get_active_storylines(self, *, since: datetime, limit: int = 20) -> list[dict[str, Any]]:
         """本周雷达的故事线候选:多源(≥2)且近期仍有动静的事件簇,
         排除事件级隐藏。first/last_seen 是跨度权威——选中条目每事件通常
@@ -2515,6 +2789,7 @@ class RadarRepository:
         category: str | None = None,
         source: str | None = None,
         source_ids: list[str] | None = None,
+        q: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[dict[str, Any]], int, str | None]:
@@ -2525,7 +2800,7 @@ class RadarRepository:
         Python (get_all_event_items_between + build_events_payload_from_items
         did that - measurably the dominant cost of a plain /all load).
 
-        q/topic still go through get_all_event_items_between's full-
+        q/topic normally go through get_all_event_items_between's full-
         materialize path: their matching logic (title override precedence,
         topic keyword rules) only exists in Python today, so pushing them
         into SQL would mean keeping two copies of that logic in sync - not
@@ -2562,6 +2837,51 @@ class RadarRepository:
             )
         elif source:
             query = query.where(SourceModel.id.is_(None))
+        terms = [term.casefold() for term in (q or "").split() if term.strip()]
+        if terms:
+            matching_rows = []
+            rows = self.session.execute(
+                query.order_by(RawArticleModel.published_at.desc())
+            ).all()
+            for row in rows:
+                processed, raw, source_model, override, _cluster, _member, event_override = row
+                metadata = dict(raw.raw_metadata or {})
+                haystack = " ".join(
+                    str(value)
+                    for value in [
+                        event_override.title_zh if event_override else None,
+                        override.title_zh if override else None,
+                        processed.title_zh,
+                        raw.title,
+                        override.one_line_summary if override else None,
+                        processed.one_line_summary,
+                        override.summary_zh if override else None,
+                        processed.summary_zh,
+                        raw.content,
+                        metadata.get("original_text"),
+                        metadata.get("original_markdown"),
+                        " ".join(processed.tags or []),
+                        source_model.name,
+                        raw.author,
+                    ]
+                    if value
+                ).casefold()
+                if all(term in haystack for term in terms):
+                    matching_rows.append(row)
+            total = len(matching_rows)
+            matching_page = matching_rows[offset : offset + limit]
+            items = self._event_items_from_all_events_rows(matching_page)
+            updated_at = max(
+                (row[1].published_at for row in matching_rows),
+                default=None,
+            )
+            if updated_at is not None and updated_at.tzinfo is None:
+                updated_at = updated_at.replace(tzinfo=timezone.utc)
+            return (
+                items,
+                total,
+                updated_at.isoformat() if updated_at else None,
+            )
         total, updated_at = self.session.execute(
             query.with_only_columns(func.count(), func.max(RawArticleModel.published_at))
         ).one()
@@ -3072,7 +3392,7 @@ class RadarRepository:
                 {
                     "raw_article_id": raw.id,
                     "title": title,
-                    "source_name": source.name,
+                    "source_name": display_source_name(source.name, raw.raw_metadata),
                     "source_url": raw.source_url,
                     "published_at": _as_utc_isoformat(raw.published_at),
                     "is_main": membership.is_main,
@@ -3326,10 +3646,11 @@ def _event_item(
         "is_main": is_main,
         "main_source": {
             "id": source.id,
-            "name": source.name,
+            "name": display_source_name(source.name, metadata),
             "url": raw.source_url,
             "tier": source.tier,
             "category": source.category,
+            **display_source_profile(metadata),
         },
         "source_language": raw.language,
         "author": raw.author,

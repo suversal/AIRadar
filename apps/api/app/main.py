@@ -24,6 +24,7 @@ from app.api.public import (
     build_hotspots_payload,
     build_latest_selected_payload_from_repository,
     build_period_payload,
+    hotspot_window_start,
     slim_period_items,
 )
 from app.core.config import load_env_file
@@ -375,6 +376,7 @@ def create_app(
     def telegram_events(
         days: int = 30,
         channel: Optional[str] = None,
+        q: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> dict:
@@ -411,6 +413,7 @@ def create_app(
                 start_date,
                 end_date,
                 source_ids=source_ids,
+                q=q,
                 limit=limit,
                 offset=offset,
             )
@@ -446,14 +449,41 @@ def create_app(
             raise HTTPException(status_code=400, detail="hours must be between 1 and 168")
         if limit < 1 or limit > 20:
             raise HTTPException(status_code=400, detail="limit must be between 1 and 20")
+        anchor = datetime.now(timezone.utc)
+        window_start = hotspot_window_start(anchor, hours)
         end_date = date.today()
-        # query window is day-granular and padded: the precise hour cutoff on
-        # last_seen_at/published_at happens inside build_hotspots_payload
+        # The query window is day-granular and padded; the Shanghai calendar
+        # boundary is applied to coverage timestamps below and to event
+        # last_seen_at/published_at inside build_hotspots_payload.
         start_date = end_date - timedelta(days=(hours // 24) + 2)
         with report_repository_context() as repository:
             items = repository.get_all_event_items_between(
                 start_date, end_date, selected_only=True
             )
+            coverage_counter = getattr(
+                repository, "get_event_window_coverage_counts", None
+            )
+            if callable(coverage_counter):
+                event_ids = {
+                    str(item.get("event_id") or "")
+                    for item in items
+                    if item.get("is_main", True)
+                    and str(item.get("event_id") or "").startswith("e")
+                }
+                counts = coverage_counter(
+                    event_ids,
+                    since=window_start,
+                    until=anchor,
+                )
+                for item in items:
+                    event_id = str(item.get("event_id") or "")
+                    if event_id in counts:
+                        item.update(counts[event_id])
+                    elif item.get("is_main", True) and event_id.startswith("a"):
+                        # A genuine standalone article is its own one-report,
+                        # one-source event when it survives the window cutoff.
+                        item["window_report_count"] = 1
+                        item["window_source_count"] = 1
         return build_hotspots_payload(
             items,
             category=category,
@@ -462,6 +492,7 @@ def create_app(
             q=q,
             hours=hours,
             limit=limit,
+            now=anchor,
         )
 
     # 主题窗口默认 90 天:详情页承担"档案"职能,30 天太浅;更早的数据
@@ -536,6 +567,7 @@ def create_app(
         kind: Optional[str] = None,
         handle: Optional[str] = None,
         topic: Optional[str] = None,
+        q: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> dict:
@@ -552,7 +584,12 @@ def create_app(
             )
         with report_repository_context() as repository:
             items, total, updated_at = repository.query_x_tweets(
-                kind=kind, handle=handle, topic=topic, limit=limit, offset=offset
+                kind=kind,
+                handle=handle,
+                topic=topic,
+                q=q,
+                limit=limit,
+                offset=offset,
             )
             available_topics = repository.list_x_tweet_topics()
         return {

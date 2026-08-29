@@ -226,7 +226,7 @@ export default async function AllEventsPage({
                 {selectedTag ? <input name="tag" type="hidden" value={selectedTag} /> : null}
                 {selectedTopic ? <input name="topic" type="hidden" value={selectedTopic} /> : null}
                 <input
-                  className="min-h-12 min-w-0 bg-transparent px-4 py-2 text-sm text-ink outline-none placeholder:text-ink-dim focus:bg-panel-soft/35"
+                  className="relative z-0 min-h-12 min-w-0 bg-transparent px-4 py-2 text-sm text-ink outline-none placeholder:text-ink-dim focus:bg-panel-soft/35 focus-visible:z-10"
                   defaultValue={query}
                   name="q"
                   placeholder="搜索标题/摘要/正文..."

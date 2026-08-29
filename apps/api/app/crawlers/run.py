@@ -84,7 +84,11 @@ def crawl_sources(
     """Crawl every active source for its own configured crawl_limit
     (unconfigured = everything the feed/API provides) - each source's budget
     is independent, there is no shared global pool to ration across sources."""
-    active_sources = [source for source in sources if source.is_active]
+    active_sources = [
+        source
+        for source in sources
+        if source.is_active and not (source.config or {}).get("internal_only")
+    ]
     started_at = _utc_now_iso()
 
     domain_groups: dict[str, list[Source]] = {}

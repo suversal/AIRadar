@@ -813,6 +813,7 @@ class FakeRepository:
         category=None,
         source=None,
         source_ids=None,
+        q=None,
         limit=50,
         offset=0,
     ):
@@ -840,6 +841,25 @@ class FakeRepository:
                 item
                 for item in items
                 if (item.get("main_source") or {}).get("id") in source_ids
+            ]
+        if q:
+            terms = [term.casefold() for term in q.split() if term]
+            items = [
+                item
+                for item in items
+                if all(
+                    term
+                    in " ".join(
+                        str(value)
+                        for value in [
+                            item.get("title"),
+                            item.get("one_line_summary"),
+                            item.get("summary"),
+                        ]
+                        if value
+                    ).casefold()
+                    for term in terms
+                )
             ]
         items = sorted(items, key=lambda item: str(item.get("published_at") or ""), reverse=True)
         total = len(items)

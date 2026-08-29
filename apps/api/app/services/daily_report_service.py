@@ -13,6 +13,7 @@ from app.services.taxonomy import (
     focus_category_label,
     resolve_focus_category,
 )
+from app.services.x_tweet_articles import display_source_name, display_source_profile
 
 
 
@@ -596,10 +597,11 @@ def build_daily_json(
                 "source_count": cluster.source_count,
                 "main_source": {
                     "id": source.id,
-                    "name": source.name,
+                    "name": display_source_name(source.name, article.metadata),
                     "url": article.source_url,
                     "tier": source.tier,
                     "category": source.category,
+                    **display_source_profile(article.metadata),
                 },
                 "one_line_summary": processed.one_line_summary,
                 "summary": processed.summary_zh,

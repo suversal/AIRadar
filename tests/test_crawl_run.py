@@ -22,6 +22,30 @@ class FakeCrawler:
 
 
 class CrawlRunTests(unittest.TestCase):
+    def test_internal_sources_are_never_sent_to_a_crawler(self):
+        source = Source(
+            id="x_tweet_account",
+            name="X 推文 · 订阅账号",
+            source_role="signal",
+            tier="T2",
+            type="internal",
+            category="community",
+            url="internal://x/account",
+            homepage="https://x.com",
+            allowed_domains=["x.com"],
+            is_active=True,
+            config={"internal_only": True},
+        )
+
+        def fail_if_called(_source):
+            raise AssertionError("an internal source must never create a crawler")
+
+        articles, report = crawl_sources([source], crawler_factory=fail_if_called)
+
+        self.assertEqual(articles, [])
+        self.assertEqual(report["source_count"], 0)
+        self.assertEqual(report["per_source"], {})
+
     def test_crawl_sources_returns_articles_and_per_source_report(self):
         good_source = Source(
             id="good",
