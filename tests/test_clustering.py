@@ -8,11 +8,13 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "apps" / "api"))
 from app.models.domain import RawArticle, Source
 from app.services.clustering_service import (
     GRAY_ZONE_FLOOR,
+    X_TEXT_RECALL_FLOOR,
     canonical_reference_key,
     centroid,
     choose_main_article,
     cluster_articles,
     cosine_similarity,
+    event_text_affinity,
 )
 
 
@@ -37,6 +39,21 @@ def raw_article(article_id, source_id, role, tier, title, published_hour):
 
 
 class ClusteringTests(unittest.TestCase):
+    def test_x_text_recall_recognizes_paraphrased_processed_titles(self):
+        affinity = event_text_affinity(
+            "OpenAI宣布因Cursor被SpaceX收购将终止模型供应",
+            "OpenAI宣布因Cursor被SpaceX收购将终止模型授权合作",
+        )
+
+        self.assertGreaterEqual(affinity, X_TEXT_RECALL_FLOOR)
+        self.assertLess(
+            event_text_affinity(
+                "OpenAI宣布终止向Cursor提供模型",
+                "Anthropic发布Claude桌面端新功能",
+            ),
+            X_TEXT_RECALL_FLOOR,
+        )
+
     def test_cosine_similarity_detects_close_vectors(self):
         self.assertAlmostEqual(cosine_similarity([1, 0, 0], [1, 0, 0]), 1.0)
         self.assertAlmostEqual(cosine_similarity([1, 0, 0], [0, 1, 0]), 0.0)

@@ -173,10 +173,14 @@ def dedupe_articles(articles: list[RawArticle]) -> list[RawArticle]:
     seen_titles: set[str] = set()
     deduped: list[RawArticle] = []
     for article in articles:
-        if article.url_hash in seen_urls or article.title_hash in seen_titles:
+        url_only = article.metadata.get("source_type") == "x_tweet"
+        if article.url_hash in seen_urls or (
+            not url_only and article.title_hash in seen_titles
+        ):
             continue
         seen_urls.add(article.url_hash)
-        seen_titles.add(article.title_hash)
+        if not url_only:
+            seen_titles.add(article.title_hash)
         deduped.append(article)
     return deduped
 
@@ -265,6 +269,17 @@ def _cached_processed_article(
         return None
 
 
+def _x_content_changed(article: RawArticle, cached: dict[str, Any] | None) -> bool:
+    if not cached or article.metadata.get("source_type") != "x_tweet":
+        return False
+    cached_metadata = cached.get("metadata") or {}
+    if cached_metadata.get("source_type") != "x_tweet":
+        return False
+    incoming_hash = str(article.metadata.get("x_content_hash") or "")
+    cached_hash = str(cached_metadata.get("x_content_hash") or "")
+    return bool(incoming_hash and incoming_hash != cached_hash)
+
+
 def _terminal_cache_is_current(
     article: RawArticle,
     cached: dict[str, Any] | None,
@@ -277,6 +292,8 @@ def _terminal_cache_is_current(
         or cached.get("skipped_reason") == "not_ai_related"
     )
     if not terminal:
+        return False
+    if _x_content_changed(article, cached):
         return False
     cached_version = int(
         ((cached.get("metadata") or {}).get("content_extraction_version") or 0)
@@ -502,10 +519,20 @@ def _process_candidate_article(
     # from the wrong/partial body too. Reusing them after refreshing only the
     # raw HTML would leave a correct detail body paired with a stale title and
     # summary, so invalidate scoring together with the extracted content.
-    scoring = None if cached_content_stale else _cached_scoring_result(cached)
+    x_content_changed = _x_content_changed(article, cached)
+    scoring = (
+        None
+        if cached_content_stale or x_content_changed
+        else _cached_scoring_result(cached)
+    )
     scoring_was_cached = scoring is not None
     # 库里已判非AI的文章(不入选、仅作跳过标记)直接跳过,不再花任何调用
-    if scoring is None and cached and cached.get("skipped_reason") == "not_ai_related":
+    if (
+        scoring is None
+        and cached
+        and cached.get("skipped_reason") == "not_ai_related"
+        and not x_content_changed
+    ):
         article.status = "skipped"
         article.skipped_reason = "not_ai_related"
         return None, None, "not_ai_related"
@@ -1062,6 +1089,10 @@ def _hydrate_article_from_cache(article: RawArticle, cached: dict[str, Any]) -> 
     persisted_id = str(cached.get("raw_article_id") or "").strip()
     if persisted_id:
         article.id = persisted_id
+    # A late X Article/body/media update must be scored from the new mirror,
+    # not hydrated back to the older terminal snapshot.
+    if _x_content_changed(article, cached):
+        return
     cached_language = str(cached.get("language") or "").strip()
     if cached_language:
         article.language = cached_language

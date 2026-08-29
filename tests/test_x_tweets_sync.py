@@ -137,6 +137,33 @@ class XTweetRepositoryTests(unittest.TestCase):
             self.assertEqual(total, 1)
             self.assertEqual(items[0]["tweet_id"], "3")
 
+    def test_query_searches_tweet_content_title_author_and_translation(self):
+        with self.Session() as session:
+            repository = self._repository(session)
+            repository.upsert_x_tweets(
+                [
+                    make_tweet(
+                        "1",
+                        author_name="OpenAI",
+                        display_title="Agent 模型发布",
+                        display_text="A new coding model",
+                    ),
+                    make_tweet("2", display_text="unrelated update"),
+                ]
+            )
+            repository.save_x_tweet_translation(
+                "2", {"display_text_zh": "新的多模态能力"}
+            )
+            session.commit()
+
+            items, total, _ = repository.query_x_tweets(q="Agent OpenAI")
+            self.assertEqual(total, 1)
+            self.assertEqual(items[0]["tweet_id"], "1")
+
+            items, total, _ = repository.query_x_tweets(q="多模态")
+            self.assertEqual(total, 1)
+            self.assertEqual(items[0]["tweet_id"], "2")
+
     def test_query_orders_by_created_at_desc(self):
         with self.Session() as session:
             repository = self._repository(session)
@@ -528,6 +555,10 @@ class PublicTweetsRouteTests(unittest.TestCase):
 
         response = client.get("/api/public/tweets", params={"kind": "article"})
         self.assertEqual(response.json()["total"], 1)
+
+        response = client.get("/api/public/tweets", params={"q": "tweet 2"})
+        self.assertEqual(response.json()["total"], 1)
+        self.assertEqual(response.json()["items"][0]["tweet_id"], "2")
 
     def test_detail_route_returns_single_tweet_or_404(self):
         client, repository = self._client()

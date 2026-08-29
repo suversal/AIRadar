@@ -134,7 +134,7 @@ export default async function LatestPage({
                       <dd className="editorial-display mt-1 text-2xl text-ink">{report.total ?? report.items.length}</dd>
                     </div>
                     <div>
-                      <dt className="readout text-[9px] uppercase tracking-[0.14em] text-ink-dim">48 小时热点</dt>
+                      <dt className="readout text-[9px] uppercase tracking-[0.14em] text-ink-dim">近 2 日热点</dt>
                       <dd className="editorial-display mt-1 text-2xl text-ink">{topEvents.length}</dd>
                     </div>
                     <div>
@@ -240,7 +240,7 @@ export default async function LatestPage({
                       当前热点
                       <TrendingUp aria-hidden className="h-4 w-4 text-signal" strokeWidth={1.7} />
                     </h2>
-                    <span className="readout text-[10px] uppercase tracking-wider text-ink-dim">48 小时</span>
+                    <span className="readout text-[10px] uppercase tracking-wider text-ink-dim">近 2 个自然日</span>
                   </div>
                   <ol className="divide-y divide-line/70 md:grid md:grid-cols-3 md:divide-x md:divide-y-0 2xl:block 2xl:divide-x-0 2xl:divide-y">
                     {topEvents.map((item, index) => (
@@ -262,7 +262,9 @@ export default async function LatestPage({
                             strokeWidth={1.6}
                           />
                           <span className="readout col-start-2 col-end-4 text-[10px] text-ink-dim">
-                            {item.source_count ?? 1} 个信源 · {formatRelativeTime(item.last_seen_at ?? item.published_at)}
+                            {item.window_report_count ?? item.source_count ?? 1} 篇报道 ·{" "}
+                            {item.window_source_count ?? item.source_count ?? 1} 个信源 ·{" "}
+                            {formatRelativeTime(item.last_seen_at ?? item.published_at)}
                           </span>
                         </a>
                       </li>

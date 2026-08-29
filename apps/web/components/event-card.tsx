@@ -30,6 +30,13 @@ export function EventCard({
   // /latest 使用杂志式开放条目，避免重复卡片容器挤压正文与配图
   openArticle?: boolean;
 }) {
+  const authorProfile = item.main_source?.handle
+    ? {
+        name: item.main_source.display_name ?? item.main_source.handle,
+        handle: item.main_source.handle,
+      }
+    : null;
+
   return (
     <article
       className={
@@ -47,9 +54,27 @@ export function EventCard({
           }
         >
           <div className={`flex items-center justify-between gap-3 ${openArticle ? "" : "border-b border-line/70 pb-3"}`}>
-            <div className="readout min-w-0 truncate text-[10px] uppercase tracking-[0.12em] text-ink-dim">
-              {item.main_source?.name ?? "未知来源"} · {item.source_count ?? 1} 个来源
-            </div>
+            {authorProfile ? (
+              <div className="flex min-w-0 items-center gap-1.5 text-sm">
+                <span className="shrink-0 font-medium text-ink-mid">X ·</span>
+                <span className="min-w-0 truncate font-semibold text-ink">
+                  {authorProfile.name}
+                </span>
+                <span className="shrink-0 text-ink-mid">
+                  {authorProfile.handle}
+                </span>
+                {item.selected ? (
+                  <span className="readout inline-flex h-5 shrink-0 items-center gap-1 border border-signal/45 bg-signal/10 px-1.5 text-[9px] font-semibold tracking-[0.12em] text-signal">
+                    <Sparkles aria-hidden className="h-3 w-3" strokeWidth={1.8} />
+                    精选
+                  </span>
+                ) : null}
+              </div>
+            ) : (
+              <div className="readout min-w-0 truncate text-[10px] uppercase tracking-[0.12em] text-ink-dim">
+                {item.main_source?.name ?? "未知来源"} · {item.source_count ?? 1} 个来源
+              </div>
+            )}
             <div className="flex shrink-0 items-center gap-2">
               <span className="readout text-[10px] font-semibold uppercase tracking-[0.12em] text-signal">
                 Score {score}
@@ -59,7 +84,7 @@ export function EventCard({
           </div>
 
           <h2 className="editorial-card-title mt-1.5 text-[1.15rem] font-semibold leading-[1.42] text-ink md:mt-2 md:text-[1.25rem]">
-            {item.selected ? (
+            {item.selected && !authorProfile ? (
               <span className="readout relative -top-0.5 mr-2 inline-flex h-5 items-center gap-1 border border-signal/45 bg-signal/10 px-1.5 align-middle text-[9px] font-semibold tracking-[0.12em] text-signal">
                 <Sparkles aria-hidden className="h-3 w-3 shrink-0" strokeWidth={1.8} />
                 精选

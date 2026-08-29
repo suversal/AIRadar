@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import math
+import re
+import unicodedata
 from datetime import datetime
+from difflib import SequenceMatcher
 from typing import Any, Callable
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from app.crawlers.base import stable_hash
 from app.models.domain import EventCluster, RawArticle, Source
+from app.services.x_tweet_articles import evidence_source_key
 
 
 def stable_cluster_id(main_article_id: str) -> str:
@@ -184,6 +188,52 @@ GRAY_ZONE_FLOOR = 0.80
 #: How many recall-band buckets one article may be checked against. The
 #: verifier costs an API call per bucket, so only the closest are asked.
 GRAY_ZONE_CANDIDATE_LIMIT = 2
+
+# X posts are often short English announcements while the already-selected
+# event is represented by a Chinese media title.  The shared embedding model
+# remains the primary recall path; this stricter text band only nominates a
+# small number of recent X-related event pairs for the existing AI verifier.
+# It never merges by itself and therefore does not loosen the vector gate.
+X_TEXT_RECALL_FLOOR = 0.62
+X_TEXT_RECALL_CANDIDATE_LIMIT = 2
+
+
+def _normalized_event_title(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", str(value or "")).lower()
+    return re.sub(r"[^a-z0-9\u3400-\u9fff]+", "", normalized)
+
+
+def _title_bigrams(value: str) -> set[str]:
+    normalized = _normalized_event_title(value)
+    return {normalized[index : index + 2] for index in range(len(normalized) - 1)}
+
+
+def _text_affinity(left_value: str, right_value: str) -> float:
+    left = _normalized_event_title(left_value)
+    right = _normalized_event_title(right_value)
+    if not left or not right:
+        return 0.0
+    sequence_score = SequenceMatcher(None, left, right).ratio()
+    left_bigrams = _title_bigrams(left)
+    right_bigrams = _title_bigrams(right)
+    union = left_bigrams | right_bigrams
+    bigram_score = len(left_bigrams & right_bigrams) / len(union) if union else 0.0
+    return max(sequence_score, bigram_score)
+
+
+def event_text_affinity(
+    left_title: str,
+    right_title: str,
+    *,
+    left_summary: str = "",
+    right_summary: str = "",
+) -> float:
+    """Cheap normalized-text recall score; AI verification remains mandatory."""
+    title_score = _text_affinity(left_title, right_title)
+    # Summaries are longer and naturally share more generic wording, so they
+    # may recover a paraphrased title but receive a conservative discount.
+    summary_score = _text_affinity(left_summary, right_summary) * 0.85
+    return max(title_score, summary_score)
 
 
 def bucket_affinity(vector: list[float], member_vectors: list[list[float]]) -> float | None:
@@ -390,7 +440,12 @@ def cluster_articles(
                 category="uncategorized",
                 tags=[],
                 final_score=score,
-                source_count=len({article.source_id for article in bucket}),
+                source_count=len(
+                    {
+                        evidence_source_key(article.source_id, article.metadata)
+                        for article in bucket
+                    }
+                ),
                 first_seen_at=first_seen,
                 last_seen_at=last_seen,
                 article_similarities=similarities,

@@ -1383,9 +1383,31 @@ class RepositoryTests(unittest.TestCase):
                 source_ids=[telegram_source.id],
                 limit=10,
             )
+            searched, searched_total, _ = (
+                repository.count_and_get_all_event_items_between(
+                    date(2026, 7, 1),
+                    date(2026, 7, 1),
+                    source_ids=[telegram_source.id],
+                    q="AI 电报",
+                    limit=10,
+                )
+            )
+            missing, missing_total, _ = (
+                repository.count_and_get_all_event_items_between(
+                    date(2026, 7, 1),
+                    date(2026, 7, 1),
+                    source_ids=[telegram_source.id],
+                    q="不存在的关键词",
+                    limit=10,
+                )
+            )
 
         self.assertEqual(total, 1)
         self.assertEqual(items[0]["main_source"]["id"], telegram_source.id)
+        self.assertEqual(searched_total, 1)
+        self.assertEqual(searched[0]["main_source"]["id"], telegram_source.id)
+        self.assertEqual(missing_total, 0)
+        self.assertEqual(missing, [])
 
     def test_event_item_includes_coverage_from_every_clustered_source(self):
         # 事件详情页"同一事件·N家报道"板块的数据来源：event_cluster_articles
@@ -2064,6 +2086,126 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(result.inserted, 1)
         self.assertEqual(comparisons, [("new1", "old1")])
 
+    def test_recent_x_event_uses_text_recall_then_ai_verifier(self):
+        from app.db.models import EventClusterArticleModel, EventClusterModel
+        from app.repositories.radar_repository import RadarRepository
+
+        x_source = Source(
+            id="x_tweet_account",
+            name="X 账号推文",
+            source_role="signal",
+            tier="T2",
+            type="internal",
+            category="community",
+            url="internal://x/accounts",
+            homepage="https://x.com",
+            allowed_domains=["x.com"],
+            can_be_main_source=True,
+            config={"internal_only": True},
+        )
+        rss = self._article(article_id="rss1", title="OpenAI Cursor 公告", url_hash="u-rss")
+        tweet = self._article(article_id="x1", title="OpenAI Cursor tweet", url_hash="u-x")
+        tweet.source_id = x_source.id
+        tweet.source_name = x_source.name
+        tweet.source_role = x_source.source_role
+        tweet.source_tier = x_source.tier
+        tweet.source_url = "https://x.com/OpenAI/status/123"
+        tweet.metadata = {"source_type": "x_tweet", "x_author_handle": "openai"}
+
+        rss_cluster = self._cluster("e-rss", main_article_id=rss.id)
+        rss_cluster.event_title = "OpenAI宣布因Cursor被SpaceX收购将终止模型供应"
+        rss_cluster.event_summary = "OpenAI 将在十一月终止向 Cursor 供应模型。"
+        x_cluster = self._cluster("e-x", main_article_id=tweet.id)
+        x_cluster.event_title = "OpenAI宣布因Cursor被SpaceX收购将终止模型授权合作"
+        x_cluster.event_summary = "Cursor 被 SpaceX 收购后，OpenAI 将结束合作。"
+        x_cluster.final_score = 78.1
+
+        compared: list[tuple[str, str]] = []
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source(), x_source])
+            repository.upsert_raw_articles([rss, tweet])
+            repository.upsert_article_embedding(
+                rss.id, embedding_model="m", vector=self._vec([1.0, 0.0]), source_hash="h-rss"
+            )
+            repository.upsert_article_embedding(
+                tweet.id, embedding_model="m", vector=self._vec([0.0, 1.0]), source_hash="h-x"
+            )
+            repository.upsert_event_clusters([rss_cluster])
+            result = repository.upsert_event_clusters(
+                [x_cluster],
+                similarity_threshold=0.90,
+                same_event_verifier=lambda left, right: (
+                    compared.append((left["title"], right["title"])) or True
+                ),
+            )
+            session.commit()
+            event_ids = set(session.scalars(select(EventClusterModel.id)).all())
+            x_membership = session.scalar(
+                select(EventClusterArticleModel).where(
+                    EventClusterArticleModel.raw_article_id == tweet.id
+                )
+            )
+
+        self.assertEqual(event_ids, {"e-rss"})
+        self.assertEqual(result.redirects["e-x"], "e-rss")
+        self.assertEqual(x_membership.event_cluster_id, "e-rss")
+        self.assertEqual(
+            compared,
+            [(x_cluster.event_title, rss_cluster.event_title)],
+        )
+
+    def test_recent_x_text_recall_never_merges_when_ai_rejects(self):
+        from app.db.models import EventClusterModel
+        from app.repositories.radar_repository import RadarRepository
+
+        x_source = Source(
+            id="x_tweet_account",
+            name="X 账号推文",
+            source_role="signal",
+            tier="T2",
+            type="internal",
+            category="community",
+            url="internal://x/accounts",
+            homepage="https://x.com",
+            allowed_domains=["x.com"],
+            can_be_main_source=True,
+            config={"internal_only": True},
+        )
+        rss = self._article(article_id="rss1", title="OpenAI Cursor 公告", url_hash="u-rss")
+        tweet = self._article(article_id="x1", title="OpenAI Cursor tweet", url_hash="u-x")
+        tweet.source_id = x_source.id
+        tweet.source_name = x_source.name
+        tweet.source_role = x_source.source_role
+        tweet.source_tier = x_source.tier
+        tweet.source_url = "https://x.com/OpenAI/status/123"
+        tweet.metadata = {"source_type": "x_tweet", "x_author_handle": "openai"}
+        rss_cluster = self._cluster("e-rss", main_article_id=rss.id)
+        rss_cluster.event_title = "OpenAI宣布因Cursor被SpaceX收购将终止模型供应"
+        x_cluster = self._cluster("e-x", main_article_id=tweet.id)
+        x_cluster.event_title = "OpenAI宣布因Cursor被SpaceX收购将终止模型授权合作"
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source(), x_source])
+            repository.upsert_raw_articles([rss, tweet])
+            repository.upsert_article_embedding(
+                rss.id, embedding_model="m", vector=self._vec([1.0, 0.0]), source_hash="h-rss"
+            )
+            repository.upsert_article_embedding(
+                tweet.id, embedding_model="m", vector=self._vec([0.0, 1.0]), source_hash="h-x"
+            )
+            repository.upsert_event_clusters([rss_cluster])
+            repository.upsert_event_clusters(
+                [x_cluster],
+                similarity_threshold=0.90,
+                same_event_verifier=lambda _left, _right: False,
+            )
+            session.commit()
+            event_ids = set(session.scalars(select(EventClusterModel.id)).all())
+
+        self.assertEqual(event_ids, {"e-rss", "e-x"})
+
     def test_cross_day_verifier_skips_candidates_below_vector_threshold(self):
         from app.repositories.radar_repository import RadarRepository
 
@@ -2313,6 +2455,48 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(by_event_id["aa2"]["final_score"], 70.0)
         self.assertTrue(by_event_id["aa3"]["is_main"])  # standalone counts as its own main
         self.assertEqual(by_event_id["aa3"]["final_score"], 60.0)
+
+    def test_hotspot_window_counts_exclude_older_event_members(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        old_main = self._article(article_id="a1", title="三天前主报道", url_hash="hash-a1")
+        old_main.published_at = datetime(2026, 6, 28, 9, tzinfo=timezone.utc)
+        recent_same_source = self._article(
+            article_id="a2", title="窗口内跟进", url_hash="hash-a2"
+        )
+        recent_same_source.published_at = datetime(2026, 7, 1, 8, tzinfo=timezone.utc)
+        recent_other_source = self._article(
+            article_id="a3", title="另一信源跟进", url_hash="hash-a3"
+        )
+        recent_other_source.source_id = "techcrunch"
+        recent_other_source.source_name = "TechCrunch"
+        recent_other_source.source_role = "signal"
+        recent_other_source.source_tier = "T2"
+        recent_other_source.published_at = datetime(
+            2026, 7, 1, 10, tzinfo=timezone.utc
+        )
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source(), self._other_source()])
+            repository.upsert_raw_articles(
+                [old_main, recent_same_source, recent_other_source]
+            )
+            cluster = self._cluster("e-window", main_article_id="a1")
+            cluster.article_ids = ["a1", "a2", "a3"]
+            repository.upsert_event_clusters([cluster])
+            session.commit()
+
+            counts = repository.get_event_window_coverage_counts(
+                {"e-window"},
+                since=datetime(2026, 6, 30, 12, tzinfo=timezone.utc),
+                until=datetime(2026, 7, 2, 12, tzinfo=timezone.utc),
+            )
+
+        self.assertEqual(
+            counts["e-window"],
+            {"window_report_count": 2, "window_source_count": 2},
+        )
 
     def test_all_event_items_come_from_processed_articles_table(self):
         from app.repositories.radar_repository import RadarRepository

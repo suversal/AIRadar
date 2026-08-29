@@ -1,8 +1,8 @@
 """SourcePilot X 推文同步（接入方案 Phase 4）。
 
 数据链：SP `GET /api/v1/x/tweets` → 本地 `x_tweets` 表 → 随整库同步上云 → `/x` 页。
-推文**不进 LLM 管线**（方案决策 4：碎片化内容全量喂打分是烧钱制造噪音），
-与 raw_articles 完全无关，独立同步、独立展示。
+符合资格的新原创推文会在同一轮刷新中从数据库镜像转换为 ``RawArticle``，
+复用既有 LLM 管线；本模块仍是唯一网络入口，不会因精选接入再抓一次。
 
 ## 内容边界：必须按订阅 handle 拉取
 
@@ -150,6 +150,13 @@ def sync_x_tweets(
     （作者不在订阅列表里，handle 腿够不到）。同一条推文两边都命中时
     upsert 幂等合并。返回分项报告，供 crawl report / 日志观测。
     """
+    from app.services.x_tweet_articles import (
+        eligible_tweet_ids,
+        pipeline_source_id_for_tweet,
+    )
+
+    resolved_handles = handles or configured_handles()
+    subscribed_handles = {handle.strip().lstrip("@").lower() for handle in resolved_handles}
     report: dict[str, Any] = {"handles": {}, "topics": {}, "inserted": 0, "updated": 0}
 
     def _pull(entry_key: str, bucket: str, fetch, watermark_kwargs: dict[str, Any]) -> None:
@@ -160,7 +167,21 @@ def sync_x_tweets(
             tweets = fetch(since)
             entry["fetched"] = len(tweets)
             if tweets:
-                result = repository.upsert_x_tweets(tweets)
+                eligible_ids = eligible_tweet_ids(tweets, subscribed_handles)
+                pipeline_sources = {
+                    tweet_id: source_id
+                    for tweet in tweets
+                    if (tweet_id := str(tweet.get("tweet_id") or "")) in eligible_ids
+                    and (
+                        source_id := pipeline_source_id_for_tweet(
+                            tweet, subscribed_handles
+                        )
+                    )
+                }
+                result = repository.upsert_x_tweets(
+                    tweets,
+                    article_pipeline_sources=pipeline_sources,
+                )
                 entry["inserted"] = result.inserted
                 entry["updated"] = result.updated
                 report["inserted"] += result.inserted
@@ -170,7 +191,7 @@ def sync_x_tweets(
             entry["error"] = str(exc)
         report[bucket][entry_key] = entry
 
-    for handle in handles or configured_handles():
+    for handle in resolved_handles:
         _pull(
             handle,
             "handles",

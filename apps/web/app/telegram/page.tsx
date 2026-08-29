@@ -1,5 +1,5 @@
 import { AllEventsFeed } from "@/components/all-events-feed";
-import { MobileCategoryNav } from "@/components/mobile-discovery";
+import { MobileCategoryNav, MobileSearchForm } from "@/components/mobile-discovery";
 import { MobileNav } from "@/components/mobile-nav";
 import { RadarStatus } from "@/components/radar-status";
 import { Sidebar } from "@/components/sidebar";
@@ -13,6 +13,7 @@ export const metadata = {
 
 type TelegramSearchParams = Promise<{
   channel?: string | string[];
+  q?: string | string[];
 }>;
 
 const DAYS = 30;
@@ -22,8 +23,16 @@ function firstQueryValue(value?: string | string[]) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function telegramHref(channel?: string) {
-  return channel ? `/telegram?${new URLSearchParams({ channel })}` : "/telegram";
+function telegramHref({ channel, q }: { channel?: string; q?: string } = {}) {
+  const params = new URLSearchParams();
+  if (channel) {
+    params.set("channel", channel);
+  }
+  if (q) {
+    params.set("q", q);
+  }
+  const query = params.toString();
+  return query ? `/telegram?${query}` : "/telegram";
 }
 
 export default async function TelegramPage({
@@ -33,15 +42,17 @@ export default async function TelegramPage({
 }) {
   const resolved = await searchParams;
   const selectedChannel = firstQueryValue(resolved.channel)?.trim() ?? "";
+  const query = firstQueryValue(resolved.q)?.trim() ?? "";
   const payload = await getTelegramEvents({
     days: DAYS,
     channel: selectedChannel || undefined,
+    q: query || undefined,
     limit: PAGE_SIZE,
   });
   const channelOptions = [
-    { href: telegramHref(), label: "全部频道", selected: !selectedChannel },
+    { href: telegramHref({ q: query }), label: "全部频道", selected: !selectedChannel },
     ...payload.channels.map((channel) => ({
-      href: telegramHref(channel.id),
+      href: telegramHref({ channel: channel.id, q: query }),
       label: channel.name,
       selected: selectedChannel === channel.id,
     })),
@@ -56,7 +67,7 @@ export default async function TelegramPage({
         <Sidebar activeNavId="telegram" />
         <MobileNav activeNavId="telegram" />
 
-        <section className="w-full min-w-0 max-w-[1200px] justify-self-center px-4 pb-8 pt-3 md:px-8 md:py-8 xl:px-12">
+        <section className="w-full min-w-0 max-w-[1320px] justify-self-center px-4 pb-8 pt-3 md:px-8 md:py-8 xl:px-12">
           <header className="editorial-surface py-1 md:py-2">
             <RadarStatus
               compactScope="电报"
@@ -71,27 +82,62 @@ export default async function TelegramPage({
               </p>
             </div>
 
+            <MobileSearchForm
+              action="/telegram"
+              defaultValue={query}
+              hiddenFields={selectedChannel ? [{ name: "channel", value: selectedChannel }] : []}
+              placeholder="搜索标题、摘要或正文"
+            />
             <MobileCategoryNav label="电报频道" options={channelOptions} />
 
-            <nav
-              aria-label="电报频道"
-              className="mt-4 hidden flex-wrap gap-1.5 rounded-md border border-line bg-canvas p-1.5 md:flex"
-            >
-              {channelOptions.map((option) => (
-                <a
-                  aria-current={option.selected ? "page" : undefined}
-                  className={`flex min-h-10 items-center rounded-md px-4 py-1.5 text-sm font-medium ${
-                    option.selected
-                      ? "bg-signal/15 text-signal"
-                      : "text-ink-mid hover:bg-panel-soft hover:text-ink"
-                  }`}
-                  href={option.href}
-                  key={option.href}
+            <div className="mt-5 hidden border-y border-line md:grid xl:grid-cols-[minmax(0,1fr)_360px]">
+              <div className="min-w-0 py-2.5 xl:pr-5">
+                <nav aria-label="电报频道" className="flex min-w-0 items-start gap-4">
+                  <span className="readout w-10 shrink-0 py-2 text-[10px] uppercase tracking-[0.12em] text-ink-dim">
+                    频道
+                  </span>
+                  <div className="flex min-w-0 flex-wrap gap-x-5 gap-y-0.5">
+                    {channelOptions.map((option) => (
+                      <a
+                        aria-current={option.selected ? "page" : undefined}
+                        className={`flex min-h-8 items-center border-b px-0.5 text-sm font-medium transition-colors ${
+                          option.selected
+                            ? "border-signal text-signal"
+                            : "border-transparent text-ink-mid hover:border-line-strong hover:text-ink"
+                        }`}
+                        href={option.href}
+                        key={option.href}
+                      >
+                        {option.label}
+                      </a>
+                    ))}
+                  </div>
+                </nav>
+              </div>
+
+              <form
+                action="/telegram"
+                aria-label="搜索电报动态"
+                className="grid min-w-0 grid-cols-[1fr_auto] border-t border-line xl:border-l xl:border-t-0"
+              >
+                {selectedChannel ? <input name="channel" type="hidden" value={selectedChannel} /> : null}
+                <label className="sr-only" htmlFor="telegram-search">搜索电报动态</label>
+                <input
+                  id="telegram-search"
+                  className="relative z-0 min-h-12 min-w-0 bg-transparent px-4 py-2 text-sm text-ink outline-none placeholder:text-ink-dim focus:bg-panel-soft/35 focus-visible:z-10"
+                  defaultValue={query}
+                  name="q"
+                  placeholder="搜索标题/摘要/正文..."
+                  type="search"
+                />
+                <button
+                  className="min-h-12 cursor-pointer border-l border-line px-5 py-2 text-sm font-medium text-signal transition-colors hover:bg-signal/10 hover:text-signal-bright focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-signal"
+                  type="submit"
                 >
-                  {option.label}
-                </a>
-              ))}
-            </nav>
+                  搜索
+                </button>
+              </form>
+            </div>
           </header>
 
           {payload.error ? (
@@ -107,11 +153,13 @@ export default async function TelegramPage({
             tag=""
             selectedSource=""
             selectedCategory=""
-            query=""
+            query={query}
             paginationPath="/api/telegram-events"
             paginationParams={selectedChannel ? { channel: selectedChannel } : {}}
             emptyMessage={
-              selectedChannelName
+              query
+                ? `没有找到包含“${query}”的电报动态。`
+                : selectedChannelName
                 ? `${selectedChannelName} 近 ${DAYS} 天还没有动态。`
                 : `近 ${DAYS} 天还没有电报动态。`
             }

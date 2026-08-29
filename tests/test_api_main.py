@@ -166,7 +166,7 @@ class APIMainTests(unittest.TestCase):
                     "category": "model_release",
                     "final_score": 99,
                     "source_count": 6,
-                    "published_at": iso(60),
+                    "published_at": iso(72),
                 },
             ],
         )

@@ -88,6 +88,9 @@ services:
       # Reach it through the shared Docker network; 127.0.0.1 inside this
       # container points back to the AR API container itself.
       SOURCEPILOT_BASE_URL: http://sourcepilot:8420
+      X_TWEET_ARTICLE_PIPELINE_ENABLED: ${X_TWEET_ARTICLE_PIPELINE_ENABLED:-false}
+      X_TWEET_ARTICLE_PIPELINE_RECENT_DAYS: ${X_TWEET_ARTICLE_PIPELINE_RECENT_DAYS:-7}
+      X_TWEET_ARTICLE_PIPELINE_BATCH_LIMIT: ${X_TWEET_ARTICLE_PIPELINE_BATCH_LIMIT:-100}
       TZ: Asia/Shanghai
     env_file:
       - ../.env
@@ -105,7 +108,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512m
+          # Production is the canonical crawler. The embedding/translation
+          # stages routinely exceed the old 512 MiB cap, which caused the API
+          # process to restart mid-run and leave orphaned pipeline rows.
+          memory: 1536m
 
   web:
     build:

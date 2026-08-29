@@ -6,6 +6,7 @@ import { findEventById } from "@/lib/events";
 import { formatRelativeTime } from "@/lib/time";
 import { ArticleReadingToggle } from "./article-reading-toggle";
 import { renderOriginalBlock } from "@/components/original-block";
+import { AuthorAvatar } from "@/components/author-avatar";
 import { BookmarkButton } from "@/components/bookmark-button";
 import { MobileNav } from "@/components/mobile-nav";
 import { Sidebar } from "@/components/sidebar";
@@ -338,6 +339,13 @@ export default async function EventDetailPage({
     notFound();
   }
 
+  const authorProfile = event.main_source?.handle
+    ? {
+        name: event.main_source.display_name ?? event.main_source.handle,
+        handle: event.main_source.handle,
+        avatarUrl: event.main_source.avatar_url,
+      }
+    : null;
   const originalUrl =
     event.content_origin === "manual_editor"
       ? undefined
@@ -370,20 +378,26 @@ export default async function EventDetailPage({
               <GridBackground className="opacity-35" />
               <div className="relative flex items-start justify-between gap-4 md:items-center">
                 <div className="min-w-0 flex-1">
-                  <div className="flex h-5 min-w-0 items-center gap-x-3 text-sm text-ink-mid md:h-6">
+                  <div className="flex h-5 min-w-0 items-center gap-x-2 text-sm text-ink-mid md:h-6 md:gap-x-3">
+                    {authorProfile ? (
+                      <AuthorAvatar
+                        name={authorProfile.name}
+                        sizeClassName="size-5 md:size-6"
+                        src={authorProfile.avatarUrl}
+                      />
+                    ) : null}
                     <span className="min-w-0 truncate font-semibold text-ink">
-                      {event.main_source?.name ?? "未知来源"}
+                      {authorProfile?.name ?? event.main_source?.name ?? "未知来源"}
                     </span>
-                    <span className="readout hidden text-xs uppercase tracking-[0.08em] md:inline">
+                    {authorProfile ? (
+                      <span className="shrink-0 text-ink-mid">{authorProfile.handle}</span>
+                    ) : null}
+                    <span className="readout shrink-0 text-[10px] uppercase tracking-[0.08em] md:text-xs">
                       {formatDateTime(event.published_at, event.content_origin, event.time_basis)}
                     </span>
-                    <span className="readout hidden text-xs uppercase tracking-[0.08em] md:inline">
+                    <span className="readout shrink-0 text-[10px] uppercase tracking-[0.08em] md:text-xs">
                       {event.category_label ?? event.category ?? "未分类"}
                     </span>
-                  </div>
-                  <div className="readout mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] uppercase tracking-[0.08em] text-ink-mid md:hidden">
-                    <span>{formatDateTime(event.published_at, event.content_origin, event.time_basis)}</span>
-                    <span>{event.category_label ?? event.category ?? "未分类"}</span>
                   </div>
                 </div>
 

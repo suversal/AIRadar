@@ -363,14 +363,44 @@ class HotspotPayloadTests(unittest.TestCase):
             [item["event_id"] for item in payload["items"]], ["high", "low"]
         )
 
-    def test_events_outside_window_are_excluded(self):
+    def test_lifetime_coverage_does_not_inflate_window_ranking(self):
+        old_burst = self._item("old-burst", sources=8, score=90)
+        old_burst.update(window_report_count=4, window_source_count=4)
+        current_burst = self._item("current-burst", sources=5, score=70)
+        current_burst.update(window_report_count=5, window_source_count=5)
+
+        payload = build_hotspots_payload(
+            [old_burst, current_burst], now=self.NOW
+        )
+
+        self.assertEqual(
+            [item["event_id"] for item in payload["items"]],
+            ["current-burst", "old-burst"],
+        )
+
+    def test_window_report_count_leads_then_window_source_count(self):
+        more_reports = self._item("more-reports", sources=9, score=60)
+        more_reports.update(window_report_count=5, window_source_count=2)
+        more_sources = self._item("more-sources", sources=9, score=99)
+        more_sources.update(window_report_count=4, window_source_count=4)
+
+        payload = build_hotspots_payload(
+            [more_sources, more_reports], now=self.NOW
+        )
+
+        self.assertEqual(
+            [item["event_id"] for item in payload["items"]],
+            ["more-reports", "more-sources"],
+        )
+
+    def test_whole_day_window_matches_relative_calendar_day_labels(self):
         items = [
-            self._item("stale", sources=6, score=99, hours_ago=49),
-            self._item("fresh", sources=2, score=10, hours_ago=47),
+            self._item("two-days-ago", sources=6, score=99, hours_ago=54),
+            self._item("yesterday", sources=2, score=10, hours_ago=34),
         ]
         payload = build_hotspots_payload(items, now=self.NOW)
         self.assertEqual(
-            [item["event_id"] for item in payload["items"]], ["fresh"]
+            [item["event_id"] for item in payload["items"]], ["yesterday"]
         )
 
     def test_last_seen_at_keeps_old_event_with_fresh_coverage(self):
