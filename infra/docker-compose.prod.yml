@@ -87,7 +87,7 @@ services:
       # SourcePilot runs as a separate Compose project on the same host.
       # Reach it through the shared Docker network; 127.0.0.1 inside this
       # container points back to the AR API container itself.
-      SOURCEPILOT_BASE_URL: ${SOURCEPILOT_BASE_URL:-http://sourcepilot:8420}
+      SOURCEPILOT_BASE_URL: http://sourcepilot:8420
       TZ: Asia/Shanghai
     env_file:
       - ../.env
