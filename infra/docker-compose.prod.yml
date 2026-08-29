@@ -84,6 +84,10 @@ services:
         max-size: "50m"
         max-file: "20"
     environment:
+      # SourcePilot runs as a separate Compose project on the same host.
+      # Reach it through the shared Docker network; 127.0.0.1 inside this
+      # container points back to the AR API container itself.
+      SOURCEPILOT_BASE_URL: ${SOURCEPILOT_BASE_URL:-http://sourcepilot:8420}
       TZ: Asia/Shanghai
     env_file:
       - ../.env
@@ -94,6 +98,9 @@ services:
         condition: service_healthy
     volumes:
       - ../data:/app/data
+    networks:
+      - default
+      - sourcepilot
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     deploy:
       resources:
@@ -210,3 +217,8 @@ services:
 
 volumes:
   postgres-data:
+
+networks:
+  sourcepilot:
+    external: true
+    name: sourcepilot_default
