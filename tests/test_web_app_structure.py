@@ -812,6 +812,15 @@ class WebAppStructureTests(unittest.TestCase):
         taxonomy = (WEB / "lib" / "taxonomy.ts").read_text(encoding="utf-8")
         self.assertIn('["", "全部"]', taxonomy)
 
+    def test_mobile_tweet_kind_filter_uses_aligned_all_types_label(self):
+        tweets_page = (WEB / "app" / "x" / "page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn('label: kind === "" ? "全部类型" : label', tweets_page)
+        self.assertIn('label: "全部话题"', tweets_page)
+        # Desktop keeps its shorter label; only the mobile row needs equal-width
+        # leading labels with the topic row below it.
+        self.assertIn('["", "全部"]', tweets_page)
+
     def test_daily_page_falls_back_to_latest_archived_date_not_todays_empty_report(self):
         # 2026-07-13 修复:同步还没跑到"今天"之前(比如刚过零点),/latest
         # 的滚动窗口会把 report_date 报成"今天"，但当天还没有真正生成的

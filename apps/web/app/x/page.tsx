@@ -154,7 +154,7 @@ export default async function TweetsPage({ searchParams }: { searchParams: XSear
               label="推文形态"
               options={kindOptions.map(([kind, label]) => ({
                 href: xHref({ kind, handle: selectedHandle, topic: selectedTopic }),
-                label,
+                label: kind === "" ? "全部类型" : label,
                 selected: selectedKind === kind,
               }))}
             />

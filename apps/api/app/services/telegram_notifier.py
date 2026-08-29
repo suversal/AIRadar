@@ -6,14 +6,18 @@ must never affect the pipeline run itself.
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
 
 TELEGRAM_MAX_MESSAGE_LENGTH = 4000
+TELEGRAM_RETRY_DELAYS = (0.0, 1.0, 3.0)
 _STATUS_LABELS = {"succeeded": "✅ 成功", "failed": "❌ 失败"}
+logger = logging.getLogger(__name__)
 
 
 def _ingested_count(entry: dict[str, Any]) -> int:
@@ -104,12 +108,17 @@ def send_telegram_message(
     *,
     bot_token: str | None = None,
     chat_id: str | None = None,
+    retry_delays: tuple[float, ...] = TELEGRAM_RETRY_DELAYS,
 ) -> bool:
-    """Best-effort push. Returns whether the send actually succeeded;
-    callers must never let this raise or block the pipeline."""
+    """Best-effort push with bounded retries and observable delivery status.
+
+    Returns whether Telegram accepted the message. Callers must never let a
+    notification failure change the completed pipeline run's status.
+    """
     token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN")
     chat = chat_id or os.getenv("TELEGRAM_CHAT_ID")
     if not token or not chat:
+        logger.warning("Telegram notification skipped: credentials are not configured")
         return False
 
     if len(text) > TELEGRAM_MAX_MESSAGE_LENGTH:
@@ -118,11 +127,33 @@ def send_telegram_message(
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = urllib.parse.urlencode({"chat_id": chat, "text": text}).encode("utf-8")
     request = urllib.request.Request(url, data=payload)
-    try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            body = json.loads(response.read().decode("utf-8"))
-            return bool(body.get("ok"))
-    except (urllib.error.URLError, TimeoutError, ValueError, OSError):
-        return False
-    except Exception:  # pragma: no cover - defensive: never break the caller
-        return False
+    delays = retry_delays or (0.0,)
+    last_error = "Telegram API returned ok=false"
+    for attempt, delay in enumerate(delays, start=1):
+        if delay > 0:
+            time.sleep(delay)
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                body = json.loads(response.read().decode("utf-8"))
+            if body.get("ok"):
+                logger.info("Telegram notification sent on attempt %s", attempt)
+                return True
+        except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+            last_error = type(exc).__name__
+        except Exception as exc:  # pragma: no cover - defensive: never break the caller
+            last_error = type(exc).__name__
+
+        if attempt < len(delays):
+            logger.warning(
+                "Telegram notification attempt %s/%s failed (%s); retrying",
+                attempt,
+                len(delays),
+                last_error,
+            )
+
+    logger.error(
+        "Telegram notification failed after %s attempts (%s)",
+        len(delays),
+        last_error,
+    )
+    return False

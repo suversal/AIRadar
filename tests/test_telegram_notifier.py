@@ -1,5 +1,6 @@
 import sys
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
@@ -131,8 +132,45 @@ class SendTelegramMessageTests(unittest.TestCase):
 
     def test_swallows_network_exceptions(self):
         with patch("urllib.request.urlopen", side_effect=RuntimeError("boom")):
-            result = send_telegram_message("hi", bot_token="t", chat_id="c")
+            result = send_telegram_message(
+                "hi", bot_token="t", chat_id="c", retry_delays=(0.0,)
+            )
         self.assertFalse(result)
+
+    def test_retries_transient_failure_then_succeeds(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return b'{"ok": true}'
+
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=[urllib.error.URLError("temporary"), FakeResponse()],
+        ) as urlopen:
+            result = send_telegram_message(
+                "hi", bot_token="t", chat_id="c", retry_delays=(0.0, 0.0)
+            )
+
+        self.assertTrue(result)
+        self.assertEqual(urlopen.call_count, 2)
+
+    def test_logs_final_failure_without_exposing_credentials(self):
+        with self.assertLogs("app.services.telegram_notifier", level="ERROR") as captured:
+            with patch("urllib.request.urlopen", side_effect=TimeoutError("secret-token")):
+                result = send_telegram_message(
+                    "hi", bot_token="secret-token", chat_id="secret-chat", retry_delays=(0.0,)
+                )
+
+        self.assertFalse(result)
+        output = "\n".join(captured.output)
+        self.assertIn("failed after 1 attempts (TimeoutError)", output)
+        self.assertNotIn("secret-token", output)
+        self.assertNotIn("secret-chat", output)
 
     def test_truncates_overlong_messages(self):
         captured = {}
