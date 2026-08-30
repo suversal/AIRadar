@@ -133,6 +133,13 @@ export type LatestEvent = {
   scoring_category_label?: string;
   tags?: string[];
   final_score?: number;
+  // Article-ledger endpoints keep final_score/selected per article and expose
+  // these event facts separately. Event views promote them to final_score /
+  // selected while preserving the article values below for provenance.
+  event_score?: number;
+  event_selected?: boolean;
+  article_score?: number;
+  article_selected?: boolean;
   // authoritative "is this article selected" signal from scoring_service's
   // per-category threshold - prefer this over re-deriving from final_score
   selected?: boolean;

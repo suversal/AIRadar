@@ -946,6 +946,42 @@ class LatestSelectedFeedTests(unittest.TestCase):
         self.assertEqual([item["event_id"] for item in payload["items"]], ["c1"])
         self.assertEqual(payload["total"], 1)
 
+    def test_selected_feed_promotes_event_score_only_after_deduplication(self):
+        items = [
+            {
+                "event_id": "c1",
+                "is_main": True,
+                "final_score": 48.0,
+                "selected": False,
+                "event_score": 70.0,
+                "event_selected": True,
+                "source_count": 2,
+                "published_at": "2026-08-18T09:00:00+00:00",
+            },
+            {
+                "event_id": "a0000000000a",
+                "is_main": False,
+                "final_score": 70.0,
+                "selected": True,
+                "event_score": 70.0,
+                "event_selected": True,
+                "source_count": 2,
+                "published_at": "2026-08-18T08:30:00+00:00",
+            },
+        ]
+
+        payload = build_latest_selected_payload_from_repository(
+            self._repository(items), end_date=date(2026, 8, 18)
+        )
+
+        self.assertEqual([item["event_id"] for item in payload["items"]], ["c1"])
+        event = payload["items"][0]
+        self.assertEqual(event["final_score"], 70.0)
+        self.assertTrue(event["selected"])
+        self.assertEqual(event["article_score"], 48.0)
+        self.assertFalse(event["article_selected"])
+        self.assertEqual(event["selection_reason"], "event:selected_member")
+
     def test_standalone_articles_without_a_cluster_still_show_up(self):
         # 没有聚类的孤条压根没有 is_main 字段，不能被去重误伤
         items = [

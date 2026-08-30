@@ -1157,6 +1157,83 @@ class RepositoryTests(unittest.TestCase):
         listed_counts = {item["event_id"]: item["source_count"] for item in listed}
         self.assertEqual(listed_counts["e-multi"], 2)
 
+    def test_canonical_event_uses_event_selection_without_relabeling_article_ledger(self):
+        """A selected event can have a rejected representative article.
+
+        The canonical detail/report view must expose the event's winning score,
+        while /all keeps both articles' own scores and statuses. Otherwise we
+        either show "48 分未精选" on a selected event or regress to the old
+        "0 分精选" bug by marking every member selected.
+        """
+        from dataclasses import replace as dc_replace
+
+        from app.models.domain import RawArticle
+        from app.repositories.radar_repository import RadarRepository
+
+        rejected_main = self._processed("a1", final_score=48.0)
+        rejected_main.selected = False
+        rejected_main.status = "rejected"
+        rejected_main.rejection_reason = "below_threshold:60"
+        selected_member = self._processed("b1", final_score=70.0)
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.upsert_sources([self._source(), self._other_source()])
+            repository.upsert_raw_articles(
+                [
+                    self._article(article_id="a1", title="权威来源主条", url_hash="u1"),
+                    RawArticle(
+                        id="b1",
+                        source_id="techcrunch",
+                        source_name="TechCrunch",
+                        source_role="signal",
+                        source_tier="T2",
+                        source_url="https://techcrunch.com/b1",
+                        title="高分跟进报道",
+                        content="同一事件",
+                        author="TechCrunch",
+                        published_at=datetime(2026, 7, 1, 10, tzinfo=timezone.utc),
+                        language="en",
+                        raw_score={"score": 1},
+                        metadata={"origin": "fixture"},
+                        title_hash="title-b1",
+                        url_hash="u2",
+                    ),
+                ]
+            )
+            repository.upsert_processed_articles(
+                [
+                    dc_replace(rejected_main, event_cluster_id="e-selection"),
+                    dc_replace(selected_member, event_cluster_id="e-selection"),
+                ]
+            )
+            cluster = self._cluster("e-selection", main_article_id="a1")
+            cluster.article_ids = ["a1", "b1"]
+            cluster.final_score = 70.0
+            repository.upsert_event_clusters([cluster])
+            session.commit()
+
+            detail = repository.get_event_item("e-selection")
+            by_id = repository.get_event_items_by_ids(["e-selection"])[0]
+            ledger = repository.get_all_event_items_between(
+                date(2026, 7, 1), date(2026, 7, 1), selected_only=True
+            )
+
+        for event_view in (detail, by_id):
+            self.assertEqual(event_view["final_score"], 70.0)
+            self.assertTrue(event_view["selected"])
+            self.assertEqual(event_view["article_score"], 48.0)
+            self.assertFalse(event_view["article_selected"])
+            self.assertEqual(event_view["selection_reason"], "event:selected_member")
+
+        ledger_by_id = {item["event_id"]: item for item in ledger}
+        self.assertEqual(ledger_by_id["e-selection"]["final_score"], 48.0)
+        self.assertFalse(ledger_by_id["e-selection"]["selected"])
+        self.assertEqual(ledger_by_id["e-selection"]["event_score"], 70.0)
+        self.assertTrue(ledger_by_id["e-selection"]["event_selected"])
+        self.assertEqual(ledger_by_id["ab1"]["final_score"], 70.0)
+        self.assertTrue(ledger_by_id["ab1"]["selected"])
+
     def test_time_basis_reaches_list_endpoints_not_just_detail(self):
         """time_basis 必须在列表口径也透传，不能只在详情里有。
 

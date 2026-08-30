@@ -550,6 +550,31 @@ def build_latest_selected_payload_from_repository(
         if item.get("is_main", True)
         and _item_matches(item, category=category, focus=focus, tag=tag, q=q)
     ]
+    # Selection is evaluated per article before clustering. The representative
+    # article can therefore be a lower-scoring authority source while another
+    # member is the one that made the event selected. The selected feed is an
+    # event view, so switch only its already-deduplicated representatives to
+    # the event facts supplied by the repository. /all keeps article facts.
+    items = [
+        {
+            **item,
+            "article_score": item.get("final_score"),
+            "article_selected": item.get("selected"),
+            "final_score": item.get("event_score", item.get("final_score")),
+            "selected": item.get("event_selected", item.get("selected")),
+            "selection_origin": (
+                "event"
+                if item.get("event_selected") and not item.get("selected")
+                else item.get("selection_origin")
+            ),
+            "selection_reason": (
+                "event:selected_member"
+                if item.get("event_selected") and not item.get("selected")
+                else item.get("selection_reason")
+            ),
+        }
+        for item in items
+    ]
     items = sorted(
         items,
         key=lambda item: (

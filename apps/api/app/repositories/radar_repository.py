@@ -723,6 +723,7 @@ class RadarRepository:
         event_cluster_ids = {
             row[3].id for row in resolved.values() if row is not None and row[3] is not None
         }
+        selected_event_ids = self._selected_event_ids(event_cluster_ids)
         overrides = (
             {
                 o.raw_article_id: o
@@ -785,6 +786,9 @@ class RadarRepository:
                 source_count=cluster.source_count if cluster else 1,
                 event_id=cluster.id if cluster else None,
                 last_seen_at=cluster.last_seen_at if cluster else None,
+                event_final_score=cluster.final_score if cluster else None,
+                event_selected=cluster.id in selected_event_ids if cluster else None,
+                use_event_selection=cluster is not None,
             )
             # two distinct requested ids (e.g. a stale a-prefixed id from an
             # older report snapshot and the cluster it was later merged into)
@@ -2656,6 +2660,12 @@ class RadarRepository:
         return query
 
     def _event_items_from_all_events_rows(self, rows) -> list[dict[str, Any]]:
+        event_cluster_ids = {
+            m_cluster.id
+            for _processed, _raw, _source, _override, _cluster, m_cluster, _event_override in rows
+            if m_cluster is not None
+        }
+        selected_event_ids = self._selected_event_ids(event_cluster_ids)
         items = []
         for processed, raw, source, override, cluster, m_cluster, event_override in rows:
             # this row is the designated main of its cluster, or genuinely
@@ -2675,9 +2685,38 @@ class RadarRepository:
                     event_id=cluster.id if cluster is not None else f"a{raw.id[:12]}",
                     last_seen_at=m_cluster.last_seen_at if m_cluster else None,
                     is_main=is_main,
+                    # /all 是逐文章账本，所以这里仅附带事件口径，仍保留
+                    # final_score/selected 为文章自己的值。精选流会在只留下
+                    # is_main 后显式切换到事件口径。
+                    event_final_score=m_cluster.final_score if m_cluster else None,
+                    event_selected=m_cluster.id in selected_event_ids if m_cluster else None,
                 )
             )
         return items
+
+    def _selected_event_ids(self, event_cluster_ids: set[str]) -> set[str]:
+        """Events with at least one selected member.
+
+        Selection happens before clustering, so the representative article is
+        not guaranteed to be the member that crossed the threshold. Keep this
+        as an event fact instead of copying the selected status onto every
+        article in /all.
+        """
+        if not event_cluster_ids:
+            return set()
+        return set(
+            self.session.scalars(
+                select(EventClusterArticleModel.event_cluster_id)
+                .join(
+                    ProcessedArticleModel,
+                    ProcessedArticleModel.raw_article_id
+                    == EventClusterArticleModel.raw_article_id,
+                )
+                .where(EventClusterArticleModel.event_cluster_id.in_(event_cluster_ids))
+                .where(ProcessedArticleModel.status == "processed")
+                .distinct()
+            ).all()
+        )
 
     def get_all_event_items_between(
         self,
@@ -3361,6 +3400,13 @@ class RadarRepository:
             source_count=member_cluster.source_count if member_cluster else 1,
             event_id=own_event_id,
             last_seen_at=member_cluster.last_seen_at if member_cluster else None,
+            event_final_score=member_cluster.final_score if member_cluster else None,
+            event_selected=(
+                member_cluster.id in self._selected_event_ids({member_cluster.id})
+                if member_cluster
+                else None
+            ),
+            use_event_selection=cluster is not None,
         )
         if member_cluster is not None:
             item["coverage"] = self.get_event_cluster_coverage(member_cluster.id)
@@ -3567,6 +3613,9 @@ def _event_item(
     event_id: Optional[str] = None,
     last_seen_at: Optional[datetime] = None,
     is_main: bool = True,
+    event_final_score: Optional[float] = None,
+    event_selected: Optional[bool] = None,
+    use_event_selection: bool = False,
 ) -> dict[str, Any]:
     metadata = dict(raw.raw_metadata or {})
     published_at = raw.published_at
@@ -3619,6 +3668,9 @@ def _event_item(
         (override is not None and override.hidden)
         or (event_override is not None and event_override.hidden)
     )
+    article_selected = processed.status == "processed"
+    effective_score = event_final_score if use_event_selection else processed.final_score
+    effective_selected = event_selected if use_event_selection else article_selected
     item: dict[str, Any] = {
         "event_id": event_id or processed.event_cluster_id or f"a{raw.id[:12]}",
         "title": title_zh or raw.title,
@@ -3631,14 +3683,22 @@ def _event_item(
         "tags": tags,
         # None = 未回填的存量行,topics.item_matches_topic 对 None 回退关键词
         "topic_ids": processed.topic_ids,
-        "final_score": processed.final_score,
+        "final_score": effective_score,
         # 打出这个分的模型。分数只在同一个模型内部可比,周月报靠它把
         # 跨模型的条目分组后再排名 - 见 public.py 的 sort_period_items。
         "model_used": processed.model_used,
         "ai_focus": processed.ai_focus,
-        "selected": processed.status == "processed",
-        "selection_origin": processed.selection_origin,
-        "selection_reason": processed.selection_reason,
+        "selected": effective_selected,
+        "selection_origin": (
+            "event"
+            if use_event_selection and event_selected and not article_selected
+            else processed.selection_origin
+        ),
+        "selection_reason": (
+            "event:selected_member"
+            if use_event_selection and event_selected and not article_selected
+            else processed.selection_reason
+        ),
         "hidden": hidden,
         "source_count": max(source_count, 1),
         # 是否为其所属事件的代表条(标准孤立文章也算) - 热点榜靠这个字段
@@ -3674,6 +3734,12 @@ def _event_item(
         else None,
         "crawled_at": raw.crawled_at.isoformat() if raw.crawled_at else None,
     }
+    if event_final_score is not None:
+        item["event_score"] = event_final_score
+        item["event_selected"] = bool(event_selected)
+    if use_event_selection:
+        item["article_score"] = processed.final_score
+        item["article_selected"] = article_selected
     if "editorial_original_url" in metadata:
         editorial_original_url = str(metadata.get("editorial_original_url") or "").strip()
         if editorial_original_url:
