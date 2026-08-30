@@ -109,7 +109,7 @@ class HackerNewsCrawler(BaseCrawler):
     def fetch(self, limit: int | None = None) -> list[RawArticle]:
         request = urllib.request.Request(
             self.source.url,
-            headers={"User-Agent": "SuversalAIRadar/0.1 (+https://github.com/suversal/HotAI)"},
+            headers={"User-Agent": "SuversalAIRadar/0.1 (+https://github.com/suversal/AIRadar)"},
         )
         with urllib.request.urlopen(request, timeout=20) as response:
             payload = json.loads(response.read().decode("utf-8"))

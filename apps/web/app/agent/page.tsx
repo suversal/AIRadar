@@ -30,7 +30,7 @@ export const metadata = {
 };
 
 const skillVersion = "1.1.0";
-const sourceBase = "https://github.com/suversal/HotAI/tree/main/apps/web/public/ai-radar-skill";
+const sourceBase = "https://github.com/suversal/AIRadar/tree/main/apps/web/public/ai-radar-skill";
 
 const OUTCOMES = [
   { icon: Clock3, title: "24 小时重点", example: "过去 24 小时最重要的 5 件事是什么？" },

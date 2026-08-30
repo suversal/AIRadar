@@ -62,7 +62,7 @@ function ContactLink({
 export function ContactLinks() {
   return (
     <nav aria-label="联系方式" className="flex items-center justify-center gap-1.5">
-      <ContactLink href="https://github.com/suversal/HotAI" label="GitHub" external>
+      <ContactLink href="https://github.com/suversal/AIRadar" label="GitHub" external>
         <GitHubLogo />
       </ContactLink>
       <ContactLink href="mailto:contact@suversal.com" label="发送邮件">

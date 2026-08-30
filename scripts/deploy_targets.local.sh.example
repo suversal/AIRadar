@@ -32,7 +32,7 @@ resolve_target() {
       TARGET_NAME="生产"
       SERVER="myhost"                  # ~/.ssh/config 里的别名
       SERVER_FALLBACK=""               # 例如 myhost-v6
-      REMOTE_DIR="/home/youruser/hotai"
+      REMOTE_DIR="/home/youruser/airadar"
       BASE_URL="https://example.com"
       DOCKER="docker"                  # 或 "sudo docker"
       COMPOSE_FILES="-f infra/docker-compose.prod.yml"

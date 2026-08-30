@@ -125,8 +125,8 @@ flowchart LR
 ### 1. 安装依赖
 
 ```bash
-git clone https://github.com/suversal/HotAI.git
-cd HotAI
+git clone https://github.com/suversal/AIRadar.git
+cd AIRadar
 
 cp .env.example .env
 python3 -m venv .venv
@@ -245,7 +245,7 @@ data/           本地运行产物和缓存（默认忽略）
 
 ## 参与项目
 
-欢迎通过 [GitHub Issues](https://github.com/suversal/HotAI/issues) 提交：
+欢迎通过 [GitHub Issues](https://github.com/suversal/AIRadar/issues) 提交：
 
 - 高质量 AI 信源建议
 - 同事件误拆分或错误合并
@@ -257,7 +257,7 @@ data/           本地运行产物和缓存（默认忽略）
 
 ## 联系方式
 
-[GitHub](https://github.com/suversal/HotAI) · [Email](mailto:contact@suversal.com) · [Telegram](https://t.me/suversal) · [X](https://x.com/suversal)
+[GitHub](https://github.com/suversal/AIRadar) · [Email](mailto:contact@suversal.com) · [Telegram](https://t.me/suversal) · [X](https://x.com/suversal)
 
 ## License
 

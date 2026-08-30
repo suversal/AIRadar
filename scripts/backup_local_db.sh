@@ -1,11 +1,11 @@
 #!/bin/zsh
-# 每日备份本地 radar 库到 ~/Backups/hotai/，由 launchd (com.suversal.ai-radar.backup) 触发。
+# 每日备份本地 radar 库到 ~/Backups/airadar/，由 launchd (com.suversal.ai-radar.backup) 触发。
 # 保留策略：每月 1 号的快照永久保留；其余保留最近 14 天。
 # 恢复方法见 docs/tencent-cloud-deployment-ops.md「备份」一节。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BACKUP_DIR="$HOME/Backups/hotai"
+BACKUP_DIR="$HOME/Backups/airadar"
 LOG="$ROOT/data/logs/backup.log"
 TODAY="$(date +%Y%m%d)"
 TARGET="$BACKUP_DIR/radar-$TODAY.dump"

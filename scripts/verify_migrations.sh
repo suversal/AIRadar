@@ -14,7 +14,7 @@ PORT="${VERIFY_PG_PORT:-55440}"
 REF_CONTAINER="${REF_CONTAINER:-infra-postgres-1}"
 REF_DB_USER="${REF_DB_USER:-radar}"
 REF_DB_NAME="${REF_DB_NAME:-radar}"
-NAME="hotai-verify-migrations-$$"
+NAME="airadar-verify-migrations-$$"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ALEMBIC="$ROOT/.venv/bin/alembic"
 

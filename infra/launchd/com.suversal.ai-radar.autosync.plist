@@ -7,18 +7,18 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/zsh</string>
-    <string>/Users/sue/Developer/HotAI/scripts/auto_sync_watcher.sh</string>
+    <string>/Users/sue/Developer/AIRadar/scripts/auto_sync_watcher.sh</string>
   </array>
   <key>StartInterval</key>
   <integer>600</integer>
   <key>RunAtLoad</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>/Users/sue/Developer/HotAI/data/logs/autosync.launchd.log</string>
+  <string>/Users/sue/Developer/AIRadar/data/logs/autosync.launchd.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/sue/Developer/HotAI/data/logs/autosync.launchd.log</string>
+  <string>/Users/sue/Developer/AIRadar/data/logs/autosync.launchd.log</string>
   <key>WorkingDirectory</key>
-  <string>/Users/sue/Developer/HotAI</string>
+  <string>/Users/sue/Developer/AIRadar</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>

@@ -2,18 +2,18 @@ import fs from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { SpreadsheetFile, Workbook } from "@oai/artifact-tool";
 
-const repoRoot = "/Users/sue/Developer/HotAI";
+const repoRoot = "/Users/sue/Developer/AIRadar";
 const outputDir = `${repoRoot}/outputs/019f60b5-b92c-70a3-86bf-4d1f873e5ee2`;
-const outputPath = `${outputDir}/HotAI_信源清单_含补充地址_2026-07-15.xlsx`;
-const previewPath = `${outputDir}/HotAI_信源清单_预览.png`;
-const supplementaryPreviewPath = `${outputDir}/HotAI_补充地址_预览.png`;
+const outputPath = `${outputDir}/AIRadar_信源清单_含补充地址_2026-07-15.xlsx`;
+const previewPath = `${outputDir}/AIRadar_信源清单_预览.png`;
+const supplementaryPreviewPath = `${outputDir}/AIRadar_补充地址_预览.png`;
 
 const pythonCode = String.raw`
 import json, os
 from pathlib import Path
 from sqlalchemy import create_engine, text
 
-root = Path('/Users/sue/Developer/HotAI')
+root = Path('/Users/sue/Developer/AIRadar')
 for p in (root / '.env', root / 'apps/api/.env'):
     if p.exists():
         for line in p.read_text().splitlines():
@@ -138,7 +138,7 @@ sheet.getRange("A1:N74").format = {
 };
 
 sheet.getRange("A1:N1").merge();
-sheet.getRange("A1").values = [["HotAI 数据库信源清单"]];
+sheet.getRange("A1").values = [["AI·RADAR 数据库信源清单"]];
 sheet.getRange("A1:N1").format = {
   fill: "#17324D",
   font: { bold: true, color: "#FFFFFF", size: 16 },

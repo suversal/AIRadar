@@ -96,7 +96,7 @@ function bestSrcsetCandidate(value: string) {
   return candidates.at(-1) ?? "";
 }
 
-/** Remote images are previewed through HotAI's existing anti-hotlink proxy,
+/** Remote images are previewed through AI·RADAR's existing anti-hotlink proxy,
  * while data-original keeps the source URL that the backend persists. */
 function prepareEditorHtml(html: string, baseUrl = "") {
   if (!html || typeof window === "undefined") return html;

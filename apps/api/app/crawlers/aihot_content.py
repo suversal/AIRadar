@@ -50,7 +50,7 @@ DEFAULT_PAGE_CACHE_DIR = Path("data") / "page_cache"
 
 # identify ourselves instead of pretending to be a browser, per AI HOT's own
 # OpenAPI docs ("脚本和后端服务必须设置能识别自己的非浏览器 User-Agent")
-AIHOT_USER_AGENT = "HotAI/1.0"
+AIHOT_USER_AGENT = "AIRadar/1.0"
 
 _DT_BODY_OPEN_RE = re.compile(
     r'<div\b[^>]*class="[^"]*\bdt-(?:article|tweet)\b[^"]*"[^>]*>', re.IGNORECASE
