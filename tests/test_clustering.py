@@ -15,6 +15,7 @@ from app.services.clustering_service import (
     cluster_articles,
     cosine_similarity,
     event_text_affinity,
+    reference_keys_from_metadata,
 )
 
 
@@ -200,6 +201,80 @@ class ClusteringTests(unittest.TestCase):
 
         self.assertEqual(len(clusters), 1)
         self.assertEqual(set(clusters[0].article_ids), {"a1", "a2"})
+
+    def test_cluster_articles_matches_x_status_link_inside_paragraph_html(self):
+        original = raw_article(
+            "a1", "x_tweet_account", "signal", "T2", "Codex usage reset", 8
+        )
+        original.source_url = "https://x.com/thsottiaux/status/2093801758665715784"
+        telegram = raw_article(
+            "a2", "telegram", "aggregator", "T3", "Codex 用量重置", 9
+        )
+        telegram.metadata["original_blocks"] = [
+            {
+                "type": "paragraph",
+                "text": "Tibo (@thsottiaux)",
+                "html": (
+                    '<a href="https://x.com/thsottiaux/status/2093801758665715784">'
+                    "Tibo (@thsottiaux)</a>"
+                ),
+            }
+        ]
+
+        clusters = cluster_articles(
+            [original, telegram],
+            {"a1": [1.0, 0.0], "a2": [0.0, 1.0]},
+            threshold=0.90,
+        )
+
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(set(clusters[0].article_ids), {"a1", "a2"})
+
+    def test_reference_keys_recurse_into_quotes_and_accept_x_embeds(self):
+        keys = reference_keys_from_metadata(
+            {
+                "original_blocks": [
+                    {
+                        "type": "quote",
+                        "kind": "reply",
+                        "children": [
+                            {
+                                "type": "source_list",
+                                "links": [{"url": "https://example.com/story/42"}],
+                            }
+                        ],
+                    },
+                    {
+                        "type": "social_embed",
+                        "provider": "x",
+                        "url": "https://twitter.com/i/status/2093801758665715784",
+                    },
+                ]
+            }
+        )
+
+        self.assertEqual(
+            keys,
+            {"url:example.com/story/42", "x-status:2093801758665715784"},
+        )
+
+    def test_inline_links_ignore_profiles_and_unrelated_articles(self):
+        keys = reference_keys_from_metadata(
+            {
+                "original_blocks": [
+                    {
+                        "type": "paragraph",
+                        "text": "作者与延伸阅读",
+                        "html": (
+                            '<a href="https://x.com/thsottiaux">作者主页</a>'
+                            '<a href="https://example.com/related-story">延伸阅读</a>'
+                        ),
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual(keys, set())
 
     def test_cluster_articles_does_not_transitively_chain_unrelated_articles(self):
         # single-linkage regression: the bucket founder (a1, earliest

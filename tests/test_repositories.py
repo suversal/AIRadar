@@ -1905,11 +1905,18 @@ class RepositoryTests(unittest.TestCase):
             first_row = session.get(RawArticleModel, "a1")
             second_row = session.get(RawArticleModel, "a2")
             first_row.raw_metadata = {}
+            # Production regression: Telegram rendered the original X status
+            # as an inline attribution link, not a top-level source_list.
+            # Reconciliation must still recover the already-split events.
             second_row.raw_metadata = {
                 "original_blocks": [
                     {
-                        "type": "source_list",
-                        "links": [{"url": f"https://x.com/i/status/{cited_status}"}],
+                        "type": "paragraph",
+                        "text": "Tibo (@thsottiaux)",
+                        "html": (
+                            f'<a href="https://x.com/i/status/{cited_status}">'
+                            "Tibo (@thsottiaux)</a>"
+                        ),
                     }
                 ]
             }

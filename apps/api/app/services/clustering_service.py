@@ -5,6 +5,7 @@ import re
 import unicodedata
 from datetime import datetime
 from difflib import SequenceMatcher
+from html.parser import HTMLParser
 from typing import Any, Callable
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
@@ -82,19 +83,80 @@ def canonical_reference_key(url: str | None) -> str | None:
     return f"url:{host}{normalized_path}{'?' + query if query else ''}"
 
 
-def reference_keys_from_metadata(metadata: dict | None) -> set[str]:
-    """Extract strong cited-source identities from semantic article blocks."""
+class _InlineHrefParser(HTMLParser):
+    """Collect hrefs from already-sanitized rich-text fragments.
+
+    Paragraph links are deliberately handled more conservatively than a
+    semantic ``source_list`` below: an ordinary article may link to related
+    reading, documentation, or an author's profile without reporting that
+    exact event.  Only an X status URL is a strong enough identity signal in
+    free-form inline HTML.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.hrefs: list[str] = []
+
+    def handle_starttag(
+        self, tag: str, attrs: list[tuple[str, str | None]]
+    ) -> None:
+        if tag.casefold() != "a":
+            return
+        for name, value in attrs:
+            if name.casefold() == "href" and value:
+                self.hrefs.append(value)
+                return
+
+
+def _inline_x_status_keys(html: Any) -> set[str]:
+    if not isinstance(html, str) or not html:
+        return set()
+    parser = _InlineHrefParser()
+    try:
+        parser.feed(html)
+        parser.close()
+    except (ValueError, TypeError):
+        return set()
+    return {
+        key
+        for href in parser.hrefs
+        if (key := canonical_reference_key(href)) is not None
+        and key.startswith("x-status:")
+    }
+
+
+def _reference_keys_from_blocks(blocks: Any) -> set[str]:
     keys: set[str] = set()
-    for block in (metadata or {}).get("original_blocks") or []:
-        if not isinstance(block, dict) or block.get("type") != "source_list":
+    if not isinstance(blocks, list):
+        return keys
+    for block in blocks:
+        if not isinstance(block, dict):
             continue
-        for link in block.get("links") or []:
-            if not isinstance(link, dict):
-                continue
-            key = canonical_reference_key(link.get("url"))
-            if key:
+        block_type = block.get("type")
+        if block_type == "source_list":
+            for link in block.get("links") or []:
+                if not isinstance(link, dict):
+                    continue
+                key = canonical_reference_key(link.get("url"))
+                if key:
+                    keys.add(key)
+        elif block_type == "social_embed" and block.get("provider") == "x":
+            key = canonical_reference_key(block.get("url"))
+            if key and key.startswith("x-status:"):
                 keys.add(key)
+        elif block_type in {"paragraph", "heading"}:
+            keys.update(_inline_x_status_keys(block.get("html")))
+
+        # Telegram replies/updates and callouts keep their semantic blocks in
+        # ``children``.  A cited original inside one of those containers is no
+        # weaker than the same source_list at the top level.
+        keys.update(_reference_keys_from_blocks(block.get("children")))
     return keys
+
+
+def reference_keys_from_metadata(metadata: dict | None) -> set[str]:
+    """Extract conservative, strong cited-source identities recursively."""
+    return _reference_keys_from_blocks((metadata or {}).get("original_blocks"))
 
 
 def reference_keys_for_article(source_url: str | None, metadata: dict | None) -> set[str]:

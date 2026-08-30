@@ -117,6 +117,13 @@ class ScoringPromptTests(unittest.TestCase):
         self.assertIn("震惊", prompt)
         self.assertIn("重磅", prompt)
 
+    def test_scoring_system_prompt_forbids_inferred_company_attribution(self):
+        prompt = scoring_system_prompt()
+
+        self.assertIn("公司归属必须有原文中的明确表述支撑", prompt)
+        self.assertIn("不得把第三方作者写成‘某公司官方’", prompt)
+        self.assertIn("使用原文给出的作者名、账号名或‘发布者’作主语", prompt)
+
     def test_scoring_system_prompt_includes_dimension_rubric_anchors(self):
         # 2026-07-28 重构：ai_relevance 不再是六维加权里的一个分量，改为独立
         # 的三态 ai_focus 分类层(primary/contributing/tangential)；剩余的
