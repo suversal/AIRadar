@@ -234,8 +234,9 @@ export default async function LatestPage({
               />
 
               {topEvents.length > 0 ? (
-                <aside className="order-first mt-4 border-t border-line-strong md:mt-6 2xl:order-last 2xl:sticky 2xl:top-5" aria-labelledby="hotspot-title">
-                  <div className="flex items-center justify-between gap-3 py-2.5 md:py-3">
+                <aside className="order-first mt-2 md:mt-5 2xl:order-last 2xl:sticky 2xl:top-5" aria-labelledby="hotspot-title">
+                  <div aria-hidden className="h-px" />
+                  <div className="flex min-h-11 items-center justify-between gap-3 border-b border-line-strong md:min-h-12">
                     <h2 id="hotspot-title" className="flex items-center gap-2 text-base font-semibold text-ink">
                       当前热点
                       <TrendingUp aria-hidden className="h-4 w-4 text-signal" strokeWidth={1.7} />
