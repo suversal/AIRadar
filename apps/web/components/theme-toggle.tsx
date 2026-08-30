@@ -327,18 +327,8 @@ export function MobileThemeSettings() {
     COLOR_PALETTES.find((option) => option.value === palette) ?? COLOR_PALETTES[0];
 
   return (
-    <section ref={settingsRef} aria-label="外观设置" className="border-t border-line pt-3">
-      <div className="px-1">
-        <div className="flex items-baseline gap-2">
-          <span className="readout text-[9px] font-semibold uppercase tracking-[0.16em] text-ink-dim">
-            外观
-          </span>
-          <span className="text-[10px] text-ink-dim">
-            {activeOption.label} · {activePalette.label}
-          </span>
-        </div>
-
-        <div className="mt-2 flex w-fit max-w-full items-center gap-1 rounded-full border border-line bg-panel/70 p-1">
+    <section ref={settingsRef} aria-label="外观设置" className="flex justify-center">
+      <div className="flex w-fit max-w-full items-center gap-1 rounded-full border border-line bg-panel/70 p-1">
           <div
             aria-label="明暗主题"
             className={`drawer-theme-options flex items-center ${expanded === "mode" ? "gap-1" : "gap-0"}`}
@@ -432,7 +422,6 @@ export function MobileThemeSettings() {
               );
             })}
           </div>
-        </div>
       </div>
     </section>
   );

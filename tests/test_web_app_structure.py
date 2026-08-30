@@ -172,6 +172,9 @@ class WebAppStructureTests(unittest.TestCase):
 
         self.assertIn("MobileThemeSettings", theme_toggle)
         self.assertIn("MobileThemeSettings", mobile_nav)
+        self.assertIn("ContactLinks", mobile_nav)
+        self.assertIn("min-h-0 flex-1 overflow-y-auto", mobile_nav)
+        self.assertIn('className="flex justify-center"', theme_toggle)
         self.assertIn('aria-label="外观设置"', theme_toggle)
         self.assertIn('aria-label="明暗主题"', theme_toggle)
         self.assertIn('aria-label="主题色"', theme_toggle)
@@ -195,7 +198,7 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn('setExpanded(null)', theme_toggle)
         self.assertIn("当前明暗主题：", theme_toggle)
         self.assertIn("当前主题色：", theme_toggle)
-        self.assertIn("mt-2 flex w-fit max-w-full items-center", theme_toggle)
+        self.assertIn("flex w-fit max-w-full items-center", theme_toggle)
         self.assertNotIn("items-center justify-between gap-3", theme_toggle)
         self.assertIn("hidden items-center gap-1", theme_toggle)
         self.assertIn("lg:flex", theme_toggle)

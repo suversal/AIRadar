@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Menu, X } from "lucide-react";
 import { BrandLogo } from "./brand-logo";
+import { ContactLinks } from "./contact-links";
 import { MOBILE_NAV_OPEN_EVENT } from "./mobile-nav-events";
 import { navGroupItems } from "./nav";
 import { MobileThemeSettings } from "./theme-toggle";
@@ -134,13 +135,13 @@ export function MobileNav({ activeNavId }: { activeNavId: string }) {
             aria-hidden={!open}
             inert={!open}
             aria-label="站内导航"
-            className={`fixed inset-y-0 right-0 z-50 w-[min(76vw,248px)] overflow-y-auto border-l border-line bg-canvas px-4 py-4 outline-none will-change-transform transition-transform duration-300 motion-reduce:transition-none lg:hidden ${
+            className={`fixed inset-y-0 right-0 z-50 flex w-[min(76vw,248px)] flex-col overflow-hidden border-l border-line bg-canvas px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4 outline-none will-change-transform transition-transform duration-300 motion-reduce:transition-none lg:hidden ${
               open
                 ? "translate-x-0 ease-[cubic-bezier(0.22,1,0.36,1)]"
                 : "pointer-events-none translate-x-full ease-in"
             }`}
           >
-            <div className="mb-4 flex items-center justify-between border-b-2 border-ink pb-3">
+            <div className="mb-4 flex shrink-0 items-center justify-between border-b-2 border-ink pb-3">
               <div>
                 <span className="readout block text-[9px] uppercase tracking-[0.2em] text-signal">AI·RADAR</span>
                 <span className="mt-1 block text-sm font-semibold text-ink">站内索引</span>
@@ -155,7 +156,7 @@ export function MobileNav({ activeNavId }: { activeNavId: string }) {
                 <X aria-hidden className="h-5 w-5" strokeWidth={1.75} />
               </button>
             </div>
-            <nav aria-label="主导航">
+            <nav aria-label="主导航" className="min-h-0 flex-1 overflow-y-auto">
           {(["内容", "接入", "更多"] as const).map((group) => (
             <section key={group} className="mb-4">
               <div className="readout px-1 text-[9px] font-semibold uppercase tracking-[0.16em] text-ink-dim">{group}</div>
@@ -194,7 +195,15 @@ export function MobileNav({ activeNavId }: { activeNavId: string }) {
             </section>
           ))}
             </nav>
-            <MobileThemeSettings />
+            <div className="shrink-0 border-t border-line pt-3 text-center">
+              <MobileThemeSettings />
+              <p className="mt-3 whitespace-nowrap text-[10px] leading-5 text-ink-dim">
+                不追逐每一条消息，只标记真正的信号。
+              </p>
+              <div className="mt-2">
+                <ContactLinks />
+              </div>
+            </div>
           </aside>
         </>
       ) : null}
