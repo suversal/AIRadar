@@ -1,4 +1,5 @@
 import { BrandLogo } from "./brand-logo";
+import { ContactLinks } from "./contact-links";
 import { navGroupItems } from "./nav";
 
 export function Sidebar({ activeNavId }: { activeNavId: string }) {
@@ -57,9 +58,14 @@ export function Sidebar({ activeNavId }: { activeNavId: string }) {
         ))}
       </nav>
 
-      <p className="mt-auto border-t border-line pt-4 text-[11px] leading-5 text-ink-dim">
-        不追逐每一条消息。<br />只标记真正的信号。
-      </p>
+      <div className="mt-auto border-t border-line pt-4">
+        <p className="text-[11px] leading-5 text-ink-dim">
+          不追逐每一条消息。<br />只标记真正的信号。
+        </p>
+        <div className="mt-4">
+          <ContactLinks />
+        </div>
+      </div>
     </aside>
   );
 }
