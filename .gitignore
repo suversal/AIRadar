@@ -16,6 +16,7 @@ node_modules/
 *.tsbuildinfo
 /data/
 /output/
+/outputs/
 .worktrees/
 
 # 部署自动化里真正私密的只有"推到哪台机器"——地址、用户名、部署路径。这些收在
