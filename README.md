@@ -48,6 +48,15 @@ AI·RADAR 不追求收录越多越好，而是把信息处理成更适合判断�
 
 当前完成端到端验证的路径是 Claude Code。Skill、安装器和 SHA-256 校验值均可在执行前审阅。
 
+安装后可以直接问：
+
+```text
+过去 24 小时最值得关注的 5 条 AI 动态是什么？
+最近 7 天有哪些 Agent 相关消息？按重要性排序并给出原始来源。
+这个事件有哪些媒体报道？它们的时间线和共同事实是什么？
+今天的 AI 日报主线是什么？哪些结论还需要回到原文核验？
+```
+
 ### MCP Server
 
 支持 Streamable HTTP 的客户端只需要一个地址：
@@ -190,6 +199,22 @@ AI_RADAR_API_BASE_URL=http://127.0.0.1:8000 npm run dev
 
 管理后台需要在 `.env` 中设置强随机 `ADMIN_TOKEN`。手动文章导入、处理与发布由多个 `ADMIN_MANUAL_*` 开关控制，默认关闭。
 
+## 管理后台与数据刷新
+
+管理后台运行在 `/admin`，仅在数据库模式下可用。它不是公开 CMS，所有 `/api/admin/*` 请求都必须通过 `ADMIN_TOKEN` 验证。
+
+当前后台包括：
+
+- **仪表盘**：查看数据规模、抓取结果、AI 处理阶段和每次运行台账。
+- **信源管理**：新增、编辑、启停、试抓和安全删除信源。
+- **内容管理**：筛选、预览、编辑、隐藏或删除事件。
+- **刷新计划**：手动触发完整刷新，或配置数据库中的定时间隔。
+- **手动发文（可选）**：URL 导入、草稿编辑、AI 处理、图片上传和发布分别受功能开关约束。
+
+API 进程每分钟检查一次数据库中的刷新计划；到期后执行抓取、预筛选、正文提取、评分、聚类、持久化和周期报告更新，并拒绝与仍在运行的刷新重叠。`scripts/run_scheduled_refresh.sh` 保留为手动或外部调度的备用入口，自带目录锁，日志写入 `data/logs/refresh.log`。
+
+> 当前调度器随 API 进程启动。若把 API 横向扩成多个副本，需要先单独设计唯一调度权或分布式锁，不能直接假定多副本仍只会触发一次。
+
 ## 测试与检查
 
 ```bash
@@ -219,6 +244,30 @@ npm run build
 
 不要把 `.env`、模型密钥、管理员 Token 或第三方服务凭证提交到仓库。
 
+Provider 选择有两种方式：显式设置 `AI_PROVIDER`，或者留空并根据已配置的 Key 自动选择。开发环境建议先用 `AI_PROVIDER=fake` 或命令行的 `--fake-ai` 验证完整数据链，确认抓取、数据库和页面都正常后再启用付费模型。
+
+## 生产部署
+
+`infra/docker-compose.prod.yml` 描述了当前生产形态：PostgreSQL、Redis、FastAPI、Next.js、Nginx，以及当前默认启用的 Umami 访问统计。它是可审阅的部署参考，不是对任意服务器都能直接执行的一键安装包。
+
+开始部署前至少需要：
+
+1. 准备独立的生产 `.env`，生成强随机的数据库密码、`JWT_SECRET` 与 `ADMIN_TOKEN`。
+2. 保持 PostgreSQL 默认只绑定 `127.0.0.1`，不要把 5432 暴露到公网。
+3. 按实际拓扑处理 Compose 中的外部 `sourcepilot_default` 网络；不接 SourcePilot 时应移除对应网络依赖，而不是创建一个没有服务的空网络。
+4. 默认 Compose 会启动 Umami；先创建独立的 `umami` 数据库并配置两项密钥，它不能与会被业务数据同步覆盖的 `radar` 库混用。若不需要统计，必须同时移除 `umami` 服务、Nginx 依赖与代理路由，不能只把密钥留空。
+5. 从模板创建本机部署目标配置，并逐项检查 SSH 别名、远端目录、域名、Docker 权限和 Compose 文件组合：
+
+```bash
+cp scripts/deploy_targets.local.sh.example scripts/deploy_targets.local.sh
+# 编辑 scripts/deploy_targets.local.sh；该文件包含机器信息，默认不进入 Git
+bash scripts/deploy_to_server.sh
+```
+
+发布脚本执行代码同步、镜像构建、容器重启、Alembic 迁移和分层健康检查。CDN 返回 200 只能证明边缘仍有响应，不能替代容器状态与源站直连检查。
+
+> 不要在日常运维中执行 `docker compose down -v`；`-v` 会删除 PostgreSQL 数据卷。数据库同步和恢复脚本同样会替换数据，执行前应先确认目标与备份。
+
 ## 目录结构
 
 ```text
@@ -231,6 +280,15 @@ docs/           架构决策、实施记录与运维文档
 data/           本地运行产物和缓存（默认忽略）
 ```
 
+## 延伸文档
+
+- [开发计划](docs/development-plan.md)：阶段目标与历史验收记录；阅读时应以当前代码和测试为准。
+- [实现说明](docs/implementation-notes.md)：早期架构决策与工程约束。
+- [AI 调用降本记录](docs/2026-08-13-ai-cost-optimization.md)：Provider 切换、思考预算与验证方法。
+- [安全加固计划](docs/2026-08-13-hardening-plan.md)：威胁模型、Nginx／CDN 防护和事故复盘。
+- [SEO 优化方案](docs/2026-08-17-seo-optimization-plan.md)：索引、结构化数据、Sitemap 与验收标准。
+- [SourcePilot 接入方案](docs/sourcepilot-integration-plan.md)：上游数据边界、网络路径和分阶段实施记录。
+
 ## 当前边界
 
 - 产品以中文 AI 信息为主，不是通用新闻搜索引擎。
@@ -242,6 +300,8 @@ data/           本地运行产物和缓存（默认忽略）
 - AI 生成内容只能作为线索；引用数字、政策或原话前应回到原始信源核验。
 
 公开数据接口的使用授权与代码许可证是两件事。当前线上服务允许个人非商业、公益非商业和组织内部使用；面向外部的商业产品、收费服务、客户交付、代理接口、数据转售、公开镜像或批量再分发，需要事先取得书面授权。
+
+仓库目前尚未提供 `LICENSE` 文件，因此不要自行假定代码采用 MIT、Apache-2.0 或其他开源许可证。后续如加入许可证，以仓库根目录的 `LICENSE` 为准。第三方文章、图片、商标和原始内容仍归各自权利人所有；AI·RADAR 提供的是索引、摘要、聚类与溯源入口。
 
 ## 参与项目
 
