@@ -100,7 +100,8 @@ rsync_retry() {
     for host in "${SERVER}" ${SERVER_FALLBACK:-}; do
       rc=0
       rsync -az --delete \
-        --exclude .git --exclude node_modules --exclude '.next*' --exclude .venv \
+        --exclude .git --exclude .idea --exclude .claude --exclude .superpowers \
+        --exclude node_modules --exclude '.next*' --exclude .venv \
         --exclude __pycache__ --exclude /data --exclude /output --exclude /outputs \
         --exclude .env --exclude tsconfig.tsbuildinfo \
         "$1" "${host}":"$2" || rc=$?
