@@ -59,7 +59,7 @@ export function ReportShell({
 
         {/* 移动端把归档栏推到正文之后，避免用户先滑过导航+归档才看到报告本身；
             桌面端 order-none 还原成中间列 */}
-        <aside className="relative z-10 order-last bg-canvas px-4 py-6 lg:sticky lg:top-0 lg:order-none lg:h-screen lg:overflow-y-auto lg:border-r lg:border-line lg:px-5 lg:py-8">
+        <aside className="relative z-10 order-last bg-canvas px-4 py-6 lg:sticky lg:top-0 lg:order-none lg:h-screen lg:overflow-y-auto lg:border-r lg:border-line lg:px-5 lg:pb-8 lg:pt-4">
           <div className="hidden lg:block">
             <ReportModeTabsNav activeMode={activeMode} />
           </div>

@@ -101,7 +101,7 @@ export function AccessTabs({ tabs }: { tabs: AccessTab[] }) {
               onClick={() => select(tab.id)}
               onKeyDown={(event) => onKeyDown(event, index)}
               className={[
-                "flex min-h-[6.5rem] flex-col rounded-md border px-3 py-3 text-left transition-colors",
+                "flex min-h-[5.5rem] flex-col rounded-md border px-3 py-2.5 text-left transition-colors",
                 on
                   ? "border-signal/55 bg-signal/12 text-ink shadow-[inset_0_-2px_0_var(--color-signal)]"
                   : "border-line bg-panel text-ink-mid hover:border-signal/40 hover:text-ink",
@@ -124,7 +124,7 @@ export function AccessTabs({ tabs }: { tabs: AccessTab[] }) {
                   </span>
                 ) : null}
               </span>
-              <span className="mt-2 text-xs font-semibold text-signal">{tab.method}</span>
+              <span className="mt-1.5 text-xs font-semibold text-signal">{tab.method}</span>
               <span className={on ? "mt-1 text-xs leading-4 text-ink-mid" : "mt-1 text-xs leading-4 text-ink-dim"}>
                 {tab.hint}
               </span>
@@ -141,7 +141,7 @@ export function AccessTabs({ tabs }: { tabs: AccessTab[] }) {
           aria-labelledby={`${baseId}-tab-${tab.id}`}
           data-access-panel
           hidden={tab.id !== active}
-          className="mt-3 space-y-5 rounded-md border border-line bg-panel p-5"
+          className="mt-2 space-y-4 rounded-md border border-line bg-panel p-4"
         >
           {tab.panel}
         </div>

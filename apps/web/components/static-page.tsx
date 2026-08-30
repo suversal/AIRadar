@@ -7,11 +7,13 @@ export function StaticPage({
   title,
   subtitle,
   children,
+  compact = false,
 }: {
   activeNavId: string;
   title: string;
   subtitle: string;
   children: ReactNode;
+  compact?: boolean;
 }) {
   return (
     <main className="editorial-page min-h-screen bg-canvas text-ink">
@@ -20,7 +22,9 @@ export function StaticPage({
         <MobileNav activeNavId={activeNavId} />
 
         <section className="min-w-0 px-4 pb-10 pt-4 md:px-8 md:py-10 xl:px-12">
-          <header className="mx-auto max-w-5xl border-b border-line-strong pb-7">
+          <header
+            className={`mx-auto max-w-5xl border-b border-line-strong ${compact ? "pb-5" : "pb-7"}`}
+          >
             <p className="readout text-[11px] uppercase tracking-[0.16em] text-signal">
               AI·RADAR / PUBLIC RECORD
             </p>
@@ -29,7 +33,13 @@ export function StaticPage({
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-ink-mid">{subtitle}</p>
           </header>
-          <div className="editorial-static mx-auto mt-9 max-w-5xl space-y-10">{children}</div>
+          <div
+            className={`editorial-static mx-auto max-w-5xl ${
+              compact ? "mt-6 space-y-7" : "mt-9 space-y-10"
+            }`}
+          >
+            {children}
+          </div>
         </section>
       </div>
     </main>

@@ -266,23 +266,23 @@ function RestPanel() {
 
 export default function AgentPage() {
   return (
-    <StaticPage activeNavId="agent" title="把 AI·RADAR 接入你的 Agent" subtitle="无需 API Key，匿名只读；选择你正在使用的工具，约 3 分钟完成接入">
-      <section className="py-1 sm:py-2">
+    <StaticPage compact activeNavId="agent" title="把 AI·RADAR 接入你的 Agent" subtitle="无需 API Key，匿名只读；选择你正在使用的工具，约 3 分钟完成接入">
+      <section>
         <div className="flex flex-wrap gap-2 text-xs">
           {["匿名只读", "无需 API Key", "REST v1 稳定契约", "重要事实可回原文核验"].map((item) => (
             <span key={item} className="rounded-full border border-line-strong/70 bg-canvas/70 px-2.5 py-1 text-ink-mid">{item}</span>
           ))}
         </div>
-        <h2 className="editorial-rule-title mt-5 text-2xl font-medium leading-relaxed text-ink">接入后，Agent 可以直接回答</h2>
-        <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+        <h2 className="editorial-rule-title mt-4 text-2xl font-medium leading-relaxed text-ink">接入后，Agent 可以直接回答</h2>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
           {OUTCOMES.map(({ icon: Icon, title, example }) => (
-            <div key={title} className="rounded-md border border-line bg-canvas/75 p-3.5">
+            <div key={title} className="rounded-md border border-line bg-canvas/75 p-3">
               <div className="flex items-center gap-2 text-sm font-semibold text-ink"><Icon className="h-4 w-4 text-signal" aria-hidden />{title}</div>
               <p className="mt-1.5 text-[13px] leading-5 text-ink-dim">“{example}”</p>
             </div>
           ))}
         </div>
-        <div className="mt-6 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+        <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
           <div>
             <div className="flex items-center gap-2 text-sm font-semibold text-ink"><FileText className="h-4 w-4 text-signal" aria-hidden />让 Agent 自己选择接入路径</div>
             <p className="mt-1 text-[13px] leading-5 text-ink-dim">把下面地址发给 Agent；它会读到四条路径、能力边界和使用许可。</p>

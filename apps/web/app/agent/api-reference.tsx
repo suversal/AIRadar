@@ -36,8 +36,8 @@ const ERRORS = [
 
 export function ApiReference() {
   return (
-    <div className="space-y-6">
-      <section className="rounded-md border border-line bg-panel p-5 sm:p-6">
+    <div className="space-y-5">
+      <section className="rounded-md bg-panel/45 p-4 sm:p-5">
         <h2 className="text-xl font-semibold text-ink">快速开始</h2>
         <p className="mt-2 text-[15px] leading-6 text-ink-mid">
           全部接口都是匿名只读 GET，支持 CORS、ETag 条件请求，并使用 RFC 9457 Problem JSON 返回错误。
@@ -57,7 +57,7 @@ export function ApiReference() {
         </div>
       </section>
 
-      <section className="rounded-md border border-line bg-panel p-5 sm:p-6">
+      <section className="rounded-md bg-panel/45 p-4 sm:p-5">
         <h2 className="text-lg font-semibold text-ink">端点</h2>
         <div className="mt-3 [&>*:last-child]:border-b-0">
           <Endpoint path="/api/v1/items">
@@ -79,7 +79,7 @@ export function ApiReference() {
         </div>
       </section>
 
-      <section className="rounded-md border border-line bg-panel p-5 sm:p-6">
+      <section className="rounded-md bg-panel/45 p-4 sm:p-5">
         <h2 className="text-lg font-semibold text-ink">items 查询参数</h2>
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[30rem] text-left text-[13px]">
@@ -103,7 +103,7 @@ export function ApiReference() {
         </div>
       </section>
 
-      <section className="rounded-md border border-line bg-panel p-5 sm:p-6">
+      <section className="rounded-md bg-panel/45 p-4 sm:p-5">
         <h2 className="text-lg font-semibold text-ink">条目关键字段</h2>
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[30rem] text-left text-[13px]">
@@ -152,7 +152,7 @@ export function ApiReference() {
         </div>
       </section>
 
-      <section className="rounded-md border border-line bg-panel p-5 sm:p-6">
+      <section className="rounded-md bg-panel/45 p-4 sm:p-5">
         <h2 className="text-lg font-semibold text-ink">缓存与错误恢复</h2>
         <div className="mt-4 space-y-5">
           <Code

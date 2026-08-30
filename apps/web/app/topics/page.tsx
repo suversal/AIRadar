@@ -95,12 +95,12 @@ function WeeklyRadarStrip({ payload }: { payload: TopicsPayload }) {
     return null;
   }
   return (
-    <section className="mt-4 rounded-md border border-line bg-panel-soft/40 p-5">
+    <section className="rounded-md border border-line bg-panel-soft/40 p-4">
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-base font-semibold text-ink">本周雷达</h2>
         <span className="text-xs text-ink-dim">正在发展的事件与异动主题 · 自动生成</span>
       </div>
-      <div className="mt-3 grid gap-5 lg:grid-cols-[1fr_260px]">
+      <div className="mt-3 grid gap-4 lg:grid-cols-[1fr_260px]">
         {payload.storylines.length > 0 ? (
           <ol className="space-y-2.5">
             {payload.storylines.map((story, index) => (
@@ -198,11 +198,11 @@ export default async function TopicsPage() {
         <Sidebar activeNavId="topics" />
         <MobileNav activeNavId="topics" />
 
-        <section className="w-full min-w-0 max-w-[1320px] justify-self-center px-4 py-8 md:px-8 xl:px-12">
-          <header className="border-b border-line-strong pb-7">
+        <section className="w-full min-w-0 max-w-[1320px] justify-self-center px-4 pb-10 pt-4 md:px-8 md:py-10 xl:px-12">
+          <header className="border-b border-line-strong pb-5">
             <p className="readout text-[11px] uppercase tracking-[0.16em] text-signal">LIVING INDEX / TOPICS</p>
             <h1 className="editorial-rule-title mt-4 text-4xl font-medium leading-none text-ink md:text-6xl">主题</h1>
-            <p className="mt-1.5 text-sm text-ink-mid">
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-ink-mid">
               公司与模型、技术方向——每个主题一条持续更新的精选档案
               {payload.article_count > 0
                 ? ` · 近 ${payload.window_days} 天覆盖 ${payload.article_count} 条精选`
@@ -210,54 +210,56 @@ export default async function TopicsPage() {
             </p>
           </header>
 
-          {payload.error ? (
-            <div className="mt-4 rounded-md border border-danger/40 bg-danger/10 p-4 text-sm leading-6 text-danger">
-              {payload.error}
-            </div>
-          ) : null}
-
-          <WeeklyRadarStrip payload={payload} />
-
-          <div className="mt-6 space-y-8">
-            {payload.groups.map((group) => {
-              const sorted = sortByActivity(group.topics);
-              const active = sorted.filter((topic) => topic.count >= DORMANT_THRESHOLD);
-              const dormant = sorted.filter((topic) => topic.count < DORMANT_THRESHOLD);
-              return (
-                <section key={group.id}>
-                  <div className="flex items-end justify-between gap-4">
-                    <h2 className="editorial-rule-title text-2xl font-medium text-ink">{group.name}</h2>
-                    <span className="hidden text-sm text-ink-dim sm:block">
-                      {group.description}
-                    </span>
-                  </div>
-                  <div className="mt-3 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                    {active.map((topic) => (
-                      <TopicCard key={topic.id} topic={topic} />
-                    ))}
-                  </div>
-                  {dormant.length > 0 ? (
-                    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-ink-dim">
-                      <span>近期沉寂：</span>
-                      {dormant.map((topic) => (
-                        <a
-                          key={topic.id}
-                          className="text-ink-mid underline-offset-2 hover:text-signal hover:underline"
-                          href={`/topics/${encodeURIComponent(topic.id)}`}
-                        >
-                          {topic.name}（{topic.count}）
-                        </a>
-                      ))}
-                    </div>
-                  ) : null}
-                </section>
-              );
-            })}
-            {payload.groups.length === 0 && !payload.error ? (
-              <div className="rounded-md border border-line bg-panel p-8 text-sm text-ink-mid">
-                主题数据正在积累中，稍后再来看看。
+          <div className="mt-6 space-y-7">
+            {payload.error ? (
+              <div className="rounded-md border border-danger/40 bg-danger/10 p-4 text-sm leading-6 text-danger">
+                {payload.error}
               </div>
             ) : null}
+
+            <WeeklyRadarStrip payload={payload} />
+
+            <div className="space-y-7">
+              {payload.groups.map((group) => {
+                const sorted = sortByActivity(group.topics);
+                const active = sorted.filter((topic) => topic.count >= DORMANT_THRESHOLD);
+                const dormant = sorted.filter((topic) => topic.count < DORMANT_THRESHOLD);
+                return (
+                  <section key={group.id}>
+                    <div className="flex items-end justify-between gap-4">
+                      <h2 className="editorial-rule-title text-2xl font-medium text-ink">{group.name}</h2>
+                      <span className="hidden text-sm text-ink-dim sm:block">
+                        {group.description}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                      {active.map((topic) => (
+                        <TopicCard key={topic.id} topic={topic} />
+                      ))}
+                    </div>
+                    {dormant.length > 0 ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-ink-dim">
+                        <span>近期沉寂：</span>
+                        {dormant.map((topic) => (
+                          <a
+                            key={topic.id}
+                            className="text-ink-mid underline-offset-2 hover:text-signal hover:underline"
+                            href={`/topics/${encodeURIComponent(topic.id)}`}
+                          >
+                            {topic.name}（{topic.count}）
+                          </a>
+                        ))}
+                      </div>
+                    ) : null}
+                  </section>
+                );
+              })}
+              {payload.groups.length === 0 && !payload.error ? (
+                <div className="rounded-md border border-line bg-panel p-8 text-sm text-ink-mid">
+                  主题数据正在积累中，稍后再来看看。
+                </div>
+              ) : null}
+            </div>
           </div>
         </section>
       </div>

@@ -54,7 +54,7 @@ export function PanelHead({ title, lead }: { title: string; lead: string }) {
   return (
     <div>
       <h2 className="text-lg font-semibold text-ink">{title}</h2>
-      <p className="mt-2 text-[15px] leading-6 text-ink-mid">{lead}</p>
+      <p className="mt-1.5 text-[15px] leading-6 text-ink-mid">{lead}</p>
     </div>
   );
 }

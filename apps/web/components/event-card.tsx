@@ -115,7 +115,7 @@ export function EventCard({
                 <a
                   key={tag}
                   href={tagHref(tag)}
-                  className="text-xs text-ink-dim underline decoration-line-strong underline-offset-4 hover:text-signal"
+                  className="text-xs text-ink-dim transition-colors hover:text-signal"
                 >
                   #{tag}
                 </a>

@@ -198,7 +198,7 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("mt-2 flex w-fit max-w-full items-center", theme_toggle)
         self.assertNotIn("items-center justify-between gap-3", theme_toggle)
         self.assertIn("hidden items-center gap-1", theme_toggle)
-        self.assertIn("md:flex", theme_toggle)
+        self.assertIn("lg:flex", theme_toggle)
         self.assertNotIn("mobileExpanded", theme_toggle)
         self.assertNotIn("md:hidden", theme_toggle)
         self.assertNotIn("mobile-theme-option", theme_toggle)

@@ -521,6 +521,7 @@ const entries: ChangelogEntry[] = [
 export default function ChangelogPage() {
   return (
     <StaticPage
+      compact
       activeNavId="changelog"
       title="更新日志"
       subtitle="AI·RADAR 一路加了什么、改了什么，都记录在这里"
@@ -533,12 +534,12 @@ export default function ChangelogPage() {
           })).filter((group) => group.items.length > 0);
 
           return (
-            <section key={entry.date} className="py-6 first:pt-0 last:pb-0 md:py-7">
+            <section key={entry.date} className="py-5 first:pt-0 last:pb-0">
               <div className="flex flex-wrap items-baseline gap-3">
                 <span className="readout text-sm text-signal">{entry.date}</span>
                 <h2 className="text-lg font-semibold text-ink">{entry.title}</h2>
               </div>
-              <div className="mt-4 space-y-4">
+              <div className="mt-3 space-y-3">
                 {grouped.map((group) => (
                   <div key={group.kind}>
                     <div className="flex items-center gap-2">

@@ -165,7 +165,8 @@ export function ThemeToggle() {
   return (
     <div
       ref={settingsRef}
-      className="theme-toggle fixed bottom-6 left-5 z-20 hidden items-center gap-1 rounded-full border border-line-strong bg-panel/85 p-1 shadow-[0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-md md:flex"
+      className="theme-toggle fixed z-20 hidden items-center gap-1 rounded-full border border-line-strong bg-panel/85 p-1 backdrop-blur-md lg:flex"
+      style={{ bottom: "100px", left: "124px", transform: "translateX(-50%)" }}
     >
       <div
         aria-label="明暗主题"

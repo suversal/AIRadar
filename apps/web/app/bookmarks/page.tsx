@@ -70,22 +70,22 @@ export default function BookmarksPage() {
         <Sidebar activeNavId="bookmarks" />
         <MobileNav activeNavId="bookmarks" />
 
-        <section className="px-4 py-8 md:px-8 xl:px-12">
+        <section className="min-w-0 px-4 pb-10 pt-4 md:px-8 md:py-10 xl:px-12">
           <div className="mx-auto max-w-5xl">
-            <header className="border-b border-line-strong pb-7">
+            <header className="border-b border-line-strong pb-5">
               <p className="readout text-[11px] uppercase tracking-[0.16em] text-signal">PERSONAL ARCHIVE</p>
               <h1 className="editorial-rule-title mt-4 text-4xl font-medium leading-none text-ink md:text-6xl">收藏</h1>
-              <p className="mt-1.5 text-sm text-ink-mid">
+              <p className="mt-4 max-w-2xl text-sm leading-7 text-ink-mid">
                 收藏过的内容都在这里。收藏保存在本设备的浏览器里，换设备或清除浏览器数据后需要重新收藏。
               </p>
             </header>
 
             {status === "loading" ? (
-              <div className="mt-6 rounded-md border border-line bg-panel p-8 text-center text-sm text-ink-dim">
+              <div className="mt-6 rounded-md border border-line bg-panel p-6 text-center text-sm text-ink-dim">
                 正在加载收藏内容…
               </div>
             ) : events.length === 0 ? (
-              <div className="mt-6 rounded-md border border-line bg-panel p-8 text-center text-sm text-ink-dim">
+              <div className="mt-6 rounded-md border border-line bg-panel p-6 text-center text-sm text-ink-dim">
                 还没有收藏任何内容。在动态旁点击收藏图标即可保存到这里。
               </div>
             ) : (
