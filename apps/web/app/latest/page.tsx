@@ -236,13 +236,14 @@ export default async function LatestPage({
               {topEvents.length > 0 ? (
                 <aside className="order-first mt-2 md:mt-5 2xl:order-last 2xl:sticky 2xl:top-5" aria-labelledby="hotspot-title">
                   <div aria-hidden className="h-px" />
-                  <div className="flex min-h-11 items-center justify-between gap-3 border-b border-line-strong md:min-h-12">
+                  <div className="flex min-h-11 items-center justify-between gap-3 md:min-h-12">
                     <h2 id="hotspot-title" className="flex items-center gap-2 text-base font-semibold text-ink">
                       当前热点
                       <TrendingUp aria-hidden className="h-4 w-4 text-signal" strokeWidth={1.7} />
                     </h2>
                     <span className="readout text-[10px] uppercase tracking-wider text-ink-dim">近 2 个自然日</span>
                   </div>
+                  <div aria-hidden className="mt-1.5 border-t border-line-strong md:mt-2" />
                   <ol className="divide-y divide-line/70 md:grid md:grid-cols-3 md:divide-x md:divide-y-0 2xl:block 2xl:divide-x-0 2xl:divide-y">
                     {topEvents.map((item, index) => (
                       <li
