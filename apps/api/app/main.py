@@ -58,6 +58,12 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _data_refreshed_at(repository: Any) -> Optional[str]:
+    """Read freshness metadata without breaking lightweight test repositories."""
+    getter = getattr(repository, "get_latest_successful_pipeline_finished_at", None)
+    return getter() if callable(getter) else None
+
+
 @contextmanager
 def open_database_report_repository(database_url: str) -> Iterator[Any]:
     from app.db.session import build_session_factory
@@ -104,6 +110,8 @@ def create_app(
     *,
     report_repository_factory: Callable[[], Any] | None = None,
     refresh_runner: Callable[[], dict[str, Any]] | None = None,
+    newsletter_mailer: Any | None = None,
+    newsletter_secret: str | None = None,
     data_dir: Path = DATA_DIR,
 ):
     load_env_file()
@@ -198,13 +206,49 @@ def create_app(
             except Exception:  # pragma: no cover - defensive: scheduler must never die
                 continue
 
+    def run_newsletter_dispatch(*, include_late_subscribers: bool = False) -> dict[str, Any]:
+        from app.services.newsletter_service import (
+            SMTPNewsletterMailer,
+            dispatch_latest_weekly,
+            newsletter_token_secret,
+        )
+
+        mailer = newsletter_mailer or SMTPNewsletterMailer.from_env()
+        secret = newsletter_secret or newsletter_token_secret()
+        with report_repository_context() as repository:
+            return dispatch_latest_weekly(
+                repository,
+                mailer,
+                token_secret=secret,
+                include_late_subscribers=include_late_subscribers,
+            )
+
+    async def newsletter_scheduler_loop() -> None:
+        from app.services.newsletter_service import newsletter_enabled
+
+        if not newsletter_enabled() or not os.getenv("DATABASE_URL"):
+            return
+        poll_seconds = max(60, min(_env_int("NEWSLETTER_POLL_SECONDS", 300), 3600))
+        # Give the API process time to become healthy before opening SMTP.
+        await asyncio.sleep(min(15, poll_seconds))
+        while True:
+            try:
+                result = await asyncio.to_thread(run_newsletter_dispatch)
+                if result.get("sent") or result.get("failed"):
+                    logger.info("weekly newsletter dispatch: %s", result)
+            except Exception:
+                logger.exception("weekly newsletter scheduler tick failed")
+            await asyncio.sleep(poll_seconds)
+
     @asynccontextmanager
     async def lifespan(app):
         task = asyncio.create_task(scheduler_loop())
+        newsletter_task = asyncio.create_task(newsletter_scheduler_loop())
         try:
             yield
         finally:
             task.cancel()
+            newsletter_task.cancel()
 
     app = FastAPI(title="Suversal AI Radar API", version="0.1.0", lifespan=lifespan)
 
@@ -269,7 +313,7 @@ def create_app(
         if offset < 0:
             raise HTTPException(status_code=400, detail="offset must be non-negative")
         with report_repository_context() as repository:
-            return build_latest_selected_payload_from_repository(
+            payload = build_latest_selected_payload_from_repository(
                 repository,
                 end_date=date.today(),
                 limit=limit,
@@ -279,6 +323,8 @@ def create_app(
                 tag=tag,
                 q=q,
             )
+            payload["data_refreshed_at"] = _data_refreshed_at(repository)
+            return payload
 
     @app.get("/api/public/daily/{report_date}")
     def daily(report_date: str) -> dict:
@@ -345,6 +391,7 @@ def create_app(
                 return {
                     "report_dates": [],
                     "updated_at": updated_at,
+                    "data_refreshed_at": _data_refreshed_at(repository),
                     "total": total,
                     "limit": limit,
                     "offset": offset,
@@ -352,7 +399,8 @@ def create_app(
                     "items": items,
                 }
             items = repository.get_all_event_items_between(start_date, end_date)
-        return build_events_payload_from_items(
+            data_refreshed_at = _data_refreshed_at(repository)
+        payload = build_events_payload_from_items(
             items,
             category=category,
             focus=focus,
@@ -363,6 +411,8 @@ def create_app(
             limit=limit,
             offset=offset,
         )
+        payload["data_refreshed_at"] = data_refreshed_at
+        return payload
 
     @app.get("/api/public/sitemap/events")
     def public_event_sitemap(days: int = 90) -> dict:
@@ -879,9 +929,90 @@ def create_app(
 
         return {"ok": True}
 
+    @app.post("/api/public/newsletter/subscribe", status_code=202)
+    def newsletter_subscribe(payload: dict) -> dict:
+        from app.services.newsletter_service import (
+            NewsletterConfigurationError,
+            NewsletterDeliveryError,
+            NewsletterValidationError,
+            SMTPNewsletterMailer,
+            newsletter_token_secret,
+            request_subscription,
+        )
+
+        email = str((payload or {}).get("email") or "")
+        source = str((payload or {}).get("source") or "weekly_page")
+        try:
+            mailer = newsletter_mailer or SMTPNewsletterMailer.from_env()
+            secret = newsletter_secret or newsletter_token_secret()
+            with report_repository_context() as repository:
+                request_subscription(
+                    repository,
+                    mailer,
+                    email=email,
+                    source=source,
+                    token_secret=secret,
+                )
+        except NewsletterValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except (NewsletterConfigurationError, NewsletterDeliveryError) as exc:
+            logger.warning("newsletter subscription mail unavailable: %s", exc)
+            raise HTTPException(
+                status_code=503,
+                detail="确认邮件暂时无法发送，请稍后再试。",
+            ) from exc
+        # Enumeration-safe: an already subscribed address receives the same
+        # response as a newly pending one.
+        return {
+            "ok": True,
+            "message": "如果该邮箱可以订阅，你会收到一封确认邮件。",
+        }
+
+    @app.post("/api/public/newsletter/confirm")
+    def newsletter_confirm(payload: dict) -> dict:
+        from app.services.newsletter_service import confirm_subscription
+
+        token = str((payload or {}).get("token") or "")
+        with report_repository_context() as repository:
+            status = confirm_subscription(repository, token=token)
+        if status == "invalid":
+            raise HTTPException(status_code=404, detail="确认链接无效。")
+        if status == "expired":
+            raise HTTPException(status_code=410, detail="确认链接已过期，请重新订阅。")
+        return {"ok": True, "status": status}
+
+    @app.post("/api/public/newsletter/unsubscribe")
+    def newsletter_unsubscribe(payload: dict) -> dict:
+        from app.services.newsletter_service import unsubscribe
+
+        token = str((payload or {}).get("token") or "")
+        with report_repository_context() as repository:
+            status = unsubscribe(repository, token=token)
+        if status == "invalid":
+            raise HTTPException(status_code=404, detail="退订链接无效。")
+        return {"ok": True, "status": status}
+
     @app.get("/api/admin/ping", dependencies=[admin_guard])
     def admin_ping() -> dict:
         return {"status": "ok"}
+
+    @app.get("/api/admin/newsletter", dependencies=[admin_guard])
+    def admin_newsletter_overview() -> dict:
+        with report_repository_context() as repository:
+            return repository.newsletter_overview()
+
+    @app.post("/api/admin/newsletter/dispatch", dependencies=[admin_guard])
+    def admin_newsletter_dispatch(payload: Optional[dict] = None) -> dict:
+        mode = str((payload or {}).get("mode") or "scheduled")
+        if mode not in {"scheduled", "latest_all_active"}:
+            raise HTTPException(status_code=422, detail="unsupported newsletter dispatch mode")
+        try:
+            return run_newsletter_dispatch(
+                include_late_subscribers=mode == "latest_all_active"
+            )
+        except Exception as exc:
+            logger.exception("manual weekly newsletter dispatch failed")
+            raise HTTPException(status_code=503, detail="newsletter dispatch failed") from exc
 
     @app.get("/api/admin/overview", dependencies=[admin_guard])
     def admin_overview() -> dict:

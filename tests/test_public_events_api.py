@@ -219,16 +219,33 @@ class PublicEventRouteTests(unittest.TestCase):
         client, repository = self._client(
             self._current_payloads([make_item("evt-1"), make_item("evt-2")])
         )
+        repository.data_refreshed_at = "2026-08-30T03:00:00+00:00"
 
         response = client.get("/api/public/events")
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["total"], 2)
+        self.assertEqual(body["data_refreshed_at"], repository.data_refreshed_at)
         self.assertTrue(
             any(call.startswith("all_items:") for call in repository.calls),
             f"expected all_items call, got {repository.calls}",
         )
+
+    def test_latest_route_exposes_database_refresh_time_separately(self):
+        article_time = "2026-08-29T17:17:00+00:00"
+        refresh_time = "2026-08-30T03:00:00+00:00"
+        client, repository = self._client(
+            self._current_payloads([make_item("evt-1", published_at=article_time)])
+        )
+        repository.data_refreshed_at = refresh_time
+
+        response = client.get("/api/public/latest")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["updated_at"], article_time)
+        self.assertEqual(body["data_refreshed_at"], refresh_time)
 
     def test_event_detail_route_returns_single_event(self):
         client, _ = self._client({})
@@ -771,6 +788,10 @@ class FakeRepository:
         self.daily_dates = []
         self.event_items_by_id = {}
         self.sources = []
+        self.data_refreshed_at = None
+
+    def get_latest_successful_pipeline_finished_at(self):
+        return self.data_refreshed_at
 
     def get_latest_daily_report_payload(self):
         self.calls.append("latest")

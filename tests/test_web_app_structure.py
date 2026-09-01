@@ -37,6 +37,7 @@ class WebAppStructureTests(unittest.TestCase):
             "app/reports/monthly-report-page.tsx",
             "app/weekly/page.tsx",
             "app/monthly/page.tsx",
+            "app/newsletter/subscribe/page.tsx",
             "app/event/[id]/page.tsx",
             "app/event/[id]/article-reading-toggle.tsx",
             "lib/api.ts",
@@ -46,6 +47,32 @@ class WebAppStructureTests(unittest.TestCase):
 
         for relative_path in expected_files:
             self.assertTrue((WEB / relative_path).exists(), relative_path)
+
+    def test_newsletter_subscription_is_hidden_from_weekly_body_but_keeps_private_test_route(self):
+        weekly_page = (WEB / "app" / "reports" / "weekly-report-page.tsx").read_text(encoding="utf-8")
+        private_page = (WEB / "app" / "newsletter" / "subscribe" / "page.tsx").read_text(encoding="utf-8")
+
+        self.assertNotIn("WeeklySubscribeForm", weekly_page)
+        self.assertIn("WeeklySubscribeForm", private_page)
+        self.assertIn('robots: { index: false, follow: false }', private_page)
+        self.assertIn('source="private_test_page"', private_page)
+        self.assertIn("getAdminToken", private_page)
+        self.assertIn("verifyAdminToken", private_page)
+        self.assertIn('redirect("/admin/login?next=%2Fnewsletter%2Fsubscribe")', private_page)
+
+        login_page = (WEB / "app" / "admin" / "login" / "page.tsx").read_text(encoding="utf-8")
+        self.assertIn('value === "/newsletter/subscribe"', login_page)
+        self.assertIn("encodeURIComponent(next)", login_page)
+
+        middleware = (WEB / "middleware.ts").read_text(encoding="utf-8")
+        self.assertIn('"/newsletter/subscribe"', middleware)
+
+        newsletter_panel = (WEB / "app" / "admin" / "newsletter-panel.tsx").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("主动投递最新周报", newsletter_panel)
+        self.assertIn('dispatch("latest_all_active")', newsletter_panel)
+        self.assertIn("window.confirm", newsletter_panel)
 
     def test_package_declares_next_react_tailwind_and_scripts(self):
         package_json = json.loads((WEB / "package.json").read_text(encoding="utf-8"))
@@ -82,6 +109,16 @@ class WebAppStructureTests(unittest.TestCase):
         self.assertIn("setOpen((value) => !value)", date_group)
         self.assertIn('name="q"', latest_page)
         self.assertIn("搜索标题/摘要", latest_page)
+
+    def test_feed_status_uses_database_refresh_time_not_article_publication_time(self):
+        api_source = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
+        latest_page = (WEB / "app" / "latest" / "page.tsx").read_text(encoding="utf-8")
+        all_page = (WEB / "app" / "all" / "page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("data_refreshed_at?: string | null", api_source)
+        for page in [latest_page, all_page]:
+            self.assertIn("updatedAt={report.data_refreshed_at}", page)
+            self.assertNotIn("updatedAt={report.updated_at}", page)
 
     def test_latest_hotspots_come_from_dedicated_api_not_feed_slice(self):
         api_source = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")

@@ -124,3 +124,36 @@ export function assertIsoDate(value: string, name = "date"): string {
   }
   return value;
 }
+
+const WEEKLY_KEY = /^(\d{4})-W(\d{2})$/;
+const MONTHLY_KEY = /^(\d{4})-(\d{2})$/;
+
+/** ISO 周期 key。周报用 YYYY-Www，月报用 YYYY-MM。 */
+export function assertPeriodKey(value: string, kind: "weekly" | "monthly"): string {
+  if (kind === "monthly") {
+    const match = MONTHLY_KEY.exec(value);
+    const month = match ? Number.parseInt(match[2], 10) : 0;
+    if (!match || month < 1 || month > 12) {
+      throw badRequest("invalid_parameter", `key 必须是有效的 YYYY-MM，收到 "${value}"。`);
+    }
+    return value;
+  }
+
+  const match = WEEKLY_KEY.exec(value);
+  const week = match ? Number.parseInt(match[2], 10) : 0;
+  if (!match || week < 1 || week > 53) {
+    throw badRequest("invalid_parameter", `key 必须是有效的 YYYY-Www，收到 "${value}"。`);
+  }
+
+  // ISO 年最后一周一定包含 12 月 28 日。算出那天的周数，拦住没有 W53 的年份。
+  const year = Number.parseInt(match[1], 10);
+  const dec28 = new Date(Date.UTC(year, 11, 28));
+  const day = dec28.getUTCDay() || 7;
+  dec28.setUTCDate(dec28.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(dec28.getUTCFullYear(), 0, 1));
+  const lastWeek = Math.ceil(((dec28.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
+  if (week > lastWeek) {
+    throw badRequest("invalid_parameter", `${year} 年没有第 ${week} 个 ISO 周。`);
+  }
+  return value;
+}

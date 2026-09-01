@@ -51,7 +51,7 @@ export function buildOpenApiDocument(): Record<string, unknown> {
         "**严格参数**：未声明的参数、重复的参数、越界的值一律返回 400，不会静默放宽。",
         "请移除 cache-buster 与未知参数。",
         "",
-        "**边界**：原生时间窗只有 24h 和 7d；不返回第三方原文正文；周报月报暂无 API。",
+        "**边界**：动态检索的原生时间窗只有 24h 和 7d；不返回第三方原文正文。更长时间尺度请读取编辑成品周报/月报。",
         "",
         "**授权**：个人非商业、公益非商业、组织内部使用免费。面向外部的商业产品、",
         "收费服务、客户交付、代理接口、数据转售、公开镜像或批量再分发须先取得书面授权。",
@@ -184,6 +184,84 @@ export function buildOpenApiDocument(): Record<string, unknown> {
               description: "成功",
               content: { "application/json": { schema: { $ref: "#/components/schemas/DailyResponse" } } },
             },
+            "304": { description: "未变化。" },
+            ...COMMON_ERRORS,
+          },
+        },
+      },
+      "/api/v1/weeklies": {
+        get: {
+          summary: "周报期次索引",
+          operationId: "listWeeklies",
+          parameters: [
+            queryParam("limit", { type: "integer", minimum: 1, maximum: 100, default: 30 }, "返回期数。"),
+            queryParam("offset", { type: "integer", minimum: 0, maximum: 10000, default: 0 }, "分页偏移。"),
+          ],
+          responses: {
+            "200": { description: "成功", content: { "application/json": { schema: { $ref: "#/components/schemas/PeriodIndex" } } } },
+            "304": { description: "未变化。" },
+            ...COMMON_ERRORS,
+          },
+        },
+      },
+      "/api/v1/weeklies/latest": {
+        get: {
+          summary: "最新可用周报",
+          description: "可能是仍在更新的当前周；看 report.finalizedAt 判断是否封版。",
+          operationId: "getLatestWeekly",
+          responses: {
+            "200": { description: "成功", content: { "application/json": { schema: { $ref: "#/components/schemas/PeriodResponse" } } } },
+            "304": { description: "未变化。" },
+            ...COMMON_ERRORS,
+          },
+        },
+      },
+      "/api/v1/weeklies/{key}": {
+        get: {
+          summary: "指定 ISO 周的周报",
+          operationId: "getWeekly",
+          parameters: [{ name: "key", in: "path", required: true, schema: { type: "string", pattern: "^\\d{4}-W\\d{2}$" }, description: "ISO 周期 YYYY-Www。" }],
+          responses: {
+            "200": { description: "成功", content: { "application/json": { schema: { $ref: "#/components/schemas/PeriodResponse" } } } },
+            "304": { description: "未变化。" },
+            ...COMMON_ERRORS,
+          },
+        },
+      },
+      "/api/v1/monthlies": {
+        get: {
+          summary: "月报期次索引",
+          operationId: "listMonthlies",
+          parameters: [
+            queryParam("limit", { type: "integer", minimum: 1, maximum: 100, default: 30 }, "返回期数。"),
+            queryParam("offset", { type: "integer", minimum: 0, maximum: 10000, default: 0 }, "分页偏移。"),
+          ],
+          responses: {
+            "200": { description: "成功", content: { "application/json": { schema: { $ref: "#/components/schemas/PeriodIndex" } } } },
+            "304": { description: "未变化。" },
+            ...COMMON_ERRORS,
+          },
+        },
+      },
+      "/api/v1/monthlies/latest": {
+        get: {
+          summary: "最新可用月报",
+          description: "可能是仍在更新的当前月；看 report.finalizedAt 判断是否封版。",
+          operationId: "getLatestMonthly",
+          responses: {
+            "200": { description: "成功", content: { "application/json": { schema: { $ref: "#/components/schemas/PeriodResponse" } } } },
+            "304": { description: "未变化。" },
+            ...COMMON_ERRORS,
+          },
+        },
+      },
+      "/api/v1/monthlies/{key}": {
+        get: {
+          summary: "指定月份的月报",
+          operationId: "getMonthly",
+          parameters: [{ name: "key", in: "path", required: true, schema: { type: "string", pattern: "^\\d{4}-\\d{2}$" }, description: "月份 YYYY-MM。" }],
+          responses: {
+            "200": { description: "成功", content: { "application/json": { schema: { $ref: "#/components/schemas/PeriodResponse" } } } },
             "304": { description: "未变化。" },
             ...COMMON_ERRORS,
           },
@@ -446,6 +524,78 @@ export function buildOpenApiDocument(): Record<string, unknown> {
                     },
                   },
                 },
+                items: { type: "array", items: { $ref: "#/components/schemas/Item" } },
+                updatedAt: { type: ["string", "null"], format: "date-time" },
+                links: { type: "object", properties: { radar: { type: "string", format: "uri" } } },
+              },
+            },
+          },
+        },
+        PeriodIndex: {
+          type: "object",
+          required: ["schemaVersion", "page", "items"],
+          properties: {
+            schemaVersion: { type: "integer", const: 1 },
+            page: { $ref: "#/components/schemas/Page" },
+            items: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["key", "rangeStart", "rangeEnd", "title", "itemCount", "links"],
+                properties: {
+                  key: { type: "string" },
+                  rangeStart: { type: "string", format: "date" },
+                  rangeEnd: { type: "string", format: "date" },
+                  title: { type: "string" },
+                  itemCount: { type: "integer" },
+                  links: { type: "object", properties: { radar: { type: "string", format: "uri" }, api: { type: "string", format: "uri" } } },
+                },
+              },
+            },
+          },
+        },
+        PeriodResponse: {
+          type: "object",
+          required: ["schemaVersion", "report"],
+          properties: {
+            schemaVersion: { type: "integer", const: 1 },
+            report: {
+              type: "object",
+              required: ["mode", "key", "rangeStart", "rangeEnd", "themeNotes", "stats", "reportDates", "itemCount", "items", "links"],
+              properties: {
+                mode: { type: "string", enum: ["weekly", "monthly"] },
+                key: { type: "string" },
+                rangeStart: { type: "string", format: "date" },
+                rangeEnd: { type: "string", format: "date" },
+                mainlineTitle: { type: ["string", "null"] },
+                mainlineBody: { type: ["string", "null"] },
+                summaryStatus: { type: ["string", "null"] },
+                finalizedAt: { type: ["string", "null"], format: "date-time", description: "非空表示已封版；为空表示当前周期仍会更新。" },
+                themeNotes: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    required: ["label", "note", "category", "eventIds"],
+                    properties: {
+                      label: { type: "string" },
+                      note: { type: "string" },
+                      category: { type: ["string", "null"] },
+                      eventIds: { type: "array", items: { type: "string" } },
+                    },
+                  },
+                },
+                stats: {
+                  type: "object",
+                  properties: {
+                    sourceCoverageCount: { type: ["integer", "null"] },
+                    multiSourceRatio: { type: ["number", "null"] },
+                    categoryDistribution: { type: "object", additionalProperties: { type: "integer" } },
+                    selectedCount: { type: ["integer", "null"] },
+                    coverageCount: { type: ["integer", "null"] },
+                  },
+                },
+                reportDates: { type: "array", items: { type: "string", format: "date" } },
+                itemCount: { type: "integer" },
                 items: { type: "array", items: { $ref: "#/components/schemas/Item" } },
                 updatedAt: { type: ["string", "null"], format: "date-time" },
                 links: { type: "object", properties: { radar: { type: "string", format: "uri" } } },

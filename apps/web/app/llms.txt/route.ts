@@ -27,7 +27,7 @@ function render(): string {
 
 支持远程 MCP 的客户端加一个地址即可，标准 Streamable HTTP，匿名只读，无需 token。
 
-- [MCP 端点](${u("/api/mcp")}): POST JSON-RPC。六个工具：radar_get_latest、radar_search、radar_get_hot_topics、radar_get_story、radar_get_daily、radar_get_topics
+- [MCP 端点](${u("/api/mcp")}): POST JSON-RPC。八个工具：radar_get_latest、radar_search、radar_get_hot_topics、radar_get_story、radar_get_daily、radar_get_weekly、radar_get_monthly、radar_get_topics
 - Claude Code 接入：\`claude mcp add --transport http ai-radar '${u("/api/mcp")}'\`
 
 ## REST API v1
@@ -41,6 +41,10 @@ function render(): string {
 - [/api/v1/stories/{id}](${u("/openapi-v1.json")}): 单个事件的详情与报道时间线。id 来自 items[].id，不要自行构造——链接指向它在 OpenAPI 里的定义
 - [/api/v1/dailies/latest](${u("/api/v1/dailies/latest")}): 最新一期日报
 - [/api/v1/dailies](${u("/api/v1/dailies")}): 日报期次索引
+- [/api/v1/weeklies/latest](${u("/api/v1/weeklies/latest")}): 最新可用周报；finalizedAt 标注是否已封版
+- [/api/v1/weeklies](${u("/api/v1/weeklies")}): 周报期次索引
+- [/api/v1/monthlies/latest](${u("/api/v1/monthlies/latest")}): 最新可用月报；finalizedAt 标注是否已封版
+- [/api/v1/monthlies](${u("/api/v1/monthlies")}): 月报期次索引
 - [/api/v1/topics](${u("/api/v1/topics")}): 主题档案与本周雷达
 
 ## RSS
@@ -50,14 +54,16 @@ function render(): string {
 - [精选](${u("/feed.xml")}): 最新 50 条精选，第一次接入选这个
 - [全部动态](${u("/feed/all.xml")}): 最近 7 天全部收录，量大且未过滤
 - [日报](${u("/feed/daily.xml")}): 每天一期的精编日报，保留最近 10 期
+- [周报](${u("/feed/weekly.xml")}): 只发布已封版周报
+- [月报](${u("/feed/monthly.xml")}): 只发布已封版月报
 - 分类订阅：\`/feed/category/{model|product|industry|research|tutorial}.xml\`
 
 ## 能力边界
 
 - 原生时间窗只有过去 24 小时和最近 7 天。超过 7 天的历史检索不支持，查不到不代表没发生过。
 - 不提供第三方原文正文。返回摘要、推荐理由与链接；正文请打开原文或站内阅读页。
-- 周报与月报目前只有网页，没有 API、MCP 或 RSS 合同。"最近 7 天精选"不等于编辑成品周报。
-- 没有推送通道。不提供 SSE、Webhook 或流式订阅——响应走共享缓存，按 s-maxage 条件轮询拿到的新鲜度是一样的。
+- 周报与月报可通过 REST、MCP 与 RSS 读取。RSS 只发布已封版期次；REST/MCP 的 latest 可能仍在更新，请检查 finalizedAt。
+- 面向读者提供已封版周报的双重确认邮件订阅；面向机器仍不提供 SSE、Webhook 或流式订阅，REST/RSS 请按 s-maxage 条件轮询。
 - 标题与摘要由 AI 基于第三方报道生成，只能当线索。引用数字、政策或原话前请回原文核对。
 
 ## 频率与授权

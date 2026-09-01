@@ -6,17 +6,24 @@ export const metadata = {
   title: "管理员登录 · AI·RADAR",
 };
 
+function safeNextPath(value: string) {
+  if (value === "/admin" || value.startsWith("/admin/") || value === "/newsletter/subscribe") {
+    return value;
+  }
+  return "/admin";
+}
+
 async function login(formData: FormData) {
   "use server";
 
   const token = String(formData.get("token") ?? "").trim();
-  const next = String(formData.get("next") ?? "/admin");
+  const next = safeNextPath(String(formData.get("next") ?? "/admin"));
   if (!token) {
-    redirect("/admin/login?error=empty");
+    redirect(`/admin/login?error=empty&next=${encodeURIComponent(next)}`);
   }
   const valid = await verifyAdminToken(token);
   if (!valid) {
-    redirect("/admin/login?error=invalid");
+    redirect(`/admin/login?error=invalid&next=${encodeURIComponent(next)}`);
   }
   const store = await cookies();
   store.set(ADMIN_COOKIE, token, {
@@ -28,7 +35,7 @@ async function login(formData: FormData) {
     path: "/",
     maxAge: 60 * 60 * 24 * 30,
   });
-  redirect(next.startsWith("/admin") ? next : "/admin");
+  redirect(next);
 }
 
 export default async function AdminLoginPage({
@@ -58,7 +65,7 @@ export default async function AdminLoginPage({
           <p className="mt-2 text-sm text-ink-mid">
             输入部署时配置的 ADMIN_TOKEN
           </p>
-          <input name="next" type="hidden" value={params.next ?? "/admin"} />
+          <input name="next" type="hidden" value={safeNextPath(params.next ?? "/admin")} />
           <input
             autoFocus
             className="mt-5 w-full rounded-md border border-line bg-canvas px-4 py-3 text-sm text-ink outline-none placeholder:text-ink-dim focus:border-signal/60"

@@ -27,6 +27,13 @@ read -r -d '' RESTORE_SCRIPT <<'REMOTE' || true
 set -euo pipefail
 
 psql_postgres() { $DOCKER exec infra-postgres-1 psql -U radar -d postgres -q "$@"; }
+API_STOPPED=0
+ensure_api_running() {
+  if [ "$API_STOPPED" = "1" ]; then
+    $DOCKER start infra-api-1 > /dev/null 2>&1 || true
+  fi
+}
+trap ensure_api_running EXIT
 
 # 清掉上一轮中断可能留下的半成品，否则 CREATE DATABASE 会撞名
 psql_postgres -c "DROP DATABASE IF EXISTS radar_new WITH (FORCE);" > /dev/null
@@ -37,6 +44,42 @@ $DOCKER exec -i infra-postgres-1 pg_restore -U radar -d radar_new --no-owner < /
 rm -f /tmp/radar-sync.dump
 # 本地库的 refresh_schedule 是启用状态，恢复后必须关掉：线上不跑爬取/打分调度
 $DOCKER exec infra-postgres-1 psql -U radar -d radar_new -q -c "UPDATE refresh_schedule SET enabled=false;" > /dev/null
+
+# 订阅者和投递账本是生产环境产生的读者数据，不存在于本地内容快照里。
+# 如果直接换库，它们会被本地 dump 里的空表覆盖。换库前暂停 API（阻止此刻
+# 又有新订阅写入），从旧库只导出这两张表的数据，再覆盖进 radar_new。
+# 表不存在表示第一次部署订阅功能，正常跳过；旧库有表而新库没表则必须失败，
+# 不能以"同步成功"为名静默删掉订阅者。
+has_newsletter=$($DOCKER exec infra-postgres-1 psql -U radar -d radar -Atq -c \
+  "SELECT to_regclass('public.newsletter_subscribers') IS NOT NULL
+      AND to_regclass('public.newsletter_deliveries') IS NOT NULL;")
+if [ "$has_newsletter" = "t" ]; then
+  new_has_newsletter=$($DOCKER exec infra-postgres-1 psql -U radar -d radar_new -Atq -c \
+    "SELECT to_regclass('public.newsletter_subscribers') IS NOT NULL
+        AND to_regclass('public.newsletter_deliveries') IS NOT NULL;")
+  if [ "$new_has_newsletter" != "t" ]; then
+    echo "radar_new 缺少 newsletter 表，拒绝覆盖生产订阅数据" >&2
+    exit 1
+  fi
+
+  $DOCKER stop infra-api-1 > /dev/null
+  API_STOPPED=1
+  $DOCKER exec infra-postgres-1 pg_dump -U radar -d radar \
+    --data-only --column-inserts \
+    --table=public.newsletter_subscribers \
+    --table=public.newsletter_deliveries > /tmp/newsletter-live.sql
+  $DOCKER exec infra-postgres-1 psql -U radar -d radar_new -q -c \
+    "TRUNCATE newsletter_deliveries, newsletter_subscribers CASCADE;" > /dev/null
+  $DOCKER exec -i infra-postgres-1 psql -U radar -d radar_new -q \
+    < /tmp/newsletter-live.sql
+  rm -f /tmp/newsletter-live.sql
+  $DOCKER exec infra-postgres-1 psql -U radar -d radar_new -q -c \
+    "SELECT setval(
+       pg_get_serial_sequence('newsletter_deliveries', 'id'),
+       COALESCE((SELECT MAX(id) FROM newsletter_deliveries), 1),
+       EXISTS (SELECT 1 FROM newsletter_deliveries)
+     );" > /dev/null
+fi
 
 # ---- 以下是唯一有停机的一段 ----
 # ALTER DATABASE ... RENAME 要求目标库没有活连接。只 terminate 不够：api 的
@@ -56,6 +99,7 @@ trap - ERR
 
 # 连接池里全是指向旧库的死连接，必须重启才能接上新库
 $DOCKER restart infra-api-1 > /dev/null
+API_STOPPED=0
 # ---- 停机结束 ----
 
 psql_postgres -c "DROP DATABASE IF EXISTS radar_old WITH (FORCE);" > /dev/null

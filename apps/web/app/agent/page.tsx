@@ -29,14 +29,14 @@ export const metadata = {
   alternates: { canonical: "/agent" },
 };
 
-const skillVersion = "1.1.0";
+const skillVersion = "1.2.0";
 const sourceBase = "https://github.com/suversal/AIRadar/tree/main/apps/web/public/ai-radar-skill";
 
 const OUTCOMES = [
   { icon: Clock3, title: "24 小时重点", example: "过去 24 小时最重要的 5 件事是什么？" },
   { icon: Flame, title: "当前热点", example: "现在 AI 圈哪些话题正在升温？" },
   { icon: Radar, title: "事件脉络", example: "这件事有哪些信源，时间线是什么？" },
-  { icon: Newspaper, title: "日报与主题", example: "总结今天的主线，Claude 本周有什么变化？" },
+  { icon: Newspaper, title: "日／周／月报", example: "总结本周主线，哪些变化值得继续跟踪？" },
 ];
 
 const TOOLS = [
@@ -45,6 +45,8 @@ const TOOLS = [
   ["radar_get_hot_topics", "当前热点榜，按多信源热度排序"],
   ["radar_get_story", "一个事件的详情与多信源报道时间线"],
   ["radar_get_daily", "最新或指定日期的 AI 日报"],
+  ["radar_get_weekly", "最新或指定 ISO 周的编辑成品周报"],
+  ["radar_get_monthly", "最新或指定月份的趋势月报"],
   ["radar_get_topics", "主题档案与本周雷达：什么正在变热"],
 ];
 
@@ -52,6 +54,8 @@ const FEEDS = [
   { name: "精选", recommended: true, path: "/feed.xml", desc: "最新 50 条精选，含中文摘要与推荐理由。第一次接入建议选它。" },
   { name: "全部动态", path: "/feed/all.xml", desc: "最近 7 天全部收录，按发布时间倒序，未经精选阈值过滤。" },
   { name: "日报", path: "/feed/daily.xml", desc: "每天一期的精编日报，含 AI 主线综述，保留最近 10 期。" },
+  { name: "周报", path: "/feed/weekly.xml", desc: "只发布已封版周报，避免阅读器收到仍在变化的本周半成品。" },
+  { name: "月报", path: "/feed/monthly.xml", desc: "只发布已封版月报，含月度主线与趋势观察。" },
 ];
 
 // 直接引用 taxonomy 的权威定义，不要在这里手抄一份中文标签。
@@ -147,7 +151,7 @@ function McpPanel() {
       <PanelHead title="添加一个远程 MCP 地址" lead="适合支持 Streamable HTTP 的 Agent 与开发工具。服务匿名只读，不需要 token，也不会读取登录态。" />
       <div className="flex flex-wrap gap-2 text-xs">
         <span className="rounded-full border border-signal/35 bg-signal/10 px-2.5 py-1 text-signal">远程 MCP 推荐</span>
-        <span className="rounded-full border border-line bg-canvas px-2.5 py-1 text-ink-mid">6 个只读工具</span>
+        <span className="rounded-full border border-line bg-canvas px-2.5 py-1 text-ink-mid">8 个只读工具</span>
         <span className="rounded-full border border-line bg-canvas px-2.5 py-1 text-ink-mid">无需 token</span>
       </div>
       <Code label="MCP 端点" code={`${siteUrl}/api/mcp`} />
@@ -162,7 +166,7 @@ function McpPanel() {
       <Code label="Claude Code" code={`claude mcp add --transport http ai-radar '${siteUrl}/api/mcp'`} />
       <p className="text-[13px] leading-5 text-ink-dim">不同客户端的配置入口名称可能不同，核心只有 server 名称和 URL。客户端若不支持远程 HTTP，需要使用它自己的远程 MCP 代理。</p>
       <div>
-        <h3 className="text-sm font-semibold text-ink">连接后会看到六个工具</h3>
+        <h3 className="text-sm font-semibold text-ink">连接后会看到八个工具</h3>
         <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
           {TOOLS.map(([name, desc]) => (
             <div key={name} className="rounded-md border border-line bg-canvas px-3 py-2.5">
@@ -225,6 +229,7 @@ function RssPanel() {
       <Note title="给阅读器与自动化工具的合同">
         <p>支持 ETag 条件请求，未变化返回 304；建议每 30 分钟或更慢轮询。</p>
         <p>条目 link 指向站内阅读页，第三方原文放在 description；guid 使用事件 ID，站内地址改版不会重推旧条目。</p>
+        <p>周报与月报只进入已封版期次；进行中的当前周期仍可通过网页、REST 或 MCP 查看。</p>
         <p><strong className="text-ink">Feed 只输出摘要，不内联第三方正文。</strong></p>
       </Note>
     </>
@@ -306,7 +311,7 @@ export default function AgentPage() {
         </div>
         <AccessTabs tabs={[
           { id: "skill", name: "Claude Code", method: "Agent Skill", hint: "已完成端到端验证", badge: "已验证", panel: <SkillPanel /> },
-          { id: "mcp", name: "MCP 客户端", method: "远程 MCP", hint: "一个地址，六个工具", badge: "推荐", panel: <McpPanel /> },
+          { id: "mcp", name: "MCP 客户端", method: "远程 MCP", hint: "一个地址，八个工具", badge: "推荐", panel: <McpPanel /> },
           { id: "rss", name: "RSS / 自动化", method: "RSS 2.0", hint: "阅读器、n8n、Zapier", panel: <RssPanel /> },
           { id: "rest", name: "自建应用", method: "REST API v1", hint: "脚本、服务端与 SDK", panel: <RestPanel /> },
         ]} />
@@ -316,7 +321,7 @@ export default function AgentPage() {
         <h2 className="text-base font-semibold text-signal-bright">共同能力边界</h2>
         <ul className="mt-3 list-disc space-y-2 pl-5">
           <li><strong className="text-ink">原生时间窗是过去 24 小时和最近 7 天。</strong>超过 7 天的历史检索暂不支持。</li>
-          <li><strong className="text-ink">周报与月报目前仅提供网页。</strong>最近 7 天精选不等同于编辑完成的周报。</li>
+          <li><strong className="text-ink">周报与月报是独立编辑成品。</strong>可通过 REST、MCP 与只发布封版期次的 RSS 读取；最近 7 天精选不等同于周报。</li>
           <li><strong className="text-ink">重要事实请回原文核验。</strong>标题、摘要与翻译由 AI 基于第三方报道生成，引用数字、政策或原话前应查看原文URL复核。</li>
           <li><strong className="text-ink">v1 保持向后兼容，但不承诺 SLA。</strong>关键链路请自行配置缓存、重试和降级。</li>
         </ul>

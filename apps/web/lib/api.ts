@@ -182,6 +182,7 @@ export type LatestEvent = {
 export type LatestReport = {
   report_date?: string | null;
   updated_at: string | null;
+  data_refreshed_at?: string | null;
   article_count?: number;
   total?: number;
   limit?: number;
@@ -247,6 +248,7 @@ function emptyLatestReport(error: string): LatestReport {
   return {
     report_date: null,
     updated_at: null,
+    data_refreshed_at: null,
     article_count: 0,
     items: [],
     error,
@@ -348,6 +350,7 @@ export async function getHotspots(
 export type AllEventsPayload = {
   report_dates: string[];
   updated_at: string | null;
+  data_refreshed_at?: string | null;
   total: number;
   limit: number;
   offset: number;
@@ -445,6 +448,7 @@ function emptyAllEvents(error: string): AllEventsPayload {
   return {
     report_dates: [],
     updated_at: null,
+    data_refreshed_at: null,
     total: 0,
     limit: 0,
     offset: 0,

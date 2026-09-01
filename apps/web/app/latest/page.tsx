@@ -112,7 +112,7 @@ export default async function LatestPage({
               <div className="relative z-10">
                 <RadarStatus
                   compactScope="7天"
-                  updatedAt={report.updated_at}
+                  updatedAt={report.data_refreshed_at}
                   eventCount={report.total ?? report.items.length}
                   scope="SELECTED FEED · 7D"
                 />
@@ -139,7 +139,7 @@ export default async function LatestPage({
                     </div>
                     <div>
                       <dt className="readout text-[9px] uppercase tracking-[0.14em] text-ink-dim">更新</dt>
-                      <dd className="readout mt-2 text-[10px] text-ink-mid">{formatDateTime(report.updated_at)}</dd>
+                      <dd className="readout mt-2 text-[10px] text-ink-mid">{formatDateTime(report.data_refreshed_at)}</dd>
                     </div>
                   </dl>
                 </div>

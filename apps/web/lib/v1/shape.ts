@@ -7,7 +7,7 @@
 //
 // 增字段安全，删字段和改类型是破坏性变更——v1 承诺不做后者。
 
-import type { DailyReport, LatestEvent, TopicsPayload } from "@/lib/api";
+import type { DailyReport, LatestEvent, PeriodReport, TopicsPayload } from "@/lib/api";
 import { siteUrl } from "@/lib/site";
 import { categoryLabel, displayCategory, focusCategory, focusCategoryLabel } from "@/lib/taxonomy";
 
@@ -195,6 +195,72 @@ export function shapeDaily(report: DailyReport): V1Daily {
     items: (report.items ?? []).map(shapeItem),
     updatedAt: isoOrNull(report.updated_at),
     links: { radar: new URL(`/daily?date=${report.report_date}`, siteUrl).toString() },
+  };
+}
+
+export type V1Period = {
+  mode: "weekly" | "monthly";
+  key: string;
+  rangeStart: string;
+  rangeEnd: string;
+  mainlineTitle: string | null;
+  mainlineBody: string | null;
+  summaryStatus: string | null;
+  finalizedAt: string | null;
+  themeNotes: {
+    label: string;
+    note: string;
+    category: string | null;
+    eventIds: string[];
+  }[];
+  stats: {
+    sourceCoverageCount: number | null;
+    multiSourceRatio: number | null;
+    categoryDistribution: Record<string, number>;
+    selectedCount: number | null;
+    coverageCount: number | null;
+  };
+  reportDates: string[];
+  itemCount: number;
+  items: V1Item[];
+  updatedAt: string | null;
+  links: { radar: string };
+};
+
+/** 周报/月报统一对外合同。当前期与封版期形状相同，只看 finalizedAt 区分。 */
+export function shapePeriod(report: PeriodReport): V1Period {
+  const mode = report.mode;
+  const key = report.period_key ?? "";
+  const stats = report.stats ?? {};
+  return {
+    mode,
+    key,
+    rangeStart: report.range_start,
+    rangeEnd: report.range_end,
+    mainlineTitle: report.mainline_title || null,
+    mainlineBody: report.mainline_body || null,
+    summaryStatus: report.summary_status ?? null,
+    finalizedAt: isoOrNull(report.finalized_at),
+    themeNotes: (report.theme_notes ?? []).map((note) => ({
+      label: note.label,
+      note: note.note,
+      category: note.category ?? null,
+      eventIds: note.event_ids ?? [],
+    })),
+    stats: {
+      sourceCoverageCount: stats.source_coverage_count ?? null,
+      multiSourceRatio: stats.multi_source_ratio ?? null,
+      categoryDistribution: stats.category_distribution ?? {},
+      selectedCount: stats.selected_count ?? null,
+      coverageCount: stats.coverage_count ?? null,
+    },
+    reportDates: report.report_dates ?? [],
+    itemCount: report.article_count ?? 0,
+    items: (report.items ?? []).map(shapeItem),
+    updatedAt: isoOrNull(report.updated_at),
+    links: {
+      radar: new URL(`/${mode === "weekly" ? "weekly" : "monthly"}/${encodeURIComponent(key)}`, siteUrl).toString(),
+    },
   };
 }
 

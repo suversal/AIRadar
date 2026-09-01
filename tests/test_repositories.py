@@ -462,6 +462,46 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(done.raw_count, 3)
         self.assertEqual(total, 1)
 
+    def test_latest_successful_pipeline_time_excludes_failed_and_running_runs(self):
+        from app.repositories.radar_repository import RadarRepository
+
+        first_success = datetime(2026, 8, 30, 1, tzinfo=timezone.utc)
+        failed_later = datetime(2026, 8, 30, 2, tzinfo=timezone.utc)
+        latest_success = datetime(2026, 8, 30, 3, tzinfo=timezone.utc)
+
+        with self.Session() as session:
+            repository = RadarRepository(session)
+            repository.record_pipeline_run(
+                status="succeeded",
+                raw_count=1,
+                processed_count=1,
+                cluster_count=1,
+                skipped_reasons={},
+                finished_at=first_success,
+            )
+            repository.record_pipeline_run(
+                status="failed",
+                raw_count=1,
+                processed_count=0,
+                cluster_count=0,
+                skipped_reasons={},
+                finished_at=failed_later,
+            )
+            repository.start_pipeline_run(started_at=failed_later)
+            repository.record_pipeline_run(
+                status="succeeded",
+                raw_count=2,
+                processed_count=2,
+                cluster_count=2,
+                skipped_reasons={},
+                finished_at=latest_success,
+            )
+            session.commit()
+
+            refreshed_at = repository.get_latest_successful_pipeline_finished_at()
+
+        self.assertEqual(refreshed_at, latest_success.isoformat())
+
     def test_non_ai_articles_are_stored_as_skip_markers(self):
         # 四步流程(2026-07-12 晚):非AI文章保留行(status=skipped)作为
         # "已存在跳过"标记——同一篇非AI文章永远只判一次

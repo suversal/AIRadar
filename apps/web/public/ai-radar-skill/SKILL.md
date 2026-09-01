@@ -1,6 +1,6 @@
 ---
 name: ai-radar
-description: 查询 AI·RADAR 的中文 AI 情报——过去 24 小时或最近 7 天的精选动态、当前热点榜、单个事件的报道时间线、每日精编日报，以及主题档案与"正在变热"的话题。当用户问"最近有什么 AI 新闻""过去 24 小时 AI 圈发生了什么""现在最热的 AI 事件是什么""给我今天的 AI 日报""某公司或某模型最近有什么动静""最近哪些 AI 话题在升温"时使用。
+description: 查询 AI·RADAR 的中文 AI 情报——过去 24 小时或最近 7 天的精选动态、当前热点榜、事件时间线、日周月报，以及主题档案与"正在变热"的话题。当用户问近期 AI 新闻、热点、日报、周报、月报或某公司和模型的近期变化时使用。
 ---
 
 # AI·RADAR 情报查询
@@ -20,6 +20,8 @@ AI·RADAR 持续监听数十个高信噪比 AI 信源，用 AI 评分、聚类�
 | 某公司、模型、产品、人物的近期消息 | `/api/v1/items?q=关键词` |
 | 这件事的来龙去脉 / 有哪几家报道了 | `/api/v1/stories/{id}` |
 | 今天的 AI 日报 / 某天的日报 | `/api/v1/dailies/latest`、`/api/v1/dailies/{YYYY-MM-DD}` |
+| 本周主线 / 某一期周报 | `/api/v1/weeklies/latest`、`/api/v1/weeklies/{YYYY-Www}` |
+| 本月趋势 / 某一期月报 | `/api/v1/monthlies/latest`、`/api/v1/monthlies/{YYYY-MM}` |
 | 什么话题正在变热 / 有哪些主题 | `/api/v1/topics` |
 
 ## 常用调用
@@ -39,6 +41,10 @@ curl -s 'https://radar.suversal.com/api/v1/stories/e19143f02e051'
 
 # 最新一期日报
 curl -s 'https://radar.suversal.com/api/v1/dailies/latest'
+
+# 最新可用周报与月报；finalizedAt 为空表示当前周期仍在更新
+curl -s 'https://radar.suversal.com/api/v1/weeklies/latest'
+curl -s 'https://radar.suversal.com/api/v1/monthlies/latest'
 
 # 主题档案 + 本周雷达
 curl -s 'https://radar.suversal.com/api/v1/topics'
@@ -74,7 +80,7 @@ curl -s 'https://radar.suversal.com/api/v1/topics'
 
 - **超过 7 天的历史检索不支持**。原生窗口只有 `24h` 和 `7d`。查不到不代表没发生过。
 - **没有正文**。API 返回摘要、推荐理由和链接，不返回第三方原文正文。要正文请让用户打开链接。
-- **周报和月报只有网页**，目前没有 API。别拿"最近 7 天精选"冒充编辑成品周报，那是两回事。
+- **周报和月报不是动态检索的替代品**。它们是独立编辑成品；`latest` 可能仍在更新，必须检查 `finalizedAt`。别拿“最近 7 天精选”冒充周报。
 - **没有推送通道**。没有 SSE、Webhook 或流式订阅。要跟进变化就按下面的节奏轮询。
 
 ## 错误与频率

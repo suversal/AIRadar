@@ -1,12 +1,13 @@
 // MCP 工具定义与实现。
 //
-// 六个工具，全部匿名只读。取数直接走 lib/v1 的内部函数而不是 HTTP 自调用：
+// 八个工具，全部匿名只读。取数直接走 lib/v1 的内部函数而不是 HTTP 自调用：
 // 少一跳，且窗口口径与 REST 天然一致。
 //
 // 边界一律显式报错，不静默放宽：limit=100 返回错误而不是悄悄给 30。
 // Agent 拿到 30 条却以为是全部，会直接说"本周只有 30 条动态"。
 
-import type { DailyReport, HotspotsPayload, LatestEvent, TopicsPayload } from "@/lib/api";
+import type { DailyReport, HotspotsPayload, LatestEvent, PeriodReport, TopicsPayload } from "@/lib/api";
+import { siteUrl } from "@/lib/site";
 import { dailyCacheTier, latestDailyDate } from "@/lib/v1/daily";
 import { CACHE } from "@/lib/v1/http";
 import { ITEM_CATEGORIES, loadItems, type ItemWindow } from "@/lib/v1/items";
@@ -183,6 +184,34 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: "radar_get_weekly",
+    title: "AI 周报",
+    description:
+      "读取 AI·RADAR 编辑成品周报，含一周主线、分类观察和入选事件。省略 key 返回最新可用一期；结果会明确标注已封版或仍在更新。它不是最近 7 天条目的简单拼接。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        key: { type: "string", pattern: "^\\d{4}-W\\d{2}$", description: "ISO 周期 YYYY-Www。省略则取最新可用一期。" },
+        limit: { type: "integer", minimum: 1, maximum: 30, default: 20, description: "正文里列出的事件数，上限 30。" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "radar_get_monthly",
+    title: "AI 月报",
+    description:
+      "读取 AI·RADAR 编辑成品月报，含月度主线、趋势观察和入选事件。省略 key 返回最新可用一期；结果会明确标注已封版或仍在更新。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        key: { type: "string", pattern: "^\\d{4}-\\d{2}$", description: "月份 YYYY-MM。省略则取最新可用一期。" },
+        limit: { type: "integer", minimum: 1, maximum: 30, default: 20, description: "正文里列出的事件数，上限 30。" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "radar_get_topics",
     title: "主题档案与本周雷达",
     description:
@@ -338,6 +367,58 @@ async function getDaily(args: Args): Promise<string> {
   return lines.join("\n") + ATTRIBUTION_NOTE;
 }
 
+function periodKeyArg(args: Args, kind: "weekly" | "monthly"): string | undefined {
+  const raw = args.key;
+  if (raw === undefined || raw === null || raw === "") return undefined;
+  if (typeof raw !== "string") throw new ToolError(`key 必须是字符串，收到 ${JSON.stringify(raw)}。`);
+  const valid = kind === "weekly"
+    ? /^\d{4}-W(?:0[1-9]|[1-4]\d|5[0-3])$/.test(raw)
+    : /^\d{4}-(?:0[1-9]|1[0-2])$/.test(raw);
+  if (!valid) {
+    throw new ToolError(`key 必须是${kind === "weekly" ? " YYYY-Www" : " YYYY-MM"}，收到 ${JSON.stringify(raw)}。`);
+  }
+  return raw;
+}
+
+async function getPeriod(args: Args, kind: "weekly" | "monthly"): Promise<string> {
+  const key = periodKeyArg(args, kind);
+  const limit = intArg(args, "limit", 1, 30, 20);
+  const label = kind === "weekly" ? "周报" : "月报";
+  const path = key
+    ? `/api/public/reports/${kind}/${encodeURIComponent(key)}`
+    : `/api/public/reports/${kind}`;
+  const report = await fetchUpstream<PeriodReport>(path, { revalidate: CACHE.periodLatest });
+  if (!report.period_key || (report.article_count ?? 0) === 0) {
+    throw new ToolError(`没有找到${label}${key ? ` ${key}` : ""}。`);
+  }
+
+  const lines = [
+    `# AI·RADAR ${label} · ${report.period_key}`,
+    "",
+    `${report.range_start} 至 ${report.range_end} · ${report.finalized_at ? "已封版" : "进行中，内容仍可能更新"}`,
+  ];
+  if (report.mainline_title) lines.push("", `## ${report.mainline_title}`);
+  if (report.mainline_body) lines.push("", report.mainline_body);
+  for (const note of report.theme_notes ?? []) {
+    if (note.note) lines.push("", `**${note.label}**：${note.note}`);
+  }
+  const items = (report.items ?? []).slice(0, limit).map(shapeItem);
+  lines.push(
+    "",
+    formatItems(
+      `## 入选事件（本期共 ${report.article_count} 条，列出 ${items.length} 条）`,
+      items,
+      "本期没有入选事件。",
+    ),
+    "",
+    `期次页面：${new URL(`/${kind === "weekly" ? "weekly" : "monthly"}/${report.period_key}`, siteUrl).toString()}`,
+  );
+  return lines.join("\n") + ATTRIBUTION_NOTE;
+}
+
+const getWeekly = (args: Args) => getPeriod(args, "weekly");
+const getMonthly = (args: Args) => getPeriod(args, "monthly");
+
 async function getTopics(): Promise<string> {
   const payload = await fetchUpstream<TopicsPayload>("/api/public/topics", {
     revalidate: CACHE.topics,
@@ -379,6 +460,8 @@ const HANDLERS: Record<string, (args: Args) => Promise<string>> = {
   radar_get_hot_topics: getHotTopics,
   radar_get_story: getStory,
   radar_get_daily: getDaily,
+  radar_get_weekly: getWeekly,
+  radar_get_monthly: getMonthly,
   radar_get_topics: getTopics,
 };
 

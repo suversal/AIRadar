@@ -122,7 +122,7 @@ export default async function AllEventsPage({
           <header className="editorial-surface py-1 md:py-2">
             <RadarStatus
               compactScope={`${DAYS}天`}
-              updatedAt={report.updated_at}
+              updatedAt={report.data_refreshed_at}
               eventCount={report.total}
               scope={`ALL DYNAMICS · ${DAYS}D`}
             />

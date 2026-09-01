@@ -28,7 +28,7 @@ AI·RADAR 不追求收录越多越好，而是把信息处理成更适合判断�
 | 日／周／月报 | 按时间尺度阅读主线和分类概述 | [日报](https://radar.suversal.com/daily) · [周报](https://radar.suversal.com/weekly) · [月报](https://radar.suversal.com/monthly) |
 | 主题档案 | 持续跟踪公司、模型和技术方向 | [radar.suversal.com/topics](https://radar.suversal.com/topics) |
 | Agent Skill | 安装后直接用自然语言提问 | [接入说明](https://radar.suversal.com/agent) |
-| MCP Server | 给支持远程 MCP 的客户端增加 6 个只读工具 | `https://radar.suversal.com/api/mcp` |
+| MCP Server | 给支持远程 MCP 的客户端增加 8 个只读工具 | `https://radar.suversal.com/api/mcp` |
 | RSS | 阅读器、n8n、Zapier 等订阅与自动化 | [精选 RSS](https://radar.suversal.com/feed.xml) |
 | REST API | 自建应用、脚本或数据分析 | [API 参考](https://radar.suversal.com/agent/api) |
 
@@ -71,7 +71,7 @@ Claude Code 示例：
 claude mcp add --transport http ai-radar 'https://radar.suversal.com/api/mcp'
 ```
 
-连接后提供 `radar_get_latest`、`radar_search`、`radar_get_hot_topics`、`radar_get_story`、`radar_get_daily` 和 `radar_get_topics` 六个工具。
+连接后提供 `radar_get_latest`、`radar_search`、`radar_get_hot_topics`、`radar_get_story`、`radar_get_daily`、`radar_get_weekly`、`radar_get_monthly` 和 `radar_get_topics` 八个工具。
 
 ### REST API
 
@@ -87,6 +87,8 @@ REST v1 支持 CORS、ETag 条件请求和 RFC 9457 Problem Details。参数、�
 精选       https://radar.suversal.com/feed.xml
 全部动态   https://radar.suversal.com/feed/all.xml
 日报       https://radar.suversal.com/feed/daily.xml
+周报       https://radar.suversal.com/feed/weekly.xml
+月报       https://radar.suversal.com/feed/monthly.xml
 分类       https://radar.suversal.com/feed/category/{model|product|industry|research|tutorial}.xml
 ```
 
@@ -240,11 +242,20 @@ npm run build
 | DeepSeek | `DEEPSEEK_API_KEY` |
 | 管理后台 | `ADMIN_TOKEN` 与 `ADMIN_MANUAL_*` 功能开关 |
 | SourcePilot／X | `SOURCEPILOT_BASE_URL`、`X_TWEET_ARTICLE_PIPELINE_*` |
+| 周报邮件 | `NEWSLETTER_*`（SMTP、发件地址、稳定令牌密钥与自动投递开关） |
 | 访问统计 | `UMAMI_APP_SECRET`、`UMAMI_TWO_FACTOR_KEY`、`UMAMI_WEBSITE_ID` |
 
 不要把 `.env`、模型密钥、管理员 Token 或第三方服务凭证提交到仓库。
 
 Provider 选择有两种方式：显式设置 `AI_PROVIDER`，或者留空并根据已配置的 Key 自动选择。开发环境建议先用 `AI_PROVIDER=fake` 或命令行的 `--fake-ai` 验证完整数据链，确认抓取、数据库和页面都正常后再启用付费模型。
+
+### 周报邮件
+
+周报邮件采用双重确认：私测期间，只有已经登录后台的管理员可以打开 `/newsletter/subscribe` 提交邮箱；点击 48 小时内有效的确认链接后才成为有效订阅者，周报正文暂不展示公开订阅入口。系统只发送已经封版的周报，并用 `(订阅者, 期次)` 唯一投递账本保证调度重试、进程重启或手动触发都不会重复发送。同一地址可从邮件页脚或邮件客户端的一键退订入口退出。
+
+订阅数据由生产数据库产生。现有整库同步脚本会在换库前暂停 API，将生产环境的 `newsletter_subscribers` 与 `newsletter_deliveries` 保留并恢复到新库，不能改回无条件覆盖；否则下一次内容同步会清空全部订阅者。
+
+上线前先完成发件域名的 SPF、DKIM 与 DMARC 验证，再填写 `.env` 中的 SMTP 参数。保持 `NEWSLETTER_ENABLED=false` 做一次订阅确认与管理员手动投递验收；确认邮件送达、退订有效且垃圾邮件评分正常后，再开启自动投递。`NEWSLETTER_TOKEN_SECRET` 必须长期稳定保存，轮换会让旧邮件中的退订链接失效。
 
 ## 生产部署
 
@@ -294,8 +305,8 @@ data/           本地运行产物和缓存（默认忽略）
 - 产品以中文 AI 信息为主，不是通用新闻搜索引擎。
 - 公开 API 的原生时间窗为过去 24 小时和最近 7 天；更早历史暂不提供查询合同。
 - API、MCP 与 RSS 返回摘要、推荐理由和来源链接，不提供第三方原文的批量镜像。
-- 周报与月报目前提供网页阅读，尚未纳入公开 API、MCP 或 RSS 合同。
-- 当前没有 SSE、Webhook 或服务端推送；轮询应遵守响应中的 `Cache-Control` 与 ETag。
+- 周报与月报可通过网页、REST、MCP 与 RSS 读取；周报邮件仍处于管理员私测阶段，公开订阅入口暂不展示。
+- 机器接口没有 SSE、Webhook 或流式推送；轮询应遵守响应中的 `Cache-Control` 与 ETag。
 - 管理后台使用单一管理员 Token，尚未实现多用户权限模型。
 - AI 生成内容只能作为线索；引用数字、政策或原话前应回到原始信源核验。
 

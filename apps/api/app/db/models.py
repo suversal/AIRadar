@@ -570,3 +570,70 @@ class FeedbackSubmissionModel(Base):
     message: Mapped[str] = mapped_column(Text, nullable=False)
     email: Mapped[Optional[str]] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class NewsletterSubscriberModel(Base):
+    """One address subscribed to the weekly email.
+
+    Confirmation and unsubscribe URLs carry high-entropy random tokens.  Only
+    their SHA-256 digests are stored, so a database read cannot be turned into
+    a working pile of subscription-management links.
+    """
+
+    __tablename__ = "newsletter_subscribers"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending", index=True)
+    confirmation_token_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False, unique=True, index=True
+    )
+    unsubscribe_token_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False, unique=True, index=True
+    )
+    confirmation_expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    confirmation_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), index=True)
+    unsubscribed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    source: Mapped[str] = mapped_column(String(80), nullable=False, default="weekly_page")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class NewsletterDeliveryModel(Base):
+    """Durable, idempotent delivery ledger for one subscriber and one issue."""
+
+    __tablename__ = "newsletter_deliveries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    subscriber_id: Mapped[str] = mapped_column(
+        ForeignKey("newsletter_subscribers.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    period_key: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued", index=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    provider_message_id: Mapped[Optional[str]] = mapped_column(String(255))
+    last_error: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "subscriber_id",
+            "period_key",
+            name="uq_newsletter_delivery_subscriber_period",
+        ),
+        Index("ix_newsletter_deliveries_period_status", "period_key", "status"),
+    )

@@ -68,6 +68,10 @@ export const CACHE = {
   /** 历史日报封版后不再变 */
   dailyArchived: 3600,
   dailyIndex: 600,
+  /** 当前周/月仍会随日报更新；已封版期次可以长缓存 */
+  periodLatest: 300,
+  periodArchived: 3600,
+  periodIndex: 600,
   topics: 600,
   feed: 900,
 } as const;

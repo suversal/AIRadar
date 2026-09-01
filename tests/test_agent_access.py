@@ -73,6 +73,12 @@ class AgentAccessStructureTests(unittest.TestCase):
             "app/api/v1/dailies/route.ts",
             "app/api/v1/dailies/latest/route.ts",
             "app/api/v1/dailies/[date]/route.ts",
+            "app/api/v1/weeklies/route.ts",
+            "app/api/v1/weeklies/latest/route.ts",
+            "app/api/v1/weeklies/[key]/route.ts",
+            "app/api/v1/monthlies/route.ts",
+            "app/api/v1/monthlies/latest/route.ts",
+            "app/api/v1/monthlies/[key]/route.ts",
             "app/api/v1/topics/route.ts",
             "app/api/v1/topics/[slug]/route.ts",
             # MCP
@@ -83,9 +89,12 @@ class AgentAccessStructureTests(unittest.TestCase):
             "app/feed.xml/route.ts",
             "app/feed/all.xml/route.ts",
             "app/feed/daily.xml/route.ts",
+            "app/feed/weekly.xml/route.ts",
+            "app/feed/monthly.xml/route.ts",
             "app/feed/category/[slug]/route.ts",
             "lib/feed/rss.ts",
             "lib/feed/load.ts",
+            "lib/feed/period.ts",
             # 文档出口
             "app/llms.txt/route.ts",
             "app/openapi-v1.json/route.ts",
@@ -99,6 +108,7 @@ class AgentAccessStructureTests(unittest.TestCase):
             "lib/v1/shape.ts",
             "lib/v1/items.ts",
             "lib/v1/daily.ts",
+            "lib/v1/period.ts",
             "lib/v1/upstream.ts",
             # Skill 包
             "public/ai-radar-skill/SKILL.md",
@@ -203,10 +213,10 @@ class McpToolConsistencyTests(unittest.TestCase):
         self.assertEqual(listed, self.declared, "/agent 页面的工具清单和实现对不上")
 
     def test_tool_count_claim_matches_reality(self):
-        # 页面和 llms.txt 都写了"六个工具"，数字变了文案必须跟着改
-        self.assertEqual(len(self.declared), 6)
-        self.assertIn("六个工具", read(AGENT_PAGE))
-        self.assertIn("六个工具", read(LLMS_TXT))
+        # 页面和 llms.txt 都写了"八个工具"，数字变了文案必须跟着改
+        self.assertEqual(len(self.declared), 8)
+        self.assertIn("八个工具", read(AGENT_PAGE))
+        self.assertIn("八个工具", read(LLMS_TXT))
 
     def test_llms_txt_names_every_tool(self):
         text = read(LLMS_TXT)
@@ -282,6 +292,11 @@ class ContractInvariantTests(unittest.TestCase):
             r"\$\{[^}]+\}T\d{2}:\d{2}",
             "daily feed 在用期次日期拼固定钟点，这是编造的发布时间",
         )
+
+    def test_period_feeds_only_publish_finalized_reports(self):
+        source = read(WEB / "lib" / "feed" / "period.ts")
+        self.assertIn("finalized_at", source)
+        self.assertNotIn("new Date()", source)
 
     def test_time_basis_never_fails_open_to_published(self):
         """缺失的 time_basis 必须是 null，不能当成 published。

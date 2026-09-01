@@ -25,6 +25,8 @@ from app.db.models import (
     EventClusterRedirectModel,
     EventEditorialOverrideModel,
     FeedbackSubmissionModel,
+    NewsletterDeliveryModel,
+    NewsletterSubscriberModel,
     PipelineRunModel,
     ProcessedArticleModel,
     RawArticleModel,
@@ -2201,6 +2203,103 @@ class RadarRepository:
             is not None
         )
 
+    # ── 周报邮件订阅 ────────────────────────────────────────────────────
+
+    def get_newsletter_subscriber_by_email(
+        self, email: str
+    ) -> Optional[NewsletterSubscriberModel]:
+        return self.session.scalar(
+            select(NewsletterSubscriberModel).where(NewsletterSubscriberModel.email == email)
+        )
+
+    def get_newsletter_subscriber_by_confirmation_hash(
+        self, token_hash: str
+    ) -> Optional[NewsletterSubscriberModel]:
+        return self.session.scalar(
+            select(NewsletterSubscriberModel).where(
+                NewsletterSubscriberModel.confirmation_token_hash == token_hash
+            )
+        )
+
+    def get_newsletter_subscriber_by_unsubscribe_hash(
+        self, token_hash: str
+    ) -> Optional[NewsletterSubscriberModel]:
+        return self.session.scalar(
+            select(NewsletterSubscriberModel).where(
+                NewsletterSubscriberModel.unsubscribe_token_hash == token_hash
+            )
+        )
+
+    def count_newsletter_confirmations_sent_since(self, since: datetime) -> int:
+        return int(
+            self.session.scalar(
+                select(func.count(NewsletterSubscriberModel.id)).where(
+                    NewsletterSubscriberModel.confirmation_sent_at >= since
+                )
+            )
+            or 0
+        )
+
+    def latest_finalized_weekly_report(self) -> Optional[dict[str, Any]]:
+        model = self.session.scalar(
+            select(PeriodReportModel)
+            .where(
+                PeriodReportModel.kind == "weekly",
+                PeriodReportModel.finalized_at.is_not(None),
+                PeriodReportModel.status == "generated",
+            )
+            .order_by(PeriodReportModel.period_key.desc())
+            .limit(1)
+        )
+        return _period_report_payload(model) if model is not None else None
+
+    def list_active_newsletter_subscribers(
+        self, *, confirmed_before: datetime | None = None
+    ) -> list[NewsletterSubscriberModel]:
+        query = select(NewsletterSubscriberModel).where(
+            NewsletterSubscriberModel.status == "active",
+            NewsletterSubscriberModel.confirmed_at.is_not(None),
+        )
+        if confirmed_before is not None:
+            query = query.where(NewsletterSubscriberModel.confirmed_at <= confirmed_before)
+        return list(
+            self.session.scalars(query.order_by(NewsletterSubscriberModel.id)).all()
+        )
+
+    def get_newsletter_delivery(
+        self, *, subscriber_id: str, period_key: str
+    ) -> Optional[NewsletterDeliveryModel]:
+        return self.session.scalar(
+            select(NewsletterDeliveryModel).where(
+                NewsletterDeliveryModel.subscriber_id == subscriber_id,
+                NewsletterDeliveryModel.period_key == period_key,
+            )
+        )
+
+    def newsletter_overview(self) -> dict[str, Any]:
+        subscriber_counts = dict(
+            self.session.execute(
+                select(
+                    NewsletterSubscriberModel.status,
+                    func.count(NewsletterSubscriberModel.id),
+                ).group_by(NewsletterSubscriberModel.status)
+            ).all()
+        )
+        delivery_counts = dict(
+            self.session.execute(
+                select(
+                    NewsletterDeliveryModel.status,
+                    func.count(NewsletterDeliveryModel.id),
+                ).group_by(NewsletterDeliveryModel.status)
+            ).all()
+        )
+        latest = self.latest_finalized_weekly_report()
+        return {
+            "subscribers": {str(key): int(value) for key, value in subscriber_counts.items()},
+            "deliveries": {str(key): int(value) for key, value in delivery_counts.items()},
+            "latest_finalized_period": latest.get("period_key") if latest else None,
+        }
+
     def list_persistently_failing_sources(self, min_errors: int) -> list[dict[str, Any]]:
         """连续失败达到阈值的信源。
 
@@ -2372,6 +2471,21 @@ class RadarRepository:
             }
             for model in models
         ]
+
+    def get_latest_successful_pipeline_finished_at(self) -> Optional[str]:
+        """Return the completion time of the newest successful full refresh.
+
+        Article publication time describes the content, not how fresh this
+        database is.  Failed or still-running jobs are deliberately excluded:
+        neither one proves that the public dataset reached a consistent state.
+        """
+        finished_at = self.session.scalar(
+            select(func.max(PipelineRunModel.finished_at)).where(
+                PipelineRunModel.status == "succeeded",
+                PipelineRunModel.finished_at.is_not(None),
+            )
+        )
+        return _as_utc_isoformat(finished_at)
 
     def get_table_counts(self) -> dict[str, int]:
         from sqlalchemy import func as sa_func

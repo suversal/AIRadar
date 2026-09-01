@@ -3,6 +3,7 @@ import { AdminShell } from "./admin-shell";
 import { PipelineRunDetail } from "./pipeline-run-detail";
 import { RefreshReportButton } from "./refresh-report-button";
 import { SchedulePanel } from "./schedule-panel";
+import { NewsletterPanel, type NewsletterOverview } from "./newsletter-panel";
 import { Pill, TABLE_HEAD_ROW, TABLE_ROW, type Tone } from "./ui";
 
 export const metadata = {
@@ -129,12 +130,16 @@ const PHASE_LABELS: Record<string, string> = {
 };
 
 export default async function AdminDashboardPage() {
-  const [response, scheduleResponse] = await Promise.all([
+  const [response, scheduleResponse, newsletterResponse] = await Promise.all([
     adminFetch("/api/admin/overview"),
     adminFetch("/api/admin/schedule"),
+    adminFetch("/api/admin/newsletter"),
   ]);
   const overview: Overview | null = response.ok ? await response.json() : null;
   const scheduleConfig = scheduleResponse.ok ? await scheduleResponse.json() : null;
+  const newsletterOverview: NewsletterOverview | null = newsletterResponse.ok
+    ? await newsletterResponse.json()
+    : null;
   // id→当前名称:运行明细展示信源的最新名称,改名即时生效
   const sourceNames: Record<string, string> = Object.fromEntries(
     (overview?.sources ?? []).map((source) => [source.id, source.name]),
@@ -168,6 +173,10 @@ export default async function AdminDashboardPage() {
 
           <section className="rounded-md border border-line bg-panel p-5">
             <SchedulePanel initialConfig={scheduleConfig} />
+          </section>
+
+          <section className="rounded-md border border-line bg-panel p-5">
+            <NewsletterPanel initial={newsletterOverview} />
           </section>
 
           <section className="rounded-md border border-line bg-panel p-5">

@@ -72,6 +72,12 @@ export function ApiReference() {
           <Endpoint path="/api/v1/dailies">日报期次索引，最新的在前。</Endpoint>
           <Endpoint path="/api/v1/dailies/latest">最新一期日报，含 AI 主线综述与分类简述。</Endpoint>
           <Endpoint path="/api/v1/dailies/{YYYY-MM-DD}">指定日期的日报（上海时区日历日）。</Endpoint>
+          <Endpoint path="/api/v1/weeklies">周报期次索引；正文用 latest 或指定 ISO 周。</Endpoint>
+          <Endpoint path="/api/v1/weeklies/latest">最新可用周报，finalizedAt 标注是否已封版。</Endpoint>
+          <Endpoint path="/api/v1/weeklies/{YYYY-Www}">指定 ISO 周的编辑成品周报。</Endpoint>
+          <Endpoint path="/api/v1/monthlies">月报期次索引；正文用 latest 或指定月份。</Endpoint>
+          <Endpoint path="/api/v1/monthlies/latest">最新可用月报，finalizedAt 标注是否已封版。</Endpoint>
+          <Endpoint path="/api/v1/monthlies/{YYYY-MM}">指定月份的趋势月报。</Endpoint>
           <Endpoint path="/api/v1/topics">
             公司、模型与技术方向主题档案，包含周环比计数和本周雷达。
           </Endpoint>
@@ -193,7 +199,7 @@ curl -i -H 'If-None-Match: <上次响应的 ETag>' \\
               <strong className="text-ink">正文不在 API 里。</strong>接口返回摘要、推荐理由、站内阅读页和原文链接。
             </p>
             <p>
-              <strong className="text-ink">没有推送通道。</strong>请按响应的缓存策略使用 ETag 条件轮询。
+              <strong className="text-ink">机器接口没有实时推送通道。</strong>读者可在周报页订阅封版周报邮件；程序接入请按响应的缓存策略使用 ETag 条件轮询。
             </p>
           </Note>
         </div>
