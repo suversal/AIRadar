@@ -289,6 +289,34 @@ class ScoringTests(unittest.TestCase):
 
         self.assertFalse(processed.selected)
 
+    def test_model_roadmap_and_leak_are_not_rescued(self):
+        cases = [
+            (
+                "Next-generation model roadmap",
+                "智谱披露下一代大模型规划：目标发布首日支持满规模调用",
+            ),
+            (
+                "GPT Astra Leaks: Next Week",
+                "OpenAI 内部测试 GPT Astra，或于下周发布",
+            ),
+            (
+                "GPT-6 gray test demo",
+                "GPT-6 灰测 Demo 刷屏，周四发布在即",
+            ),
+        ]
+        for index, (title, title_zh) in enumerate(cases):
+            with self.subTest(title=title):
+                processed = select_processed_article(
+                    article=_article(id=f"future-{index}", title=title),
+                    source=_source("T3"),
+                    ai_focus="primary",
+                    dimensions=ContentValueDimensions(impact=5, novelty=5, substance=5),
+                    category="model_release",
+                    tags=["model"],
+                    generated_fields={**_GENERATED_FIELDS, "title_zh": title_zh},
+                )
+                self.assertFalse(processed.selected)
+
     def test_confirmed_release_is_not_blocked_by_a_separate_future_clause(self):
         processed = select_processed_article(
             article=_article(title="OpenAI released GPT-Next, API access is coming soon"),
