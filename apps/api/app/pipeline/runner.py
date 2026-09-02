@@ -398,7 +398,7 @@ def _notify_article_processed(callback: Any, article: RawArticle, processed, emb
 
 def _rejection_bucket(processed: ProcessedArticle) -> str | None:
     """Coarse, low-cardinality reporting bucket derived from the specific
-    rejection_reason (e.g. "value_score:45.2<threshold:60.0" -> "value_score")
+    rejection_reason (e.g. "final_score:45.2<threshold:65.0" -> "final_score")
     - pipeline run stats count occurrences per bucket, so the full per-article
     reason (with its numeric values) would blow up the counter's cardinality."""
     if processed.selected or not processed.rejection_reason:

@@ -133,6 +133,12 @@ function outcomeLabel(article: CrawlArticleResult): { text: string; tone: Tone }
     if (article.reason.startsWith("below_threshold")) {
       return { text: "未达精选", tone: "info" };
     }
+    if (
+      article.reason.startsWith("final_score:") ||
+      article.reason === "source_gate:arxiv_not_breakthrough"
+    ) {
+      return { text: "未达精选", tone: "info" };
+    }
     if (article.reason.startsWith("force_selection:never:")) {
       return { text: "未达精选", tone: "info" };
     }
@@ -150,8 +156,16 @@ function outcomeLabel(article: CrawlArticleResult): { text: string; tone: Tone }
 function formatVerdictReason(reason: string) {
   const below = reason.match(/^below_threshold:(\S+)$/);
   if (below) return `评分未达精选阈值(阈值 ${below[1]}),已入库可在全部动态查看`;
+  const rejected = reason.match(/^final_score:(\S+)<threshold:(\S+)$/);
+  if (rejected) return `评分 ${rejected[1]} < 精选阈值 ${rejected[2]},已入库可在全部动态查看`;
   const passed = reason.match(/^final_score:(\S+)>=threshold:(\S+)$/);
   if (passed) return `评分 ${passed[1]} ≥ 精选阈值 ${passed[2]}`;
+  if (reason === "source_gate:arxiv_not_breakthrough") {
+    return "arXiv 论文未同时达到影响力 7、新颖性 8、信息量 9";
+  }
+  if (reason === "source_gate:arxiv_breakthrough") return "arXiv 论文达到突破性研究门槛";
+  if (reason === "priority:confirmed_model_release") return "已确认的模型发布,按必读事件进入精选";
+  if (reason === "priority:usage_limit_update") return "已确认的额度或使用限制调整,按必读事件进入精选";
   if (reason.startsWith("force_selection:always:")) return "可信精选源直入";
   if (reason.startsWith("force_selection:never:")) return "该信源配置为不进入精选,仅入库可在全部动态查看";
   if (reason === "not_ai_related") return "预筛判定与 AI 无关,未入库";

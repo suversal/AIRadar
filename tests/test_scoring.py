@@ -36,10 +36,10 @@ def _article(**overrides) -> RawArticle:
     return RawArticle(**defaults)
 
 
-def _source(tier: str = "T1") -> Source:
+def _source(tier: str = "T1", *, source_id: str = "openai_blog") -> Source:
     return Source(
-        id="openai_blog",
-        name="OpenAI Blog",
+        id=source_id,
+        name="arXiv AI" if source_id == "arxiv_ai" else "OpenAI Blog",
         source_role="authority",
         tier=tier,
         type="rss",
@@ -154,13 +154,16 @@ class ScoringTests(unittest.TestCase):
 
     def test_select_processed_article_rejects_low_value_content(self):
         processed = select_processed_article(
-            article=_article(),
+            article=_article(title="AI product overview"),
             source=_source("T1"),
             ai_focus="primary",
             dimensions=ContentValueDimensions(impact=2, novelty=2, substance=2),
-            category="model_release",
-            tags=["model"],
-            generated_fields=_GENERATED_FIELDS,
+            category="product_release",
+            tags=["product"],
+            generated_fields={
+                **_GENERATED_FIELDS,
+                "title_zh": "AI 产品概览",
+            },
         )
 
         self.assertFalse(processed.selected)
@@ -182,6 +185,172 @@ class ScoringTests(unittest.TestCase):
 
         self.assertEqual(processed.final_score, compute_value_score(dims))
         self.assertTrue(processed.selected)
+
+    def test_ordinary_content_uses_65_as_the_selection_boundary(self):
+        below = select_processed_article(
+            article=_article(title="AI product update"),
+            source=_source("T3"),
+            ai_focus="primary",
+            dimensions=ContentValueDimensions(impact=6.4, novelty=6.4, substance=6.4),
+            category="product_release",
+            tags=["product"],
+            generated_fields={**_GENERATED_FIELDS, "title_zh": "AI 产品更新"},
+        )
+        at_boundary = select_processed_article(
+            article=_article(id="a65", title="AI product improvement"),
+            source=_source("T3"),
+            ai_focus="primary",
+            dimensions=ContentValueDimensions(impact=6.5, novelty=6.5, substance=6.5),
+            category="product_release",
+            tags=["product"],
+            generated_fields={**_GENERATED_FIELDS, "title_zh": "AI 产品改进"},
+        )
+
+        self.assertEqual(below.final_score, 64.0)
+        self.assertFalse(below.selected)
+        self.assertEqual(at_boundary.final_score, VALUE_SCORE_THRESHOLD)
+        self.assertTrue(at_boundary.selected)
+
+    def test_arxiv_requires_breakthrough_dimensions_instead_of_tier_boost(self):
+        processed = select_processed_article(
+            article=_article(source_id="arxiv_ai", title="A new transformer method"),
+            source=_source("T2", source_id="arxiv_ai"),
+            ai_focus="primary",
+            dimensions=ContentValueDimensions(impact=6, novelty=7, substance=8),
+            category="research",
+            tags=["paper"],
+            generated_fields={**_GENERATED_FIELDS, "title_zh": "一种新的 Transformer 方法"},
+        )
+
+        # 旧逻辑下 final_score=75.9 会入选；现在 arXiv 要求三维同时过线。
+        self.assertEqual(processed.final_score, 75.9)
+        self.assertFalse(processed.selected)
+        self.assertEqual(processed.selection_origin, "policy")
+        self.assertEqual(processed.rejection_reason, "source_gate:arxiv_not_breakthrough")
+
+    def test_arxiv_breakthrough_is_selected(self):
+        processed = select_processed_article(
+            article=_article(source_id="arxiv_ai", title="A breakthrough reasoning method"),
+            source=_source("T2", source_id="arxiv_ai"),
+            ai_focus="primary",
+            dimensions=ContentValueDimensions(impact=7, novelty=8, substance=9),
+            category="research",
+            tags=["paper"],
+            generated_fields={**_GENERATED_FIELDS, "title_zh": "突破性推理方法"},
+        )
+
+        self.assertTrue(processed.selected)
+        self.assertEqual(processed.selection_origin, "policy")
+        self.assertEqual(processed.selection_reason, "source_gate:arxiv_breakthrough")
+
+    def test_confirmed_model_release_is_rescued_below_score_threshold(self):
+        processed = select_processed_article(
+            article=_article(title="OpenAI releases GPT-Next"),
+            source=_source("T3"),
+            ai_focus="primary",
+            dimensions=ContentValueDimensions(impact=5, novelty=5, substance=5),
+            category="model_release",
+            tags=["model"],
+            generated_fields={**_GENERATED_FIELDS, "title_zh": "OpenAI 正式发布 GPT-Next"},
+        )
+
+        self.assertLess(processed.final_score, VALUE_SCORE_THRESHOLD)
+        self.assertTrue(processed.selected)
+        self.assertEqual(processed.selection_origin, "policy")
+        self.assertEqual(processed.selection_reason, "priority:confirmed_model_release")
+
+    def test_unconfirmed_model_release_is_not_rescued(self):
+        processed = select_processed_article(
+            article=_article(title="OpenAI reportedly plans to release GPT-Next"),
+            source=_source("T3"),
+            ai_focus="primary",
+            dimensions=ContentValueDimensions(impact=5, novelty=5, substance=5),
+            category="model_release",
+            tags=["model"],
+            generated_fields={**_GENERATED_FIELDS, "title_zh": "消息称 OpenAI 将于年内发布 GPT-Next"},
+        )
+
+        self.assertFalse(processed.selected)
+        self.assertTrue(processed.rejection_reason.startswith("final_score:"))
+
+    def test_future_open_weights_announcement_is_not_rescued(self):
+        processed = select_processed_article(
+            article=_article(title="Ox Alpha identity confirmed"),
+            source=_source("T3"),
+            ai_focus="primary",
+            dimensions=ContentValueDimensions(impact=5, novelty=5, substance=5),
+            category="model_release",
+            tags=["model"],
+            generated_fields={
+                **_GENERATED_FIELDS,
+                "title_zh": "智谱确认 Ox Alpha 为新一代模型，今晚将开源权重",
+            },
+        )
+
+        self.assertFalse(processed.selected)
+
+    def test_confirmed_release_is_not_blocked_by_a_separate_future_clause(self):
+        processed = select_processed_article(
+            article=_article(title="OpenAI released GPT-Next, API access is coming soon"),
+            source=_source("T3"),
+            ai_focus="primary",
+            dimensions=ContentValueDimensions(impact=5, novelty=5, substance=5),
+            category="model_release",
+            tags=["model"],
+            generated_fields={
+                **_GENERATED_FIELDS,
+                "title_zh": "OpenAI 正式发布 GPT-Next，API 即将开放",
+            },
+        )
+
+        self.assertTrue(processed.selected)
+        self.assertEqual(processed.selection_reason, "priority:confirmed_model_release")
+
+    def test_misclassified_chip_release_is_not_rescued_as_an_ai_model(self):
+        processed = select_processed_article(
+            article=_article(title="Xiaomi Xuanjie O3 chip easter egg revealed"),
+            source=_source("T3"),
+            ai_focus="primary",
+            dimensions=ContentValueDimensions(impact=5, novelty=5, substance=5),
+            category="model_release",
+            tags=["chip", "NPU"],
+            generated_fields={
+                **_GENERATED_FIELDS,
+                "title_zh": "小米发布玄戒 O3 旗舰 SoC，内置 200TOPS NPU 算力",
+            },
+        )
+
+        self.assertFalse(processed.selected)
+
+    def test_usage_limit_update_is_rescued_below_score_threshold(self):
+        processed = select_processed_article(
+            article=_article(title="OpenAI resets Codex usage limits"),
+            source=_source("T3"),
+            ai_focus="primary",
+            dimensions=ContentValueDimensions(impact=3, novelty=3, substance=5),
+            category="product_release",
+            tags=["Codex", "quota"],
+            generated_fields={**_GENERATED_FIELDS, "title_zh": "OpenAI 重置 Codex 使用额度"},
+        )
+
+        self.assertLess(processed.final_score, VALUE_SCORE_THRESHOLD)
+        self.assertTrue(processed.selected)
+        self.assertEqual(processed.selection_origin, "policy")
+        self.assertEqual(processed.selection_reason, "priority:usage_limit_update")
+
+    def test_generic_usage_limit_explainer_is_not_rescued(self):
+        processed = select_processed_article(
+            article=_article(title="How Codex usage limits work"),
+            source=_source("T3"),
+            ai_focus="primary",
+            dimensions=ContentValueDimensions(impact=3, novelty=3, substance=5),
+            category="tutorial",
+            tags=["Codex", "quota"],
+            generated_fields={**_GENERATED_FIELDS, "title_zh": "Codex 使用额度说明"},
+        )
+
+        self.assertFalse(processed.selected)
+        self.assertTrue(processed.rejection_reason.startswith("final_score:"))
 
 
 if __name__ == "__main__":
