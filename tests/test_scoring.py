@@ -300,8 +300,12 @@ class ScoringTests(unittest.TestCase):
                 "OpenAI 内部测试 GPT Astra，或于下周发布",
             ),
             (
+                "GPT Astra Leaks",
+                "OpenAI 内部测试 GPT Astra，或下周发布",
+            ),
+            (
                 "GPT-6 gray test demo",
-                "GPT-6 灰测 Demo 刷屏，周四发布在即",
+                "GPT-6 灰测 Demo 刷屏，周四或正式发布",
             ),
         ]
         for index, (title, title_zh) in enumerate(cases):

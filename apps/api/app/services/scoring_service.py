@@ -57,6 +57,8 @@ _CONFIRMED_MODEL_RELEASE = re.compile(
 _UNCONFIRMED_MODEL_RELEASE = re.compile(
     r"消息称|爆料|传闻|泄露|预计|计划|规划|目标|拟于?|将于|即将|或将|或于|有望"
     r"|内测|灰测|内部测试|测试中|踪迹|曝光|预告|发布在即|延后|推迟"
+    r"|或.{0,10}(?:发布|推出|上线|开放|开源|公测)"
+    r"|(?:明日|明天|下周|月底|年内|周[一二三四五六日天]).{0,8}(?:发布|推出|上线|开放|开源|公测)"
     r"|将(?:正式)?(?:发布|推出|上线|开放|开源|公测)"
     r"|\b(?:reportedly|rumou?rs?|leaks?|plans? to|expected to|coming soon|next week|preview|testing|teases?)\b",
     re.IGNORECASE,
